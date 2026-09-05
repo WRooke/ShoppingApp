@@ -157,6 +157,22 @@ Only if the router has no reservation feature.
 > Pick an address you know nothing else uses. If two devices claim the same IP you'll get
 > intermittent connection failures that are annoying to diagnose.
 
+### Once the NUC's address is fixed: update `ALLOWED_ORIGINS`
+
+The app only accepts cross-origin browser requests from origins listed in `ALLOWED_ORIGINS`
+in `.env` (see [CLAUDE.md > Security §4](CLAUDE.md#security) — this replaces an earlier
+wide-open `allow_origins=["*"]` CORS setting). Add the NUC's new address to it:
+
+```
+ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,http://192.168.1.10:8080
+```
+
+(substituting the NUC's actual address). Restart the server (`stop.bat` / `start.bat`) for
+this to take effect. Skipping this step doesn't break phones reaching the app normally — it
+only matters for cross-origin *browser JS* calls, which the phones' own use of the app
+doesn't do — but it's the cheap half of keeping other devices on the WiFi from being able to
+read/write the API via script, so do it while you're already touching `.env` in step 3/6.
+
 ---
 
 ## 6. Allow the port through Windows Firewall

@@ -1,13 +1,19 @@
 # ShoppingApp — Phase 1 dependencies
 # Kept deliberately minimal. Claude (anthropic) and scraping deps arrive in Phase 3;
 # AnyList deps arrive in Phase 5.
+#
+# Pinned to exact versions (not just floors) so a fresh `pip install` on the NUC — which
+# start.bat and scripts/update.py both do unattended — can't silently pick up a newer
+# release than what was tested on the dev PC. Direct dependencies only; pip still resolves
+# compatible transitive versions itself. Bump deliberately, not as a side effect of an
+# unrelated change.
 
-fastapi>=0.115.0
-uvicorn>=0.30.0
-SQLAlchemy>=2.0.35
-python-dotenv>=1.0.1
+fastapi==0.141.1
+uvicorn==0.52.4
+SQLAlchemy==2.0.52
+python-dotenv==1.2.3
 
 # Dev/test — see CLAUDE.md > Code Architecture & Maintainability. Added ahead of Phase 2
 # so the tests/ convention exists from the first real business logic, not retrofitted later.
-pytest>=8.3.0
-httpx>=0.27.0  # required by fastapi.testclient.TestClient
+pytest==9.1.1
+httpx==0.28.1  # required by fastapi.testclient.TestClient

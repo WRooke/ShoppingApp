@@ -93,8 +93,12 @@ def setup_logging() -> None:
     ring_handler = RingBufferHandler()
     root.addHandler(ring_handler)
 
-    # uvicorn's access log is noisy at INFO; keep it but quieten it.
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # uvicorn's access log stays at INFO (its default) rather than being quietened to
+    # WARNING: CLAUDE.md > Security §4 explicitly wants "light access logging on
+    # /api/v1/*" so an unfamiliar device's request pattern is visible, and uvicorn's
+    # access log almost never emits above INFO — filtering to WARNING here would have
+    # silently discarded it entirely rather than "quietening" it. Daily rotation + 14-day
+    # retention (below) is what keeps this from growing unbounded, not a level filter.
 
     _configured = True
     logging.getLogger(__name__).info("Logging configured (level=%s)", settings.log_level)

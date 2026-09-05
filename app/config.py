@@ -32,6 +32,18 @@ class Settings:
         self.port: int = int(os.getenv("PORT", "8080"))
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
+        # CORS (see CLAUDE.md > Security §4). Comma-separated exact origins the browser is
+        # allowed to call this API cross-origin from. Defaults cover local dev only; the NUC
+        # deployment should set this to http://<nuc-static-ip>:8080 once step 5 of SETUP.md
+        # assigns that address, rather than leaving it wide open to any origin.
+        self.allowed_origins: list[str] = [
+            o.strip()
+            for o in os.getenv(
+                "ALLOWED_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080"
+            ).split(",")
+            if o.strip()
+        ]
+
         self.anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
         self.anylist_email: str = os.getenv("ANYLIST_EMAIL", "").strip()
         self.anylist_password: str = os.getenv("ANYLIST_PASSWORD", "").strip()
@@ -61,6 +73,7 @@ class Settings:
         return {
             "port": self.port,
             "log_level": self.log_level,
+            "allowed_origins": self.allowed_origins,
             "database_path": self.database_path,
             "images_path": self.images_path,
             "logs_path": self.logs_path,

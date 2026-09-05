@@ -737,7 +737,35 @@ produce, dairy, meat & seafood, bakery, frozen, pantry, household, deli, drinks,
 Build and verify each phase before starting the next. Each phase ends with a working,
 testable state. Do not skip ahead.
 
+### Phase workflow & progress tracking
+Each phase is broken into a small number of chunks — five is a reasonable default, not a rule;
+a phase can have more or fewer if its work doesn't split evenly into five. A chunk is a
+self-contained slice of a phase that one session can pick up, finish, and verify without leaving
+the phase half-wired.
+
+- Chunks are tracked as checkbox lines (`- [ ] ...` → `- [x] ...`) directly under their phase,
+  in place of a flat bullet list — progress state lives next to the spec it tracks instead of in
+  a separate document that can drift, same reasoning as folding the old addenda into this file
+  rather than appending them (see Document history above).
+- Tick a chunk's box only once it's actually built and verified — matches the existing rule that
+  a phase "isn't done when it's manually clicked through once, it's done when its own tests
+  pass" (see [Code Architecture & Maintainability](#code-architecture--maintainability)); the
+  same standard applies at chunk granularity, not just at the whole-phase level.
+- **Phase-end review:** before starting the next phase, re-read every section of this file the
+  finished phase touches — not just its own chunk list, but Data Model, Security, API
+  Conventions, Scaling Logic, etc., wherever relevant — and confirm each requirement is actually
+  implemented, not just plausible. Record the review as its own checked-off line at the end of
+  the phase's chunk list (e.g. `- [x] Phase N review — see CLAUDE.md > Phase workflow &
+  progress tracking`). A gap the review turns up gets fixed, or logged as an open item /
+  [Deferred Decisions](#deferred-decisions) entry if it's a genuine judgement call for Will —
+  never silently dropped.
+- Phases are chunked out at that phase's own kickoff, not speculatively ahead of time — the same
+  "do not implement deferred items speculatively" norm this file already applies everywhere
+  else. Phase 2 below is the first phase chunked this way; Phases 3–6 get their chunk lists when
+  each is actually reached.
+
 ### Phase 1 — Foundation
+**Status: ✅ Complete.**
 - Project scaffold: FastAPI app, directory structure, requirements.txt
 - SQLite database setup with SQLAlchemy, all tables created on startup, including:
   - the recipe-history and "suggest something" prep columns on `recipes`
@@ -761,6 +789,9 @@ testable state. Do not skip ahead.
 and restore have each been run successfully at least once.
 
 ### Phase 1.5 — AnyList derisking spike
+**Status: ✅ Complete.** Finding: Python-native confirmed over the Node microservice fallback
+(see [Tech Stack > AnyList integration](#anylist-integration--phase-5-decision)) — no revisit
+needed at Phase 5 kickoff, just implementation.
 Slotted in immediately after Phase 1 because Will has flagged AnyList as the highest-risk,
 lowest-confidence part of the stack — it must not stay unexplored until Phase 5.
 - Throwaway spike only (scratch script / notebook, not wired into the app)
@@ -773,20 +804,37 @@ settles the Phase 5 "native vs Node" decision. Full connector and checklist UI s
 Phase 5. Flag the outcome to Will before continuing to Phase 2.
 
 ### Phase 2 — Recipe Library
-- Recipe CRUD API endpoints (create, read, update, delete — delete is soft: sets `archived_at`)
-- Recipe ingredient CRUD (nested under recipe)
-- Recipe library UI: browse, search by name, open recipe detail; default views exclude
-  archived recipes (`archived_at IS NULL`)
-- Recipe edit UI: inline edit of ingredients (name, qty, unit, preparation), plus `rating`,
-  `notes`, `cuisine`, `protein` on the recipe itself
-- Manual recipe entry form
-- Seed staples data on first startup
-- Seed product_units data on first startup
+
+- [ ] **Chunk 2.1 — Data layer.** `schemas/recipes.py` (Pydantic request/response models per
+      [Code Architecture](#code-architecture--maintainability)); `services/recipes.py` covering
+      recipe CRUD (delete is soft: sets `archived_at`) and nested `recipe_ingredients` CRUD;
+      `seed_data.py` populated with the [Staples Starter List](#staples-starter-list) and
+      [Pre-seeded Product Units](#pre-seeded-product-units), run on first startup.
+- [ ] **Chunk 2.2 — Recipe & ingredient API.** `routers/recipes.py`: recipe CRUD endpoints plus
+      nested ingredient CRUD endpoints, `{"ok": ...}` envelope, `?limit=`/`?offset=` pagination
+      on list endpoints (see [API Conventions](#api-conventions)). Add `pytest` to
+      `requirements.txt` (first phase needing it — see
+      [Code Architecture > Tests](#code-architecture--maintainability)); unit tests for
+      `services/recipes.py` (no DB/network) and a smoke test (happy path + one error path) for
+      the router.
+- [ ] **Chunk 2.3 — Recipe library UI.** Browse list, search by name, recipe detail view;
+      default views filter `archived_at IS NULL`.
+- [ ] **Chunk 2.4 — Recipe edit & manual entry UI.** Inline edit of ingredients (name, qty,
+      unit, preparation); recipe-level fields `rating`, `notes`, `cuisine`, `protein`; manual
+      recipe entry form (new recipe from scratch, no capture involved).
+- [ ] **Chunk 2.5 — Settings UI.** View/add/edit/delete entries in `staples` and
+      `product_units` — this is what makes the seeded data from Chunk 2.1 actually editable,
+      per the Phase 2 deliverable below.
+- [ ] **Phase 2 review** — re-check this phase's work against the Data Model (`recipes`,
+      `recipe_ingredients`, `product_units`, `staples`), API Conventions, and Code Architecture
+      sections, per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
 
 **Deliverable:** User can manually add, view, and edit recipes. Staples and product units
 table is pre-populated and editable via Settings page.
 
 ### Phase 3 — Recipe Capture (AI)
+*(Not yet chunked — break this into checkbox chunks at kickoff, following
+[Phase workflow & progress tracking](#phase-workflow--progress-tracking), the way Phase 2 was.)*
 - Anthropic SDK integration + api_usage logging
 - URL capture endpoint: fetch, parse, extract, return for review
 - Photo upload endpoint: store image, extract, return for review
@@ -800,6 +848,8 @@ table is pre-populated and editable via Settings page.
 ingredients, edit if needed, and save to the library.
 
 ### Phase 4 — Planning Engine
+*(Not yet chunked — break this into checkbox chunks at kickoff, following
+[Phase workflow & progress tracking](#phase-workflow--progress-tracking).)*
 - Planning session CRUD
 - Session recipe management (add recipe, set day, set servings)
 - Leftovers slot type (Addendum #1): `session_recipes.recipe_id` becomes nullable, a
@@ -815,6 +865,8 @@ ingredients, edit if needed, and save to the library.
 consolidated shopping list with purchase units resolved.
 
 ### Phase 5 — Checklist & AnyList Integration
+*(Not yet chunked — break this into checkbox chunks at kickoff, following
+[Phase workflow & progress tracking](#phase-workflow--progress-tracking).)*
 - AnyList connector: investigate and implement (Python native or Node microservice — see
   Tech Stack section; flag choice for discussion with Will)
 - AnyList auth (email/password from .env) — see [Security](#security) §2 for credential storage
@@ -829,6 +881,8 @@ consolidated shopping list with purchase units resolved.
 push the result to AnyList.
 
 ### Phase 6 — Polish
+*(Not yet chunked — break this into checkbox chunks at kickoff, following
+[Phase workflow & progress tracking](#phase-workflow--progress-tracking).)*
 - UI visual polish (see UI/UX section below)
 - Store setup UI + store-sorted list rendering (see
   [Shopping List Store Layout](#shopping-list-store-layout) — this reverses the earlier descope
@@ -1019,10 +1073,18 @@ Where it's something Claude Code can just do (repo hygiene), it's done.
   unticked).
 
 ### 4. App-level
+- **`[Phase 1 fix]`** CORS is scoped, not wide open. The initial build used
+  `allow_origins=["*"]`, which — combined with there being no login at all — meant any
+  origin's JavaScript (an ad, a compromised site, anything open in a browser tab on the same
+  WiFi) could call the API cross-origin and read or write responses. `ALLOWED_ORIGINS` in
+  `.env` now controls this (`app/config.py`, consumed in `app/main.py`'s `CORSMiddleware`),
+  defaulting to `localhost`/`127.0.0.1` for dev. **Add the NUC's static IP to it once step 5
+  of `SETUP.md` assigns one** — see that step for the exact line to add.
 - No login system is fine for the household use case, but since any device on the WiFi can reach
   the API, a single shared basic-auth password on the API routes would be a cheap extra barrier
   against IoT devices or guests poking at it. **Optional, not a `[Phase 1 fix]`** — flagged as a
-  recommendation, not built (see [Deferred Decisions](#deferred-decisions)).
+  recommendation, not built (see [Deferred Decisions](#deferred-decisions)). CORS scoping above
+  is a partial, free complement to this, not a replacement for it.
 - Recipe URL scraping (httpx + BeautifulSoup) fetches external, untrusted HTML. Not a credential
   risk, but don't ever `eval()` or execute anything derived from scraped content — parse it as
   data only, which is already the plan.
@@ -1106,6 +1168,7 @@ Confirmed during planning, not revisited unless Will raises them again:
 
 ```
 PORT=8080
+ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ANTHROPIC_API_KEY=sk-ant-...
 ANYLIST_EMAIL=...
 ANYLIST_PASSWORD=...

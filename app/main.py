@@ -55,10 +55,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ShoppingApp", version="0.1.0", lifespan=lifespan)
 
-# Local network access from phones on the home WiFi.
+# Local network access from phones on the home WiFi — but scoped to known origins only
+# (see CLAUDE.md > Security §4). ALLOWED_ORIGINS in .env controls this; defaults to
+# localhost/127.0.0.1 for dev. Without this scoping, any origin's JS (e.g. a malicious ad
+# in an ordinary browser tab on the same WiFi) could read/write this API cross-origin, since
+# there is no login to fall back on.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -138,4 +142,10 @@ def favicon():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=settings.port, reload=False)
+    # log_config=None: uvicorn's default logging setup detaches uvicorn.access from the
+    # root logger (its own handler, propagate=False), which silently drops every request
+    # access log from logs/app.log and the diagnostics ring buffer even though the console
+    # still shows them. Passing None leaves our own setup_logging() config untouched instead.
+    uvicorn.run(
+        "app.main:app", host="0.0.0.0", port=settings.port, reload=False, log_config=None
+    )
