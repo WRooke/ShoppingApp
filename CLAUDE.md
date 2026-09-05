@@ -1121,3 +1121,17 @@ When a deferred item comes up, Claude Code should flag it explicitly rather than
 unilateral choice. If you add a standalone addendum again in future, ask Claude Code to fold it
 into the relevant sections (as was done here) rather than leaving it appended at the end — that's
 what keeps deferred items from being missed when their phase arrives.
+
+### Commits
+
+Commits are shared responsibility. Claude Code should create commits proactively and judiciously:
+
+- Commit meaningful units of work — a feature phase, a bugfix, a schema migration, a test suite
+  for one area. Not every keystroke; not "WIP" or "temp". Each commit message should stand alone
+  and describe exactly what changed and why.
+- Do not commit unless you have something worth committing: tested and verified, or a
+  deliberate checkpoint worth preserving in history.
+- Will is happy to `git push` these himself; Claude Code should never push. Creating commits is
+  the extent of git responsibility here.
+- Commit messages follow the project's standard format (end with
+  `Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>`).
