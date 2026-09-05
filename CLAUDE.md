@@ -765,7 +765,18 @@ the phase half-wired.
   each is actually reached.
 
 ### Phase 1 — Foundation
-**Status: ✅ Complete.**
+**Status: ✅ Complete.** **Phase 1 review (2026-09-05, pre-Phase-2):** re-checked this phase
+against Security, Diagnostics & Logging, and Backup & Restore above (Phase 1 predates the
+chunking convention, so this review was done as a whole-phase pass rather than a per-chunk
+one). Found and fixed: CORS was `allow_origins=["*"]` with no auth, tightened to
+`ALLOWED_ORIGINS` (see [Security §4](#security)); uvicorn's default logging config was
+silently dropping every access-log line from `logs/app.log` and the diagnostics ring buffer
+(`log_config=None` fix, plus removing a since-counterproductive `WARNING` filter on
+`uvicorn.access`); `requirements.txt` was floor-pinned (`>=`) rather than exact, now pinned;
+`diagnostics.py` had real logic with no test coverage, now has smoke tests. Also actually ran
+`restore.bat latest --yes` for the first time (list → dry run → real restore), closing out
+the "tested once" deliverable below rather than leaving it assumed. See commit
+`e5b70a0` for detail. No open gaps carried forward — Phase 2 can start clean.
 - Project scaffold: FastAPI app, directory structure, requirements.txt
 - SQLite database setup with SQLAlchemy, all tables created on startup, including:
   - the recipe-history and "suggest something" prep columns on `recipes`
