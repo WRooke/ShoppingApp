@@ -24,7 +24,15 @@
 
   var routes = {
     home: stub("Home", "Phase 1 foundation is running. Use the Diagnostics tab to check status and logs."),
-    recipes: stub("Recipes", "Recipe library arrives in Phase 2."),
+    recipes: {
+      title: "Recipes",
+      mount: function (root, param) {
+        global.RecipesView.mount(root, param);
+      },
+      unmount: function () {
+        global.RecipesView.unmount();
+      },
+    },
     plan: stub("Plan", "Planning sessions arrive in Phase 4."),
     settings: stub("Settings", "Staples and product units editing arrives in Phase 2."),
     diagnostics: {
@@ -38,9 +46,16 @@
     },
   };
 
-  function currentKey() {
+  // Hash shapes supported: "#/<key>" and "#/<key>/<param>" (e.g. "#/recipes/42"
+  // for the recipe detail view). Parsing the hash lives here and only here —
+  // feature files receive an already-extracted param, never location.hash
+  // itself (see CLAUDE.md > Code Architecture & Maintainability: "router.js is
+  // the only file that knows hash routes exist").
+  function parseHash() {
     var hash = (global.location.hash || "#/home").replace(/^#\//, "");
-    return routes[hash] ? hash : "home";
+    var parts = hash.split("/").filter(Boolean);
+    var key = routes[parts[0]] ? parts[0] : "home";
+    return { key: key, param: parts[1] || null };
   }
 
   function render() {
@@ -51,17 +66,17 @@
       activeCleanup = null;
     }
 
-    var key = currentKey();
-    var route = routes[key];
+    var parsed = parseHash();
+    var route = routes[parsed.key];
 
     titleEl.textContent = route.title;
     document.title = "ShoppingApp — " + route.title;
 
     navItems.forEach(function (a) {
-      a.classList.toggle("active", a.getAttribute("data-nav") === key);
+      a.classList.toggle("active", a.getAttribute("data-nav") === parsed.key);
     });
 
-    route.mount(viewEl);
+    route.mount(viewEl, parsed.param);
     activeCleanup = route.unmount || null;
   }
 

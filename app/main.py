@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -178,7 +178,13 @@ def index():
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return JSONResponse(status_code=204, content=None)
+    # A bare Response (not JSONResponse) for a real empty body. JSONResponse would
+    # serialise content=None to the 4-byte body b"null" while Starlette declares
+    # Content-Length: 0 for a 204, a mismatch h11 rejects as LocalProtocolError —
+    # found via Phase 2 Chunk 2.3 browser testing: every page load requests this
+    # and was spamming ERROR-level noise into the exact diagnostics panel meant
+    # to surface real problems (see CLAUDE.md > Diagnostics & Logging).
+    return Response(status_code=204)
 
 
 if __name__ == "__main__":

@@ -54,6 +54,20 @@
     health: function () {
       return api.get("/api/v1/health");
     },
+    recipes: {
+      list: function (params) {
+        params = params || {};
+        var q = [];
+        if (params.search) q.push("search=" + encodeURIComponent(params.search));
+        if (params.limit) q.push("limit=" + params.limit);
+        if (params.offset) q.push("offset=" + params.offset);
+        if (params.includeArchived) q.push("include_archived=true");
+        return api.get("/api/v1/recipes" + (q.length ? "?" + q.join("&") : ""));
+      },
+      get: function (id) {
+        return api.get("/api/v1/recipes/" + encodeURIComponent(id));
+      },
+    },
     diagnostics: {
       logs: function (limit, level) {
         let q = "?limit=" + (limit || 200);

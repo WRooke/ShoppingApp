@@ -212,3 +212,28 @@ select, input[type="text"] {
   color: var(--text-dim);
   margin-left: auto;
 }
+
+/* --- recipe library --- */
+.recipe-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--text);
+  min-height: 44px;
+}
+.recipe-row:first-child { border-top: none; }
+.recipe-row-main { flex: 1; }
+.recipe-row-name { font-weight: 600; }
+.recipe-row-meta { font-size: 0.85rem; }
+.recipe-row-rating { font-size: 1.1rem; }
+
+.ingredient-list {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.ingredient-list li {
+  padding: 4px 0;
+}

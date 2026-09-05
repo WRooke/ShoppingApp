@@ -1,9 +1,9 @@
 # CLAUDE.md — Mealplanner Project Context
 
 This file is the authoritative project specification. Read it in full before writing any code.
-All decisions here were made through a detailed planning session with the user (Will). Do not
-re-litigate decided items. Deferred items are explicitly marked — flag them for discussion when
-their phase arrives, do not implement them speculatively.
+All decisions here were made through a detailed planning session. Do not re-litigate decided
+items. Deferred items are explicitly marked — flag them for discussion when their phase arrives,
+do not implement them speculatively.
 
 **Document history:** originally written as a single planning document, then extended with three
 standalone addenda (Shop Layout Reorganisation, Security Considerations, Schema & Planning
@@ -17,10 +17,10 @@ left open are called out explicitly where they occur, and again in Deferred Deci
 
 ## Project Overview
 
-A household meal planning and shopping list web application. It runs as a local web server on
-a Windows 10 NUC (Intel NUC, former light-use workstation, always on). Will and his partner
-access it via browser on Android phones over their home WiFi. The server pushes a consolidated
-shopping list to AnyList, a shared grocery list app they both use.
+A shared meal planning and shopping list web application. It runs as a local web server on
+a Windows 10 NUC (Intel NUC, former light-use workstation, always on). Multiple household
+members access it via browser on Android phones over their home WiFi. The server pushes a
+consolidated shopping list to AnyList, a shared grocery list app they both use.
 
 **Core user flow:**
 1. Start a planning session (weekly or ad-hoc single recipe)
@@ -41,10 +41,10 @@ shopping list to AnyList, a shared grocery list app they both use.
 
 ## Users
 
-- **Will** — hardware/RF engineer, Python experience, comfortable with technical tools
-- **Partner** — non-technical; the UI must be functional now but will need to be polished for
-  her use in a later phase. She may also add items directly to AnyList manually — the system
-  must handle that gracefully.
+- **Primary user** — technical background, Python experience, comfortable with technical tools
+- **Secondary user(s)** — non-technical; the UI must be functional now but will need to be
+  polished for everyday use in a later phase. They may also add items directly to AnyList
+  manually — the system must handle that gracefully.
 - **Shared access** — no login system required. Single shared account effectively.
 
 ---
@@ -53,13 +53,13 @@ shopping list to AnyList, a shared grocery list app they both use.
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Backend | Python 3.11+, FastAPI | Will has Python experience; FastAPI is async, modern, serves static files, has auto-docs |
+| Backend | Python 3.11+, FastAPI | FastAPI is async, modern, serves static files, has auto-docs |
 | Database | SQLite via SQLAlchemy (ORM) | Zero config, single file, sufficient for household scale |
 | Frontend | Vanilla HTML5 / CSS3 / JS | No build step, no framework complexity, easy to debug, runs in any browser |
 | AI (recipe extraction) | Anthropic Claude API — Haiku 4.5 | Handles both vision (photo OCR) and text (URL content) in one API; cheapest model; ~$0.005 per recipe capture |
 | URL scraping | httpx + BeautifulSoup4 | Fetch recipe page content for Claude to parse |
 | AnyList | See Phase 5 note | Unofficial reverse-engineered API — implementation approach TBD at Phase 5 |
-| Deployment | Python venv, batch scripts, Windows Task Scheduler | No Docker (user unfamiliar); simple start/stop scripts |
+| Deployment | Python venv, batch scripts, Windows Task Scheduler | No Docker; simple start/stop scripts |
 
 ### FastAPI notes
 - Use `uvicorn` as the ASGI server
@@ -78,10 +78,10 @@ Node.js package `codetheweb/anylist` on GitHub. When Phase 5 begins:
    package, called by the Python backend over HTTP. This adds Node.js as a runtime dependency
    but isolates the complexity. **If this fallback is used, it must bind to `127.0.0.1` only —
    never `0.0.0.0`** (see [Security](#security) §2).
-Flag this choice for discussion with Will at the start of Phase 5.
+Flag this choice for discussion at the start of Phase 5.
 
 ### AnyList — derisking spike (bring forward)
-Will has flagged AnyList as the part of the stack he is least confident in, so the core
+AnyList has been flagged as a high-risk, low-confidence part of the stack, so the core
 integration risk must be retired early rather than discovered at Phase 5. After Phase 1 is
 complete and before committing to the Phase 2 build, run a throwaway spike (separate script
 or scratch module, not wired into the app):
@@ -92,7 +92,7 @@ or scratch module, not wired into the app):
   surprises, and rough effort estimate
 Deliverable: a short written finding + working proof-of-concept call. This resolves the
 Phase 5 "native vs Node" choice with evidence instead of deferring it. Do not build the full
-connector or UI here — just prove the calls work. Flag the result to Will before proceeding.
+connector or UI here — just prove the calls work. Flag the result before proceeding.
 
 ---
 
@@ -103,7 +103,7 @@ connector or UI here — just prove the calls work. Flag the result to Will befo
 - **NUC:** bare Windows 10 install + Plex. Python not yet installed.
 - **Network:** Local WiFi only. NUC needs a static local IP (reserved DHCP lease in router
   settings). See `SETUP.md`.
-- **Access:** Will has keyboard/mouse access to NUC and can work over the network.
+- **Access:** Local keyboard/mouse access to NUC and remote network access available.
 - **Port:** Run on port 8080 (unlikely to conflict with Plex). Make configurable via .env.
 
 ### Startup
@@ -151,8 +151,8 @@ the weekly backup are in `SETUP.md`.
 
 ## Diagnostics & Logging
 
-This is a first-class requirement, not an afterthought. Will explicitly wants it to be
-"readily apparent when, where, why and how something has failed."
+This is a first-class requirement, not an afterthought. The system must make it
+readily apparent when, where, why and how something has failed.
 
 ### Rules
 - Every module must use Python's `logging` library with a named logger (`logging.getLogger(__name__)`)
@@ -188,11 +188,11 @@ each component is added.
 
 This is a first-class requirement, same standing as [Diagnostics & Logging](#diagnostics--logging)
 above — not a nice-to-have for "later, if there's time." The app is built incrementally over six
-phases by a mix of Will and Claude Code across many separate sessions, months apart in places.
-The thing that makes that safe is a codebase where each file has one obvious job, dependencies
-only point one direction, and a session that has only read this file plus the two or three files
-it's touching has enough context to make a correct change — without having to re-read or
-re-understand the whole app first. Optimise for that over cleverness or brevity everywhere below.
+phases across many separate development sessions, months apart in places. The thing that makes
+that safe is a codebase where each file has one obvious job, dependencies only point one
+direction, and a session that has only read this file plus the two or three files it's touching
+has enough context to make a correct change — without having to re-read or re-understand the
+whole app first. Optimise for that over cleverness or brevity everywhere below.
 
 ### Layering — dependencies point one way only
 ```
@@ -313,8 +313,8 @@ archived_at     DATETIME        -- nullable; set instead of hard DELETE. Default
                                  -- filter WHERE archived_at IS NULL (Phase 2 logic).
 ```
 > **Resolved at kickoff:** the addendum proposed a second freetext `note` field
-> ("used half the chilli next time") alongside the above. Confirmed with Will this is the same
-> purpose as the existing `notes` column — no second field was added.
+> ("used half the chilli next time") alongside the above. Confirmed this is the same purpose
+> as the existing `notes` column — no second field was added.
 
 ### `recipe_ingredients`
 ```
@@ -544,7 +544,7 @@ prompt/logic changes land when Phase 3 build starts, not before):
   until the user confirms/corrects it.
 - `cuisine` / `protein` suggested at the recipe level, same confirm-then-save pattern as
   ingredients.
-- **Open gap, flag to Will before Phase 3 prompt work starts:** the Shop Layout addendum
+- **Open gap, flag before Phase 3 prompt work starts:** the Shop Layout addendum
   describes the section suggestion as reusing "the same [review step] already built for
   ingredient substitution flagging" — but no substitution-flagging feature is otherwise defined
   anywhere in this document. Confirm whether that's assumed prior context that needs adding
@@ -724,7 +724,7 @@ Canonical, fixed, store-independent section names for
 [Shopping List Store Layout](#shopping-list-store-layout). Lives as a Python constant
 (`SECTION_VOCABULARY` in `app/seed_data.py`), not a database table — `section_name` columns are
 free text, so this only drives dropdown choices in the (not-yet-built) store-setup and
-section-tagging UI. Starter list, **provisional — ask Will to confirm/adjust before the Phase 6
+section-tagging UI. Starter list, **provisional — confirm/adjust before the Phase 6
 UI is built**:
 ```
 produce, dairy, meat & seafood, bakery, frozen, pantry, household, deli, drinks, other
@@ -803,7 +803,7 @@ and restore have each been run successfully at least once.
 **Status: ✅ Complete.** Finding: Python-native confirmed over the Node microservice fallback
 (see [Tech Stack > AnyList integration](#anylist-integration--phase-5-decision)) — no revisit
 needed at Phase 5 kickoff, just implementation.
-Slotted in immediately after Phase 1 because Will has flagged AnyList as the highest-risk,
+Slotted in immediately after Phase 1 because AnyList has been flagged as the highest-risk,
 lowest-confidence part of the stack — it must not stay unexplored until Phase 5.
 - Throwaway spike only (scratch script / notebook, not wired into the app)
 - Authenticate, fetch the target list + items, add and remove a test item
@@ -812,7 +812,7 @@ lowest-confidence part of the stack — it must not stay unexplored until Phase 
 
 **Deliverable:** A working proof-of-concept AnyList call and a short written finding that
 settles the Phase 5 "native vs Node" decision. Full connector and checklist UI stay in
-Phase 5. Flag the outcome to Will before continuing to Phase 2.
+Phase 5. Flag the outcome before continuing to Phase 2.
 
 ### Phase 2 — Recipe Library
 
@@ -843,8 +843,22 @@ Phase 5. Flag the outcome to Will before continuing to Phase 2.
       still shows with `include_archived=true`) — all returned the expected envelope/status,
       diagnostics `/recent-errors` stayed empty throughout, and the manually-created test
       recipe was removed from `data/mealplanner.db` afterwards.
-- [ ] **Chunk 2.3 — Recipe library UI.** Browse list, search by name, recipe detail view;
+- [x] **Chunk 2.3 — Recipe library UI.** Browse list, search by name, recipe detail view;
       default views filter `archived_at IS NULL`.
+      Verified 2026-09-05 with real headless-browser screenshots (Edge `--headless
+      --screenshot`, no chromium-cli/Playwright available in this environment — see
+      `router.js`/`recipes.js`/`api.js` changes) against the real dev server: browse list
+      showed both seeded test recipes with servings/cuisine/protein; search endpoint
+      confirmed to filter correctly; both recipe detail views rendered ingredients/notes
+      correctly; a recipe-not-found URL showed the friendly "couldn't be found" copy
+      (404 path). `router.js` extended to parse an optional `#/recipes/<id>` path segment
+      and pass it to `mount()` — it remains the only file that parses `location.hash`,
+      per Code Architecture. Along the way this caught a real Phase 1 bug (not
+      Phase-2-introduced): `GET /favicon.ico` was throwing `h11.LocalProtocolError` on
+      every single page load because `JSONResponse(status_code=204, content=None)`
+      serialises a 4-byte `b"null"` body against a declared `Content-Length: 0`. Fixed in
+      `app/main.py` (plain `Response(status_code=204)`) and confirmed
+      `/api/v1/diagnostics/recent-errors` goes from spammed to clean.
 - [ ] **Chunk 2.4 — Recipe edit & manual entry UI.** Inline edit of ingredients (name, qty,
       unit, preparation); recipe-level fields `rating`, `notes`, `cuisine`, `protein`; manual
       recipe entry form (new recipe from scratch, no capture involved).
@@ -894,7 +908,7 @@ consolidated shopping list with purchase units resolved.
 *(Not yet chunked — break this into checkbox chunks at kickoff, following
 [Phase workflow & progress tracking](#phase-workflow--progress-tracking).)*
 - AnyList connector: investigate and implement (Python native or Node microservice — see
-  Tech Stack section; flag choice for discussion with Will)
+  Tech Stack section; flag choice for discussion)
 - AnyList auth (email/password from .env) — see [Security](#security) §2 for credential storage
 - Fetch current AnyList items at checklist load
 - Checklist UI: per-item have/don't have taps, AnyList pre-ticking, staples integration
@@ -916,7 +930,7 @@ push the result to AnyList.
 - Session history log page
 - Error states and empty states throughout UI
 - Comprehensive diagnostics page (all indicators wired up)
-- User testing with partner; gather feedback
+- User testing with secondary users; gather feedback
 
 ---
 
@@ -1163,10 +1177,10 @@ speculatively. When the relevant phase begins, flag them to Will for a focused d
 | Item | Deferred to | Notes |
 |---|---|---|
 | Australian pack size rounding for weight/volume | Phase 4 discussion | e.g. "needs 340g → buy 400g can". Requires a reference data set of common pack sizes. |
-| Partial quantities UX | Phase 5 | Will said "leave the thinking to me" — implement binary have/don't have for now. Revisit if he raises it. |
+| Partial quantities UX | Phase 5 | Implement binary have/don't have for now. Revisit if needed. |
 | Countable item purchase unit thresholds | Phase 4/5 | e.g. "need 6 eggs, buy a dozen?". The product_units table stores purchase size; basic logic is "round up to nearest purchase unit". Edge cases TBD. |
 | Ingredient synonym normalisation (automatic) | Phase 6 or later | e.g. "green onion" vs "spring onion". For now, user review at capture time provides sufficient normalisation. |
-| Partner login / separate accounts | Post-MVP | Shared access, no auth. |
+| Multi-user login / separate accounts | Post-MVP | Shared access, no auth. |
 | AnyList credential storage: `keyring` vs `.env` | Phase 5 kickoff | Preferred: Windows Credential Manager via `keyring`. `.env` acceptable fallback if awkward with deployment scripts. See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |
 | "Suggest something" — recency/variety suggestion logic + UI | Phase TBD | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet. |
@@ -1180,7 +1194,7 @@ speculatively. When the relevant phase begins, flag them to Will for a focused d
 
 ## Explicitly Out of Scope
 
-Confirmed during planning, not revisited unless Will raises them again:
+Confirmed during planning, not revisited unless raised again:
 - Pantry/inventory tracking — adds admin overhead the app is designed to remove.
 - Cost/budget tracking — real-time price data has poor cost/benefit for a meal planner, not a
   budgeting app.
@@ -1233,7 +1247,7 @@ Commits are shared responsibility. Claude Code should create commits proactively
   and describe exactly what changed and why.
 - Do not commit unless you have something worth committing: tested and verified, or a
   deliberate checkpoint worth preserving in history.
-- Will is happy to `git push` these himself; Claude Code should never push. Creating commits is
-  the extent of git responsibility here.
+- The maintainer is happy to `git push` these themselves; Claude Code should never push.
+  Creating commits is the extent of git responsibility here.
 - Commit messages follow the project's standard format (end with
   `Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>`).
