@@ -31,6 +31,7 @@ from app.routers import (
     sessions,
 )
 from app.routers import settings as settings_router
+from app.services.recipes import IngredientNotFoundError, RecipeNotFoundError
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -107,6 +108,34 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "VALIDATION_ERROR",
             "The request was not in the expected format.",
             jsonable_encoder(exc.errors()),
+        ),
+    )
+
+
+@app.exception_handler(RecipeNotFoundError)
+async def recipe_not_found_handler(request: Request, exc: RecipeNotFoundError):
+    logger.info("Recipe not found: id=%s (%s %s)", exc.recipe_id, request.method, request.url.path)
+    return JSONResponse(
+        status_code=404,
+        content=_error_body("RECIPE_NOT_FOUND", f"Recipe {exc.recipe_id} not found.", None),
+    )
+
+
+@app.exception_handler(IngredientNotFoundError)
+async def ingredient_not_found_handler(request: Request, exc: IngredientNotFoundError):
+    logger.info(
+        "Ingredient not found: recipe_id=%s ingredient_id=%s (%s %s)",
+        exc.recipe_id,
+        exc.ingredient_id,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "INGREDIENT_NOT_FOUND",
+            f"Ingredient {exc.ingredient_id} not found on recipe {exc.recipe_id}.",
+            None,
         ),
     )
 

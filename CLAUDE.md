@@ -826,13 +826,23 @@ Phase 5. Flag the outcome to Will before continuing to Phase 2.
       first run seeded 22 product units + 19 staples (log line confirmed:
       `app.seed_data: Reference data seed: {'product_units_added': 22, 'staples_added': 19}`),
       second run (restart) added zero more, confirming the seed is idempotent as designed.
-- [ ] **Chunk 2.2 — Recipe & ingredient API.** `routers/recipes.py`: recipe CRUD endpoints plus
+- [x] **Chunk 2.2 — Recipe & ingredient API.** `routers/recipes.py`: recipe CRUD endpoints plus
       nested ingredient CRUD endpoints, `{"ok": ...}` envelope, `?limit=`/`?offset=` pagination
       on list endpoints (see [API Conventions](#api-conventions)). Add `pytest` to
       `requirements.txt` (first phase needing it — see
       [Code Architecture > Tests](#code-architecture--maintainability)); unit tests for
       `services/recipes.py` (no DB/network) and a smoke test (happy path + one error path) for
       the router.
+      Verified 2026-09-05: `pytest` was already in `requirements.txt` (added ahead of Phase 2 at
+      Phase 1). `RecipeNotFoundError`/`IngredientNotFoundError` → 404 translation added as
+      dedicated FastAPI exception handlers in `main.py` (keeps routers free of try/except, same
+      pattern as the existing global handlers). 15 new router smoke tests added (35 total in
+      suite, all pass). Manually exercised every endpoint against the real dev server/DB:
+      create, list, get, get-404, patch rating, add/update/delete ingredient,
+      delete-ingredient-404, archive (and confirmed it disappears from the default list but
+      still shows with `include_archived=true`) — all returned the expected envelope/status,
+      diagnostics `/recent-errors` stayed empty throughout, and the manually-created test
+      recipe was removed from `data/mealplanner.db` afterwards.
 - [ ] **Chunk 2.3 — Recipe library UI.** Browse list, search by name, recipe detail view;
       default views filter `archived_at IS NULL`.
 - [ ] **Chunk 2.4 — Recipe edit & manual entry UI.** Inline edit of ingredients (name, qty,
