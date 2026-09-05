@@ -47,11 +47,11 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
 
-### 3. Clone the repo onto the NUC
+### 3. Get the repo onto the NUC
 
-Once Python is installed on the NUC (SETUP.md step 1), also install **Git for Windows**
-from <https://git-scm.com/download/win> (default options are fine). Then, instead of
-copying files by hand:
+Run `setup_nuc.bat` (see [SETUP.md > Quick path](SETUP.md#quick-path-run-setup_nucbat)) —
+it installs Python + Git, clones the repo, scaffolds `.env`, and adds the firewall rule in
+one pass. Or do it by hand:
 
 ```
 cd C:\Apps
@@ -61,9 +61,8 @@ copy .env.example .env
 notepad .env
 ```
 
-Fill in `.env` with the real values for the NUC (same as SETUP.md step 3). This replaces
-the old "copy the folder" step — everything else in SETUP.md (steps 4 onward: first start,
-static IP, firewall, Task Scheduler, backups) is unchanged.
+Fill in `.env` with the real values for the NUC (same as SETUP.md step 3). Either way,
+everything else in SETUP.md (static IP, Task Scheduler, backups) is unchanged.
 
 ---
 

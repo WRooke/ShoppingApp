@@ -43,6 +43,16 @@ restore.bat latest --yes      REM actually restores (saves a pre-restore safety 
 See [CLAUDE.md > Backup & Restore](CLAUDE.md#backup--restore) and `SETUP.md` step 9 for the
 weekly Task Scheduler entry.
 
+### First-time NUC setup
+
+```bat
+setup_nuc.bat                 REM NUC, once: installs Python+Git, clones the repo, .env,
+                               REM firewall rule, first start + health check
+```
+
+See [SETUP.md](SETUP.md) for what that automates vs. what stays manual (static IP, Task
+Scheduler).
+
 ### Deploying updates to the NUC
 
 ```bat

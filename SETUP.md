@@ -6,6 +6,40 @@ phones on the home WiFi. Do this once. For shipping updates afterwards, see
 
 ---
 
+## Quick path: run setup_nuc.bat
+
+Steps 1–4 below (install Python + Git, clone the repo, scaffold `.env`, add the firewall
+rule) plus a first start + health check are automated by `setup_nuc.bat`. It's re-run safe
+— every step checks current state first and skips what's already done.
+
+**Getting the script onto the NUC is the one unavoidable manual bit** — the NUC has nothing
+on it yet, so nothing can pull the script for you. Copy these two files from the dev PC
+to anywhere on the NUC (USB stick, a network share, OneDrive, email — whatever's easiest;
+they don't need to be in any particular folder):
+```
+setup_nuc.bat
+scripts\bootstrap_nuc.ps1
+```
+Then on the NUC, double-click `setup_nuc.bat`. It will prompt for admin (UAC) once — needed
+for installing Python/Git machine-wide and adding the firewall rule — and pause partway
+through for you to sign in to GitHub (cloning a private repo) and to fill in `.env` in
+Notepad. Everything else runs unattended.
+
+**Still manual after it finishes, on purpose** — see [Deployment Environment > Startup
+in CLAUDE.md](CLAUDE.md#deployment-environment) for why:
+- **Step 5** (static IP / router DHCP reservation) — no script has access to your router's
+  admin UI.
+- **Steps 8–9** (Task Scheduler: auto-start on boot, weekly backup) — kept as manual GUI
+  steps rather than scripted, since scripting the "run whether logged on or not" boot
+  trigger needs the account password handled non-interactively.
+
+The rest of this file is the manual walkthrough of what the script automates — useful as
+reference, if the script fails partway, if winget isn't available on this NUC, or if you'd
+rather just see each step. Skip to [step 5](#5-give-the-nuc-a-fixed-local-ip-address) if
+you ran the script.
+
+---
+
 ## 1. Install Python and Git on the NUC
 
 The NUC has a bare Windows 10 install (plus Plex) and neither yet.

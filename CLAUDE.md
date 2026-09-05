@@ -133,6 +133,17 @@ infrastructure — one repo, two jobs. `scripts/backup.py`'s commit-and-push now
 the latest origin first, precisely so its weekly commits and dev-PC deploys pushing to the
 same branch don't fight each other.
 
+One more, for first-run NUC setup: `setup_nuc.bat` runs `scripts/bootstrap_nuc.ps1`, which
+automates everything about SETUP.md steps 1–6 that safely can be (installing Python + Git,
+cloning the repo, scaffolding `.env`, adding the firewall rule scoped to the NUC's actual
+LAN subnet, first start + health check). **Deliberately still manual, per the existing
+"Task Scheduler: not a script — too brittle" call below**: the router-side static IP
+(no script has access to the router's admin UI) and the two Task Scheduler entries
+(auto-start-on-boot and weekly backup) — scripting the "run whether logged on or not" boot
+trigger would need the NUC account's Windows password handled non-interactively, which
+trades one kind of fragility for another. See `SETUP.md` for the full breakdown of what's
+automated vs. still manual, and why.
+
 Windows Task Scheduler instructions (not a script — too brittle) for auto-start on boot and for
 the weekly backup are in `SETUP.md`.
 
@@ -900,6 +911,7 @@ ShoppingApp/
 ├── restore.bat                ← runs scripts/restore.py
 ├── deploy.bat                 ← runs scripts/deploy.py (dev PC: commit/tag/push)
 ├── update.bat                 ← runs scripts/update.py (NUC: pull + restart)
+├── setup_nuc.bat               ← runs scripts/bootstrap_nuc.ps1 (NUC: one-time automated first-run setup)
 ├── requirements.txt
 ├── .env.example               ← template, never commit .env
 ├── .gitignore
@@ -934,7 +946,8 @@ ShoppingApp/
 │   ├── restore.py              ← lists / dry-runs / restores a backup, with a pre-restore safety copy
 │   ├── deploy.py                ← dev PC: tag + push a release (see DEPLOY.md)
 │   ├── update.py                ← NUC: pull + reinstall deps ahead of a restart (see DEPLOY.md)
-│   └── git_utils.py             ← shared subprocess helper used by the three scripts above
+│   ├── git_utils.py             ← shared subprocess helper used by the scripts above
+│   └── bootstrap_nuc.ps1        ← NUC: one-time automated first-run setup (see SETUP.md)
 ├── tests/                      ← pytest, mirrors app/ structure (services/ unit tests with no
 │                                  DB/network, routers/ smoke tests) — see CLAUDE.md > Code
 │                                  Architecture & Maintainability. Added from Phase 2 onward.
