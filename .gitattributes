@@ -1,0 +1,10 @@
+# Windows-only project (dev PC and NUC are both Windows) - normalise to CRLF so there's
+# no line-ending churn between the two checkouts.
+* text=auto eol=crlf
+
+# Binary-ish / generated - never diff or line-ending-convert these.
+*.db binary
+*.db-journal binary
+*.png binary
+*.jpg binary
+*.jpeg binary

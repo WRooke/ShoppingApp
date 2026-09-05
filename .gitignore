@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets
+.env
+
+# Runtime data (keep the folders, ignore their contents)
+data/*
+!data/.gitkeep
+images/*
+!images/.gitkeep
+logs/*
+!logs/.gitkeep
+data/*.db
+data/*.db-journal
+
+# backups/ is NOT ignored — it's the git-tracked backup destination (see CLAUDE.md > Backup & Restore)
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.claude/settings.local.json

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ShoppingApp</title>
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 id="view-title">Home</h1>
+  </header>
+
+  <main id="view" class="view">
+    <!-- views render here -->
+  </main>
+
+  <nav class="bottom-nav" aria-label="Primary">
+    <a href="#/home" data-nav="home" class="nav-item">
+      <span class="nav-icon" aria-hidden="true">home</span>
+      <span class="nav-label">Home</span>
+    </a>
+    <a href="#/recipes" data-nav="recipes" class="nav-item">
+      <span class="nav-icon" aria-hidden="true">book</span>
+      <span class="nav-label">Recipes</span>
+    </a>
+    <a href="#/plan" data-nav="plan" class="nav-item">
+      <span class="nav-icon" aria-hidden="true">list</span>
+      <span class="nav-label">Plan</span>
+    </a>
+    <a href="#/settings" data-nav="settings" class="nav-item">
+      <span class="nav-icon" aria-hidden="true">gear</span>
+      <span class="nav-label">Settings</span>
+    </a>
+    <a href="#/diagnostics" data-nav="diagnostics" class="nav-item">
+      <span class="nav-icon" aria-hidden="true">pulse</span>
+      <span class="nav-label">Diagnostics</span>
+    </a>
+  </nav>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/diagnostics.js"></script>
+  <script src="/static/js/router.js"></script>
+</body>
+</html>

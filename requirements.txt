@@ -1,0 +1,8 @@
+# ShoppingApp — Phase 1 dependencies
+# Kept deliberately minimal. Claude (anthropic) and scraping deps arrive in Phase 3;
+# AnyList deps arrive in Phase 5.
+
+fastapi>=0.115.0
+uvicorn>=0.30.0
+SQLAlchemy>=2.0.35
+python-dotenv>=1.0.1
