@@ -816,11 +816,16 @@ Phase 5. Flag the outcome to Will before continuing to Phase 2.
 
 ### Phase 2 — Recipe Library
 
-- [ ] **Chunk 2.1 — Data layer.** `schemas/recipes.py` (Pydantic request/response models per
+- [x] **Chunk 2.1 — Data layer.** `schemas/recipes.py` (Pydantic request/response models per
       [Code Architecture](#code-architecture--maintainability)); `services/recipes.py` covering
       recipe CRUD (delete is soft: sets `archived_at`) and nested `recipe_ingredients` CRUD;
       `seed_data.py` populated with the [Staples Starter List](#staples-starter-list) and
       [Pre-seeded Product Units](#pre-seeded-product-units), run on first startup.
+      Verified 2026-09-05: 20 new unit tests (`tests/services/test_recipes.py`, in-memory
+      SQLite, no HTTP) all pass; real dev server started twice against `data/mealplanner.db` —
+      first run seeded 22 product units + 19 staples (log line confirmed:
+      `app.seed_data: Reference data seed: {'product_units_added': 22, 'staples_added': 19}`),
+      second run (restart) added zero more, confirming the seed is idempotent as designed.
 - [ ] **Chunk 2.2 — Recipe & ingredient API.** `routers/recipes.py`: recipe CRUD endpoints plus
       nested ingredient CRUD endpoints, `{"ok": ...}` envelope, `?limit=`/`?offset=` pagination
       on list endpoints (see [API Conventions](#api-conventions)). Add `pytest` to

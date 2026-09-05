@@ -1,0 +1,121 @@
+"""Pydantic request/response models for the recipe library API.
+
+Kept separate from the SQLAlchemy ORM in app/models/recipes.py on purpose — an
+internal column can change without every response shape changing, and vice
+versa. Routers import from here, never expose a raw ORM object as a response
+body. See CLAUDE.md > Code Architecture & Maintainability.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+SourceType = Literal["url", "photo", "manual"]
+Rating = Literal["up", "down"]
+
+
+# --- recipe_ingredients ------------------------------------------------
+
+
+class RecipeIngredientBase(BaseModel):
+    name: str = Field(..., min_length=1, description="Ingredient name (normalised lowercase on save)")
+    quantity: float
+    unit: str | None = None
+    preparation: str | None = None
+    sort_order: int = 0
+
+
+class RecipeIngredientCreate(RecipeIngredientBase):
+    pass
+
+
+class RecipeIngredientUpdate(BaseModel):
+    """Partial update — every field optional, only fields actually sent are changed."""
+
+    name: str | None = Field(None, min_length=1)
+    quantity: float | None = None
+    unit: str | None = None
+    preparation: str | None = None
+    sort_order: int | None = None
+
+
+class RecipeIngredientRead(RecipeIngredientBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    recipe_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- recipes -------------------------------------------------------------
+
+
+class RecipeBase(BaseModel):
+    name: str = Field(..., min_length=1)
+    source_type: SourceType = "manual"
+    source_url: str | None = None
+    source_image_path: str | None = None
+    base_servings: int = Field(4, ge=1)
+    notes: str | None = None
+    cuisine: str | None = None
+    protein: str | None = None
+
+
+class RecipeCreate(RecipeBase):
+    ingredients: list[RecipeIngredientCreate] = Field(default_factory=list)
+
+
+class RecipeUpdate(BaseModel):
+    """Partial update — every field optional. Ingredients are managed through the
+    nested ingredient endpoints, not through this. `rating` is included here (not
+    in RecipeBase) since it's user-editable from the detail view but never set at
+    creation time — see CLAUDE.md > Data Model > recipes."""
+
+    name: str | None = Field(None, min_length=1)
+    source_type: SourceType | None = None
+    source_url: str | None = None
+    source_image_path: str | None = None
+    base_servings: int | None = Field(None, ge=1)
+    notes: str | None = None
+    cuisine: str | None = None
+    protein: str | None = None
+    rating: Rating | None = None
+
+
+class RecipeListItem(BaseModel):
+    """Lightweight shape for the library browse list — no ingredients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    source_type: SourceType
+    base_servings: int
+    cuisine: str | None
+    protein: str | None
+    rating: str | None
+    times_made: int
+    last_made_at: datetime | None
+    archived_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RecipeRead(RecipeListItem):
+    """Full detail shape, including ingredients."""
+
+    source_url: str | None
+    source_image_path: str | None
+    notes: str | None
+    ingredients: list[RecipeIngredientRead] = Field(default_factory=list)
+
+
+class RecipeListResponse(BaseModel):
+    items: list[RecipeListItem]
+    total: int
+    limit: int
+    offset: int

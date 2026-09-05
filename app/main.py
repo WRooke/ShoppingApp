@@ -19,8 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.database import init_db
+from app.database import SessionLocal, init_db
 from app.log_config import setup_logging
+from app.seed_data import seed_reference_data
 from app.routers import (
     anylist,
     checklist,
@@ -48,6 +49,18 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.error("Database initialisation failed during startup", exc_info=True)
         raise
+
+    # Reference data (staples + product_units starter lists) — idempotent, safe to
+    # run on every startup. See CLAUDE.md > Build Phases > Phase 2, Chunk 2.1.
+    db = SessionLocal()
+    try:
+        seed_reference_data(db)
+    except Exception:
+        logger.error("Reference data seed failed during startup", exc_info=True)
+        raise
+    finally:
+        db.close()
+
     logger.info("Startup complete - diagnostics available at /#/diagnostics")
     yield
     logger.info("=== ShoppingApp shutting down ===")
