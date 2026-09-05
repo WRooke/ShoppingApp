@@ -32,10 +32,10 @@ def _fail(message: str) -> None:
 
 
 def main() -> int:
-    is_repo, _ = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
+    is_repo, repo_out = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
     if not is_repo:
         _fail(
-            "This folder is not a git repository yet. See DEPLOY.md to set one up:\n"
+            f"Not in a usable git repository ({repo_out}). See DEPLOY.md to set one up:\n"
             "  git init\n"
             "  git remote add origin https://github.com/<you>/<private-repo>.git"
         )

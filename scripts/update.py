@@ -33,9 +33,12 @@ def _fail(message: str) -> None:
 
 
 def main() -> int:
-    is_repo, _ = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
+    is_repo, repo_out = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
     if not is_repo:
-        _fail("This folder is not a git repository. See DEPLOY.md to set it up (git clone).")
+        _fail(
+            f"Not in a usable git repository ({repo_out}). See DEPLOY.md to set it up "
+            "(git clone)."
+        )
         return 1
 
     status_ok, status_out = run_git(BASE_DIR, "status", "--porcelain")
