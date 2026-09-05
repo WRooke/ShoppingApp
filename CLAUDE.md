@@ -951,9 +951,32 @@ Phase 5. Flag the outcome before continuing to Phase 2.
       `/api/v1/diagnostics/recent-errors` stayed empty throughout. No console errors in any
       run. Test data and the throwaway `websocket-client` verification dependency were
       removed afterwards; it is not in `requirements.txt`.
-- [ ] **Chunk 2.5 — Settings UI.** View/add/edit/delete entries in `staples` and
+- [x] **Chunk 2.5 — Settings UI.** View/add/edit/delete entries in `staples` and
       `product_units` — this is what makes the seeded data from Chunk 2.1 actually editable,
       per the Phase 2 deliverable below.
+      Built `app/schemas/settings.py` + `app/services/settings.py` (CRUD for both tables,
+      name/ingredient_name normalised lowercase to match `recipe_ingredients.name`, duplicate
+      names caught as a 409 rather than a raw `IntegrityError`) + `app/routers/settings.py`,
+      following the exact layering already established by recipes in Chunk 2.1/2.2. `is_preseeded`
+      is accepted from the DB but never settable through the API — every user-added row is
+      `is_preseeded=false`. Frontend: `static/js/settings.js`, wired into `router.js`/`index.html`,
+      reusing the ingredient-edit-row list/add-row pattern from `recipes.js`.
+      Verified 2026-09-05: picked up from a prior session that broke down mid-chunk — its
+      unstaged, already-correct work (finishing the PII redaction pass and the staples-list
+      correction) was reviewed, found complete, and committed first (see commit history) before
+      starting this chunk's own code. 20 new unit tests (`tests/services/test_settings.py`) +
+      21 new router smoke tests (`tests/routers/test_settings.py`), 66 total in the suite, all
+      pass. Manually exercised every endpoint against the real dev server/DB: create staple,
+      duplicate-name 409, update, delete, delete-404; create product unit, duplicate-name 409,
+      reject non-positive `purchase_qty` (422), update, delete, delete-404 — all returned the
+      expected envelope/status and `/api/v1/diagnostics/recent-errors` stayed empty throughout.
+      Took a real headless-Edge screenshot of `#/settings` against the running dev server and
+      confirmed both cards render with the real seeded data (5 staples, 22 product units) and
+      the nav bar highlights Settings correctly. Confirmed the real dev DB already matched the
+      corrected 5-item staples list (see the PII/staples-correction commit) — no leftover
+      over-seeded rows needed cleaning up. Test rows created during verification were deleted
+      through the API itself (the feature being verified), leaving the DB exactly as it was
+      before.
 - [ ] **Phase 2 review** — re-check this phase's work against the Data Model (`recipes`,
       `recipe_ingredients`, `product_units`, `staples`), API Conventions, and Code Architecture
       sections, per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).

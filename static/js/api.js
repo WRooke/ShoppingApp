@@ -114,6 +114,46 @@
         );
       },
     },
+    settings: {
+      staples: {
+        list: function () {
+          return api.get("/api/v1/settings/staples?limit=200");
+        },
+        create: function (data) {
+          return jsonBody("POST", "/api/v1/settings/staples", data);
+        },
+        update: function (id, data) {
+          return jsonBody("PATCH", "/api/v1/settings/staples/" + encodeURIComponent(id), data);
+        },
+        delete: function (id) {
+          return request("/api/v1/settings/staples/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          });
+        },
+      },
+      productUnits: {
+        list: function () {
+          return api.get("/api/v1/settings/product-units?limit=200");
+        },
+        create: function (data) {
+          return jsonBody("POST", "/api/v1/settings/product-units", data);
+        },
+        update: function (id, data) {
+          return jsonBody(
+            "PATCH",
+            "/api/v1/settings/product-units/" + encodeURIComponent(id),
+            data
+          );
+        },
+        delete: function (id) {
+          return request("/api/v1/settings/product-units/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          });
+        },
+      },
+    },
     diagnostics: {
       logs: function (limit, level) {
         let q = "?limit=" + (limit || 200);

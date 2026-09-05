@@ -32,6 +32,12 @@ from app.routers import (
 )
 from app.routers import settings as settings_router
 from app.services.recipes import IngredientNotFoundError, RecipeNotFoundError
+from app.services.settings import (
+    DuplicateProductUnitNameError,
+    DuplicateStapleNameError,
+    ProductUnitNotFoundError,
+    StapleNotFoundError,
+)
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -135,6 +141,62 @@ async def ingredient_not_found_handler(request: Request, exc: IngredientNotFound
         content=_error_body(
             "INGREDIENT_NOT_FOUND",
             f"Ingredient {exc.ingredient_id} not found on recipe {exc.recipe_id}.",
+            None,
+        ),
+    )
+
+
+@app.exception_handler(StapleNotFoundError)
+async def staple_not_found_handler(request: Request, exc: StapleNotFoundError):
+    logger.info("Staple not found: id=%s (%s %s)", exc.staple_id, request.method, request.url.path)
+    return JSONResponse(
+        status_code=404,
+        content=_error_body("STAPLE_NOT_FOUND", f"Staple {exc.staple_id} not found.", None),
+    )
+
+
+@app.exception_handler(DuplicateStapleNameError)
+async def duplicate_staple_name_handler(request: Request, exc: DuplicateStapleNameError):
+    logger.info("Duplicate staple name: %r (%s %s)", exc.name, request.method, request.url.path)
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "DUPLICATE_STAPLE_NAME", f'"{exc.name}" is already on the staples list.', None
+        ),
+    )
+
+
+@app.exception_handler(ProductUnitNotFoundError)
+async def product_unit_not_found_handler(request: Request, exc: ProductUnitNotFoundError):
+    logger.info(
+        "Product unit not found: id=%s (%s %s)",
+        exc.product_unit_id,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "PRODUCT_UNIT_NOT_FOUND", f"Product unit {exc.product_unit_id} not found.", None
+        ),
+    )
+
+
+@app.exception_handler(DuplicateProductUnitNameError)
+async def duplicate_product_unit_name_handler(
+    request: Request, exc: DuplicateProductUnitNameError
+):
+    logger.info(
+        "Duplicate product unit ingredient_name: %r (%s %s)",
+        exc.ingredient_name,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "DUPLICATE_PRODUCT_UNIT_NAME",
+            f'A purchase unit for "{exc.ingredient_name}" already exists.',
             None,
         ),
     )

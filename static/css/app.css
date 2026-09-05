@@ -300,6 +300,29 @@ select, input[type="text"] {
   min-height: 1.2em;
 }
 
+/* --- settings (staples / product units) --- */
+.settings-list { margin-bottom: 8px; }
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.settings-row:first-child { border-top: none; }
+.settings-row input {
+  font: inherit;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.settings-name-input { flex: 2 1 140px; }
+.settings-notes-input { flex: 2 1 120px; }
+
 .danger-zone {
   margin-top: 24px;
   padding-top: 16px;

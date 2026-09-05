@@ -34,7 +34,15 @@
       },
     },
     plan: stub("Plan", "Planning sessions arrive in Phase 4."),
-    settings: stub("Settings", "Staples and product units editing arrives in Phase 2."),
+    settings: {
+      title: "Settings",
+      mount: function (root) {
+        global.SettingsView.mount(root);
+      },
+      unmount: function () {
+        global.SettingsView.unmount();
+      },
+    },
     diagnostics: {
       title: "Diagnostics",
       mount: function (root) {
