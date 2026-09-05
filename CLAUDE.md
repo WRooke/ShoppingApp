@@ -652,6 +652,22 @@ At checklist screen load:
    applicable)
 5. Items marked 'no' or where `add_to_list` is True get pushed to AnyList
 
+### "The usuals" — household recurring items (new, flag for Phase 5 design)
+Raised 2026-09-05: alongside the recipe-driven checklist above, offer an optional pass over
+recurring non-recipe household items — laundry powder, dishwashing liquid, and similar things
+bought periodically regardless of what's being cooked that week. This is a distinct concept
+from [`staples`](#staples) — staples are recipe ingredients assumed to already be on hand and
+are only surfaced when a recipe in the session actually needs them; "the usuals" are non-recipe
+items with no ingredient/recipe link at all, offered on their own schedule rather than triggered
+by anything in the session. Not designed yet — open questions to resolve at Phase 5 kickoff:
+- New table (e.g. `usual_items`, name/notes, shaped like `staples`) vs. some other structure —
+  needs its own decision, not just reuse of `staples`.
+- Whether it's offered every session or on some longer cadence (a weekly household run vs. every
+  ad-hoc single-recipe session).
+- Whether it plugs into the existing checklist UI as another item group, or is a separate optional
+  step in the flow (e.g. before or after the ingredient checklist).
+See [Deferred Decisions](#deferred-decisions).
+
 ---
 
 ## AnyList Push Logic
@@ -1027,6 +1043,8 @@ consolidated shopping list with purchase units resolved.
 - AnyList auth (email/password from .env) — see [Security](#security) §2 for credential storage
 - Fetch current AnyList items at checklist load
 - Checklist UI: per-item have/don't have taps, AnyList pre-ticking, staples integration
+- "The usuals" household recurring-items checklist — design at kickoff (see
+  [Checklist Screen Logic](#checklist-screen-logic) and [Deferred Decisions](#deferred-decisions))
 - Ingredient unit conflict review UI (for items that cannot be auto-consolidated)
 - Push to AnyList: increment existing or add new
 - Save session to shopping_history
@@ -1304,7 +1322,10 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
 | Shop layout reorganisation (list sorting by aisle) | ~~Phase 6 or post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
+| Home tab content | Needs a decision, no later than Phase 6 polish | Still the Phase 1 stub ("Phase 1 foundation is running..."). What it should actually show (recent sessions? quick actions? current shopping list status?) was never designed anywhere in this document — it's a nav placeholder, not a deliberately-deferred landing page. Flagged 2026-09-05 via user testing. |
+| Settings list re-render loses scroll position on Save/Delete | Bug — fix opportunistically, no later than Phase 6 | `static/js/settings.js`'s `load()` rebuilds the whole staples/product-units row list (`innerHTML = ""` + re-append) after every Save/Delete, which resets scroll to the top of the page — noticeable and frustrating once a list has more than a few rows. Fix should update/remove the affected row in place rather than a full-list re-render, or otherwise preserve scroll position across the rebuild. Flagged 2026-09-05 via user testing (Chunk 2.5), not yet fixed. |
 | Git branching strategy: `production` / `develop` branches | Phase 2 review | Current: single `main` branch. Proposal: introduce `production` (stable, NUC-deployed code) and `develop` (active development) branches to prevent breaking the working app. Requires updates to `deploy.bat`, `update.bat`, and backup/restore scripts to target the correct branch. Flag at Phase 2 review for a focused decision on branching model and deployment script changes. |
+| "The usuals" — recurring non-recipe household items checklist | Phase 5 kickoff | e.g. laundry powder, dishwashing liquid — bought periodically regardless of what's being cooked. Distinct from `staples` (recipe ingredients assumed on hand, surfaced only when a recipe needs them this session). Needs its own storage decision, a cadence decision (every session vs. periodic), and a decision on whether it's part of the existing checklist UI or a separate step. See [Checklist Screen Logic](#checklist-screen-logic). |
 
 ---
 
