@@ -237,3 +237,75 @@ select, input[type="text"] {
 .ingredient-list li {
   padding: 4px 0;
 }
+
+/* --- recipe edit / manual entry forms --- */
+.detail-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.detail-head-row h2 { margin: 0; }
+
+.field {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field label {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.field input,
+.field select,
+.field textarea {
+  font: inherit;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.field textarea { min-height: 72px; }
+
+.ingredient-edit-list { margin-bottom: 8px; }
+.ingredient-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.ingredient-edit-row:first-child { border-top: none; }
+.ingredient-edit-row input {
+  font: inherit;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+.ingredient-name-input { flex: 2 1 140px; }
+.ingredient-qty-input { flex: 0 1 70px; }
+.ingredient-unit-input,
+.ingredient-prep-input { flex: 1 1 90px; }
+
+.form-error {
+  color: var(--red);
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+
+.danger-zone {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.danger-zone button {
+  border-color: var(--red);
+  color: var(--red);
+}

@@ -46,6 +46,14 @@
   }
   ApiError.prototype = Object.create(Error.prototype);
 
+  function jsonBody(method, path, body) {
+    return request(path, {
+      method: method,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
   const api = {
     ApiError: ApiError,
     get: function (path) {
@@ -66,6 +74,44 @@
       },
       get: function (id) {
         return api.get("/api/v1/recipes/" + encodeURIComponent(id));
+      },
+      create: function (data) {
+        return jsonBody("POST", "/api/v1/recipes", data);
+      },
+      update: function (id, data) {
+        return jsonBody("PATCH", "/api/v1/recipes/" + encodeURIComponent(id), data);
+      },
+      archive: function (id) {
+        return request("/api/v1/recipes/" + encodeURIComponent(id), {
+          method: "DELETE",
+          headers: { Accept: "application/json" },
+        });
+      },
+      addIngredient: function (recipeId, data) {
+        return jsonBody(
+          "POST",
+          "/api/v1/recipes/" + encodeURIComponent(recipeId) + "/ingredients",
+          data
+        );
+      },
+      updateIngredient: function (recipeId, ingredientId, data) {
+        return jsonBody(
+          "PATCH",
+          "/api/v1/recipes/" +
+            encodeURIComponent(recipeId) +
+            "/ingredients/" +
+            encodeURIComponent(ingredientId),
+          data
+        );
+      },
+      deleteIngredient: function (recipeId, ingredientId) {
+        return request(
+          "/api/v1/recipes/" +
+            encodeURIComponent(recipeId) +
+            "/ingredients/" +
+            encodeURIComponent(ingredientId),
+          { method: "DELETE", headers: { Accept: "application/json" } }
+        );
       },
     },
     diagnostics: {

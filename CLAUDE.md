@@ -15,6 +15,27 @@ left open are called out explicitly where they occur, and again in Deferred Deci
 
 ---
 
+## ⚠️ Personal Data Policy
+
+**Under no circumstances should personal identifying information (PII) be used anywhere in this project:**
+- No real names of users or household members
+- No real account names or email addresses
+- No specific household details, locations, or personal habits
+- No real AnyList list names or shared accounts
+
+Use generic placeholders instead: "User A", "User B", "Household Shopping List", "test@example.com", etc.
+
+This applies to:
+- Source code and comments
+- Configuration files and documentation
+- Git commits and history
+- Logs and diagnostics output
+- Test data and fixtures
+
+**Why:** This project may be shared, archived, or referenced in contexts where real personal data should not be exposed. Treating all development as if this code will be public is the safest approach.
+
+---
+
 ## Project Overview
 
 A shared meal planning and shopping list web application. It runs as a local web server on
@@ -341,6 +362,21 @@ is_preseeded    BOOLEAN NOT NULL DEFAULT 0
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
+> **Phase 4 note (multi-pack-size purchase units, confirmed 2026-09-05):** `ingredient_name
+> UNIQUE` is a Phase 1 simplification that assumes one purchase pack size per ingredient. Real
+> usage doesn't hold that assumption — some ingredients are genuinely sold in more than one
+> pack size (e.g. a 500g tub and a 1kg tub of the same product), and resolving a required
+> quantity against only the smaller size produces the wrong answer (buying two 500g tubs to
+> cover 750g instead of one 1kg tub). At Phase 4 kickoff, ship an Alembic migration that drops
+> the `UNIQUE(ingredient_name)` constraint and replaces it with `UNIQUE(ingredient_name,
+> purchase_label)` instead — a `product_units` row becomes one of possibly several pack-size
+> options for that ingredient, rather than the only one. No other column changes. See
+> [Purchase unit resolution](#scaling-logic) for the selection algorithm this enables, and
+> [Deferred Decisions](#deferred-decisions). Do not implement before Phase 4 — this is a plan,
+> not a build-now item, and most ingredients will keep exactly one seeded pack size regardless
+> (a second option only gets added, via Settings, for the specific items where it's been
+> noticed to matter — there's no requirement to pre-enumerate pack sizes for every ingredient
+> in the seed data).
 
 ### `staples`
 ```
@@ -483,13 +519,41 @@ When multiple recipes in a session use the same ingredient:
 - If units cannot be reconciled (e.g. "2 tbsp soy sauce" + "100ml soy sauce"), flag for
   user review rather than silently failing
 
-### Purchase unit resolution (PARTIALLY DEFERRED)
-When an item exists in `product_units`:
-- Calculate how many purchase units are needed to cover the required quantity
-- Display as e.g. "2 × 500g packs" or "1 dozen eggs"
-- **The exact threshold/rounding logic for countable items (e.g. eggs: need 6, buy dozen?)**
-  is a DEFERRED DECISION. For Phase 4, implement basic coverage (round up to nearest whole
-  purchase unit). Flag for refinement discussion.
+### Purchase unit resolution (design confirmed 2026-09-05, PARTIALLY DEFERRED — build at Phase 4)
+When an item exists in `product_units`, calculate how many purchase units are needed to cover
+the required quantity, and display as e.g. "2 × 500g packs" or "1 dozen eggs".
+
+**Multiple pack sizes per ingredient are the normal case, not an edge case** — confirmed
+2026-09-05 after checking real household usage patterns. An ingredient like yoghurt commonly
+comes in more than one pack size (e.g. 500g and 1kg tubs); resolving purely against a single
+seeded size and rounding up (2 × 500g to cover 750g) gives the wrong answer when a 1kg tub
+would do. This is what `product_units` moving to one-row-per-pack-size in Phase 4 (see the
+[`product_units`](#product_units) schema note) is for. The resolution algorithm, to build when
+Phase 4 starts — documented now so the shape doesn't need re-deriving then:
+
+1. Look up all `product_units` rows for the ingredient (there may be zero, one, or several).
+2. **Zero rows:** unchanged from today — show the raw scaled quantity/unit, no purchase-unit
+   resolution.
+3. **One row:** unchanged from today — round up to the nearest whole multiple of that pack.
+   This stays the common case; most ingredients will only ever have one seeded pack size.
+4. **Several rows:** choose the combination of available pack sizes (repeats allowed) whose
+   total meets or exceeds the required quantity, minimizing total overage first and pack count
+   second as a tiebreaker (e.g. need 750g, options {500g, 1kg} → one 1kg pack, not two 500g).
+   The search space is tiny (a handful of pack sizes, realistically no more than 2-3 packs
+   deep to reach any plausible household quantity) — brute-force over small combinations is
+   fine, no general knapsack/DP solver needed.
+5. This generalises rather than replaces the existing "countable item purchase unit thresholds"
+   deferred item below (eggs: need 6, buy a dozen?) — once an ingredient like eggs has more
+   than one pack size seeded (e.g. half-dozen and dozen), step 4 already covers it. No separate
+   special case for countable vs weight/volume items.
+
+**Not required before Phase 4, and not a prerequisite for the above:** pre-enumerating multiple
+pack sizes for every seeded ingredient. Most stay single-pack, as seeded today. A second/third
+option gets added — via Settings (see [Chunk 2.5](#phase-2--recipe-library), once built) —
+opportunistically, only for specific ingredients where it's actually been noticed to matter.
+When Phase 4 lands, double-check the Settings UI still displays sensibly once an ingredient can
+have more than one `product_units` row (no rework needed now — the schema still enforces one
+row per ingredient until that migration ships).
 
 ---
 
@@ -708,13 +772,20 @@ Items not in this table display raw scaled quantity on the shopping list (e.g. "
 
 ## Staples Starter List
 
-Seed a default staples list. User edits via Settings. Suggested defaults:
+Seed a default staples list. User edits via Settings. **Deliberately minimal — confirmed
+2026-09-05.** An earlier draft seeded anything vaguely pantry-shaped (garlic, sugar, soy sauce,
+vinegars, dried herbs/spices, tomato paste, dijon mustard) without confirming any of it matched
+what this household actually treats as "assume we have it, don't put it on the shopping list."
+Only these five are confirmed:
 ```
-salt, black pepper, olive oil, vegetable oil, garlic (whole bulb),
-plain flour, white sugar, soy sauce, white wine vinegar, balsamic vinegar,
-dried oregano, dried basil, ground cumin, ground coriander, paprika,
-chilli flakes, bay leaves, tomato paste (tube), dijon mustard
+salt, black pepper, olive oil, vegetable oil, plain flour
 ```
+This list is expected to grow as more recipes go through the system and a genuine staple gap
+turns up — add via Settings at that point rather than pre-guessing the rest of it now. Item
+seeded as a starter default here, not a staple: **tomato paste** — explicitly ruled out as a
+staple (used too situationally to assume it's always on hand); it has no `product_units` entry
+either at the moment, since it isn't yet clear whether it should be resolved as a purchase-unit
+item or left as raw scaled quantity — revisit if it comes up as a real gap.
 
 ---
 
@@ -757,7 +828,7 @@ the phase half-wired.
   implemented, not just plausible. Record the review as its own checked-off line at the end of
   the phase's chunk list (e.g. `- [x] Phase N review — see CLAUDE.md > Phase workflow &
   progress tracking`). A gap the review turns up gets fixed, or logged as an open item /
-  [Deferred Decisions](#deferred-decisions) entry if it's a genuine judgement call for Will —
+  [Deferred Decisions](#deferred-decisions) entry if it's a genuine design decision to defer —
   never silently dropped.
 - Phases are chunked out at that phase's own kickoff, not speculatively ahead of time — the same
   "do not implement deferred items speculatively" norm this file already applies everywhere
@@ -859,9 +930,27 @@ Phase 5. Flag the outcome before continuing to Phase 2.
       serialises a 4-byte `b"null"` body against a declared `Content-Length: 0`. Fixed in
       `app/main.py` (plain `Response(status_code=204)`) and confirmed
       `/api/v1/diagnostics/recent-errors` goes from spammed to clean.
-- [ ] **Chunk 2.4 — Recipe edit & manual entry UI.** Inline edit of ingredients (name, qty,
+- [x] **Chunk 2.4 — Recipe edit & manual entry UI.** Inline edit of ingredients (name, qty,
       unit, preparation); recipe-level fields `rating`, `notes`, `cuisine`, `protein`; manual
       recipe entry form (new recipe from scratch, no capture involved).
+      Flag carried from Chunk 2.1: `times_made`/`last_made_at` ("mark cooked") were NOT built
+      here — the Data Model text says Phase 2 onward, but this chunk's own bullet list only
+      names `rating`/`notes`/`cuisine`/`protein`, and there's no natural "cooked" event before
+      Phase 4 sessions exist. Still open — needs a decision on which phase it actually belongs
+      to (see Deferred Decisions).
+      Verified 2026-09-05 by scripting a real headless-Chromium session over the DevTools
+      Protocol (no chromium-cli/Playwright/node in this environment — wrote a small
+      scratch-only CDP driver, not part of the app) against the real dev server: filled and
+      submitted the manual entry form (2 ingredients, one added via "+ Add another
+      ingredient") and confirmed the created recipe's detail page; entered edit mode and
+      saved recipe-level field changes (base_servings, rating); added an ingredient and
+      edited another's quantity, confirming the UI stays in edit mode after each ingredient
+      action rather than bouncing to view mode; deleted one ingredient; deleted (archived)
+      the whole recipe and confirmed it drops out of the default list. Cross-checked every
+      step against `GET /api/v1/recipes/1` directly rather than trusting the DOM alone, and
+      `/api/v1/diagnostics/recent-errors` stayed empty throughout. No console errors in any
+      run. Test data and the throwaway `websocket-client` verification dependency were
+      removed afterwards; it is not in `requirements.txt`.
 - [ ] **Chunk 2.5 — Settings UI.** View/add/edit/delete entries in `staples` and
       `product_units` — this is what makes the seeded data from Chunk 2.1 actually editable,
       per the Phase 2 deliverable below.
@@ -1094,7 +1183,7 @@ Where it's something Claude Code can just do (repo hygiene), it's done.
 - Preferred storage: Windows Credential Manager via the `keyring` Python package, rather than a
   plaintext `.env` file. `.env` is acceptable as a fallback if `keyring` proves awkward with the
   deployment scripts, but it should sit outside any directory that gets backed up/synced
-  unencrypted. **This choice is not yet made — flag to Will at the start of Phase 5** (also
+  unencrypted. **This choice is not yet made — decide at the start of Phase 5** (also
   tracked in [Deferred Decisions](#deferred-decisions)).
 - If the Node.js microservice fallback (Tech Stack > AnyList) is used, it must bind to
   `127.0.0.1` only — never `0.0.0.0`. It should only ever be called by the Python backend on
@@ -1172,19 +1261,19 @@ Where it's something Claude Code can just do (repo hygiene), it's done.
 ## Deferred Decisions
 
 These items arose during planning and were explicitly parked for later. Do not implement them
-speculatively. When the relevant phase begins, flag them to Will for a focused decision.
+speculatively. When the relevant phase begins, flag these for a focused decision.
 
 | Item | Deferred to | Notes |
 |---|---|---|
 | Australian pack size rounding for weight/volume | Phase 4 discussion | e.g. "needs 340g → buy 400g can". Requires a reference data set of common pack sizes. |
 | Partial quantities UX | Phase 5 | Implement binary have/don't have for now. Revisit if needed. |
-| Countable item purchase unit thresholds | Phase 4/5 | e.g. "need 6 eggs, buy a dozen?". The product_units table stores purchase size; basic logic is "round up to nearest purchase unit". Edge cases TBD. |
+| Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
 | Ingredient synonym normalisation (automatic) | Phase 6 or later | e.g. "green onion" vs "spring onion". For now, user review at capture time provides sufficient normalisation. |
 | Multi-user login / separate accounts | Post-MVP | Shared access, no auth. |
 | AnyList credential storage: `keyring` vs `.env` | Phase 5 kickoff | Preferred: Windows Credential Manager via `keyring`. `.env` acceptable fallback if awkward with deployment scripts. See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |
 | "Suggest something" — recency/variety suggestion logic + UI | Phase TBD | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet. |
-| "Substitution flagging" review step | Needs clarification before Phase 3 prompt work | The Shop Layout addendum assumes this exists as prior context for reusing its review UI; it isn't otherwise specified anywhere in this document. Confirm with Will. |
+| "Substitution flagging" review step | Needs clarification before Phase 3 prompt work | The Shop Layout addendum assumes this exists as prior context for reusing its review UI; it isn't otherwise specified anywhere in this document. Clarify before proceeding. |
 | Store deletion/merge | Post-MVP / low priority | Not designed — add if it comes up. See [Shopping List Store Layout](#shopping-list-store-layout). |
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
