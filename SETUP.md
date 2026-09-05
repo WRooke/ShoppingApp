@@ -74,6 +74,17 @@ git clone https://github.com/<you>/shoppingapp.git ShoppingApp
 (`C:\Apps\ShoppingApp` is stable and avoids `C:\Program Files` (permissions) and the user
 Desktop (clutter / roaming) — used throughout the rest of this guide.)
 
+**If Git warns `LF will be replaced by CRLF the next time Git touches it`:** this repo's own
+`.gitattributes` (`text=auto eol=crlf` — see [CLAUDE.md > Project Directory
+Structure](CLAUDE.md#project-directory-structure)) deliberately forces CRLF in the working
+tree, independent of the machine's `core.autocrlf` setting — the warning is just Git telling
+you a (harmless, intended) conversion is pending, not a real problem. It's noisy rather than
+useful here, so silence it once, scoped to this repo only:
+```
+cd C:\Apps\ShoppingApp
+git config core.safecrlf false
+```
+
 ---
 
 ## 3. Create the configuration file
@@ -307,3 +318,4 @@ means step 2 was skipped and the project was copied by hand instead. Fix it with
 | Port already in use | Something else took 8080 — change `PORT` in `.env` and the firewall rule. |
 | Backup task ran but nothing pushed | Check `git remote get-url origin` works from the project folder (see step 10). Backups are still saved locally either way. |
 | `update.bat` fails or won't restart the server | See [DEPLOY.md > Things that can go wrong](DEPLOY.md#things-that-can-go-wrong). |
+| Git warns `LF will be replaced by CRLF the next time Git touches it` | Harmless — this repo's `.gitattributes` intentionally forces CRLF. Run `git config core.safecrlf false` from inside the project folder to silence it — see step 2. |
