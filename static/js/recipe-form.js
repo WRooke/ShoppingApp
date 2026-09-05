@@ -155,7 +155,7 @@
           ingredients: ingredients,
         })
         .then(function (created) {
-          global.location.hash = "#/recipes/" + created.id;
+          global.Router.navigate("recipes", created.id);
         })
         .catch(function (err) {
           saveBtn.disabled = false;

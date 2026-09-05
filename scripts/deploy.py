@@ -5,7 +5,13 @@ tag the commit, and push branch + tag to origin. Git itself is the transport - t
 zip/copy step and nothing is sent directly to the NUC. Run the NUC-side counterpart
 (update.bat) afterwards to actually pull it down and restart the server.
 
-See DEPLOY.md for the one-time git/GitHub setup this depends on.
+Branch model (see CLAUDE.md > Deferred Decisions > Git branching strategy, decided at the
+Phase 2 review): `develop` is where all work happens; `production` is the NUC-deployed
+branch and only ever moves via this script, fast-forwarded to wherever `develop` currently
+is. There is deliberately no local checkout of `production` involved - this pushes
+`develop`'s content straight onto the remote `production` ref (`git push origin
+develop:production`), which is either a fast-forward or fails outright. See DEPLOY.md for
+the full workflow and the one-time git/GitHub setup this depends on.
 
 Invoke as ``python -m scripts.deploy`` from the project root (see deploy.bat).
 """
@@ -24,6 +30,8 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+DEV_BRANCH = "develop"
+PROD_BRANCH = "production"
 
 
 def _fail(message: str) -> None:
@@ -61,7 +69,13 @@ def main() -> int:
         return 1
 
     branch_ok, branch_out = run_git(BASE_DIR, "symbolic-ref", "--short", "HEAD")
-    branch = branch_out.strip() if branch_ok else "main"
+    branch = branch_out.strip() if branch_ok else ""
+    if branch != DEV_BRANCH:
+        _fail(
+            f"On branch '{branch or '(detached HEAD)'}', not '{DEV_BRANCH}' - deploys always "
+            f"ship from {DEV_BRANCH}. Run `git checkout {DEV_BRANCH}` first (see DEPLOY.md)."
+        )
+        return 1
 
     fetch_ok, fetch_out = run_git(BASE_DIR, "fetch", "origin")
     if not fetch_ok:
@@ -96,9 +110,36 @@ def main() -> int:
             f"date on origin): {tag_push_out}"
         )
 
+    # Fast-forward the remote production ref to wherever develop now is. No local
+    # checkout of `production` is involved - this pushes develop's tip straight onto
+    # the remote branch. A plain (non-force) push only succeeds if that's actually a
+    # fast-forward, so a production that has moved on its own (e.g. unmerged NUC
+    # backup commits - see scripts/backup.py) is refused rather than clobbered.
+    prod_push_ok, prod_push_out = run_git(
+        BASE_DIR, "push", "origin", f"{branch}:{PROD_BRANCH}"
+    )
+    if not prod_push_ok:
+        _fail(
+            f"{DEV_BRANCH} and its tag are pushed, but fast-forwarding {PROD_BRANCH} to "
+            f"match failed (not a fast-forward):\n{prod_push_out}\n"
+            f"origin/{PROD_BRANCH} has commits {DEV_BRANCH} doesn't - most likely NUC "
+            f"backup commits (see scripts/backup.py) that haven't been merged back. "
+            f"Merge/rebase them into {DEV_BRANCH} first (`git fetch origin && git merge "
+            f"origin/{PROD_BRANCH}`), then re-run deploy.bat. update.bat will keep "
+            f"pulling whatever {PROD_BRANCH} was already at until this succeeds - the "
+            f"NUC is not left broken by this failing."
+        )
+        return 1
+
     _, commit = run_git(BASE_DIR, "rev-parse", "--short", "HEAD")
-    logger.info("Deploy: pushed %s (%s) to origin/%s", tag, commit.strip(), branch)
-    print(f"\nPushed {tag} ({commit.strip()}) to origin/{branch}.")
+    logger.info(
+        "Deploy: pushed %s (%s) to origin/%s and fast-forwarded origin/%s",
+        tag,
+        commit.strip(),
+        branch,
+        PROD_BRANCH,
+    )
+    print(f"\nPushed {tag} ({commit.strip()}) to origin/{branch} and origin/{PROD_BRANCH}.")
     print("On the NUC: run update.bat to pull it down and restart the server.\n")
     return 0
 

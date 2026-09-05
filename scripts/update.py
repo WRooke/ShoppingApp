@@ -4,6 +4,13 @@ Run via update.bat, which calls this FIRST and only calls stop.bat / start.bat i
 this exits 0. That ordering means a failed update leaves the previous version running
 rather than taking the app down.
 
+Branch model (see CLAUDE.md > Deferred Decisions > Git branching strategy, decided at the
+Phase 2 review): the NUC always stays checked out on `production` - the branch
+scripts/deploy.py fast-forwards from the dev PC's `develop` branch. This always pulls
+`production` specifically, regardless of what happens to be checked out, so a NUC checkout
+that's drifted onto the wrong branch fails loudly here rather than silently pulling the
+wrong thing.
+
 Never force-merges or stashes on your behalf - if the working tree is dirty or history has
 diverged (e.g. a backup commit made by scripts/backup.py hasn't reached origin yet), this
 aborts with an explanation rather than guessing. See DEPLOY.md.
@@ -25,6 +32,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROD_BRANCH = "production"
 
 
 def _fail(message: str) -> None:
@@ -54,13 +62,20 @@ def main() -> int:
         )
         return 1
 
+    branch_ok, branch_out = run_git(BASE_DIR, "symbolic-ref", "--short", "HEAD")
+    branch = branch_out.strip() if branch_ok else ""
+    if branch != PROD_BRANCH:
+        _fail(
+            f"On branch '{branch or '(detached HEAD)'}', not '{PROD_BRANCH}' - the NUC "
+            f"always runs {PROD_BRANCH}. If this is mid-rollback (see DEPLOY.md), finish "
+            f"resuming with `git checkout {PROD_BRANCH}` first, then re-run update.bat."
+        )
+        return 1
+
     fetch_ok, fetch_out = run_git(BASE_DIR, "fetch", "origin")
     if not fetch_ok:
         _fail(f"git fetch failed: {fetch_out}")
         return 1
-
-    branch_ok, branch_out = run_git(BASE_DIR, "symbolic-ref", "--short", "HEAD")
-    branch = branch_out.strip() if branch_ok else "main"
 
     pull_ok, pull_out = run_git(BASE_DIR, "pull", "--ff-only", "origin", branch)
     if not pull_ok:

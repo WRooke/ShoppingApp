@@ -99,4 +99,16 @@
     if (!global.location.hash) global.location.hash = "#/home";
     render();
   }
+
+  // Programmatic navigation (e.g. "saved, now go to the detail view") goes
+  // through here rather than a feature file setting global.location.hash
+  // directly — keeps the "#/<key>/<param>" shape known only to router.js
+  // (see CLAUDE.md > Code Architecture & Maintainability). Plain <a href="#/...">
+  // links in feature files are fine — only route-shape construction in JS
+  // needs to live here.
+  global.Router = {
+    navigate: function (key, param) {
+      global.location.hash = "#/" + key + (param != null ? "/" + param : "");
+    },
+  };
 })(window);

@@ -141,18 +141,27 @@ Two more for deployment from the dev PC to the NUC (added ahead of schedule, alo
 session's diagnostics/backup work, since getting the pipeline right early is cheap and it
 only gets more annoying to retrofit once there's more to ship — see `DEPLOY.md` for the full
 walkthrough and one-time git/GitHub setup):
-- `deploy.bat` — runs `scripts/deploy.py` on the **dev PC**: verifies the working tree is
-  clean and current, tags the commit, pushes branch + tag to the private GitHub repo.
-- `update.bat` — runs `scripts/update.py` on the **NUC**: pulls the new commit
-  (fast-forward only, never merges), reinstalls dependencies if `requirements.txt` changed,
-  then stops and restarts the server. Aborts before touching the running server if any step
-  fails, so a bad update leaves the old version running.
+- `deploy.bat` — runs `scripts/deploy.py` on the **dev PC**, from the `develop` branch:
+  verifies the working tree is clean and current, tags the commit, pushes `develop` + the
+  tag to the private GitHub repo, then fast-forwards the remote `production` branch to
+  match.
+- `update.bat` — runs `scripts/update.py` on the **NUC**, from the `production` branch:
+  pulls the new commit (fast-forward only, never merges), reinstalls dependencies if
+  `requirements.txt` changed, then stops and restarts the server. Aborts before touching the
+  running server if any step fails, so a bad update leaves the old version running.
+
+Two branches, not one — see [Git branching strategy](#deferred-decisions), decided at the
+Phase 2 review: `develop` is where all work happens (dev PC), `production` is what the NUC
+runs and only ever moves via `deploy.bat`. Full rationale, one-time setup (including
+migrating this repo's existing `main` history across), and the day-to-day workflow are in
+`DEPLOY.md`.
 
 This reuses the same private GitHub repo already planned as the backup push destination
 (see [Backup & Restore](#backup--restore)) rather than adding a second piece of
-infrastructure — one repo, two jobs. `scripts/backup.py`'s commit-and-push now rebases onto
-the latest origin first, precisely so its weekly commits and dev-PC deploys pushing to the
-same branch don't fight each other.
+infrastructure — one repo, two jobs (three, counting deploys). `scripts/backup.py`'s
+commit-and-push now rebases onto the latest origin first, precisely so its weekly commits
+(landing on `production`, since that's what the NUC is checked out on) and dev-PC deploys
+fast-forwarding that same branch don't fight each other.
 
 One more, for first-run NUC setup: `setup_nuc.bat` runs `scripts/bootstrap_nuc.ps1`, which
 automates everything about SETUP.md steps 1–6 that safely can be (installing Python + Git,
@@ -993,12 +1002,42 @@ Phase 5. Flag the outcome before continuing to Phase 2.
       over-seeded rows needed cleaning up. Test rows created during verification were deleted
       through the API itself (the feature being verified), leaving the DB exactly as it was
       before.
-- [ ] **Phase 2 review** — re-check this phase's work against the Data Model (`recipes`,
+- [x] **Phase 2 review** — re-check this phase's work against the Data Model (`recipes`,
       `recipe_ingredients`, `product_units`, `staples`), API Conventions, and Code Architecture
       sections, per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
       **Also flag for decision:** Git branching strategy — should we introduce `production` /
       `develop` branches now to prevent breaking the working app, or defer this? (See
       [Deferred Decisions](#deferred-decisions) for full details.)
+      Verified 2026-09-05: `recipes`/`recipe_ingredients`/`product_units`/`staples` ORM models
+      match the Data Model section field-for-field; every router response uses the
+      `{"ok": ...}` envelope with pagination (`limit`/`offset`) on both list endpoints;
+      `SCREAMING_SNAKE_CASE` error codes (`RECIPE_NOT_FOUND`, `DUPLICATE_STAPLE_NAME`, etc.)
+      are translated centrally in `app/main.py`'s exception handlers, no raw `HTTPException`
+      anywhere in `routers/`/`services/`; `services/` has zero `fastapi` imports; frontend
+      feature files never call `fetch` directly (only `api.js` does) and never reach into
+      another feature's DOM/state; `router.js` is the only file parsing `location.hash`. Full
+      suite re-run clean (66/66) and the real dev server confirmed healthy with an empty
+      `/api/v1/diagnostics/recent-errors` throughout.
+      Two gaps found and fixed (not just noted): `static/js/recipes.js` had grown to 461
+      lines, past the ~300–400 line guideline in
+      [Code Architecture & Maintainability](#code-architecture--maintainability) — split
+      edit-mode + ingredient-row rendering out into a new `static/js/recipe-edit.js`
+      (`recipes.js` now 218 lines), following the same precedent as the existing
+      `recipe-form.js` split; and `recipes.js`/`recipe-form.js` were setting
+      `location.hash` directly to navigate after save/delete, a small breach of "router.js
+      is the only file that knows hash routes exist" — added a `Router.navigate(key, param)`
+      helper to `router.js` and switched both call sites to it. Verified live via a headless
+      Edge + Chrome DevTools Protocol session against the real dev server (temporary
+      `websocket-client` dependency, removed afterwards, same as the Chunk 2.4 precedent):
+      created a scratch recipe, opened it, clicked Edit, added an ingredient, saved back to
+      view mode, confirmed the result via a direct API call, then archived the scratch
+      recipe to clean up — zero console errors throughout. Two smaller gaps found via user
+      testing before this review (Home tab content, Settings scroll-reset-on-save) were
+      already correctly logged as open items rather than fixed or dropped — left as-is here,
+      see [Deferred Decisions](#deferred-decisions).
+      Git branching decision made and implemented (not deferred) — see
+      [Deferred Decisions > Git branching strategy](#deferred-decisions) for what was
+      decided, built, and verified, and `DEPLOY.md` for the resulting workflow.
 
 **Deliverable:** User can manually add, view, and edit recipes. Staples and product units
 table is pre-populated and editable via Settings page.
@@ -1324,8 +1363,173 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Shop layout reorganisation (list sorting by aisle) | ~~Phase 6 or post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
 | Home tab content | Needs a decision, no later than Phase 6 polish | Still the Phase 1 stub ("Phase 1 foundation is running..."). What it should actually show (recent sessions? quick actions? current shopping list status?) was never designed anywhere in this document — it's a nav placeholder, not a deliberately-deferred landing page. Flagged 2026-09-05 via user testing. |
 | Settings list re-render loses scroll position on Save/Delete | Bug — fix opportunistically, no later than Phase 6 | `static/js/settings.js`'s `load()` rebuilds the whole staples/product-units row list (`innerHTML = ""` + re-append) after every Save/Delete, which resets scroll to the top of the page — noticeable and frustrating once a list has more than a few rows. Fix should update/remove the affected row in place rather than a full-list re-render, or otherwise preserve scroll position across the rebuild. Flagged 2026-09-05 via user testing (Chunk 2.5), not yet fixed. |
-| Git branching strategy: `production` / `develop` branches | Phase 2 review | Current: single `main` branch. Proposal: introduce `production` (stable, NUC-deployed code) and `develop` (active development) branches to prevent breaking the working app. Requires updates to `deploy.bat`, `update.bat`, and backup/restore scripts to target the correct branch. Flag at Phase 2 review for a focused decision on branching model and deployment script changes. |
+| Git branching strategy: `production` / `develop` branches | ~~Phase 2 review~~ **Resolved 2026-09-05 — option 2 (`develop` + `production`)** | `deploy.bat`/`scripts/deploy.py` (dev PC, ships from `develop`, fast-forwards `production`) and `update.bat`/`scripts/update.py` (NUC, pulls `production` only) updated and verified against a sandbox origin+dev+NUC repo trio, including the diverged-`production`-from-a-backup-commit failure/recovery path. `backup.py` needed no logic change (already branch-agnostic via `HEAD`). Local `main` renamed to `develop`, `production` branched off it — **pushing both to origin and updating GitHub's default branch is still a manual step for the maintainer** (Claude Code creates commits but never pushes, see [Commits](#commits)); see `DEPLOY.md > One-time setup` for the exact commands. Full workflow in `DEPLOY.md`. |
 | "The usuals" — recurring non-recipe household items checklist | Phase 5 kickoff | e.g. laundry powder, dishwashing liquid — bought periodically regardless of what's being cooked. Distinct from `staples` (recipe ingredients assumed on hand, surfaced only when a recipe needs them this session). Needs its own storage decision, a cadence decision (every session vs. periodic), and a decision on whether it's part of the existing checklist UI or a separate step. See [Checklist Screen Logic](#checklist-screen-logic). |
+
+### Decision Dialogues
+
+When a deferred decision comes due, use the relevant dialogue below to guide the discussion. The Q is
+the prompt to raise with the maintainer; the A options are what to ask about; Expected Outcome is what
+decision gets documented in this file once made.
+
+#### Australian pack size rounding (Phase 4 kickoff)
+
+**Q:** When a recipe needs 340g of an ingredient and the only seeded pack size is 400g, should we:
+- Buy the 400g (overage 60g)
+- Or round the requirement UP to 400g before buying, rounding up the quantity too?
+
+**A options:**
+1. Always round-trip: scale the consolidated quantity up to the nearest available pack, then resolve purchases. (e.g. need 340g → round to 400g → buy one 400g pack)
+2. Calculate exactly: keep the 340g, then resolve to "buy one 400g pack which is 60g overstock". Show the overstock to the user.
+3. Defer to Phase 5: ship Phase 4 without this, wire it up when AnyList integration happens and real usage emerges.
+
+**Context:** This is a real-world impact — Australian grocery pack sizes aren't designed around metric halvings. The user will notice if the planner is suggesting weird quantities. Requires either a reference data set of common pack sizes or an algorithm to prefer whole packs and understock avoidance.
+
+**Expected outcome:** Decision + implementation approach documented in [Scaling Logic](#scaling-logic).
+
+---
+
+#### AnyList credential storage: `keyring` vs `.env` (Phase 5 kickoff)
+
+**Q:** Where should we store the AnyList email and password?
+
+**A options:**
+1. Windows Credential Manager via the `keyring` Python package (preferred, more secure)
+2. `.env` file in the project root, `.gitignore`'d but unencrypted on disk
+3. Hybrid: try `keyring` on startup; if it fails, fall back to `.env` with a warning
+
+**Context:** AnyList password is as sensitive as an email password — a leak means someone can read/write the shared household list. See [Security](#security) §2. The `.env` fallback makes deployment simpler if `keyring` proves awkward with the batch scripts.
+
+**Expected outcome:** Decision + implementation (credential retrieval in `app/config.py`) + any deployment script changes documented in `SETUP.md` or `DEPLOY.md`.
+
+---
+
+#### Git branching strategy: `production` / `develop` branches (Phase 2 review)
+
+**Resolved 2026-09-05 — option 2.** See the [Deferred Decisions](#deferred-decisions) table
+row above for what was implemented and verified, and `DEPLOY.md` for the full workflow. Kept
+below for the record of what was asked and why.
+
+**Q:** Should we introduce stable/development branch separation to prevent breaking the running app?
+
+**A options:**
+1. Keep single `main` branch. Low complexity, okay because the maintainer runs verified phases before moving to production.
+2. Introduce `develop` (active work) and `production` (NUC-deployed stable) branches. Updates to deployment scripts (`deploy.bat`, `update.bat`) and backup/restore to target the correct branch.
+3. Introduce `main` (stable) and `develop` (active work) branches, flipping which is primary. Same complexity as option 2, different naming.
+
+**Context:** Currently a single `main` branch works fine because Phase work is chunked and tested before the next phase starts. As complexity grows (or if dev/NUC work happens in parallel), separate branches prevent the running app from being broken by in-progress work. Requires coordination updates across multiple shell scripts.
+
+**Expected outcome:** Decision + any branch/script changes. If adopted, update `DEPLOY.md` with the new workflow and `deploy.bat`/`update.bat` with the correct branch targets.
+
+---
+
+#### "The usuals" — recurring household items (Phase 5 kickoff)
+
+**Q:** How should we handle recurring non-recipe household items (laundry powder, dishwashing liquid, etc.) that are bought on a schedule independent of meal planning?
+
+**A options:**
+1. **Separate table + optional session step.** New `usual_items` table (like `staples`, but not ingredient-linked); offered as an optional pre/post-checklist step. User selects which items to add to this session's list.
+2. **Separate table + always-offered.** Same table, but offered on every session (or every N sessions on a cadence).
+3. **Fold into `staples` logic.** Reuse `staples` with an added `is_recipe_ingredient` flag; surface "the usuals" when requested, separately from recipe-triggered staples.
+4. **Manual only.** Skip the feature entirely; user adds these items directly to AnyList when needed. Simpler, lower scope, acceptable if the household prefers it.
+
+**A sub-questions (if not option 4):**
+- **Cadence:** Every session, weekly, monthly, user-selectable, or user manual-trigger?
+- **UI integration:** Part of the existing checklist flow, or a separate optional screen?
+
+**Context:** Raised 2026-09-05 during user testing — the household does buy recurring items that don't fit recipes. It's a distinct workflow from recipe staples. Currently undesigned.
+
+**Expected outcome:** Decision on which option + cadence/UI integration details. Implementation lands in Phase 5 (or defer further if option 4).
+
+---
+
+#### "Substitution flagging" review step (Before Phase 3 AI extraction)
+
+**Q:** What is "ingredient substitution flagging," and does it exist as a real feature that Phase 3's extraction prompt should reuse?
+
+**A options:**
+1. **It exists.** There's a prior review UI for suggesting/flagging ingredient substitutions (e.g. "can't find beef mince, how about chicken?" or "too expensive, try budget option?"). Phase 3 should reuse that same review step for section suggestions.
+2. **It doesn't exist.** The Shop Layout addendum reference was a mistaken cross-reference. Phase 3 should just build a fresh ingredient + section review UI, no substitution flagging.
+3. **Future feature.** It's not built yet, but worth designing alongside Phase 3 so both reviews can share a common pattern.
+
+**Context:** The Shop Layout addendum assumes this feature exists as prior context for reusing its review UI, but it's not specified anywhere else in CLAUDE.md. Needs clarification before the Phase 3 extraction prompt is written (see [Recipe Capture](#recipe-capture--ai-extraction)).
+
+**Expected outcome:** Clarification + Phase 3 prompt updated accordingly (or substitution-flagging designed as a separate small feature alongside Phase 3).
+
+---
+
+#### Shared basic-auth on API routes (Optional, any phase)
+
+**Q:** Should we add a simple shared password on `/api/v1/*` endpoints as a cheap barrier against other LAN devices?
+
+**A options:**
+1. Yes, add it now (before the app goes into regular use). Single shared password in `.env`, checked on every request.
+2. Skip it. CORS scoping + the local-network-only design is sufficient. If a real threat emerges, add it then.
+3. Add it only if the household is on a shared WiFi (dorm, apartment) where untrusted devices are common. Skip if it's a trusted home network only.
+
+**Context:** See [Security](#security) §4. Not required for the current trust level, but cheap insurance if the NUC will be on a shared WiFi. The maintainer's trust level should be the deciding factor.
+
+**Expected outcome:** Decision documented in [Security](#security) §4, and if adopted, implementation in `app/main.py` + .env template update.
+
+---
+
+#### Home tab content (No later than Phase 6 polish)
+
+**Q:** What should the home screen actually show? (Currently just a Phase 1 stub: "Phase 1 foundation is running...")
+
+**A options:**
+1. **Recent sessions.** List of the last 5–10 planning sessions, tappable to resume/view. Quick action buttons for "New session", "New recipe".
+2. **Current status snapshot.** Summary of active session (if any) + last pushed list date + quick access to settings/diagnostics.
+3. **Quick actions only.** Large tappable buttons: "New session", "Browse recipes", "View diagnostics". Minimal, uncluttered.
+4. **Activity feed.** Show recent session events + pushed items + recipe captures. More informative but more complex.
+
+**Context:** Flagged 2026-09-05 during user testing — the home screen was never actually designed, just left as a nav placeholder. By Phase 6 polish, it needs a real purpose.
+
+**Expected outcome:** Decision on layout + content. Update `static/js/home.js` (or rename if the current file gets repurposed) + `static/index.html` navigation accordingly.
+
+---
+
+#### Settings list re-render scroll position (Fix before Phase 6)
+
+**Q:** How should we preserve scroll position when the settings list refreshes after Save/Delete?
+
+**A options:**
+1. **In-place DOM updates.** When saving/deleting a row, update or remove just that element (DOM manipulation) instead of rebuilding the whole list. Preserves scroll + faster visual feedback.
+2. **Scroll restoration.** Keep the full re-render, but save `window.scrollY` before it, then restore after. Simpler to implement, still preserves user's reading position.
+3. **Pagination/virtual scroll.** Split the lists into pages or lazy-load rows. Overkill for the expected list size, but clean long-term.
+
+**Context:** Currently `static/js/settings.js`'s `load()` does `innerHTML = ""` + re-append on every Save/Delete, resetting scroll to top. Noticeable and frustrating once a list has more than ~10 rows. Flagged 2026-09-05, not yet fixed.
+
+**Expected outcome:** Fix implemented + verified with a ~20-row staples/product-units list. Option 1 preferred (UX + performance), but option 2 is fine if easier.
+
+---
+
+#### "Suggest something" — recency/variety logic + UI (Phase TBD — bring forward?)
+
+**Q:** When should we implement the "suggest a recipe" feature, and what algorithm should it use?
+
+**A options:**
+1. Phase 4 (with planning sessions). Surface via a button in the session view; suggest the least-recently-made, highest-rated recipe that hasn't been used in this session yet.
+2. Phase 5 or later. Not critical for end-to-end flow; defer until core features are solid.
+3. Skip for now. The library browse is enough; let the user pick recipes manually.
+
+**Context:** Schema prep is done (Phase 1: `cuisine`/`protein`/`rating`/`times_made`/`last_made_at` on `recipes`). The feature logic isn't designed yet. If brought forward, it's a small service function + one UI button.
+
+**Expected outcome:** Decision on phase + signal algorithm (recency, variety, rating, user preference input, etc.). Implement accordingly when that phase arrives.
+
+---
+
+#### Section vocabulary — final list (Before Phase 6 store-setup UI)
+
+**Q:** Is the starter section vocabulary in `SECTION_VOCABULARY` correct for your actual grocery stores, or does it need adjustments?
+
+**A options:**
+1. Use as-is. The list (`produce, dairy, meat & seafood, bakery, frozen, pantry, household, deli, drinks, other`) matches real stores.
+2. Adjust the list. Add/remove/rename sections to match your specific stores better before building the Phase 6 UI.
+
+**Context:** The list is provisional (seeded in Phase 1, `app/seed_data.py`). It's a dropdown vocabulary for the Phase 6 store-setup UI, so it should match actual store layouts before that UI is built. Not a big change, but easier to do now than to rework later.
+
+**Expected outcome:** Confirmed/updated `SECTION_VOCABULARY` in `app/seed_data.py` before Phase 6 store-setup UI is built.
 
 ---
 

@@ -93,16 +93,19 @@ def commit_and_push() -> None:
         logger.warning("Backup: no 'origin' remote configured yet - commit created locally only.")
         return
 
-    # This repo/branch also receives code pushes from the dev PC (see deploy.bat /
-    # update.bat and DEPLOY.md). Rebase the backup commit onto the latest origin state
-    # first, so an out-of-date NUC checkout doesn't turn every backup into a failed,
-    # un-pushed push that then piles up.
+    # This same branch (normally `production` - see CLAUDE.md > Deferred Decisions > Git
+    # branching strategy and DEPLOY.md) also receives fast-forwards from the dev PC's
+    # `develop` branch via deploy.bat/update.bat. Rebase the backup commit onto the latest
+    # origin state first, so an out-of-date NUC checkout doesn't turn every backup into a
+    # failed, un-pushed push that then piles up. Reads the branch dynamically (whatever HEAD
+    # actually is) rather than hardcoding "production", so this keeps working unmodified if
+    # that ever changes again.
     fetch_ok, fetch_out = run_git(BASE_DIR, "fetch", "origin")
     if not fetch_ok:
         logger.warning("Backup: git fetch failed, will still try to push as-is: %s", fetch_out)
     else:
         branch_ok, branch_out = run_git(BASE_DIR, "symbolic-ref", "--short", "HEAD")
-        branch = branch_out.strip() if branch_ok else "main"
+        branch = branch_out.strip() if branch_ok else "production"
         rebase_ok, rebase_out = run_git(BASE_DIR, "rebase", f"origin/{branch}")
         if not rebase_ok:
             run_git(BASE_DIR, "rebase", "--abort")

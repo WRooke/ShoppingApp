@@ -5,7 +5,8 @@
 .DESCRIPTION
     Automates everything about NUC setup that CAN safely be automated:
       1. Installs Python and Git (via winget) if not already present.
-      2. Clones the app repo (or leaves it alone if already cloned).
+      2. Clones the app repo onto the `production` branch (or leaves it alone if already
+         cloned) - see DEPLOY.md for why the NUC runs a different branch than the dev PC.
       3. Scaffolds .env from .env.example and pauses for you to fill in real values.
       4. Adds a Windows Firewall rule scoped to your actual LAN subnet (auto-detected).
       5. Starts the server once and confirms the health check responds.
@@ -105,6 +106,20 @@ if (Test-Path (Join-Path $InstallPath ".git")) {
     Write-Host "  (This is a private repo - a Git sign-in prompt/browser window is expected here.)" -ForegroundColor Yellow
     git clone $RepoUrl $InstallPath
     Write-Ok "Cloned."
+
+    # The NUC always runs `production`, never whichever branch happens to be the repo's
+    # default (see CLAUDE.md > Deferred Decisions > Git branching strategy and DEPLOY.md) -
+    # scripts/update.py enforces this on every run, but check it here too so the very first
+    # update.bat doesn't fail on something this script could have gotten right immediately.
+    Push-Location $InstallPath
+    git checkout production 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "Cloned, but couldn't check out 'production' - does that branch exist on origin yet? See DEPLOY.md > One-time setup step 2."
+        Pop-Location
+        exit 1
+    }
+    Write-Ok "Checked out 'production'."
+    Pop-Location
 }
 
 Set-Location $InstallPath
