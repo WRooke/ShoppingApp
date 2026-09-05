@@ -173,6 +173,96 @@ each component is added.
 
 ---
 
+## Code Architecture & Maintainability
+
+This is a first-class requirement, same standing as [Diagnostics & Logging](#diagnostics--logging)
+above — not a nice-to-have for "later, if there's time." The app is built incrementally over six
+phases by a mix of Will and Claude Code across many separate sessions, months apart in places.
+The thing that makes that safe is a codebase where each file has one obvious job, dependencies
+only point one direction, and a session that has only read this file plus the two or three files
+it's touching has enough context to make a correct change — without having to re-read or
+re-understand the whole app first. Optimise for that over cleverness or brevity everywhere below.
+
+### Layering — dependencies point one way only
+```
+routers/  →  services/  →  models/ + database.py
+static/js/[feature].js  →  static/js/api.js  →  backend routers/
+```
+- **`routers/`** — HTTP only. Parse the request, call one (or a couple of) `services/` function(s),
+  wrap the result in the `{"ok": ...}` envelope (see [API Conventions](#api-conventions)). No
+  business logic, no query construction beyond a simple lookup-by-id, no direct AnyList/Claude
+  SDK calls. If a route handler is doing anything a unit test would want to exercise without
+  spinning up FastAPI, that logic belongs in `services/` instead.
+- **`services/`** — all business logic, as plain Python. No `fastapi` import in this directory,
+  ever. Where possible (`scaling.py`, `consolidation.py`, `purchase_units.py` in particular —
+  these carry the highest risk of subtle bugs per [Scaling Logic](#scaling-logic)), functions
+  take plain data in and return plain data out, so they can be unit-tested with no DB and no
+  network. `claude_client.py` and `anylist_client.py` are the exception in kind: they *do* talk
+  to the outside world, which is exactly why §"External integrations" below applies to them.
+- **`models/`** — SQLAlchemy ORM only, already split one file per table group. Never imported by
+  `routers/` directly for anything beyond type hints — routers go through `services/`.
+- **`schemas/`** (new — add alongside `models/`, one file per feature area matching `routers/`) —
+  Pydantic request/response models. These are the API's actual contract and are kept separate
+  from the ORM models in `models/` on purpose: an internal column can be renamed, split, or
+  soft-deleted without every response shape changing, and vice versa. Routers import from
+  `schemas/`, never expose a raw SQLAlchemy object as a response body.
+- Frontend mirrors the same discipline: one `static/js/[feature].js` file per feature area
+  (already the plan), all of them going through `api.js` for HTTP rather than calling `fetch`
+  directly, and none of them reaching into another feature file's DOM or in-memory state.
+  `router.js` is the only file that knows hash routes exist.
+
+### External integrations sit behind a small, stable interface
+The AnyList connector already has a live fork point baked into the plan — Python-native now,
+Node-microservice fallback possible at Phase 5 (see [Tech Stack](#tech-stack) and
+[AnyList — derisking spike](#anylist--derisking-spike)) — which is a concrete example of why this
+rule exists, not a hypothetical. `services/anylist_client.py` and `services/claude_client.py` must
+each expose a small function/class surface (e.g. `get_items()`, `add_item()`,
+`extract_ingredients()`) that the rest of the app codes against. If the AnyList implementation
+underneath ever swaps from native calls to the Node microservice, that swap is a rewrite of one
+file's internals, not a hunt through every router and service that happens to need shopping-list
+data. The same applies to anything else with an external dependency added later.
+
+### Tests — pytest, `tests/` mirroring `app/`
+- `services/` functions get unit tests with no DB and no network — these are cheap to write
+  because the layering rule above keeps them pure, and they're what catches a scaling/rounding
+  regression before it reaches a real shopping list.
+- Each router gets at least a smoke test (happy path + one error path) once it has real logic
+  behind it — a Build Phase isn't done when it's manually clicked through once, it's done when
+  its own tests pass, matching the "build and verify each phase" rule already in
+  [Build Phases](#build-phases).
+- Claude API and AnyList calls are mocked in tests. Automated tests never hit the real network or
+  spend real API budget — that's what the Phase 1.5 spike and manual verification are for.
+- `pytest` is a dev dependency from Phase 2 onward (the first phase with real logic to test);
+  add it to `requirements.txt` when that work starts, not before.
+
+### File size and scope discipline
+- One feature or table group per file, as the directory structure already lays out. A file
+  pushing past roughly 300–400 lines is a signal to split it by sub-feature, not a size to grow
+  toward.
+- A new feature is a new file/function, not a new conditional branch bolted onto an existing one.
+  Concrete example already on the books: the Phase 4 leftovers slot type
+  (see [`session_recipes`](#session_recipes)) should land as its own small piece of logic in
+  `services/`, not as a growing pile of `if slot_type == ...` checks inside whatever else is
+  already in `sessions.py`.
+
+### Migrations
+- Alembic from Phase 2 onward, as already stated in [Data Model](#data-model). Once Alembic is in
+  use, every schema change ships as a migration — never a hand-edited table or a reliance on
+  `create_all()` picking up the difference — so the schema's history stays reconstructable from
+  the migration chain alone, independent of this document.
+
+### Keep this document and the code pointing at each other
+- Keep doing what Phase 1 already does: a docstring or comment that names the relevant CLAUDE.md
+  section (e.g. "see CLAUDE.md > Data Model") wherever code exists *because* of a decision made
+  here, not something derivable from the code alone.
+- If building something surfaces a gap, contradiction, or a decision that turns out to not fit
+  reality, that gets folded back into this file (per the existing norm in
+  [How to Use This File in Claude Code](#how-to-use-this-file-in-claude-code)) rather than left
+  as a code comment only this session can see. A comment explains the code; this file is what the
+  next session — human or Claude — reads first.
+
+---
+
 ## Data Model
 
 All tables use SQLite via SQLAlchemy. Use Alembic for migrations from Phase 2 onward — Phase 1
@@ -819,6 +909,9 @@ ShoppingApp/
 │   ├── database.py            ← SQLAlchemy engine + session factory
 │   ├── models/                ← SQLAlchemy ORM models (one file per table group)
 │   │   └── store.py           ← stores, store_sections, product_sections
+│   ├── schemas/                ← Pydantic request/response models (one file per feature area,
+│   │                              mirrors routers/ — kept separate from models/ on purpose, see
+│   │                              CLAUDE.md > Code Architecture & Maintainability)
 │   ├── routers/                ← FastAPI routers (one file per feature area)
 │   │   ├── recipes.py
 │   │   ├── sessions.py
@@ -842,6 +935,9 @@ ShoppingApp/
 │   ├── deploy.py                ← dev PC: tag + push a release (see DEPLOY.md)
 │   ├── update.py                ← NUC: pull + reinstall deps ahead of a restart (see DEPLOY.md)
 │   └── git_utils.py             ← shared subprocess helper used by the three scripts above
+├── tests/                      ← pytest, mirrors app/ structure (services/ unit tests with no
+│                                  DB/network, routers/ smoke tests) — see CLAUDE.md > Code
+│                                  Architecture & Maintainability. Added from Phase 2 onward.
 ├── static/                    ← frontend assets
 │   ├── index.html
 │   ├── css/

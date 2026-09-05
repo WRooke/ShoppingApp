@@ -6,3 +6,8 @@ fastapi>=0.115.0
 uvicorn>=0.30.0
 SQLAlchemy>=2.0.35
 python-dotenv>=1.0.1
+
+# Dev/test — see CLAUDE.md > Code Architecture & Maintainability. Added ahead of Phase 2
+# so the tests/ convention exists from the first real business logic, not retrofitted later.
+pytest>=8.3.0
+httpx>=0.27.0  # required by fastapi.testclient.TestClient
