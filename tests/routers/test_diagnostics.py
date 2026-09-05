@@ -11,9 +11,34 @@ real AnyList credentials from the Phase 1.5 spike) — and check shape/invariant
 
 from __future__ import annotations
 
+from app.config import settings
 from app.database import SessionLocal
 from app.models.diagnostics import ApiUsage
 from app.services.api_usage import get_spend_cap_usd_cents
+
+
+def test_status_reports_disabled_by_default(client, monkeypatch):
+    monkeypatch.setattr(settings, "claude_api_enabled", False)
+    monkeypatch.setattr(settings, "claude_api_fake_mode", False)
+
+    resp = client.get("/api/v1/diagnostics/status")
+    data = resp.json()["data"]["claude_api"]
+
+    assert data["api_enabled"] is False
+    assert data["fake_mode"] is False
+    assert data["state"] == "grey"
+    assert "Disabled" in data["message"]
+
+
+def test_status_reports_fake_mode(client, monkeypatch):
+    monkeypatch.setattr(settings, "claude_api_fake_mode", True)
+
+    resp = client.get("/api/v1/diagnostics/status")
+    data = resp.json()["data"]["claude_api"]
+
+    assert data["fake_mode"] is True
+    assert data["state"] == "amber"
+    assert "FAKE MODE" in data["message"]
 
 
 def test_status_reports_spend_cap_reached_as_red(client):
@@ -62,18 +87,23 @@ def test_status_reports_ok_envelope_and_component_shapes(client):
     assert data["database"]["state"] == "green"
 
     # No api_usage rows exist in a fresh test DB, so Claude's indicator can't be green
-    # yet — it's either grey (no key) or amber (key present, no calls made).
+    # yet — grey (disabled or no key) or amber (fake mode, or key present + enabled but no
+    # calls made) depending on this machine's .env.
     assert data["claude_api"]["state"] in ("grey", "amber")
     assert data["claude_api"]["total_input_tokens"] == 0
     assert data["claude_api"]["total_output_tokens"] == 0
     assert data["claude_api"]["estimated_spend_usd"] == 0.0
 
-    # Spend-cap fields (CLAUDE.md > Security > API Spend Cap) must always be present and
-    # sane, regardless of whether any calls have been made yet.
+    # Spend-cap fields (CLAUDE.md > Security > §0b) must always be present and sane,
+    # regardless of whether any calls have been made yet.
     assert data["claude_api"]["spend_cap_reached"] is False
     assert data["claude_api"]["spend_cap_aud_cents"] > 0
     assert data["claude_api"]["spend_cap_usd_cents"] > 0
     assert data["claude_api"]["remaining_usd_cents"] == data["claude_api"]["spend_cap_usd_cents"]
+
+    # Enable-switch and fake-mode fields (CLAUDE.md > Security > §0c) must always be present.
+    assert isinstance(data["claude_api"]["api_enabled"], bool)
+    assert isinstance(data["claude_api"]["fake_mode"], bool)
 
     assert data["anylist"]["state"] in ("grey", "amber")
 

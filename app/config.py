@@ -57,6 +57,17 @@ class Settings:
         # mechanism, not something the app or an agent session does for itself.
         self.max_api_spend_aud_cents: float = float(os.getenv("MAX_API_SPEND_AUD_CENTS", "50"))
 
+        # Second, independent gate on top of the spend cap above — see CLAUDE.md > Security
+        # > §0c. Defaults OFF: a real Claude call is refused even with a valid key and budget
+        # remaining unless this is explicitly set to true. Claude Code must never flip this
+        # to true in .env on its own initiative — same standing rule as the spend cap.
+        self.claude_api_enabled: bool = self._as_bool(os.getenv("CLAUDE_API_ENABLED", "false"))
+
+        # Dev-only escape hatch that bypasses both gates above entirely by never calling the
+        # real API at all — see CLAUDE.md > Security > §0c. When true, extract_ingredients()
+        # returns a canned fixture, zero cost, zero network. Must never be true on the NUC.
+        self.claude_api_fake_mode: bool = self._as_bool(os.getenv("CLAUDE_API_FAKE_MODE", "false"))
+
         self.database_path: str = _resolve(os.getenv("DATABASE_PATH", "data/mealplanner.db"))
         self.images_path: str = _resolve(os.getenv("IMAGES_PATH", "images"))
         self.logs_path: str = _resolve(os.getenv("LOGS_PATH", "logs"))
@@ -67,6 +78,13 @@ class Settings:
     def _is_real(value: str) -> bool:
         """True when a secret looks filled in rather than a placeholder."""
         return bool(value) and "REPLACE_ME" not in value
+
+    @staticmethod
+    def _as_bool(value: str) -> bool:
+        """Parses an env var as a boolean. Deliberately narrow — only these exact strings
+        count as true — so a typo in .env fails safe (reads as false) rather than silently
+        enabling a highest-priority gate (see CLAUDE.md > Security > §0c)."""
+        return value.strip().lower() in ("1", "true", "yes", "on")
 
     @property
     def anthropic_configured(self) -> bool:
@@ -89,6 +107,8 @@ class Settings:
             "anthropic_api_key_configured": self.anthropic_configured,
             "anylist_credentials_configured": self.anylist_configured,
             "max_api_spend_aud_cents": self.max_api_spend_aud_cents,
+            "claude_api_enabled": self.claude_api_enabled,
+            "claude_api_fake_mode": self.claude_api_fake_mode,
         }
 
 

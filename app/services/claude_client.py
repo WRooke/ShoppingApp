@@ -7,27 +7,34 @@ integration ever needs to change (different model, different provider) that's a 
 this one file, not a hunt through every router/service that captures a recipe. No `fastapi`
 import here — this module is plain Python, per the same section.
 
-Two highest-priority standing rules govern this module (see CLAUDE.md > Security > API Spend
-Cap and > Prompt Injection Hardening — both take precedence over every other design concern
-here, including the "no DB" purity `services/` modules otherwise aim for):
+Three highest-priority standing rules govern this module (see CLAUDE.md > Security §0a/§0b/§0c
+— all three take precedence over every other design concern here, including the "no DB"
+purity `services/` modules otherwise aim for):
 
-1. **Spend cap.** `extract_ingredients()` takes a DB session and a call_type specifically so
-   it can call `api_usage.enforce_spend_cap()` before every billable request and
-   `api_usage.log_api_usage()` immediately after — logging happens inside this function, not
-   left to the caller, so a real API call can never go unrecorded even if a caller forgets.
-2. **Prompt injection.** Recipe text/images passed in here originate from an untrusted
-   external source (a scraped webpage, a photographed cookbook page) — see
-   CLAUDE.md > Security §4. The system prompt explicitly tells Claude to treat that content
-   as inert data, the untrusted content is wrapped in an explicit delimiter so it can never be
-   mistaken for an instruction, input length is capped (bounds both injection payload size and
-   worst-case cost), and the parsed response is validated against a strict allow-list
-   (`suggested_section`) and expected types rather than trusted as-is.
+1. **Spend cap (§0b).** `extract_ingredients()` takes a DB session and a call_type
+   specifically so it can call `api_usage.enforce_spend_cap()` before every billable request
+   and `api_usage.log_api_usage()` immediately after — logging happens inside this function,
+   not left to the caller, so a real API call can never go unrecorded even if a caller forgets.
+2. **Enable switch + fake mode (§0c).** A real call additionally requires
+   `settings.claude_api_enabled` — off by default, independent of the spend cap, so a real
+   call needs both budget *and* an explicit "yes, use it". `settings.claude_api_fake_mode`
+   bypasses both gates entirely by never calling the real API at all, returning a canned
+   fixture instead — see `_FAKE_FIXTURES` below. This is what lets Chunks 3.2-3.5 be built and
+   manually verified with zero API key and zero cost.
+3. **Prompt injection (§0a).** Recipe text/images passed in here originate from an untrusted
+   external source (a scraped webpage, a photographed cookbook page). The system prompt
+   explicitly tells Claude to treat that content as inert data, the untrusted content is
+   wrapped in an explicit delimiter so it can never be mistaken for an instruction, input
+   length is capped (bounds both injection payload size and worst-case cost), and the parsed
+   response is validated against a strict allow-list (`suggested_section`) and expected types
+   rather than trusted as-is.
 
 See CLAUDE.md > Recipe Capture — AI Extraction for the extraction prompt spec.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -129,6 +136,77 @@ class ClaudeExtractionError(Exception):
     {"ok": false, "error": ...} envelope — see CLAUDE.md > API Conventions."""
 
 
+class ClaudeApiDisabledError(Exception):
+    """Raised instead of ever calling the real API when settings.claude_api_enabled is False
+    (the default). See CLAUDE.md > Security > §0c — this is a deliberate, explicit "yes, use
+    it" gate independent of the spend cap; a configured key and remaining budget are not
+    enough on their own. Fixed by the maintainer setting CLAUDE_API_ENABLED=true in .env —
+    never by an agent session editing that value itself."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Claude API calls are disabled (CLAUDE_API_ENABLED is not 'true' in .env). "
+            "This is a deliberate default — see CLAUDE.md > Security > §0c."
+        )
+
+
+# --- fake mode: canned fixtures, no network, no cost, no key required ------------------
+#
+# Three generic recipes (no PII) so manual click-through testing of the capture/review flow
+# during Chunks 3.2-3.5 sees some variety rather than the exact same result every time (see
+# CLAUDE.md > Security > §0c). Selection is a stable hash of the input, not random — the same
+# input always produces the same fixture, which is what you want when re-testing a specific
+# case, but different inputs naturally land on different fixtures.
+_FAKE_FIXTURES: list[dict] = [
+    {
+        "_label": "weeknight beef tacos",
+        "cuisine": "mexican",
+        "protein": "beef mince",
+        "ingredients": [
+            {"name": "beef mince", "quantity": 500.0, "unit": "g", "preparation": None, "original_text": "500g beef mince", "suggested_section": "meat & seafood"},
+            {"name": "onion", "quantity": 1.0, "unit": None, "preparation": "finely diced", "original_text": "1 onion, finely diced", "suggested_section": "produce"},
+            {"name": "garlic", "quantity": 2.0, "unit": None, "preparation": "crushed", "original_text": "2 cloves garlic, crushed", "suggested_section": "produce"},
+            {"name": "diced tomatoes", "quantity": 400.0, "unit": "g", "preparation": None, "original_text": "400g canned diced tomatoes", "suggested_section": "pantry"},
+            {"name": "tortillas", "quantity": 8.0, "unit": None, "preparation": None, "original_text": "8 small tortillas", "suggested_section": "bakery"},
+            {"name": "avocado", "quantity": 1.0, "unit": None, "preparation": None, "original_text": "1 avocado", "suggested_section": "produce"},
+        ],
+    },
+    {
+        "_label": "veggie stir fry",
+        "cuisine": "chinese",
+        "protein": "tofu",
+        "ingredients": [
+            {"name": "tofu", "quantity": 300.0, "unit": "g", "preparation": "cubed", "original_text": "300g firm tofu, cubed", "suggested_section": "deli"},
+            {"name": "broccoli", "quantity": 1.0, "unit": None, "preparation": "cut into florets", "original_text": "1 head broccoli, cut into florets", "suggested_section": "produce"},
+            {"name": "capsicum", "quantity": 1.0, "unit": None, "preparation": "sliced", "original_text": "1 capsicum, sliced", "suggested_section": "produce"},
+            {"name": "soy sauce", "quantity": 3.0, "unit": "tbsp", "preparation": None, "original_text": "3 tbsp soy sauce", "suggested_section": "pantry"},
+            {"name": "ginger", "quantity": 1.0, "unit": "tbsp", "preparation": "grated", "original_text": "1 tbsp grated ginger", "suggested_section": "produce"},
+            {"name": "basmati rice", "quantity": 300.0, "unit": "g", "preparation": None, "original_text": "300g rice", "suggested_section": "pantry"},
+        ],
+    },
+    {
+        "_label": "creamy mushroom pasta",
+        "cuisine": "italian",
+        "protein": None,
+        "ingredients": [
+            {"name": "pasta", "quantity": 400.0, "unit": "g", "preparation": None, "original_text": "400g pasta", "suggested_section": "pantry"},
+            {"name": "mushrooms", "quantity": 300.0, "unit": "g", "preparation": "sliced", "original_text": "300g mushrooms, sliced", "suggested_section": "produce"},
+            {"name": "cream", "quantity": 300.0, "unit": "ml", "preparation": None, "original_text": "300ml cream", "suggested_section": "dairy"},
+            {"name": "garlic", "quantity": 3.0, "unit": None, "preparation": "crushed", "original_text": "3 cloves garlic, crushed", "suggested_section": "produce"},
+            {"name": "parmesan", "quantity": 50.0, "unit": "g", "preparation": "grated", "original_text": "50g parmesan, grated", "suggested_section": "dairy"},
+            {"name": "spinach", "quantity": 100.0, "unit": "g", "preparation": None, "original_text": "100g baby spinach", "suggested_section": "produce"},
+        ],
+    },
+]
+
+
+def _pick_fake_fixture(seed_material: str) -> dict:
+    """Deterministic (not random) so the same input always returns the same fixture across
+    repeated manual test runs — see the fake-mode note above."""
+    digest = hashlib.sha256(seed_material.encode("utf-8")).hexdigest()
+    return _FAKE_FIXTURES[int(digest, 16) % len(_FAKE_FIXTURES)]
+
+
 def _strip_code_fence(raw_text: str) -> str:
     """Claude is instructed to return bare JSON, but strip a ```json fence defensively in
     case it wraps the response anyway — cheap insurance, not a sign we expect it to happen."""
@@ -186,12 +264,37 @@ def extract_ingredients(
     the spend cap before calling out and log real usage immediately after — see the module
     docstring for why that lives here rather than in the caller.
 
-    Raises SpendCapExceededError before ever calling out, if the worst-case cost of this call
-    would breach the maintainer's cap (see CLAUDE.md > Security > API Spend Cap). Raises
-    ClaudeExtractionError for any other failure — network, API, or unparseable response.
+    Gate order (see CLAUDE.md > Security §0b/§0c): fake mode bypasses everything below and
+    returns a canned fixture (no DB writes, no cost, no key needed) — checked first since it's
+    meant to work with none of the real infrastructure in place. Otherwise: the enable switch
+    is checked (raises ClaudeApiDisabledError if off), then the spend cap (raises
+    SpendCapExceededError before ever calling out if the worst-case cost of this call would
+    breach the maintainer's cap), then the real call. Raises ClaudeExtractionError for any
+    other failure — network, API, or unparseable response.
     """
     if not text and not image_base64:
         raise ValueError("extract_ingredients requires text and/or image_base64")
+
+    mode = "photo" if image_base64 else "url"
+
+    if settings.claude_api_fake_mode:
+        fixture = _pick_fake_fixture(text or image_base64 or "")
+        logger.info(
+            "Claude extraction: FAKE MODE (CLAUDE_API_FAKE_MODE=true) — returning canned "
+            "fixture %r, mode=%s, no real API call made, no cost incurred",
+            fixture["_label"],
+            mode,
+        )
+        cuisine, protein, ingredients = _parse_extraction(json.dumps(fixture))
+        return ExtractionResult(
+            cuisine=cuisine, protein=protein, ingredients=ingredients, input_tokens=0, output_tokens=0
+        )
+
+    if not settings.claude_api_enabled:
+        logger.warning(
+            "Claude extraction refused: CLAUDE_API_ENABLED is not 'true' (mode=%s)", mode
+        )
+        raise ClaudeApiDisabledError()
 
     if text and len(text) > MAX_INPUT_TEXT_CHARS:
         logger.warning(
@@ -200,8 +303,6 @@ def extract_ingredients(
             MAX_INPUT_TEXT_CHARS,
         )
         text = text[:MAX_INPUT_TEXT_CHARS]
-
-    mode = "photo" if image_base64 else "url"
 
     api_usage.enforce_spend_cap(
         db,

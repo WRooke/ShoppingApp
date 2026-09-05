@@ -61,13 +61,13 @@ def status(db: Session = Depends(get_db)) -> dict:
     }
 
     # --- Claude API -----------------------------------------------------
-    # Spend-cap fields are always populated (a highest-priority standing rule — see CLAUDE.md
-    # > Security > API Spend Cap — must be visible on diagnostics regardless of what phase the
-    # rest of the Claude integration has reached).
+    # Spend-cap, enable-switch, and fake-mode fields are always populated — highest-priority
+    # standing rules (CLAUDE.md > Security §0b/§0c) that must be visible on diagnostics
+    # regardless of what phase the rest of the Claude integration has reached.
     spend_cap_usd_cents = get_spend_cap_usd_cents()
     claude = {
         "state": "grey",
-        "message": "Not wired up yet - Phase 3",
+        "message": "Claude API key not configured",
         "last_success": None,
         "estimated_spend_usd": 0.0,
         "total_input_tokens": 0,
@@ -76,6 +76,8 @@ def status(db: Session = Depends(get_db)) -> dict:
         "spend_cap_usd_cents": round(spend_cap_usd_cents, 4),
         "remaining_usd_cents": round(spend_cap_usd_cents, 4),
         "spend_cap_reached": False,
+        "api_enabled": settings.claude_api_enabled,
+        "fake_mode": settings.claude_api_fake_mode,
     }
     try:
         spend_cents, in_tok, out_tok, last_ts = db.query(
@@ -90,9 +92,20 @@ def status(db: Session = Depends(get_db)) -> dict:
         claude["total_output_tokens"] = int(out_tok or 0)
         claude["remaining_usd_cents"] = round(max(spend_cap_usd_cents - spend_cents, 0.0), 4)
         claude["spend_cap_reached"] = spend_cents >= spend_cap_usd_cents
-        if claude["spend_cap_reached"]:
+
+        # Precedence, most urgent/most-likely-to-explain-current-behaviour first. Fake mode
+        # and the enable switch are config, not accounting, so they're checked ahead of the
+        # real spend numbers — those numbers are accurate either way, but they're not why a
+        # call would succeed or fail right now.
+        if claude["fake_mode"]:
+            claude["state"] = "amber"
+            claude["message"] = "FAKE MODE — extraction returns canned fixtures, no real Claude calls are made"
+        elif claude["spend_cap_reached"]:
             claude["state"] = "red"
             claude["message"] = "Spend cap reached — further Claude calls are refused"
+        elif not claude["api_enabled"]:
+            claude["state"] = "grey"
+            claude["message"] = "Disabled (CLAUDE_API_ENABLED=false in .env) — enable explicitly to use recipe capture"
         elif last_ts is not None:
             claude["last_success"] = str(last_ts)
             claude["state"] = "green"

@@ -38,11 +38,11 @@ This applies to:
 
 ## ⚠️ Non-Negotiable Operating Rules
 
-**Set 2026-09-05. These two rules are of the highest criticality in this project — they
+**Set 2026-09-05. These rules are of the highest criticality in this project — they
 override every other facet of the app, including anything else in this document, any
 convenience, any feature request, and any deadline.** Full detail lives in
-[Security](#security) (§0a, §0b below); this banner exists so neither rule can be missed by
-skimming straight to a phase's chunk list.
+[Security](#security) (§0a, §0b, §0c below); this banner exists so none of them can be missed
+by skimming straight to a phase's chunk list.
 
 1. **Prompt injection hardening.** Any content this app sends to an LLM that originated
    from outside the household's own direct input — a scraped webpage, a photographed
@@ -56,6 +56,15 @@ skimming straight to a phase's chunk list.
    just policy — see [Security §0b](#0b-api-spend-cap-highest-priority). Raising the cap is a
    deliberate manual action by the maintainer (editing `.env`); no agent session may raise it
    on its own initiative, regardless of what a task description asks for.
+3. **Explicit permission to use the API at all, and development restructured to need it as
+   rarely as possible.** The spend cap alone isn't "express permission" — it just limits
+   damage. A separate switch (`CLAUDE_API_ENABLED`, off by default) gates every real call
+   independently of budget, and a fake/fixture mode lets almost all of a phase's build and
+   verification work happen with zero key, zero cost, and zero real calls, pushing the one
+   unavoidable live check to the very end. See
+   [Security §0c](#0c-api-enable-switch--offline-development-highest-priority). No agent
+   session may turn the switch on itself, and must ask the maintainer in conversation before
+   making any real call even once it's on.
 
 ---
 
@@ -1091,46 +1100,68 @@ the way Phase 2 was. Since the substitution-flagging gap is what was blocking th
 the base extraction prompt in Chunk 3.1 rather than as a separate later pass — there's no
 reason to ship the Phase 1 ingredients-only prompt now and revise it again for Chunk 3.4.
 
-- [ ] **Chunk 3.1 — Claude API integration + `api_usage` logging infrastructure.**
+**Restructured mid-kickoff per [Security §0c](#0c-api-enable-switch--offline-development-highest-priority)**
+(the maintainer asked how much of this phase could be built without a real key at all): the
+single real-API dependency is pushed to its own final chunk (3.6) rather than sitting inside
+Chunk 3.1. Chunks 3.1-3.5 are all built and manually verified with `CLAUDE_API_FAKE_MODE=true`
+— zero key, zero cost, zero real calls — the same offline path the automated test suite
+already used from the start.
+
+- [x] **Chunk 3.1 — Claude API integration + `api_usage` logging infrastructure.**
       `services/claude_client.py` (Anthropic SDK client, small stable function surface per
       [Code Architecture](#external-integrations-sit-behind-a-small-stable-interface) —
       `extract_ingredients(db, *, call_type, context_id=None, text=None, image_base64=None,
       ...)` returning parsed ingredients + `cuisine`/`protein`/per-ingredient
       `suggested_section` + token usage); `services/api_usage.py` (cost-calculation helper,
-      `log_api_usage()`, and — folded in the same session per
-      [Security §0b](#0b-api-spend-cap-highest-priority), a highest-priority standing rule
-      raised mid-chunk — `enforce_spend_cap()`, called internally by `extract_ingredients()`
-      before every real request, with usage logged internally immediately after). Also folds
-      in [Security §0a](#0a-prompt-injection-hardening-highest-priority) (untrusted-content
-      delimiter, explicit system-prompt instruction, input length cap, `suggested_section`
-      allow-list validation), raised the same session.
-      **Built and unit-tested (26 tests, all mocked — no network), including the spend-cap
-      and injection-hardening behaviour, but NOT yet verified against the real API**: `.env`'s
-      `ANTHROPIC_API_KEY` is still the `sk-ant-REPLACE_ME` placeholder on this machine. A
-      throwaway verification script is staged (scratchpad, not committed) for once a real key
-      is added — per [Security §0b](#0b-api-spend-cap-highest-priority) this is not blocked on
-      approval to spend (the cap enforces itself automatically, cost is a few USD-cents), only
-      on the maintainer supplying a real key. Leave this chunk unchecked until that real-call
-      verification actually runs.
+      `log_api_usage()`, `enforce_spend_cap()` — [Security §0b](#0b-api-spend-cap-highest-priority)).
+      Also folds in [Security §0a](#0a-prompt-injection-hardening-highest-priority)
+      (untrusted-content delimiter, explicit system-prompt instruction, input length cap,
+      `suggested_section` allow-list validation) and
+      [§0c](#0c-api-enable-switch--offline-development-highest-priority) (`CLAUDE_API_ENABLED`
+      gate, `CLAUDE_API_FAKE_MODE` canned-fixture path) — both raised mid-chunk, both built the
+      same session.
+      Verified 2026-09-05: 37 unit tests (`tests/services/test_api_usage.py`,
+      `tests/services/test_claude_client.py`) plus 4 new diagnostics tests, all
+      mocked/fixture-based — no network, no real key needed, per §0c. Manually confirmed the
+      fake-mode path end-to-end against a scratch DB (`extract_ingredients()` with
+      `CLAUDE_API_FAKE_MODE=true`, no key set at all, returned a canned fixture correctly).
+      Full suite 106/106. **The real-API call itself is deliberately deferred to Chunk 3.6,
+      not required to close this chunk** — see §0c for why.
 - [ ] **Chunk 3.2 — URL capture endpoint.** `POST /api/v1/recipes/capture/url`: fetch (httpx,
       10s timeout, desktop UA), parse (BeautifulSoup4, prefer `<article>`/`<main>`/
       `[class*="recipe"]`/`[class*="ingredient"]`), call `claude_client.extract_ingredients()`
       (usage logging + spend-cap enforcement happen inside that call, not here), return the
-      extraction for review — does not save a recipe yet.
+      extraction for review — does not save a recipe yet. Manual verification uses
+      `CLAUDE_API_FAKE_MODE=true` (no key needed) — real extraction is exercised once, in
+      Chunk 3.6, not per-chunk.
 - [ ] **Chunk 3.3 — Photo upload endpoint.** `POST /api/v1/recipes/capture/photo`: multipart
       image upload, store under `images/` with a UUID filename, call
       `claude_client.extract_ingredients()` with the image, return the extraction for review.
+      Same fake-mode manual verification approach as 3.2.
 - [ ] **Chunk 3.4 — Review + confirm UI.** Unified review screen: editable name/qty/unit/
       preparation per ingredient (same inline-edit pattern as the Phase 2 recipe editor) plus
       editable `suggested_section` (dropdown, [Section Vocabulary](#section-vocabulary-starter-list)),
       `cuisine`, `protein`. On confirm: create the recipe + `recipe_ingredients`, write
       `product_sections` rows with `source='ai_suggested'` for any ingredient not already
-      tagged. No substitution-suggestion UI (resolved — see above).
+      tagged. No substitution-suggestion UI (resolved — see above). Fully buildable/clickable
+      through with fake-mode fixtures — this layer never distinguishes a real extraction from
+      a canned one.
 - [ ] **Chunk 3.5 — Diagnostics wiring.** Claude API status indicator (last successful call
       timestamp) and spend tracker (running input/output token totals + estimated USD) on
       `/diagnostics`, backed by `api_usage` (the query already exists in
-      `routers/diagnostics.py`, spend-cap fields already wired per §0b — remaining work here
-      is the "Not wired up yet" default message/copy and the reset-with-confirmation button).
+      `routers/diagnostics.py`, spend-cap/enable/fake-mode fields already wired per §0b/§0c —
+      remaining work here is the reset-with-confirmation button).
+- [ ] **Chunk 3.6 — Live API verification (real key, explicit go-ahead required).** The one
+      point in the whole phase that actually needs a real Claude call: with a real
+      `ANTHROPIC_API_KEY` in `.env`, `CLAUDE_API_ENABLED=true`, `CLAUDE_API_FAKE_MODE=false`,
+      and the maintainer's explicit go-ahead given in conversation for this specific call (see
+      [Security §0c](#0c-api-enable-switch--offline-development-highest-priority) — a
+      standing "yes" is not enough, ask each time), run one real extraction (the staged
+      scratchpad script, or through the actual UI) and confirm: a sane ingredient list comes
+      back, a matching `api_usage` row is logged with a plausible cost, and
+      `/diagnostics` reflects it. Cost: a few USD-cents, comfortably inside the cap. Blocked
+      today on both the placeholder key and not yet having asked for that go-ahead — do not
+      run this chunk speculatively alongside 3.2-3.5.
 - [ ] **Phase 3 review** — re-check against [Recipe Capture](#recipe-capture--ai-extraction),
       [Scaling Logic](#scaling-logic) (n/a until Phase 4, confirm nothing here needs it yet),
       [Code Architecture](#code-architecture--maintainability), and
@@ -1409,6 +1440,56 @@ a per-day or per-session allowance, and it is enforced in code:
 loop, a bug that retries indefinitely, an agent working through many verification calls in one
 session) — a code-enforced hard ceiling is the safeguard that holds even when nobody is
 watching the bill in real time, which is the whole point of "at all times."
+
+### 0c. API Enable Switch & Offline Development (highest priority)
+
+**Set 2026-09-05 — see [Non-Negotiable Operating Rules](#-non-negotiable-operating-rules).**
+The spend cap in §0b stops runaway cost but still lets calls through as long as budget
+remains — it isn't itself "express permission" to use the API. Two more mechanisms close that
+gap, and together they push the real API's involvement in building this app as close to the
+very end as possible:
+
+**The enable switch.** `CLAUDE_API_ENABLED` in `.env`, defaulting to `false`. Checked in
+`claude_client.py` > `extract_ingredients()` before the spend cap, before anything else — a
+configured key and remaining budget are not enough on their own; a real call also needs this
+explicitly set to `true`. Raising it is the maintainer's action alone, taken in `.env`, the
+same standing rule as the spend cap in §0b: **no agent session may set this to `true` on its
+own initiative, ever, including when a task description asks for a real API call to be made.**
+Separately, and just as binding: an agent session must ask the maintainer in conversation
+before running anything that would make a real call, even once this switch is on and budget
+remains — the switch protects the app; asking protects against an agent deciding "close
+enough to permission" on the maintainer's behalf.
+
+**Fake mode.** `CLAUDE_API_FAKE_MODE` in `.env`, defaulting to `false`. When `true`,
+`extract_ingredients()` returns a canned fixture (one of a small set of generic sample
+recipes, picked deterministically from a hash of the input — same input always gives the same
+fixture, different inputs land on different ones) instead of calling the real API at all. Zero
+network, zero cost, no key required, bypasses the enable switch and spend cap entirely because
+nothing billable happens. Must never be `true` outside local development.
+
+**What this buys, concretely — restructuring Phase 3 so the real key is needed exactly once:**
+almost none of Phase 3's remaining work actually depends on a real Claude response:
+- Chunks 3.2/3.3 (capture endpoints): the fetch/parse/upload logic has nothing to do with
+  Claude; only the final `extract_ingredients()` call does, and fake mode covers that for
+  manual click-through testing the same way a mocked SDK client covers it in automated tests.
+- Chunk 3.4 (review UI): operates entirely on whatever extraction result it's handed — a real
+  one or a fixture look identical to this layer. Fully buildable and clickable-through with
+  fake mode on.
+- Chunk 3.5 (diagnostics wiring): the spend-cap/enable/fake-mode fields are exercised by
+  writing directly to `api_usage` in tests, not by real calls.
+- **One live check, at the very end of the phase, not spread across it.** After 3.2-3.5 are
+  built and manually verified with fake mode, a single explicit "does this actually work
+  against the real API" pass is what Chunk 3.1's own verification step becomes — see the Phase
+  3 chunk list, where this is now its own final chunk rather than a Chunk 3.1 blocker. It
+  needs, in order: a real key added to `.env` (maintainer's action), `CLAUDE_API_ENABLED=true`
+  (maintainer's action), and the maintainer's go-ahead in conversation for that specific call
+  (agent's obligation to ask, per above). Cost is a few USD-cents, comfortably inside the cap.
+
+**Why:** the maintainer asked directly — "how much of the development can be restructured to
+be developed without the API key" — and the honest answer turned out to be "nearly all of it."
+Treating that as the default going forward (for this integration and any future one) means the
+real API is something the app is deliberately, explicitly switched on to use, not something
+that's live by accident because it was never obviously off.
 
 ### 1. Network exposure
 - The server binds to `0.0.0.0` so it's reachable from phones on the LAN. Required for the
@@ -1731,6 +1812,8 @@ PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ANTHROPIC_API_KEY=sk-ant-...
 MAX_API_SPEND_AUD_CENTS=50
+CLAUDE_API_ENABLED=false
+CLAUDE_API_FAKE_MODE=false
 ANYLIST_EMAIL=...
 ANYLIST_PASSWORD=...
 LOG_LEVEL=INFO
@@ -1739,8 +1822,11 @@ IMAGES_PATH=images
 LOGS_PATH=logs
 ```
 
-`MAX_API_SPEND_AUD_CENTS` — see [Security §0b](#0b-api-spend-cap-highest-priority), a
-highest-priority standing rule. Raise only with the maintainer's explicit approval.
+`MAX_API_SPEND_AUD_CENTS`, `CLAUDE_API_ENABLED`, `CLAUDE_API_FAKE_MODE` — see
+[Security §0b](#0b-api-spend-cap-highest-priority) and
+[§0c](#0c-api-enable-switch--offline-development-highest-priority), highest-priority standing
+rules. Raise/enable only with the maintainer's explicit approval; `CLAUDE_API_FAKE_MODE` must
+never be `true` outside local development.
 
 ---
 
