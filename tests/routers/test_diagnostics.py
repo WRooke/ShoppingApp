@@ -11,6 +11,41 @@ real AnyList credentials from the Phase 1.5 spike) — and check shape/invariant
 
 from __future__ import annotations
 
+from app.database import SessionLocal
+from app.models.diagnostics import ApiUsage
+from app.services.api_usage import get_spend_cap_usd_cents
+
+
+def test_status_reports_spend_cap_reached_as_red(client):
+    # Writes directly to the shared test DB (api_usage has no delete endpoint — it's an
+    # append-only log per CLAUDE.md > Data Model), so the row is removed again afterwards to
+    # avoid leaking spend into other tests in this session.
+    db = SessionLocal()
+    row_id = None
+    try:
+        row = ApiUsage(
+            model="claude-haiku-4-5",
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd_cents=get_spend_cap_usd_cents(),
+            call_type="recipe_url",
+        )
+        db.add(row)
+        db.commit()
+        row_id = row.id
+
+        resp = client.get("/api/v1/diagnostics/status")
+        data = resp.json()["data"]
+
+        assert data["claude_api"]["spend_cap_reached"] is True
+        assert data["claude_api"]["state"] == "red"
+        assert data["claude_api"]["remaining_usd_cents"] == 0.0
+    finally:
+        if row_id is not None:
+            db.query(ApiUsage).filter(ApiUsage.id == row_id).delete()
+            db.commit()
+        db.close()
+
 
 def test_status_reports_ok_envelope_and_component_shapes(client):
     resp = client.get("/api/v1/diagnostics/status")
@@ -32,6 +67,13 @@ def test_status_reports_ok_envelope_and_component_shapes(client):
     assert data["claude_api"]["total_input_tokens"] == 0
     assert data["claude_api"]["total_output_tokens"] == 0
     assert data["claude_api"]["estimated_spend_usd"] == 0.0
+
+    # Spend-cap fields (CLAUDE.md > Security > API Spend Cap) must always be present and
+    # sane, regardless of whether any calls have been made yet.
+    assert data["claude_api"]["spend_cap_reached"] is False
+    assert data["claude_api"]["spend_cap_aud_cents"] > 0
+    assert data["claude_api"]["spend_cap_usd_cents"] > 0
+    assert data["claude_api"]["remaining_usd_cents"] == data["claude_api"]["spend_cap_usd_cents"]
 
     assert data["anylist"]["state"] in ("grey", "amber")
 

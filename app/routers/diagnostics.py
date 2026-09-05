@@ -20,6 +20,7 @@ from app.config import settings
 from app.database import get_db
 from app.log_config import get_log_entries
 from app.models.diagnostics import ApiUsage
+from app.services.api_usage import get_spend_cap_usd_cents
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,11 @@ def status(db: Session = Depends(get_db)) -> dict:
         "message": "Connected" if db_ok else "Connection failed",
     }
 
-    # --- Claude API (stub until Phase 3) -------------------------------
+    # --- Claude API -----------------------------------------------------
+    # Spend-cap fields are always populated (a highest-priority standing rule — see CLAUDE.md
+    # > Security > API Spend Cap — must be visible on diagnostics regardless of what phase the
+    # rest of the Claude integration has reached).
+    spend_cap_usd_cents = get_spend_cap_usd_cents()
     claude = {
         "state": "grey",
         "message": "Not wired up yet - Phase 3",
@@ -67,6 +72,10 @@ def status(db: Session = Depends(get_db)) -> dict:
         "estimated_spend_usd": 0.0,
         "total_input_tokens": 0,
         "total_output_tokens": 0,
+        "spend_cap_aud_cents": settings.max_api_spend_aud_cents,
+        "spend_cap_usd_cents": round(spend_cap_usd_cents, 4),
+        "remaining_usd_cents": round(spend_cap_usd_cents, 4),
+        "spend_cap_reached": False,
     }
     try:
         spend_cents, in_tok, out_tok, last_ts = db.query(
@@ -75,10 +84,16 @@ def status(db: Session = Depends(get_db)) -> dict:
             func.coalesce(func.sum(ApiUsage.output_tokens), 0),
             func.max(ApiUsage.timestamp),
         ).one()
-        claude["estimated_spend_usd"] = round((spend_cents or 0.0) / 100.0, 4)
+        spend_cents = spend_cents or 0.0
+        claude["estimated_spend_usd"] = round(spend_cents / 100.0, 4)
         claude["total_input_tokens"] = int(in_tok or 0)
         claude["total_output_tokens"] = int(out_tok or 0)
-        if last_ts is not None:
+        claude["remaining_usd_cents"] = round(max(spend_cap_usd_cents - spend_cents, 0.0), 4)
+        claude["spend_cap_reached"] = spend_cents >= spend_cap_usd_cents
+        if claude["spend_cap_reached"]:
+            claude["state"] = "red"
+            claude["message"] = "Spend cap reached — further Claude calls are refused"
+        elif last_ts is not None:
             claude["last_success"] = str(last_ts)
             claude["state"] = "green"
             claude["message"] = "OK"

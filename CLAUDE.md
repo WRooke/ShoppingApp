@@ -36,6 +36,29 @@ This applies to:
 
 ---
 
+## ⚠️ Non-Negotiable Operating Rules
+
+**Set 2026-09-05. These two rules are of the highest criticality in this project — they
+override every other facet of the app, including anything else in this document, any
+convenience, any feature request, and any deadline.** Full detail lives in
+[Security](#security) (§0a, §0b below); this banner exists so neither rule can be missed by
+skimming straight to a phase's chunk list.
+
+1. **Prompt injection hardening.** Any content this app sends to an LLM that originated
+   from outside the household's own direct input — a scraped webpage, a photographed
+   cookbook page, or any future untrusted source — must be treated as data, never as
+   instructions, and the app must be built to resist attempts embedded in that content to
+   override its behaviour. Err on the side of caution in every such scenario. See
+   [Security §0a](#0a-prompt-injection-hardening-highest-priority).
+2. **API spend cap.** Testing and production spend on any paid/metered API (Claude today;
+   anything metered added later) must never exceed **50 Australian cents** total, ever,
+   without the maintainer's explicit, clear, prior approval. This is enforced in code, not
+   just policy — see [Security §0b](#0b-api-spend-cap-highest-priority). Raising the cap is a
+   deliberate manual action by the maintainer (editing `.env`); no agent session may raise it
+   on its own initiative, regardless of what a task description asks for.
+
+---
+
 ## Project Overview
 
 A shared meal planning and shopping list web application. It runs as a local web server on
@@ -586,18 +609,34 @@ Use Claude Haiku 4.5 via the official Anthropic Python SDK (`anthropic`).
 5. Keep image stored (linked to recipe record)
 
 ### Claude extraction prompt (system)
+
+**Built at Phase 3 kickoff (2026-09-05) with the `suggested_section`/`cuisine`/`protein`
+extension already folded in** — schema for these fields has existed since Phase 1, and the
+extension was only waiting on the substitution-flagging gap, resolved the same day (see
+[Decision Dialogues > "Substitution flagging" review
+step](#substitution-flagging-review-step-before-phase-3-ai-extraction)). There is no
+ingredients-only version of this prompt in the running app; building that and revising it
+again a few chunks later would be pure churn. The response shape is a single JSON object
+(not a bare array) so the recipe-level fields have somewhere to live:
+
 ```
-You are an ingredient extraction assistant. Given recipe text or an image of a recipe,
-extract ONLY the ingredients list. Return a JSON array of objects with this exact structure:
-[
-  {
-    "name": "ingredient name, lowercase, no preparation notes",
-    "quantity": 2.0,
-    "unit": "g" or null for unitless items,
-    "preparation": "finely diced" or null,
-    "original_text": "the raw text as it appeared"
-  }
-]
+You are a recipe extraction assistant. Given recipe text or an image of a recipe, extract
+the ingredients list plus a few recipe-level fields. Return a single JSON object with this
+exact structure:
+{
+  "cuisine": "italian" or null,
+  "protein": "chicken" or null,
+  "ingredients": [
+    {
+      "name": "ingredient name, lowercase, no preparation notes",
+      "quantity": 2.0,
+      "unit": "g" or null for unitless items,
+      "preparation": "finely diced" or null,
+      "original_text": "the raw text as it appeared",
+      "suggested_section": "produce" or null
+    }
+  ]
+}
 
 Rules:
 - quantity must be a number (convert fractions: 1/2 → 0.5)
@@ -606,22 +645,21 @@ Rules:
 - If a quantity is a range (e.g. "1-2 cloves"), use the lower bound
 - Separate compound ingredients (e.g. "for the sauce:") into individual items
 - Do not include method instructions or serving suggestions
+- suggested_section must be one of: produce, dairy, meat & seafood, bakery, frozen, pantry,
+  household, deli, drinks, other — or null if you are not reasonably confident
+- cuisine and protein are freetext (lowercase, one or two words, e.g. "italian", "beef mince")
+  — use null if not reasonably inferrable from the recipe
 - Return ONLY valid JSON. No markdown, no explanation, no preamble.
 ```
 
-**Planned Phase 3 extensions to this prompt** (schema for these already exists as of Phase 1;
-prompt/logic changes land when Phase 3 build starts, not before):
-- A `suggested_section` field per ingredient (produce/dairy/etc., from the canonical vocabulary
-  — see [Shopping List Store Layout](#shopping-list-store-layout)), shown in the same
-  confirm-UI as an editable field, stored to `product_sections` with `source='ai_suggested'`
-  until the user confirms/corrects it.
-- `cuisine` / `protein` suggested at the recipe level, same confirm-then-save pattern as
-  ingredients.
-- **Open gap, flag before Phase 3 prompt work starts:** the Shop Layout addendum
-  describes the section suggestion as reusing "the same [review step] already built for
-  ingredient substitution flagging" — but no substitution-flagging feature is otherwise defined
-  anywhere in this document. Confirm whether that's assumed prior context that needs adding
-  here, or a mistaken reference, before building the Phase 3 prompt changes.
+The `suggested_section` enum in the prompt text is kept in sync with
+`SECTION_VOCABULARY` in `app/seed_data.py` by hand (see
+[Section Vocabulary Starter List](#section-vocabulary-starter-list) — it's still provisional,
+so if that list changes, update this prompt text too). The review UI (Chunk 3.4) shows every
+field as editable — `suggested_section` per ingredient, `cuisine`/`protein` per recipe — and on
+confirm writes `product_sections` rows with `source='ai_suggested'` for any newly-tagged
+ingredient. No substitution/alternatives suggestion mechanism is part of this review step
+(resolved 2026-09-05 — see the Decision Dialogue linked above).
 
 ### After extraction
 - Display extracted ingredients in an editable review UI (inline edit of name, qty, unit)
@@ -1043,16 +1081,61 @@ Phase 5. Flag the outcome before continuing to Phase 2.
 table is pre-populated and editable via Settings page.
 
 ### Phase 3 — Recipe Capture (AI)
-*(Not yet chunked — break this into checkbox chunks at kickoff, following
-[Phase workflow & progress tracking](#phase-workflow--progress-tracking), the way Phase 2 was.)*
-- Anthropic SDK integration + api_usage logging
-- URL capture endpoint: fetch, parse, extract, return for review
-- Photo upload endpoint: store image, extract, return for review
-- Review + confirm UI: editable ingredient list, confirm saves to recipe
-- Extraction prompt extended with `suggested_section` per ingredient and `cuisine`/`protein`
-  per recipe (see [Recipe Capture](#recipe-capture--ai-extraction) — resolve the
-  substitution-flagging gap noted there first)
-- Diagnostics: Claude API status indicator, spend tracker populated
+
+**Kickoff (2026-09-05):** Phase 2 complete and reviewed; Phase 1.5 spike complete
+(Python-native AnyList confirmed); the substitution-flagging gap resolved (doesn't exist,
+not built — see [Decision Dialogues](#substitution-flagging-review-step-before-phase-3-ai-extraction)).
+Chunked below per [Phase workflow & progress tracking](#phase-workflow--progress-tracking),
+the way Phase 2 was. Since the substitution-flagging gap is what was blocking the
+`suggested_section`/`cuisine`/`protein` prompt extension, that extension is built as part of
+the base extraction prompt in Chunk 3.1 rather than as a separate later pass — there's no
+reason to ship the Phase 1 ingredients-only prompt now and revise it again for Chunk 3.4.
+
+- [ ] **Chunk 3.1 — Claude API integration + `api_usage` logging infrastructure.**
+      `services/claude_client.py` (Anthropic SDK client, small stable function surface per
+      [Code Architecture](#external-integrations-sit-behind-a-small-stable-interface) —
+      `extract_ingredients(db, *, call_type, context_id=None, text=None, image_base64=None,
+      ...)` returning parsed ingredients + `cuisine`/`protein`/per-ingredient
+      `suggested_section` + token usage); `services/api_usage.py` (cost-calculation helper,
+      `log_api_usage()`, and — folded in the same session per
+      [Security §0b](#0b-api-spend-cap-highest-priority), a highest-priority standing rule
+      raised mid-chunk — `enforce_spend_cap()`, called internally by `extract_ingredients()`
+      before every real request, with usage logged internally immediately after). Also folds
+      in [Security §0a](#0a-prompt-injection-hardening-highest-priority) (untrusted-content
+      delimiter, explicit system-prompt instruction, input length cap, `suggested_section`
+      allow-list validation), raised the same session.
+      **Built and unit-tested (26 tests, all mocked — no network), including the spend-cap
+      and injection-hardening behaviour, but NOT yet verified against the real API**: `.env`'s
+      `ANTHROPIC_API_KEY` is still the `sk-ant-REPLACE_ME` placeholder on this machine. A
+      throwaway verification script is staged (scratchpad, not committed) for once a real key
+      is added — per [Security §0b](#0b-api-spend-cap-highest-priority) this is not blocked on
+      approval to spend (the cap enforces itself automatically, cost is a few USD-cents), only
+      on the maintainer supplying a real key. Leave this chunk unchecked until that real-call
+      verification actually runs.
+- [ ] **Chunk 3.2 — URL capture endpoint.** `POST /api/v1/recipes/capture/url`: fetch (httpx,
+      10s timeout, desktop UA), parse (BeautifulSoup4, prefer `<article>`/`<main>`/
+      `[class*="recipe"]`/`[class*="ingredient"]`), call `claude_client.extract_ingredients()`
+      (usage logging + spend-cap enforcement happen inside that call, not here), return the
+      extraction for review — does not save a recipe yet.
+- [ ] **Chunk 3.3 — Photo upload endpoint.** `POST /api/v1/recipes/capture/photo`: multipart
+      image upload, store under `images/` with a UUID filename, call
+      `claude_client.extract_ingredients()` with the image, return the extraction for review.
+- [ ] **Chunk 3.4 — Review + confirm UI.** Unified review screen: editable name/qty/unit/
+      preparation per ingredient (same inline-edit pattern as the Phase 2 recipe editor) plus
+      editable `suggested_section` (dropdown, [Section Vocabulary](#section-vocabulary-starter-list)),
+      `cuisine`, `protein`. On confirm: create the recipe + `recipe_ingredients`, write
+      `product_sections` rows with `source='ai_suggested'` for any ingredient not already
+      tagged. No substitution-suggestion UI (resolved — see above).
+- [ ] **Chunk 3.5 — Diagnostics wiring.** Claude API status indicator (last successful call
+      timestamp) and spend tracker (running input/output token totals + estimated USD) on
+      `/diagnostics`, backed by `api_usage` (the query already exists in
+      `routers/diagnostics.py`, spend-cap fields already wired per §0b — remaining work here
+      is the "Not wired up yet" default message/copy and the reset-with-confirmation button).
+- [ ] **Phase 3 review** — re-check against [Recipe Capture](#recipe-capture--ai-extraction),
+      [Scaling Logic](#scaling-logic) (n/a until Phase 4, confirm nothing here needs it yet),
+      [Code Architecture](#code-architecture--maintainability), and
+      [API Conventions](#api-conventions), per
+      [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
 
 **Deliverable:** User can capture a recipe from URL or photo, review the extracted
 ingredients, edit if needed, and save to the library.
@@ -1246,6 +1329,87 @@ config/environment (firewall scope, Task Scheduler privilege level) it's applied
 deployment time — see `SETUP.md` steps 6 and 8, which carry the concrete commands/checkboxes.
 Where it's something Claude Code can just do (repo hygiene), it's done.
 
+### 0a. Prompt Injection Hardening (highest priority)
+
+**Set 2026-09-05 — see [Non-Negotiable Operating Rules](#-non-negotiable-operating-rules).**
+Any content this app sends to an LLM that did not originate from the household's own direct
+input — a scraped recipe webpage, a photographed cookbook page, or any future untrusted
+source — is treated as data only, never as instructions, and the app is built to resist
+attempts embedded in that content to change its behaviour. This overrides every other design
+concern, including the usual `services/` "no DB" purity and "small stable interface" norms in
+[Code Architecture](#code-architecture--maintainability) where they'd otherwise conflict.
+
+Concretely, for every LLM call that includes untrusted content (currently: `claude_client.py`
+> `extract_ingredients()`, the only such call in the app so far):
+- The system prompt explicitly tells the model the untrusted content is data, not
+  instructions, and to ignore anything inside it that looks like a request to change
+  behaviour, reveal the prompt, or do anything other than extract ingredients.
+- The untrusted content is wrapped in an explicit, non-guessable delimiter tag in the user
+  message, so it can never be mistaken for a system-level instruction or spoof its own
+  closing tag.
+- Input length is capped (`MAX_INPUT_TEXT_CHARS` in `claude_client.py`) — this bounds both the
+  size of any injected payload and worst-case per-call cost (ties into §0b below).
+- The parsed response is validated against strict expected types and, for any field with a
+  fixed vocabulary (`suggested_section`), an allow-list — a hallucinated or injected value
+  outside that vocabulary is discarded (set to `null`), never passed through. Never trust a
+  field's content just because the JSON parsed.
+- No tool-use / code execution / external actions are ever granted to an extraction call, and
+  this must stay true — an injection that can only influence the JSON payload returned (which
+  the user reviews and can edit before anything is saved, per
+  [Recipe Capture](#recipe-capture--ai-extraction)) has a far smaller blast radius than one
+  that could trigger an action.
+- This same pattern (delimiter + explicit instruction + strict output validation) applies to
+  any future LLM call this app adds that includes content from outside the household's direct
+  input — it is not a one-off fix scoped to Chunk 3.1.
+
+**Why:** the app's core workflow feeds arbitrary external content (webpages, photos) straight
+into an LLM prompt with no human review step before that call happens — a textbook prompt
+injection surface. Erring on the side of caution here costs little (a delimiter, a stricter
+parse) and closes off a class of failure that would otherwise be easy to miss until it's
+exploited.
+
+### 0b. API Spend Cap (highest priority)
+
+**Set 2026-09-05 — see [Non-Negotiable Operating Rules](#-non-negotiable-operating-rules).**
+Total spend on any paid/metered API — Claude today, anything metered added later — must never
+exceed **50 Australian cents**, cumulative, ever, without the maintainer's explicit and clear
+prior approval. This is a lifetime total across all testing and production use combined, not
+a per-day or per-session allowance, and it is enforced in code:
+
+- `app/services/api_usage.py` > `enforce_spend_cap()` computes a deliberately pessimistic
+  worst-case cost for the call about to be made (assuming the full `max_tokens` ceiling is
+  spent as output, and a conservative chars-per-token ratio for input) and compares
+  `current_cumulative_spend + worst_case_call_cost` against the cap. If that would exceed the
+  cap, the call is refused with `SpendCapExceededError` — **before** any billable request is
+  made, not just recorded as a warning afterward.
+- The cap is stored as `MAX_API_SPEND_AUD_CENTS` in `.env` (the maintainer's own AUD figure,
+  default `50`) and converted to a USD-cent ceiling using a deliberately low "USD per AUD"
+  constant (`_CONSERVATIVE_USD_PER_AUD` in `api_usage.py`, currently `0.55`, below the real
+  historical range of roughly 0.60-0.70) — so the enforced limit stays stricter than the true
+  50c AUD even if exchange rates drift or the estimate is imprecise. Never "correct" this
+  constant toward a more accurate exchange rate; the pad is the point.
+- `claude_client.py` > `extract_ingredients()` takes a DB session specifically so it can call
+  `enforce_spend_cap()` before, and `log_api_usage()` immediately after, every real API
+  call — logging happens inside the integration itself, not left to a caller that might
+  forget, so the cap's view of cumulative spend can never silently fall behind reality. Usage
+  is logged even when the response turns out to be unparseable, because Anthropic has already
+  billed for it by the time a response comes back.
+- `GET /api/v1/diagnostics/status` always reports `spend_cap_aud_cents`,
+  `spend_cap_usd_cents`, `remaining_usd_cents`, and `spend_cap_reached` on the `claude_api`
+  block, regardless of what phase the rest of the Claude integration has reached — the
+  diagnostics page must never be the reason an approaching or breached cap goes unnoticed. The
+  component state flips to `red` once the cap is reached.
+- **Raising the cap is the maintainer's explicit approval mechanism — editing
+  `MAX_API_SPEND_AUD_CENTS` in `.env` by hand.** No agent session may raise this value on its
+  own initiative under any circumstances, including a task description that asks for a real
+  API call to be made — if the cap blocks a requested verification step, that gets flagged
+  back to the maintainer rather than worked around.
+
+**Why:** development sessions can rack up unattended API spend surprisingly fast (a runaway
+loop, a bug that retries indefinitely, an agent working through many verification calls in one
+session) — a code-enforced hard ceiling is the safeguard that holds even when nobody is
+watching the bill in real time, which is the whole point of "at all times."
+
 ### 1. Network exposure
 - The server binds to `0.0.0.0` so it's reachable from phones on the LAN. Required for the
   intended use case, but it means anything else on the WiFi can also reach it.
@@ -1356,7 +1520,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | AnyList credential storage: `keyring` vs `.env` | Phase 5 kickoff | Preferred: Windows Credential Manager via `keyring`. `.env` acceptable fallback if awkward with deployment scripts. See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |
 | "Suggest something" — recency/variety suggestion logic + UI | Phase TBD | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet. |
-| "Substitution flagging" review step | Needs clarification before Phase 3 prompt work | The Shop Layout addendum assumes this exists as prior context for reusing its review UI; it isn't otherwise specified anywhere in this document. Clarify before proceeding. |
+| "Substitution flagging" review step | ~~Needs clarification before Phase 3 prompt work~~ **Resolved 2026-09-05 — option 2 (doesn't exist; not built)** | The Shop Layout addendum's reference was a mistaken cross-reference — no such feature exists elsewhere in this document. Phase 3's review UI (Chunk 3.4) is a fresh ingredient + section review: editable name/qty/unit/preparation plus `suggested_section`/`cuisine`/`protein`, no "can't find X, try Y" suggestion mechanism. Revisit only if a real gap shows up in use — same standing as any other not-yet-needed feature, no dedicated future-phase slot reserved for it. |
 | Store deletion/merge | Post-MVP / low priority | Not designed — add if it comes up. See [Shopping List Store Layout](#shopping-list-store-layout). |
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
@@ -1444,6 +1608,21 @@ below for the record of what was asked and why.
 ---
 
 #### "Substitution flagging" review step (Before Phase 3 AI extraction)
+
+**Resolved 2026-09-05 — option 2 (doesn't exist; not built).** No prior substitution-suggestion
+feature exists anywhere in this document — the Shop Layout addendum's reference was a mistaken
+cross-reference, not a pointer to a real feature. Phase 3's Chunk 3.4 review UI is a fresh
+ingredient + section review: editable name/qty/unit/preparation (same inline-edit pattern as the
+Phase 2 recipe editor) plus `suggested_section` (editable dropdown), `cuisine`, `protein` — no
+"can't find beef mince, try chicken mince?" suggestion mechanism, no supporting service. Rationale:
+building a suggestion service now would be speculative scope the same way pre-guessing the full
+staples list or pack-size rounding would be (see [Staples Starter List](#staples-starter-list),
+[Deferred Decisions](#deferred-decisions)) — there's no evidence yet of which substitutions would
+actually be useful, and the user already reviews/edits every extracted ingredient manually, which
+is the same reasoning [Ingredient Normalisation](#ingredient-normalisation) already uses to skip
+automatic synonym matching. Not reserved as a dedicated future-phase item; revisit only if a real
+gap turns up in use, same standing as any other not-yet-needed feature. Kept below for the record
+of what was asked.
 
 **Q:** What is "ingredient substitution flagging," and does it exist as a real feature that Phase 3's extraction prompt should reuse?
 
@@ -1551,6 +1730,7 @@ Confirmed during planning, not revisited unless raised again:
 PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ANTHROPIC_API_KEY=sk-ant-...
+MAX_API_SPEND_AUD_CENTS=50
 ANYLIST_EMAIL=...
 ANYLIST_PASSWORD=...
 LOG_LEVEL=INFO
@@ -1558,6 +1738,9 @@ DATABASE_PATH=data/mealplanner.db
 IMAGES_PATH=images
 LOGS_PATH=logs
 ```
+
+`MAX_API_SPEND_AUD_CENTS` — see [Security §0b](#0b-api-spend-cap-highest-priority), a
+highest-priority standing rule. Raise only with the maintainer's explicit approval.
 
 ---
 

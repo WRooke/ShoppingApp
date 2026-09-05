@@ -48,6 +48,15 @@ class Settings:
         self.anylist_email: str = os.getenv("ANYLIST_EMAIL", "").strip()
         self.anylist_password: str = os.getenv("ANYLIST_PASSWORD", "").strip()
 
+        # Hard spend cap on paid API calls (Claude today; any future metered API later) —
+        # highest-priority standing rule, set 2026-09-05, see CLAUDE.md > Security > API
+        # Spend Cap. This is the maintainer's own AUD figure, read here as the single source
+        # of truth; app/services/api_usage.py converts it to a conservative USD-cents ceiling
+        # and enforces it before every billable call. Claude Code must never edit this value
+        # in .env on its own initiative — raising it is the maintainer's explicit approval
+        # mechanism, not something the app or an agent session does for itself.
+        self.max_api_spend_aud_cents: float = float(os.getenv("MAX_API_SPEND_AUD_CENTS", "50"))
+
         self.database_path: str = _resolve(os.getenv("DATABASE_PATH", "data/mealplanner.db"))
         self.images_path: str = _resolve(os.getenv("IMAGES_PATH", "images"))
         self.logs_path: str = _resolve(os.getenv("LOGS_PATH", "logs"))
@@ -79,6 +88,7 @@ class Settings:
             "logs_path": self.logs_path,
             "anthropic_api_key_configured": self.anthropic_configured,
             "anylist_credentials_configured": self.anylist_configured,
+            "max_api_spend_aud_cents": self.max_api_spend_aud_cents,
         }
 
 

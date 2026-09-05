@@ -1,6 +1,5 @@
-# ShoppingApp — Phase 1 dependencies
-# Kept deliberately minimal. Claude (anthropic) and scraping deps arrive in Phase 3;
-# AnyList deps arrive in Phase 5.
+# ShoppingApp — dependencies
+# Kept deliberately minimal. AnyList deps arrive in Phase 5.
 #
 # Pinned to exact versions (not just floors) so a fresh `pip install` on the NUC — which
 # start.bat and scripts/update.py both do unattended — can't silently pick up a newer
@@ -16,4 +15,9 @@ python-dotenv==1.2.3
 # Dev/test — see CLAUDE.md > Code Architecture & Maintainability. Added ahead of Phase 2
 # so the tests/ convention exists from the first real business logic, not retrofitted later.
 pytest==9.1.1
-httpx==0.28.1  # required by fastapi.testclient.TestClient
+httpx==0.28.1  # required by fastapi.testclient.TestClient; also used directly in Phase 3
+              # for recipe URL fetching (see services/capture_url.py)
+
+# Phase 3 — recipe capture (AI). anthropic 1.x brings its own httpx2 dependency, unrelated
+# to the httpx pin above.
+anthropic==1.4.0
