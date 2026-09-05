@@ -1,7 +1,7 @@
 """AnyList integration API. Implemented in Phase 5.
 
 NOTE for Phase 5: the native-Python vs Node-microservice decision must be
-flagged to Will before implementation (see CLAUDE.md > Tech Stack > AnyList).
+flagged for discussion before implementation (see CLAUDE.md > Tech Stack > AnyList).
 """
 
 from __future__ import annotations

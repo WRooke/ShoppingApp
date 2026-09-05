@@ -47,8 +47,8 @@ PRODUCT_UNIT_SEEDS: list[dict] = [
 SECTION_VOCABULARY: list[str] = [
     # Canonical, fixed, store-independent section vocabulary (Shop Layout Reorganisation
     # addendum). Not a DB table — store_sections.section_name and product_sections.section_name
-    # are free text, but the UI should only offer these. Starter list; ask Will to review before
-    # the store setup + capture-time section-suggestion UI is built.
+    # are free text, but the UI should only offer these. Starter list; confirm/adjust with the
+    # household before the store setup + capture-time section-suggestion UI is built.
     "produce",
     "dairy",
     "meat & seafood",
@@ -61,26 +61,18 @@ SECTION_VOCABULARY: list[str] = [
     "other",
 ]
 
+# Deliberately minimal (confirmed 2026-09-05 — see CLAUDE.md > Staples Starter List). Earlier
+# draft over-seeded this with anything vaguely pantry-shaped (soy sauce, vinegars, dried
+# herbs/spices, tomato paste, dijon mustard, garlic) without confirming any of it actually
+# matched what this household treats as "assume we have it, don't put it on the list". Add
+# more here (or via Settings, once Chunk 2.5 exists) only as real recipes surface a genuine
+# staple gap — do not pre-guess the rest of the list.
 STAPLE_SEEDS: list[str] = [
     "salt",
     "black pepper",
     "olive oil",
     "vegetable oil",
-    "garlic (whole bulb)",
     "plain flour",
-    "white sugar",
-    "soy sauce",
-    "white wine vinegar",
-    "balsamic vinegar",
-    "dried oregano",
-    "dried basil",
-    "ground cumin",
-    "ground coriander",
-    "paprika",
-    "chilli flakes",
-    "bay leaves",
-    "tomato paste (tube)",
-    "dijon mustard",
 ]
 
 

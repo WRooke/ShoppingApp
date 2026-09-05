@@ -1,7 +1,7 @@
 # ShoppingApp
 
-Household meal planning and shopping list app. Runs as a local web server; Will and his
-partner use it from their phones over the home WiFi. It consolidates recipe ingredients into
+Household meal planning and shopping list app. Runs as a local web server; household members
+use it from their phones over the home WiFi. It consolidates recipe ingredients into
 a single shopping list and (from Phase 5) pushes that list to AnyList.
 
 See [CLAUDE.md](CLAUDE.md) for the full specification, [SETUP.md](SETUP.md) for first-run

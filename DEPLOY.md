@@ -125,8 +125,8 @@ next `update.bat` will fast-forward from wherever `main` currently is.
 
 ## Why not X
 
-- **Docker** — ruled out project-wide (see CLAUDE.md > Tech Stack): Will is unfamiliar with
-  it and it adds a moving part this single-machine deployment doesn't need.
+- **Docker** — ruled out project-wide (see CLAUDE.md > Tech Stack): the primary user is
+  unfamiliar with it and it adds a moving part this single-machine deployment doesn't need.
 - **Remote restart from the dev PC (WinRM/SSH)** — would make `deploy.bat` fully
   hands-off, but requires enabling and maintaining remoting/SSH on the NUC. Revisit if the
   manual `update.bat` step on the NUC becomes annoying in practice.

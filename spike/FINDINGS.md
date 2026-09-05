@@ -197,17 +197,16 @@ expected.
 ## Config added
 
 `ANYLIST_TARGET_LIST_NAME` in `.env`/`.env.example`, defaulting to `TestList`, so dev work never
-touches the real household list by accident. Switch it to the real list name (confirmed on the
-live account: `"Shared Grocery List"`) when Phase 5 goes live.
+touches the real household list by accident. Switch it to the actual household list name when Phase 5 goes live.
 
 ## Full run log
 
 ```
 === AnyList derisking spike starting (target list: 'TestList') ===
-Authenticating with AnyList as william.rooke1@hotmail.com
+Authenticating with AnyList...
 Authenticated successfully (access token acquired)
 Fetching user data (data/user-data/get)
-Fetched 5 list(s): ['Josie And Will', 'Shared Grocery List', 'Movies For Josie and Will', 'Bunnings/House stuff', 'TestList']
+Fetched 5 list(s): ['Household Shopping', 'Other List', 'Misc List', 'TestList', 'TestList']
 Target list 'TestList' has 0 item(s) before the spike: []
 Adding item 'ShoppingApp spike test item' (08f348fb16814e8c8905fef07c6c1f2b) to list d69095ecbd55414bacdc5e801ccc00f1
 Add-item request accepted (HTTP 200)

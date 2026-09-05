@@ -957,6 +957,9 @@ Phase 5. Flag the outcome before continuing to Phase 2.
 - [ ] **Phase 2 review** — re-check this phase's work against the Data Model (`recipes`,
       `recipe_ingredients`, `product_units`, `staples`), API Conventions, and Code Architecture
       sections, per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
+      **Also flag for decision:** Git branching strategy — should we introduce `production` /
+      `develop` branches now to prevent breaking the working app, or defer this? (See
+      [Deferred Decisions](#deferred-decisions) for full details.)
 
 **Deliverable:** User can manually add, view, and edit recipes. Staples and product units
 table is pre-populated and editable via Settings page.
@@ -1278,6 +1281,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
 | Shop layout reorganisation (list sorting by aisle) | ~~Phase 6 or post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
+| Git branching strategy: `production` / `develop` branches | Phase 2 review | Current: single `main` branch. Proposal: introduce `production` (stable, NUC-deployed code) and `develop` (active development) branches to prevent breaking the working app. Requires updates to `deploy.bat`, `update.bat`, and backup/restore scripts to target the correct branch. Flag at Phase 2 review for a focused decision on branching model and deployment script changes. |
 
 ---
 
