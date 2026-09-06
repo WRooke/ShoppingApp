@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 
@@ -44,12 +46,29 @@ class Recipe(Base):
     # --- soft-delete (Addendum #5) ------------------------------------------
     archived_at = Column(DateTime, nullable=True)  # set instead of hard-deleting
 
+    # --- AI capture status (Phase 3.9 M6) ---------------------------------
+    # JSON array of still-outstanding AI capture sub-tasks (currently only
+    # ["suggest_sections"] — see capture_queue). NULL / "[]" => nothing pending.
+    ai_tasks_pending = Column(Text, nullable=True)
+
     ingredients = relationship(
         "RecipeIngredient",
         back_populates="recipe",
         cascade="all, delete-orphan",
         order_by="RecipeIngredient.sort_order",
     )
+
+    @property
+    def ai_pending_tasks(self) -> list[str]:
+        """Parsed ai_tasks_pending, always a list (never None) so callers/schemas don't
+        each re-implement the json.loads + fallback."""
+        if not self.ai_tasks_pending:
+            return []
+        try:
+            value = json.loads(self.ai_tasks_pending)
+            return [str(v) for v in value] if isinstance(value, list) else []
+        except (ValueError, TypeError):
+            return []
 
 
 class RecipeIngredient(Base):

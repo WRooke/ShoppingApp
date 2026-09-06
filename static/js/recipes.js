@@ -29,6 +29,17 @@
     return null;
   }
 
+  // "Pending AI processing" badge (Phase 3.9 M6) — a queued capture whose enrichment
+  // (section suggestion) hasn't finished yet. Names the outstanding sub-task(s).
+  function pendingBadge(tasks) {
+    var pretty = (tasks || [])
+      .map(function (t) {
+        return t === "suggest_sections" ? "sections" : t;
+      })
+      .join(", ");
+    return el("div", "pending-ai-badge", "⏳ Pending AI processing (" + pretty + ")");
+  }
+
   // Only render a stored source_url as a link if it actually parses as http(s) —
   // never javascript:/data:/etc. (see CLAUDE.md > Build Phases > Phase 3 > Chunk 3.7c).
   // Anything else falls back to plain text.
@@ -154,6 +165,9 @@
       if (r.cuisine) metaBits.push(r.cuisine);
       if (r.protein) metaBits.push(r.protein);
       main.appendChild(el("div", "recipe-row-meta muted", metaBits.join(" · ")));
+      if (r.ai_pending_tasks && r.ai_pending_tasks.length) {
+        main.appendChild(pendingBadge(r.ai_pending_tasks));
+      }
       row.appendChild(main);
 
       var rating = ratingLabel(r.rating);
@@ -224,6 +238,10 @@
     var rating = ratingLabel(r.rating);
     if (rating) metaBits.push(rating);
     card.appendChild(el("div", "muted", metaBits.join(" · ")));
+
+    if (r.ai_pending_tasks && r.ai_pending_tasks.length) {
+      card.appendChild(pendingBadge(r.ai_pending_tasks));
+    }
 
     if (r.archived_at) {
       card.appendChild(el("div", "muted", "Archived"));

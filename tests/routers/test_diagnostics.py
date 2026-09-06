@@ -116,3 +116,25 @@ def test_recent_errors_returns_ok_envelope(client):
     assert body["ok"] is True
     assert isinstance(body["data"]["entries"], list)
     assert len(body["data"]["entries"]) <= 10
+
+
+def test_status_ai_block_reports_capture_queue(client):
+    from app.models.queue import CaptureQueueItem
+
+    db = SessionLocal()
+    ids = []
+    try:
+        row = CaptureQueueItem(
+            task="extract_url", payload_json='{"url": "https://x/q"}', attempt_count=2,
+        )
+        db.add(row)
+        db.commit()
+        ids.append(row.id)
+
+        ai = client.get("/api/v1/diagnostics/status").json()["data"]["ai_extraction"]
+        assert ai["queue"]["depth"] >= 1
+        assert any(it["task"] == "extract_url" for it in ai["queue"]["items"])
+    finally:
+        db.query(CaptureQueueItem).filter(CaptureQueueItem.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        db.close()

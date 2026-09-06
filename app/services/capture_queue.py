@@ -25,13 +25,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import utcnow
 from app.models.queue import CaptureQueueItem
+from app.models.recipes import Recipe
 from app.schemas.capture import CaptureConfirmRequest
-from app.services import ai_extraction, capture_url
+from app.services import ai_extraction, capture_url, product_sections
 from app.services import recipes as recipes_service
 
 logger = logging.getLogger(__name__)
-
-_ENRICHMENT_TASKS = {"flag_substitutions", "suggest_sections"}
 
 # How often the lifespan poller (app.main) calls run_once(). ~hourly — CLAUDE.md > AI
 # Provider Migration deliberately does NOT tie retries to an assumed quota reset time.
@@ -93,6 +92,17 @@ def _result_to_confirm(result: ai_extraction.ExtractionResult, payload: dict) ->
     )
 
 
+def _clear_pending(db: Session, recipe_id: int, task: str) -> None:
+    """Remove `task` from a recipe's ai_tasks_pending list (M6). No-op if the recipe is
+    gone or the task wasn't listed."""
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        return
+    remaining = [t for t in recipe.ai_pending_tasks if t != task]
+    recipe.ai_tasks_pending = json.dumps(remaining) if remaining else None
+    db.commit()
+
+
 def _process_extract(db: Session, item: CaptureQueueItem) -> None:
     payload = json.loads(item.payload_json)
     if item.task == "extract_url":
@@ -110,11 +120,45 @@ def _process_extract(db: Session, item: CaptureQueueItem) -> None:
     recipe = recipes_service.create_recipe_from_capture(
         db, _result_to_confirm(result, payload), allow_duplicate=True
     )
+    # M6 — an auto-saved queued capture with enrichment still owed: record it on the recipe
+    # (badge) and queue the retry.
+    if "suggest_sections" in result.pending_tasks:
+        recipe.ai_tasks_pending = json.dumps(["suggest_sections"])
+        db.commit()
+        enqueue(
+            db,
+            task="suggest_sections",
+            payload={"recipe_id": recipe.id},
+            recipe_id=recipe.id,
+        )
     logger.info(
-        "capture_queue: task=%s id=%s succeeded on retry -> recipe %s",
+        "capture_queue: task=%s id=%s succeeded on retry -> recipe %s (pending=%s)",
         item.task,
         item.id,
         recipe.id,
+        result.pending_tasks,
+    )
+    remove(db, item)
+
+
+def _process_suggest_sections(db: Session, item: CaptureQueueItem) -> None:
+    """M6 — retry the section-suggestion call for a saved recipe, then tag product_sections
+    and clear the pending flag."""
+    recipe = db.get(Recipe, item.recipe_id) if item.recipe_id else None
+    if recipe is None:
+        remove(db, item)  # recipe was deleted — drop the orphan task
+        return
+    names = [ing.name for ing in recipe.ingredients]
+    sections = ai_extraction.suggest_sections(
+        db, context_id=str(recipe.id), ingredient_names=names
+    )
+    if sections:
+        product_sections.tag_suggested_sections(db, sections)
+    _clear_pending(db, recipe.id, "suggest_sections")
+    logger.info(
+        "capture_queue: suggest_sections retry for recipe %s -> %d section(s)",
+        recipe.id,
+        len(sections),
     )
     remove(db, item)
 
@@ -124,11 +168,16 @@ def run_once(db: Session) -> dict:
     summary = {"processed": 0, "succeeded": 0, "still_queued": 0, "skipped": 0}
     for item in due_items(db):
         summary["processed"] += 1
-        if item.task in _ENRICHMENT_TASKS:
-            summary["skipped"] += 1  # wired against a saved recipe by M4/M6
-            continue
         try:
-            _process_extract(db, item)
+            if item.task == "suggest_sections":
+                _process_suggest_sections(db, item)
+            elif item.task == "flag_substitutions":
+                # not retried post-capture — interactive-only; drop it if it somehow got here
+                remove(db, item)
+                summary["skipped"] += 1
+                continue
+            else:
+                _process_extract(db, item)
             summary["succeeded"] += 1
         except ai_extraction.AiQuotaExhaustedError:
             record_attempt(db, item, error="still over quota")

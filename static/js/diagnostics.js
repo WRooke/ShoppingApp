@@ -74,6 +74,24 @@
           body.appendChild(linkWrap);
         }
 
+        var q = d.queue || { depth: 0, items: [] };
+        if (q.depth) {
+          body.appendChild(
+            el(
+              "div",
+              "status-msg",
+              "Capture queue: " +
+                q.depth +
+                " item(s) waiting on quota — " +
+                q.items
+                  .map(function (it) {
+                    return it.task + (it.attempt_count ? " (×" + it.attempt_count + ")" : "");
+                  })
+                  .join(", ")
+            )
+          );
+        }
+
         var recent = d.recent_calls || [];
         if (recent.length) {
           var log = el("div", "ai-attempt-log");

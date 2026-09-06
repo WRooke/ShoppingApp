@@ -302,3 +302,24 @@ def test_capture_url_short_circuits_on_existing_source_url(client):
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "POSSIBLE_DUPLICATE_RECIPE"
     assert resp.json()["error"]["detail"][0]["matched_signal"] == "source_url"
+
+
+def test_recipe_read_exposes_ai_pending_tasks(client):
+    created = _create_recipe(client, name="ZZ-Pending-Read").json()["data"]
+    assert created["ai_pending_tasks"] == []  # a normal recipe has nothing pending
+
+    # simulate a queued-capture recipe with sections still owed
+    from app.database import SessionLocal
+    from app.models.recipes import Recipe
+    import json as _json
+
+    db = SessionLocal()
+    try:
+        r = db.get(Recipe, created["id"])
+        r.ai_tasks_pending = _json.dumps(["suggest_sections"])
+        db.commit()
+    finally:
+        db.close()
+
+    fetched = client.get(f"/api/v1/recipes/{created['id']}").json()["data"]
+    assert fetched["ai_pending_tasks"] == ["suggest_sections"]

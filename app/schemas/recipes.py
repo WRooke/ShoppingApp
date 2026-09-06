@@ -118,6 +118,9 @@ class RecipeListItem(BaseModel):
     times_made: int
     last_made_at: datetime | None
     archived_at: datetime | None
+    # Phase 3.9 M6 — outstanding AI capture sub-tasks (drives the "Pending AI processing"
+    # badge). Reads the model's ai_pending_tasks property, so always a list.
+    ai_pending_tasks: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

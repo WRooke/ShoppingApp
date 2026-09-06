@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.log_config import get_log_entries
+from app.models.queue import CaptureQueueItem
 from app.services import ai_call_log
 
 logger = logging.getLogger(__name__)
@@ -72,9 +73,29 @@ def status(db: Session = Depends(get_db)) -> dict:
         "last_success": None,
         "today_by_model": {},
         "recent_calls": [],
+        "queue": {"depth": 0, "items": []},
         "dashboard_url": "https://aistudio.google.com/app/apikey",
     }
     try:
+        queued = (
+            db.query(CaptureQueueItem)
+            .order_by(CaptureQueueItem.queued_at.asc())
+            .limit(20)
+            .all()
+        )
+        ai["queue"] = {
+            "depth": db.query(CaptureQueueItem).count(),
+            "items": [
+                {
+                    "task": q.task,
+                    "recipe_id": q.recipe_id,
+                    "queued_at": q.queued_at.isoformat(timespec="seconds"),
+                    "attempt_count": q.attempt_count,
+                    "last_error": q.last_error,
+                }
+                for q in queued
+            ],
+        }
         ai["today_by_model"] = ai_call_log.today_counts_by_model(db)
         last_ok = ai_call_log.last_success_at(db)
         ai["last_success"] = str(last_ok) if last_ok is not None else None

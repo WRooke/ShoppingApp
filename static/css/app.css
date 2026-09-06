@@ -371,3 +371,16 @@ select, input[type="text"] {
 .link-btn { min-height: 0; padding: 2px 6px; font-size: 0.85rem; }
 /* recipe detail: "using X instead" line */
 .ingredient-resolved { color: var(--accent); font-size: 0.85rem; }
+
+/* --- "Pending AI processing" badge (Phase 3.9 M6) --- */
+.pending-ai-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  background: #fff8ef;
+}
+.ai-attempt-log { margin: 4px 0 6px; }

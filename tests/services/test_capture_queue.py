@@ -108,8 +108,77 @@ def test_run_once_still_quota_keeps_row_and_records_attempt(db):
     assert db.query(CaptureQueueItem).count() == 1
 
 
-def test_run_once_skips_enrichment_tasks_until_m4(db):
-    capture_queue.enqueue(db, task="suggest_sections", payload={"names": ["onion"]}, recipe_id=1)
+def test_run_once_suggest_sections_orphan_task_is_dropped(db):
+    # recipe_id points at nothing -> the task is removed, not retried forever
+    capture_queue.enqueue(db, task="suggest_sections", payload={"recipe_id": 999}, recipe_id=999)
     summary = capture_queue.run_once(db)
-    assert summary == {"processed": 1, "succeeded": 0, "still_queued": 0, "skipped": 1}
-    assert db.query(CaptureQueueItem).count() == 1  # left alone
+    assert summary["processed"] == 1
+    assert db.query(CaptureQueueItem).count() == 0
+
+
+def test_run_once_flag_substitutions_task_is_dropped(db):
+    # flag_substitutions is interactive-only — never retried post-capture
+    capture_queue.enqueue(db, task="flag_substitutions", payload={"recipe_id": 1}, recipe_id=1)
+    summary = capture_queue.run_once(db)
+    assert summary["skipped"] == 1
+    assert db.query(CaptureQueueItem).count() == 0
+
+
+def test_run_once_suggest_sections_retry_tags_sections_and_clears_pending(db, fake_mode):
+    from app.models.recipes import Recipe
+    from app.models.store import ProductSection
+    from app.schemas.recipes import RecipeCreate, RecipeIngredientCreate
+    from app.services import recipes as recipes_service
+    import json as _json
+
+    recipe = recipes_service.create_recipe(
+        db,
+        RecipeCreate(
+            name="Queued Bol",
+            source_type="url",
+            base_servings=4,
+            ingredients=[RecipeIngredientCreate(name="beef mince", quantity=500, unit="g")],
+        ),
+        allow_duplicate=True,
+    )
+    recipe.ai_tasks_pending = _json.dumps(["suggest_sections"])
+    db.commit()
+    capture_queue.enqueue(
+        db, task="suggest_sections", payload={"recipe_id": recipe.id}, recipe_id=recipe.id
+    )
+
+    summary = capture_queue.run_once(db)
+    assert summary["succeeded"] == 1
+    db.refresh(recipe)
+    assert recipe.ai_pending_tasks == []  # cleared
+    # fake suggest_sections maps "beef mince" -> "meat & seafood"
+    tag = db.query(ProductSection).filter_by(ingredient_name="beef mince").one()
+    assert tag.section_name == "meat & seafood"
+    assert db.query(CaptureQueueItem).count() == 0
+
+
+def test_run_once_extract_records_pending_and_queues_followup(db, fake_mode):
+    import json as _json
+    from unittest.mock import MagicMock
+    from app.models.recipes import Recipe
+
+    capture_queue.enqueue(
+        db, task="extract_url",
+        payload={"url": "https://example.com/x", "source_type": "url", "fallback_name": "Q"},
+    )
+    html_resp = MagicMock()
+    html_resp.text = "<article>500g beef mince</article>"
+    html_resp.content = b"x"
+    html_resp.raise_for_status.return_value = None
+
+    with patch("app.services.capture_url.httpx.get", return_value=html_resp), patch(
+        "app.services.ai_extraction.suggest_sections",
+        side_effect=ai_extraction.AiExtractionError("sections down"),
+    ):
+        summary = capture_queue.run_once(db)
+
+    assert summary["succeeded"] == 1
+    recipe = db.query(Recipe).filter_by(name="Q").one()
+    assert recipe.ai_pending_tasks == ["suggest_sections"]
+    followup = db.query(CaptureQueueItem).filter_by(task="suggest_sections").one()
+    assert followup.recipe_id == recipe.id

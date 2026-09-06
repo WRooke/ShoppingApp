@@ -192,6 +192,11 @@ class ExtractionResult:
     input_tokens: int
     output_tokens: int
     substitution_flags: list[SubstitutionFlag] = field(default_factory=list)
+    # Enrichment sub-tasks that failed/queued during capture_recipe() and are still owed to
+    # the recipe (Phase 3.9 M6). Currently only "suggest_sections" is ever retried; a failed
+    # "flag_substitutions" is not (it's only useful in the interactive review). The save path
+    # writes this to recipes.ai_tasks_pending and enqueues the retry.
+    pending_tasks: list[str] = field(default_factory=list)
     model: str = MODEL_ID
 
 
@@ -608,13 +613,16 @@ def capture_recipe(
         for ing in result.ingredients:
             ing.suggested_section = sections.get(ing.name)
     except AiExtractionError:
-        logger.warning("capture_recipe: section suggestion failed — continuing without", exc_info=True)
+        logger.warning("capture_recipe: section suggestion failed — will retry via the queue", exc_info=True)
+        result.pending_tasks.append("suggest_sections")
 
     try:
         result.substitution_flags = flag_substitutions(
             db, context_id=context_id, ingredient_names=names
         )
     except AiExtractionError:
+        # Not retried post-capture — it's only useful in the interactive review. No flags
+        # simply means the user swaps manually later if they want.
         logger.warning("capture_recipe: substitution flagging failed — continuing without", exc_info=True)
 
     return result

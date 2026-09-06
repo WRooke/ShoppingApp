@@ -1959,9 +1959,20 @@ is folded into this phase's M-review.
       `recipes.js` detail shows "→ using X (note)"; `session-review.js` "remember" prompt
       reworded (quick-pick, not auto-apply). Tests reworked; full suite **267 pass**;
       migration parity green; headless + curl verified end-to-end.
-- [ ] **M5 — Diagnostics rework.** Drop USD spend (`api_usage` / `api_usage_resets` /
-      `cost_usd_cents` / reset-spend button); add `ai_call_log` + daily quota indicator +
-      recent-capture-attempt log + AI Studio link.
+- [x] **M5 — Diagnostics rework.** Done 2026-09-06 (commit `9811036`). Migration
+      `b6e557ca6088` drops `api_usage` + `api_usage_resets`, creates `ai_call_log` (task /
+      model / outcome `success|quota|error` / nullable token counts / `error_detail` /
+      `context_id`). `services/api_usage.py` → `services/ai_call_log.py` (all cost math
+      removed): `log_ai_call`, `today_counts_by_model` (since local midnight),
+      `recent_calls`, `last_success_at`, `task_for`. `ai_extraction._call_gemini` logs
+      **every** outcome — a `quota` row per model on 429, an `error` row with detail
+      otherwise, a `success` row (tokens, model that answered) on success.
+      `routers/diagnostics.py`: `claude_api` block → `ai_extraction`
+      (`today_by_model` / `recent_calls` / `last_success` / `dashboard_url`); `POST
+      /reset-spend` removed. `static/js/diagnostics.js`: quota-by-model line + recent-attempt
+      mini-log + AI Studio link; reset-spend button + `api.diagnostics.resetSpend` gone.
+      Tests reworked (`test_ai_call_log.py`); full suite **262 pass**; migration parity green;
+      diagnostics page headless-verified.
 - [ ] **M6 — "Pending AI processing" badge.** `recipes.ai_tasks_pending` (migration); badge
       in the recipe list + detail; queued items visible in diagnostics.
 - [ ] **M7 — Live Gemini verification.** The one real call, §0c-gated, explicit
