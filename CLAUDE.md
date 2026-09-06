@@ -1973,8 +1973,18 @@ is folded into this phase's M-review.
       mini-log + AI Studio link; reset-spend button + `api.diagnostics.resetSpend` gone.
       Tests reworked (`test_ai_call_log.py`); full suite **262 pass**; migration parity green;
       diagnostics page headless-verified.
-- [ ] **M6 — "Pending AI processing" badge.** `recipes.ai_tasks_pending` (migration); badge
-      in the recipe list + detail; queued items visible in diagnostics.
+- [x] **M6 — "Pending AI processing" badge.** Done 2026-09-06 (commit `396af2f`). Migration
+      `15b1aab757ac`: `recipes.ai_tasks_pending` (nullable TEXT, JSON array; NULL/`[]` =
+      nothing); `Recipe.ai_pending_tasks` property parses it; `RecipeListItem`/`RecipeRead`
+      expose it. `capture_recipe` reports `pending_tasks` — a swallowed `suggest_sections`
+      failure → `["suggest_sections"]` (a failed `flag_substitutions` is **not** tracked —
+      interactive-only, no post-capture retry). `capture_queue._process_extract` writes the
+      pending list + enqueues a `suggest_sections` follow-up; `_process_suggest_sections`
+      retries for the saved recipe → tags `product_sections` + clears the flag; orphan /
+      `flag_substitutions` tasks are dropped. `routers/diagnostics.py` `ai_extraction` block
+      gains a `queue` `{depth, items[]}` summary. Frontend: `recipes.js` badge in list +
+      detail; `diagnostics.js` "Capture queue: N item(s)" line. +tests; full suite **267
+      pass**; migration parity green; badge headless-verified.
 - [ ] **M7 — Live Gemini verification.** The one real call, §0c-gated, explicit
       in-conversation go-ahead. Structured output parses, `429` handling, one real end-to-end
       capture. Revisit the free-tier-data-usage decision.
