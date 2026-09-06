@@ -619,35 +619,78 @@ dropdowns in the store-setup and section-tagging UI once those are built. See
 
 ## Scaling Logic
 
-When a recipe is scaled from its base servings to requested servings:
+When a recipe is scaled from its base servings to requested servings.
 
-### Discrete / countable items (no unit, e.g. eggs, onions, cans)
-- Scale quantity proportionally, then **round up** to nearest whole number
-- Exception: purchase unit resolution (see below) may further adjust — a scaled quantity of
-  3 eggs does not mean buy 3 eggs; it means check against the product_units table
+> **Where rounding lives — resolved 2026-09-06 at Phase 4 kickoff (grilling with the
+> maintainer; supersedes the earlier "round inside `scaling.py`" wording).** `scaling.py`
+> does **one thing: multiply**. No rounding, no unit conversion, no pack-size logic. It takes
+> `(quantity, unit, factor)` and returns `(quantity × factor, unit)` with the unit preserved
+> verbatim; `"pinch"` / `"to taste"` style units pass straight through untouched
+> (`scaled=False`). **Every** rounding and unit-normalisation decision happens *once*,
+> downstream, in `consolidation.py` + `purchase_units.py` (Chunk 4.6) — after quantities from
+> all recipes in the session have been summed. Rounding per-recipe and then summing would
+> round twice and let drift compound across a session. Rationale in full:
+> [Decision Dialogue > Scaling: rounding location & rules](#scaling-rounding-location--rules-phase-4-kickoff).
 
-### Weight / volume (g, kg, ml, L, tbsp, tsp, cup)
-- Scale exactly, then round to a "clean" number:
-  - Values ≥ 100g/ml: round to nearest 25
-  - Values < 100g/ml: round to nearest 5
-  - tbsp/tsp: allow halves (0.5), round to nearest 0.5
-  - "pinch", "to taste": do not scale, pass through as-is
-- **Australian pack size rounding — resolved 2026-09-06 at Phase 4 kickoff: calculate exactly
-  (option 2).** Scaling keeps the true required quantity (340g stays 340g). Whole-pack
-  rounding and the resulting overage ("1 × 400g pack, 60g over") happen only in purchase-unit
-  resolution below, never in `scaling.py`, which holds no pack-size reference data. See the
-  Decision Dialogue > Australian pack size rounding.
+### Scaling — the `scaling.py` half (Chunk 4.3)
+- `scaling_factor(base_servings, target_servings)` → `target / base` (raises on non-positive base).
+- `scale_quantity(quantity, unit, factor)` → multiply; unit kept exactly as given (so `kg`
+  stays `kg`, free-text `"can"` stays `"can"`); `NO_SCALE_UNITS` (`pinch`, `to taste`,
+  `taste`, `splash`, `drizzle`, `dash` — extensible) pass through with `scaled=False`.
+- **Default target servings = 4** — the household is two adults, each taking a serving as
+  next-day lunch (2 people × 2 meals). Used as the pre-fill when a recipe is added to a
+  session (Chunk 4.4), always overridable per recipe. It's a constant
+  (`DEFAULT_TARGET_SERVINGS`), not yet a Settings field — see
+  [Deferred Decisions](#deferred-decisions).
+- Scaling is **rare** in practice (most recipes are `base_servings=4`, target 4, factor 1.0).
+
+### Rounding & unit rules — the `consolidation.py` half (Chunk 4.6)
+Applied to the **summed** quantity for each consolidated ingredient, in this order:
+
+1. **Unit normalisation (Australian conversions — confirmed 2026-09-06).** Volume↔volume
+   only; there is no density data so weight↔volume is never converted.
+   - `tsp` → 5 ml, **`tbsp` → 20 ml** (the Australian tablespoon, *not* 15), `cup` → 250 ml
+   - `kg` → 1000 g, `L` → 1000 ml
+   After this, quantities for one ingredient are either all-mass (g) or all-volume (ml), or
+   they are irreconcilable (see 4).
+2. **Sum** the normalised quantities across the session's recipes (a substituted ingredient
+   is already resolved to its target name before this — see
+   [Ingredient Substitution](#ingredient-substitution)).
+3. **Round the sum** — always **upward** to a clean step, never to nearest, so a shopping
+   quantity is tidy but is **never short** ("tolerances, not round-to-x, remove admin"):
+   - discrete / countable (no unit, or a free-text unit like `can`/`bunch`/`clove`) →
+     **ceil to a whole number** (`1.5 eggs` → `2`; applies when scaling *down* too;
+     `½ onion` → `1`)
+   - g / ml, value ≥ 100 → **ceil to nearest 25**
+   - g / ml, value < 100 → **ceil to nearest 5**
+   - `tbsp` / `tsp` → ceil to nearest 0.5 (only relevant if an ingredient is *purely*
+     tbsp/tsp across the whole session and so never got normalised to ml — in practice rare)
+   - `cup` → 2-decimal trim, **no** clean-rounding (a scaled cup value is almost always < 1,
+     where a "nearest 5" rule would destroy it)
+   - `NO_SCALE_UNITS` ("to taste") → shown on the list **with no number** (e.g.
+     `saffron — to taste`)
+4. **Irreconcilable** — mass + volume for the same ingredient (e.g. `100 g cream` +
+   `200 ml cream`), or a count + a unit (`3 onions` + `200 g onions`). Not merged: the line
+   is **flagged** and both parts are shown (`cream — 100 g + 200 ml (needs review)`). The
+   review UI for resolving these is Phase 5; Phase 4 only flags it on the API response.
+5. **kg / L for display** — after summing in g/ml, a total ≥ 1000 is shown back in kg/L
+   (`1030 g` → `1.03 kg`).
+
+### Free-text units (`can`, `bunch`, `clove`, `sprig`, …) — 2026-09-06
+Manual entry allows any unit string. Anything not in {`g`,`kg`,`ml`,`L`,`tsp`,`tbsp`,`cup`}
+and not in `NO_SCALE_UNITS` is treated as **discrete** — scaled, then ceil-to-whole
+("2 cloves" ×1.5 → 3). **Flagged as a revisit-after-real-use item** (see
+[Deferred Decisions](#deferred-decisions)) — it's the pragmatic default, not a confident one.
 
 ### Consolidation across recipes
 Ingredient names are resolved through any applicable
-[substitution rule](#ingredient-substitution) *before* this step runs — so an ingredient
+[substitution rule](#ingredient-substitution) *before* consolidation runs — so an ingredient
 substituted to match another recipe's ingredient consolidates into a single line, not two.
-
-When multiple recipes in a session use the same ingredient:
-- Sum quantities (after scaling each recipe individually)
-- Normalise units before summing (e.g. 500ml + 1L = 1500ml → display as 1.5L)
-- If units cannot be reconciled (e.g. "2 tbsp soy sauce" + "100ml soy sauce"), flag for
-  user review rather than silently failing
+The per-ingredient sum → normalise → round → flag pipeline is the "Rounding & unit rules"
+list above. A consolidated line always carries the **required quantity** (the rounded sum);
+purchase-unit resolution below may *add* a pack breakdown next to it but never replaces it —
+so a no-pack-size ingredient still shows an amount (`passata — 1.05 kg`), and a pack-size
+ingredient shows both (`passata — 2 × 750 g jars · need ~1.05 kg`).
 
 ### Purchase unit resolution (design confirmed 2026-09-05, PARTIALLY DEFERRED — build at Phase 4)
 When an item exists in `product_units`, calculate how many purchase units are needed to cover
@@ -662,10 +705,9 @@ would do. This is what `product_units` moving to one-row-per-pack-size in Phase 
 Phase 4 starts — documented now so the shape doesn't need re-deriving then:
 
 1. Look up all `product_units` rows for the ingredient (there may be zero, one, or several).
-2. **Zero rows:** unchanged from today — show the raw scaled quantity/unit, no purchase-unit
-   resolution.
-3. **One row:** unchanged from today — round up to the nearest whole multiple of that pack.
-   This stays the common case; most ingredients will only ever have one seeded pack size.
+2. **Zero rows:** no pack breakdown — the consolidated line is just the rounded required
+   quantity (`passata — 1.05 kg`).
+3. **One row:** round the required quantity **up** to the nearest whole multiple of that pack.
 4. **Several rows:** choose the combination of available pack sizes (repeats allowed) whose
    total meets or exceeds the required quantity, minimizing total overage first and pack count
    second as a tiebreaker (e.g. need 750g, options {500g, 1kg} → one 1kg pack, not two 500g).
@@ -677,13 +719,34 @@ Phase 4 starts — documented now so the shape doesn't need re-deriving then:
    than one pack size seeded (e.g. half-dozen and dozen), step 4 already covers it. No separate
    special case for countable vs weight/volume items.
 
-**Not required before Phase 4, and not a prerequisite for the above:** pre-enumerating multiple
-pack sizes for every seeded ingredient. Most stay single-pack, as seeded today. A second/third
-option gets added — via Settings (see [Chunk 2.5](#phase-2--recipe-library), once built) —
-opportunistically, only for specific ingredients where it's actually been noticed to matter.
-When Phase 4 lands, double-check the Settings UI still displays sensibly once an ingredient can
-have more than one `product_units` row (no rework needed now — the schema still enforces one
-row per ingredient until that migration ships).
+**Display (confirmed 2026-09-06 grilling):**
+- The consolidated line **always shows the required quantity**; a pack breakdown is shown
+  *in addition*, never instead: `passata — 2 × 750 g jars · need ~1.05 kg`. This is the
+  resolution to the maintainer's worry about a bare `passata` line hiding "how much".
+- **Overage** (spare amount beyond what the recipes need) is shown **only when it exceeds
+  roughly half of one pack of the size used** — `need 750 g → 1 × 1 kg tub` (250 g over, a
+  quarter-pack) says nothing; `need 550 g → 2 × 500 g packs` (450 g over, ~a pack) shows it.
+
+**Multi-pack, seeded from day one (2026-09-06 — deliberate small departure from the
+"don't pre-enumerate pack sizes" note below).** The maintainer wants the several-rows path
+exercised in real use immediately rather than shipping dormant. `seed_data.py` seeds a
+handful of genuine multi-pack items — **eggs (½ dozen + dozen), milk (1 L + 2 L), yoghurt
+(500 g + 1 kg)** — and the algorithm + Settings multi-row display get real test coverage in
+Phase 4, not "later". Every *other* ingredient still stays single-pack; a second option is
+added via Settings opportunistically, as originally intended:
+
+Most ingredients stay single-pack, as seeded. A second/third option gets added — via Settings
+(see [Chunk 2.5](#phase-2--recipe-library)) — opportunistically, only for specific ingredients
+where it's actually been noticed to matter. Chunk 4.5 re-checks that the Settings
+`product_units` view still displays sensibly now an ingredient can have more than one row.
+
+**Re-running consolidation is a merge, not a rebuild (2026-09-06).**
+`POST /sessions/{id}/consolidate` upserts `session_checklist_items` keyed by
+`ingredient_name`: quantities / pack breakdowns / `is_staple` / irreconcilable flags are
+recomputed, new lines are added and lines no longer needed are removed, but per-item
+**state is preserved** for lines that persist — `have_it`, `add_to_list`, and (Phase 5)
+`already_on_anylist` / `anylist_item_id`. So adding a recipe and re-consolidating never
+discards checklist progress.
 
 ---
 
@@ -1786,13 +1849,18 @@ full — the chunks below build them, they are not re-opened here.
       (stdlib-only headless-Edge CDP driver) + `HEADLESS_VERIFY.md` (the one documented way
       to drive the frontend) — replaces the ad-hoc `websocket-client`-install dance every
       prior frontend chunk reinvented.
-- [ ] **Chunk 4.3 — Scaling engine (pure service).** `services/scaling.py`, plain data in /
+- [x] **Chunk 4.3 — Scaling engine (pure service).** `services/scaling.py`, plain data in /
       plain data out, no DB or network — one of the three highest bug-risk modules per
       [Code Architecture](#code-architecture--maintainability), so heavy unit tests.
-      [Scaling Logic](#scaling-logic) rounding rules: discrete → round up; ≥100 g/ml → nearest
-      25; <100 → nearest 5; tbsp/tsp → nearest 0.5; "pinch" / "to taste" pass through
-      unscaled. Pack-size rounding is deliberately NOT here (resolved to calculate-exactly —
-      it lives in `purchase_units.py`, Chunk 4.6).
+      **Rescoped 2026-09-06 (grilling — see [Decision Dialogue > Scaling: rounding location &
+      rules](#scaling-rounding-location--rules-phase-4-kickoff)):** `scaling.py` now *only
+      multiplies* — `scaling_factor()` + `scale_quantity()` (unit preserved verbatim,
+      `NO_SCALE_UNITS` pass through `scaled=False`). **No rounding, no unit conversion, no
+      pack logic** — all of that moved to Chunk 4.6 and runs once on the summed quantity.
+      Done 2026-09-06 (commit `<pending>`): 14 unit tests (exact multiplication incl. "ugly"
+      results, unit preserved incl. `kg`/free-text, discrete *not* rounded here, factor <1 /
+      zero qty, `NO_SCALE_UNITS` case-insensitive passthrough, non-positive base raises).
+      Full suite green. `DEFAULT_TARGET_SERVINGS = 4` constant lands with Chunk 4.4's form.
 - [ ] **Chunk 4.4 — Session CRUD + session-recipe management.** `schemas/sessions.py`,
       `services/sessions.py`, flesh out `routers/sessions.py`. Session CRUD (create / list /
       get / update label+status / archive) with `?limit`/`?offset`; add / update / remove /
@@ -1810,15 +1878,26 @@ full — the chunks below build them, they are not re-opened here.
       is Chunk 4.7 — this chunk is the persistence + management half only.
 - [ ] **Chunk 4.6 — Consolidation + purchase-unit resolution + summary endpoint.**
       `services/consolidation.py` and `services/purchase_units.py` — both pure, both in the
-      high bug-risk trio, both heavily unit-tested. Consolidation: resolve substitution rules
-      first (default only, silent), sum scaled quantities across the session's recipes
-      (leftovers slots contribute nothing), normalise units (ml/L, g/kg), mark irreconcilable
-      unit pairs as a flag on the output (the review UI for those is Phase 5). Purchase units:
-      the zero / one / several `product_units` rows algorithm from
+      high bug-risk trio, both heavily unit-tested. **All the rounding/normalisation rules
+      settled in the 2026-09-06 grilling live here** (see
+      [Scaling Logic > Rounding & unit rules](#rounding--unit-rules--the-consolidationpy-half-chunk-46)
+      and the Decision Dialogue). Consolidation: resolve substitution rules first (default
+      only, silent); call `scaling.py` per recipe (leftovers slots contribute nothing);
+      normalise units — **AU conversions** `tsp`=5 ml / `tbsp`=**20 ml** / `cup`=250 ml,
+      `kg`=1000 g, `L`=1000 ml, volumes now merge; sum; **round the sum *upward*** to a clean
+      step (ceil 25 for g/ml ≥100, ceil 5 below, ceil to whole for counts incl. free-text
+      units, `cup` 2-dp trim only, `NO_SCALE_UNITS` → no number); mass-vs-volume for one
+      ingredient stays **irreconcilable** → flagged, both parts shown. Purchase units: the
+      zero / one / several `product_units` rows algorithm from
       [Scaling Logic](#scaling-logic) (brute-force small pack combos, minimise overage then
-      pack count), producing `purchase_label` / `purchase_qty` / `display_qty` and surfacing
-      any overage. `POST /api/v1/sessions/{id}/consolidate` writes/refreshes
-      `session_checklist_items` and returns the consolidated list.
+      pack count), producing `purchase_label` / `purchase_qty` / `display_qty`; line **always
+      carries the required quantity**, pack breakdown shown *in addition*; **overage shown
+      only when > ~half the pack used**. `POST /api/v1/sessions/{id}/consolidate` **upserts**
+      `session_checklist_items` keyed by `ingredient_name` (recompute quantities/packs/flags,
+      add/remove lines, **preserve** `have_it` / `add_to_list` on lines that persist — never
+      a wipe) and returns the consolidated list. Multi-pack seed items (eggs/milk/yoghurt)
+      land in `seed_data.py` here (or 4.1's already done — confirm) so the several-rows path
+      is exercised.
 - [ ] **Chunk 4.7 — Session UI.** `static/js/sessions.js` on `#/plan` (nav already has
       "Plan"), split by sub-feature if it passes ~350 lines. Create / resume a session, add
       recipes from the library, set servings + day, add a leftovers slot; ingredient review
@@ -2257,6 +2336,8 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 |---|---|---|
 | Australian pack size rounding for weight/volume | ~~Phase 4 discussion~~ **Resolved 2026-09-06 — option 2 (calculate exactly, show overage)** | e.g. "needs 340g → buy 400g can, 60g over". Scaling keeps the true quantity; whole-pack rounding + overage live only in purchase-unit resolution. No pack-size reference data set needed. See [Scaling Logic](#scaling-logic) and the Decision Dialogue; builds in Phase 4 Chunks 4.3 / 4.6. |
 | Partial quantities UX | Phase 5 | Implement binary have/don't have for now. Revisit if needed. |
+| Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | Revisit after real use | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." See [Scaling Logic](#scaling-logic). |
+| Default target servings as a Settings field | Not scheduled | 2026-09-06: `DEFAULT_TARGET_SERVINGS = 4` is a constant (form pre-fill, always overridable per recipe). If the household size changes often enough to matter, promote it to an editable Settings value. Needs a general app-settings store (Settings today is only staples + product_units CRUD). See [Scaling Logic](#scaling-logic). |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
 | Ingredient synonym normalisation (automatic) | Phase 6 or later | e.g. "green onion" vs "spring onion". For now, user review at capture time provides sufficient normalisation. |
 | Multi-user login / separate accounts | Post-MVP | Shared access, no auth. |
@@ -2307,6 +2388,48 @@ algorithm in [Scaling Logic > Purchase unit resolution](#scaling-logic) already 
 whole-pack cover job. Option 1 would double-round and distort consolidation inputs; option 3
 was unnecessary since the algorithm shape was already settled. Folded into
 [Scaling Logic](#scaling-logic) and Phase 4 Chunks 4.3 / 4.6.
+
+---
+
+#### Scaling: rounding location & rules (Phase 4 kickoff)
+
+**Resolved 2026-09-06 in a detailed grilling with the maintainer. Folded into
+[Scaling Logic](#scaling-logic); this is the record of intent.**
+
+**Q:** CLAUDE.md originally had `scaling.py` scale *and* round (nearest 25 / nearest 5 /
+nearest 0.5). Is that what's wanted, and where should rounding actually happen?
+
+**Context gathered:** scaling is *rare* (household target is 4 servings = 2 adults ×
+dinner + next-day lunch, which is also the usual `base_servings`, so factor is normally
+1.0). The end artifact is a shopping list. The maintainer's instinct: "remove as much admin
+as possible", "I don't want this to be a round-to-x question", "tolerances", and a specific
+worry that a bare `passata` line with no quantity would lead to buying the wrong amount.
+
+**Decisions:**
+1. **`scaling.py` only multiplies.** No rounding, no unit conversion, no pack logic. All of
+   that moves to `consolidation.py` / `purchase_units.py` and runs **once, on the summed
+   quantity** — not per-recipe-then-summed (which rounds twice and compounds drift).
+2. **Round UP, never to nearest.** Clean steps (ceil to 25 for g/ml ≥ 100, ceil to 5 below,
+   ceil to whole for counts) so numbers are tidy but a shopping quantity is *never short*.
+   This is the "tolerance" the maintainer was reaching for.
+3. **`cup` is not clean-rounded** — 2-decimal trim only (a scaled cup is ~always < 1, where
+   "nearest 5" would zero it). Chosen from options {nearest 0.25, nearest 0.5, no rounding}.
+4. **Australian volume conversions are defined and volumes DO merge**: `tsp`=5 ml,
+   `tbsp`=**20 ml** (AU tablespoon), `cup`=250 ml, `kg`=1000 g, `L`=1000 ml. Only
+   weight-vs-volume for one ingredient stays irreconcilable (no density data) → flagged,
+   both parts shown, review UI is Phase 5.
+5. **Discrete items always round up, including when scaling down** (3 eggs → 2 serves = 2
+   eggs, not 1) — safety over waste, the maintainer's explicit call. `½ onion` → `1`.
+6. **Free-text units** (`can`, `bunch`, `clove`…) → treated as discrete, ceil-to-whole.
+   Acknowledged as "sounds good on paper, might bite" → [Deferred Decisions](#deferred-decisions)
+   revisit-after-use item.
+7. **Required quantity is never hidden.** No-pack-size line shows the amount; pack-size line
+   shows both the pack breakdown *and* `need ~X`. Overage shown only when > ~half a pack.
+8. **Multi-pack resolution seeded from day one** (eggs/milk/yoghurt) and properly tested,
+   not dormant — small deliberate departure from the "don't pre-enumerate" note.
+9. **Re-consolidation merges**, preserving `have_it` / `add_to_list` per line; never a wipe.
+10. **Default target servings = 4**, a `DEFAULT_TARGET_SERVINGS` constant (form pre-fill,
+    always overridable). Making it a Settings field is a [Deferred Decision](#deferred-decisions).
 
 ---
 
