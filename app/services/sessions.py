@@ -15,18 +15,28 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.planning import PlanningSession, SessionRecipe
+from app.models.catalog import ProductUnit, Staple
+from app.models.planning import PlanningSession, SessionChecklistItem, SessionRecipe
 from app.schemas.sessions import (
     LeftoversSlotCreate,
     PlanningSessionCreate,
     PlanningSessionUpdate,
+    SessionOverride,
     SessionRecipeCreate,
     SessionSlotUpdate,
 )
+from app.services import consolidation, purchase_units, scaling
 from app.services import recipes as recipes_service
+from app.services import substitutions as substitutions_service
 from app.services.scaling import DEFAULT_TARGET_SERVINGS
 
 logger = logging.getLogger(__name__)
+
+# Pack-unit strings we know how to normalise, grouped by dimension — mirrors
+# consolidation._G_PER / _ML_PER so pack sizes line up with consolidated quantities.
+_PACK_G = {"g": 1.0, "kg": 1000.0}
+_PACK_ML = {"ml": 1.0, "l": 1000.0, "tsp": 5.0, "tbsp": 20.0, "cup": 250.0}
+_PACK_COUNT = {"each", "ea", "unit", "count", ""}
 
 
 class SessionNotFoundError(Exception):
@@ -228,3 +238,159 @@ def reorder_slots(db: Session, session_id: int, ordered_ids: list[int]) -> list[
     logger.info("Session slots reordered: session_id=%s order=%s", session_id, ordered_ids)
     db.refresh(session)
     return sorted(session.recipes, key=lambda s: s.sort_order)
+
+
+# --- consolidation (Chunk 4.6) --------------------------------------------
+#
+# Orchestrator: pulls the session's scaled ingredient lines out of the DB, runs them
+# through the pure consolidation + purchase_units services, and upserts
+# session_checklist_items. The rounding/unit rules themselves live in
+# services/consolidation.py; this function is the DB plumbing around them. See CLAUDE.md >
+# Scaling Logic and > Build Phases > Phase 4 > Chunk 4.6.
+
+
+def _scaled_lines(session: PlanningSession) -> list[consolidation.IngredientLine]:
+    lines: list[consolidation.IngredientLine] = []
+    for slot in session.recipes:
+        if slot.slot_type != "recipe" or slot.recipe is None:
+            continue  # leftovers slots contribute nothing
+        factor = scaling.scaling_factor(slot.recipe.base_servings, slot.scaled_servings)
+        for ing in slot.recipe.ingredients:
+            sq = scaling.scale_quantity(ing.quantity, ing.unit, factor)
+            lines.append(
+                consolidation.IngredientLine(
+                    name=ing.name, quantity=sq.quantity, unit=sq.unit, is_no_scale=not sq.scaled
+                )
+            )
+    return lines
+
+
+def _pack_options_for(
+    item: consolidation.ConsolidatedItem, rows: list[ProductUnit]
+) -> tuple[float, list[purchase_units.PackOption], str]:
+    """(required_in_base, [PackOption in the same base], base_kind). base_kind is
+    'mass' | 'volume' | 'count' | 'unit:<x>'. Rows whose unit doesn't match the item's
+    dimension are dropped."""
+    unit = (item.unit or "").strip().lower()
+    if unit in _PACK_G or unit in ("g", "kg"):
+        base_kind, factor = "mass", (1000.0 if unit == "kg" else 1.0)
+        required = (item.quantity or 0.0) * factor
+        opts = [
+            purchase_units.PackOption(r.purchase_label, r.purchase_qty * _PACK_G[(r.purchase_unit or "").lower()])
+            for r in rows
+            if (r.purchase_unit or "").lower() in _PACK_G
+        ]
+        return required, opts, base_kind
+    if unit in _PACK_ML:
+        base_kind = "volume"
+        required = (item.quantity or 0.0) * _PACK_ML[unit]
+        opts = [
+            purchase_units.PackOption(r.purchase_label, r.purchase_qty * _PACK_ML[(r.purchase_unit or "").lower()])
+            for r in rows
+            if (r.purchase_unit or "").lower() in _PACK_ML
+        ]
+        return required, opts, base_kind
+    if item.unit is None:  # bare count
+        required = item.quantity or 0.0
+        opts = [
+            purchase_units.PackOption(r.purchase_label, r.purchase_qty)
+            for r in rows
+            if (r.purchase_unit or "").lower() in _PACK_COUNT
+        ]
+        return required, opts, "count"
+    # free-text unit — only match pack rows carrying the same unit string
+    required = item.quantity or 0.0
+    opts = [
+        purchase_units.PackOption(r.purchase_label, r.purchase_qty)
+        for r in rows
+        if (r.purchase_unit or "").lower() == unit
+    ]
+    return required, opts, f"unit:{unit}"
+
+
+def _overage_note(overage_base: float, item: consolidation.ConsolidatedItem) -> str:
+    """overage is in the consolidation base (g/ml/count); render it in the item's unit."""
+    u = (item.unit or "").strip().lower()
+    if u == "kg":
+        return f"{consolidation._fmt_qty(overage_base / 1000)} kg spare"
+    if u == "l":
+        return f"{consolidation._fmt_qty(overage_base / 1000)} L spare"
+    if u in ("g", "ml"):
+        return f"{consolidation._fmt_qty(overage_base)} {u} spare"
+    if item.unit is None:
+        return f"{consolidation._fmt_qty(overage_base)} spare"
+    return f"{consolidation._fmt_qty(overage_base)} {item.unit} spare"
+
+
+def consolidate_session(
+    db: Session, session_id: int, *, overrides: list[SessionOverride] | None = None
+) -> list[SessionChecklistItem]:
+    """Rebuild the consolidated checklist for a session. Upsert, not wipe: computed
+    fields are recomputed, new lines added, gone lines removed, but per-line state
+    (have_it / add_to_list / already_on_anylist / anylist_item_id) is PRESERVED for
+    lines that persist (CLAUDE.md > Scaling Logic > re-running consolidation)."""
+    session = get_session(db, session_id)
+
+    # substitution map: stored defaults, then session-only overrides win.
+    sub_map = substitutions_service.get_default_substitution_map(db)
+    for ov in overrides or []:
+        sub_map[ov.original_name.strip().lower()] = ov.substitute_name.strip().lower()
+
+    items = consolidation.consolidate(_scaled_lines(session), sub_map)
+
+    staple_names = {s.name for s in db.query(Staple).all()}
+    existing = {ci.ingredient_name: ci for ci in session.checklist_items}
+
+    for item in items:
+        row = existing.pop(item.name, None)
+        if row is None:
+            row = SessionChecklistItem(session_id=session.id, ingredient_name=item.name)
+            db.add(row)
+
+        row.is_staple = item.name in staple_names
+        # reset computed fields every run
+        row.total_quantity = item.quantity
+        row.total_unit = item.unit
+        row.purchase_label = None
+        row.purchase_qty = None
+        row.display_qty = None
+        row.needs_review = item.needs_review
+        row.note = None
+
+        if item.needs_review:
+            row.note = " + ".join(item.review_parts)
+        elif item.is_no_scale:
+            row.note = "to taste"
+        else:
+            rows = (
+                db.query(ProductUnit)
+                .filter(ProductUnit.ingredient_name == item.name)
+                .all()
+            )
+            required, opts, _kind = _pack_options_for(item, rows)
+            resolution = purchase_units.resolve_packs(required, opts) if opts else None
+            if resolution is not None:
+                row.display_qty = resolution.display_qty
+                row.purchase_qty = resolution.total_purchased
+                row.purchase_label = (
+                    resolution.counts[0][0]
+                    if len(resolution.counts) == 1
+                    else resolution.display_qty
+                )
+                if resolution.show_overage:
+                    row.note = _overage_note(resolution.overage, item)
+            if item.also_to_taste:
+                row.note = f"{row.note} (+ to taste)" if row.note else "(+ to taste)"
+
+    for stale in existing.values():
+        db.delete(stale)
+
+    db.commit()
+    logger.info(
+        "Session consolidated: session_id=%s items=%d overrides=%d",
+        session_id,
+        len(items),
+        len(overrides or []),
+    )
+    db.refresh(session)
+    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)

@@ -113,3 +113,46 @@ class SlotOrderUpdate(BaseModel):
     """Bulk reorder — the full list of this session's slot ids in the desired order."""
 
     ordered_ids: list[int] = Field(..., min_length=1)
+
+
+# --- consolidation (Chunk 4.6) --------------------------------------------
+
+
+class SessionOverride(BaseModel):
+    """A one-off substitution that applies to THIS consolidate call only — nothing is
+    written to `ingredient_substitutions`. Held client-side by the Chunk 4.7 UI and passed
+    in here (CLAUDE.md > Ingredient Substitution > Creation: "No -> applies to this
+    session's shopping list only")."""
+
+    original_name: str = Field(..., min_length=1)
+    substitute_name: str = Field(..., min_length=1)
+
+
+class ConsolidateRequest(BaseModel):
+    overrides: list[SessionOverride] = Field(default_factory=list)
+
+
+class ChecklistItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int
+    ingredient_name: str
+    total_quantity: float | None
+    total_unit: str | None
+    is_staple: bool
+    already_on_anylist: bool
+    have_it: str
+    add_to_list: bool
+    purchase_label: str | None
+    purchase_qty: float | None
+    display_qty: str | None
+    needs_review: bool
+    note: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConsolidateResponse(BaseModel):
+    session_id: int
+    items: list[ChecklistItemRead]

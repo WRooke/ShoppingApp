@@ -151,3 +151,82 @@ def test_archive_session_and_status_filter(client):
 
     listed = client.get("/api/v1/sessions?status=archived&limit=200").json()["data"]["items"]
     assert any(x["id"] == s["id"] for x in listed)
+
+
+# --- consolidate endpoint (Chunk 4.6) ------------------------------------
+
+
+def test_consolidate_endpoint_returns_checklist(client):
+    s = _session(client, "ZZ-Consolidate")
+    r = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "ZZ-Consolidate-Recipe",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [
+                {"name": "beef mince", "quantity": 500, "unit": "g"},
+                {"name": "onion", "quantity": 2, "unit": None},
+            ],
+            "allow_duplicate": True,
+        },
+    ).json()["data"]
+    client.post(f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r["id"], "scaled_servings": 4})
+
+    resp = client.post(f"/api/v1/sessions/{s['id']}/consolidate", json={})
+    assert resp.status_code == 200
+    body = resp.json()["data"]
+    assert body["session_id"] == s["id"]
+    names = {i["ingredient_name"]: i for i in body["items"]}
+    assert names["onion"]["total_quantity"] == 2
+    assert names["beef mince"]["total_quantity"] == 500
+    # beef mince is seeded as a 500g pack -> resolves
+    assert names["beef mince"]["display_qty"] == "1 × 500g pack"
+
+
+def test_consolidate_endpoint_unknown_session_404(client):
+    resp = client.post("/api/v1/sessions/999999/consolidate", json={})
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "SESSION_NOT_FOUND"
+
+
+def test_consolidate_endpoint_multi_pack_eggs(client):
+    # eggs are seeded with two pack sizes (half dozen + dozen) -> several-rows path
+    s = _session(client, "ZZ-Consolidate-Eggs")
+    r = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "ZZ-Eggs-Recipe",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": "eggs", "quantity": 8, "unit": None}],
+            "allow_duplicate": True,
+        },
+    ).json()["data"]
+    client.post(f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r["id"], "scaled_servings": 4})
+
+    resp = client.post(f"/api/v1/sessions/{s['id']}/consolidate", json={})
+    eggs = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "eggs")
+    assert eggs["display_qty"] == "1 × dozen"  # 8 eggs -> a dozen beats a half-dozen
+
+
+def test_consolidate_endpoint_session_override(client):
+    s = _session(client, "ZZ-Consolidate-Override")
+    r = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "ZZ-Override-Recipe",
+            "source_type": "manual",
+            "ingredients": [{"name": "zz-bulgarian feta", "quantity": 100, "unit": "g"}],
+            "allow_duplicate": True,
+        },
+    ).json()["data"]
+    client.post(f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r["id"]})
+
+    resp = client.post(
+        f"/api/v1/sessions/{s['id']}/consolidate",
+        json={"overrides": [{"original_name": "zz-bulgarian feta", "substitute_name": "zz-plain feta"}]},
+    )
+    names = [i["ingredient_name"] for i in resp.json()["data"]["items"]]
+    assert "zz-plain feta" in names
+    assert "zz-bulgarian feta" not in names

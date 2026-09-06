@@ -73,6 +73,11 @@ class SessionChecklistItem(Base):
     purchase_qty = Column(Float, nullable=True)
     display_qty = Column(Text, nullable=True)  # e.g. "2 x 500g packs"
     anylist_item_id = Column(Text, nullable=True)
+    # Phase 4 Chunk 4.6 — a display-only hint carrying an irreconcilable-units breakdown
+    # ("100 g + 200 ml"), a "to taste" marker, or an overage note ("450 g spare"). See
+    # CLAUDE.md > Scaling Logic > Rounding & unit rules.
+    needs_review = Column(Boolean, nullable=False, default=False)
+    note = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 

@@ -14,11 +14,13 @@ from app.schemas.sessions import (
     LeftoversSlotCreate,
     PlanningSessionCreate,
     PlanningSessionUpdate,
+    SessionOverride,
     SessionRecipeCreate,
     SessionSlotUpdate,
 )
 from app.services import recipes as recipes_service
 from app.services import sessions as sessions_service
+from app.services import substitutions as substitutions_service
 from app.services.scaling import DEFAULT_TARGET_SERVINGS
 
 
@@ -203,3 +205,127 @@ def test_reorder_slots_rejects_partial_or_foreign_id_list(db):
 
     with pytest.raises(sessions_service.SlotOrderMismatchError):
         sessions_service.reorder_slots(db, s.id, [s1.id])  # missing one
+
+
+# --- consolidate_session (Chunk 4.6) ---------------------------------
+
+
+def _recipe_with(db, name, ings, base_servings=4):
+    return recipes_service.create_recipe(
+        db,
+        RecipeCreate(
+            name=name,
+            source_type="manual",
+            base_servings=base_servings,
+            ingredients=[RecipeIngredientCreate(**i) for i in ings],
+        ),
+        allow_duplicate=True,
+    )
+
+
+def test_consolidate_scales_and_sums_across_recipes(db):
+    from app.models.catalog import ProductUnit
+
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r1 = _recipe_with(db, "Bol", [{"name": "beef mince", "quantity": 500, "unit": "g"}], base_servings=4)
+    r2 = _recipe_with(db, "Chilli", [{"name": "beef mince", "quantity": 250, "unit": "g"}], base_servings=4)
+    # r1 target 4 (x1) -> 500g; r2 target 6 (x1.5) -> 375g; total 875 -> ceil 25 -> 875
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=6))
+
+    db.add(ProductUnit(ingredient_name="beef mince", purchase_label="500g pack", purchase_qty=500, purchase_unit="g"))
+    db.commit()
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    it = items[0]
+    assert it.ingredient_name == "beef mince"
+    assert it.total_quantity == 875 and it.total_unit == "g"
+    assert it.display_qty == "2 × 500g pack"  # ceil(875/500)=2
+    assert it.purchase_qty == 1000
+
+
+def test_consolidate_leftovers_slot_contributes_nothing(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Soup", [{"name": "carrot", "quantity": 3, "unit": None}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    sessions_service.add_leftovers_slot(db, s.id, LeftoversSlotCreate(day_of_week=3))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["carrot"]
+    assert items[0].total_quantity == 3
+
+
+def test_consolidate_flags_is_staple(db):
+    from app.services import settings as settings_service
+    from app.schemas.settings import StapleCreate
+
+    settings_service.create_staple(db, StapleCreate(name="olive oil"))
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Dressing", [{"name": "olive oil", "quantity": 30, "unit": "ml"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert items[0].is_staple is True
+
+
+def test_consolidate_is_a_merge_preserving_have_it_and_add_to_list(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r1 = _recipe_with(db, "A", [{"name": "onion", "quantity": 2, "unit": None}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.consolidate_session(db, s.id)
+
+    # user marks the onion line
+    onion = next(ci for ci in sessions_service.get_session(db, s.id).checklist_items if ci.ingredient_name == "onion")
+    onion.have_it = "yes"
+    onion.add_to_list = True
+    db.commit()
+
+    # add a second recipe and re-consolidate
+    r2 = _recipe_with(db, "B", [{"name": "onion", "quantity": 1, "unit": None}, {"name": "garlic", "quantity": 2, "unit": None}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(db, s.id)
+
+    by_name = {i.ingredient_name: i for i in items}
+    assert by_name["onion"].total_quantity == 3  # recomputed
+    assert by_name["onion"].have_it == "yes"  # preserved
+    assert by_name["onion"].add_to_list is True  # preserved
+    assert by_name["garlic"].have_it == "unknown"  # new line, default
+
+
+def test_consolidate_removes_lines_no_longer_needed(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "A", [{"name": "onion", "quantity": 2, "unit": None}])
+    slot = sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    sessions_service.consolidate_session(db, s.id)
+    assert len(sessions_service.get_session(db, s.id).checklist_items) == 1
+
+    sessions_service.remove_slot(db, s.id, slot.id)
+    items = sessions_service.consolidate_session(db, s.id)
+    assert items == []
+
+
+def test_consolidate_session_override_beats_stored_default(db):
+    from app.schemas.substitutions import IngredientSubstitutionCreate
+
+    substitutions_service.create_substitution(
+        db, IngredientSubstitutionCreate(original_name="bulgarian feta", substitute_name="regular feta")
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Salad", [{"name": "bulgarian feta", "quantity": 100, "unit": "g"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    # stored default would map -> "regular feta"; a session override says "goat cheese" this time
+    items = sessions_service.consolidate_session(
+        db, s.id, overrides=[SessionOverride(original_name="bulgarian feta", substitute_name="goat cheese")]
+    )
+    assert [i.ingredient_name for i in items] == ["goat cheese"]
+
+
+def test_consolidate_to_taste_item_note(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Season", [{"name": "saffron", "quantity": 1, "unit": "pinch"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=8))
+    items = sessions_service.consolidate_session(db, s.id)
+    assert items[0].total_quantity is None
+    assert items[0].note == "to taste"

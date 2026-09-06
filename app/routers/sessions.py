@@ -15,6 +15,8 @@ from app.database import get_db
 from app.models.planning import SessionRecipe as SessionRecipeModel
 from app.models.planning import PlanningSession as PlanningSessionModel
 from app.schemas.sessions import (
+    ChecklistItemRead,
+    ConsolidateRequest,
     LeftoversSlotCreate,
     PlanningSessionCreate,
     PlanningSessionListItem,
@@ -139,3 +141,26 @@ def reorder_slots(
 ) -> dict:
     slots = sessions_service.reorder_slots(db, session_id, data.ordered_ids)
     return {"ok": True, "data": [_slot_read(s) for s in slots]}
+
+
+# --- consolidation (Chunk 4.6) --------------------------------------------
+
+
+@router.post("/{session_id}/consolidate")
+def consolidate_session(
+    session_id: int,
+    data: ConsolidateRequest | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    items = sessions_service.consolidate_session(
+        db, session_id, overrides=(data.overrides if data else None)
+    )
+    return {
+        "ok": True,
+        "data": {
+            "session_id": session_id,
+            "items": [
+                ChecklistItemRead.model_validate(ci).model_dump(mode="json") for ci in items
+            ],
+        },
+    }

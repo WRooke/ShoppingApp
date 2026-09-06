@@ -16,10 +16,20 @@ from app.models.catalog import ProductUnit, Staple
 logger = logging.getLogger(__name__)
 
 # Australian common grocery pack sizes. Marked is_preseeded=1 on insert.
+#
+# A few ingredients carry MORE THAN ONE pack size on purpose (eggs, milk, yoghurt) — see
+# CLAUDE.md > Scaling Logic > "Multi-pack, seeded from day one". This is a deliberate small
+# departure from the "don't pre-enumerate pack sizes" norm, so the several-rows purchase
+# resolution path (services/purchase_units.py) is exercised in real use from the start.
+# Uniqueness is (ingredient_name, purchase_label) as of Phase 4 Chunk 4.1.
 PRODUCT_UNIT_SEEDS: list[dict] = [
     # Dairy & eggs
+    {"ingredient_name": "eggs", "purchase_label": "half dozen", "purchase_qty": 6, "purchase_unit": "each"},
     {"ingredient_name": "eggs", "purchase_label": "dozen", "purchase_qty": 12, "purchase_unit": "each"},
+    {"ingredient_name": "milk", "purchase_label": "1L bottle", "purchase_qty": 1, "purchase_unit": "L"},
     {"ingredient_name": "milk", "purchase_label": "2L bottle", "purchase_qty": 2, "purchase_unit": "L"},
+    {"ingredient_name": "yoghurt", "purchase_label": "500g tub", "purchase_qty": 500, "purchase_unit": "g"},
+    {"ingredient_name": "yoghurt", "purchase_label": "1kg tub", "purchase_qty": 1000, "purchase_unit": "g"},
     {"ingredient_name": "butter", "purchase_label": "250g block", "purchase_qty": 250, "purchase_unit": "g"},
     {"ingredient_name": "cream", "purchase_label": "300ml carton", "purchase_qty": 300, "purchase_unit": "ml"},
     {"ingredient_name": "sour cream", "purchase_label": "200g tub", "purchase_qty": 200, "purchase_unit": "g"},
@@ -83,9 +93,14 @@ def seed_reference_data(db: Session) -> dict:
     """
     added_units = 0
     for row in PRODUCT_UNIT_SEEDS:
+        # Idempotency keys off (ingredient_name, purchase_label) — the Phase 4 uniqueness —
+        # so a second pack size for an already-seeded ingredient still gets inserted.
         exists = (
             db.query(ProductUnit)
-            .filter(ProductUnit.ingredient_name == row["ingredient_name"])
+            .filter(
+                ProductUnit.ingredient_name == row["ingredient_name"],
+                ProductUnit.purchase_label == row["purchase_label"],
+            )
             .first()
         )
         if exists is None:

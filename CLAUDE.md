@@ -538,6 +538,12 @@ purchase_label  TEXT               -- nullable, from product_units
 purchase_qty    REAL               -- nullable, resolved purchase quantity
 display_qty     TEXT               -- nullable, human-readable e.g. "2 × 500g packs"
 anylist_item_id TEXT               -- nullable, AnyList item ID if already on list
+needs_review    BOOLEAN NOT NULL DEFAULT 0  -- Phase 4 Chunk 4.6: irreconcilable units (mass+volume
+                                            -- for one ingredient) — total_quantity/unit left NULL,
+                                            -- see `note`. Review UI is Phase 5.
+note            TEXT               -- nullable, Phase 4 Chunk 4.6: display-only hint —
+                                    -- "100 g + 200 ml" (review breakdown), "to taste",
+                                    -- or "450 g spare" (overage, shown only when > ~half a pack)
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
@@ -1891,7 +1897,7 @@ full — the chunks below build them, they are not re-opened here.
       `product_units` view still renders sensibly now an ingredient can have several pack-size
       rows ([`product_units`](#product_units) note). The ad-hoc swap + "remember this?" flow
       is Chunk 4.7 — this chunk is the persistence + management half only.
-      Done 2026-09-06 (commit `<pending>`). `services/substitutions.py`: names normalised
+      Done 2026-09-06 (commit `aa3c8d8`). `services/substitutions.py`: names normalised
       lowercase; first substitute for an `original_name` is *forced* default; setting a new
       default **reassigns** (demotes the old — not a 409); `is_default=false` on the last
       default is allowed (group then has no auto-apply); deleting the default does **not**
@@ -1908,7 +1914,7 @@ full — the chunks below build them, they are not re-opened here.
       3 cards render, add-rule works, first substitute auto-defaults, one default per group,
       normalisation applied, zero console errors. `product_units` multi-row Settings display
       re-check deferred to Chunk 4.6 (lands with the eggs/milk/yoghurt seed).
-- [ ] **Chunk 4.6 — Consolidation + purchase-unit resolution + summary endpoint.**
+- [x] **Chunk 4.6 — Consolidation + purchase-unit resolution + summary endpoint.**
       `services/consolidation.py` and `services/purchase_units.py` — both pure, both in the
       high bug-risk trio, both heavily unit-tested. **All the rounding/normalisation rules
       settled in the 2026-09-06 grilling live here** (see
@@ -1930,6 +1936,41 @@ full — the chunks below build them, they are not re-opened here.
       a wipe) and returns the consolidated list. Multi-pack seed items (eggs/milk/yoghurt)
       land in `seed_data.py` here (or 4.1's already done — confirm) so the several-rows path
       is exercised.
+      Done 2026-09-06 (commit `<pending>`). Migration `3474369f4c79` adds
+      `session_checklist_items.needs_review` + `note` (same server-default-then-drop batch
+      pattern as 4.1's `slot_type`; parity guarded). `services/purchase_units.py` (pure):
+      `resolve_packs(required, options)` — 0 → None, 1 → ceil to a whole pack, several →
+      recursive brute-force over small combos, key `(overage, pack_count, counts)`;
+      `show_overage = overage > 0.5 × largest chosen pack`. `services/consolidation.py`
+      (pure): `IngredientLine[]` + `{original: substitute}` → `ConsolidatedItem[]`; buckets
+      each contribution by dimension (mass/volume/count/`unit:<x>`), AU-normalises volumes
+      (`tsp` 5, `tbsp` **20**, `cup` 250 ml; `kg`/`L` ×1000), sums, then ceil-to-clean-step
+      **upward** (25 at/above 100 g·ml, 5 below; ceil-to-whole for counts + free-text units);
+      a *pure-cup* ingredient is shown back in cups 2-dp (honours the earlier explicit call);
+      mass+volume mix → `needs_review` with both parts in `review_parts`; `NO_SCALE_UNITS` →
+      `quantity=None`, `is_no_scale`; real qty + a "to taste" contribution → `also_to_taste`.
+      Orchestrator `sessions_service.consolidate_session(db, id, *, overrides=None)`: scales
+      each recipe slot via `scaling.py` (leftovers contribute nothing), merges stored default
+      substitutions with session-only `overrides` (overrides win), runs `consolidate()`, then
+      per item looks up `product_units` rows, normalises pack sizes to the item's base unit,
+      calls `resolve_packs()`, and **upserts** `session_checklist_items` — computed fields
+      refreshed, `have_it`/`add_to_list`/`already_on_anylist`/`anylist_item_id` **preserved**
+      on surviving lines, gone lines deleted. `note` carries the review breakdown, `"to
+      taste"`, `"(+ to taste)"`, or `"<n> <unit> spare"` (overage). `is_staple` set from the
+      staples table. `POST /api/v1/sessions/{id}/consolidate` (`{"overrides":[…]}`, optional).
+      `seed_data.py`: eggs (½ dozen + dozen), milk (1 L + 2 L), yoghurt (500 g + 1 kg) —
+      **seed idempotency key changed to `(ingredient_name, purchase_label)`** so a second
+      pack for an existing ingredient still seeds. 26 pure unit tests
+      (`test_purchase_units.py` 9, `test_consolidation.py` 17) + 7 orchestrator service
+      tests + 4 router smoke tests; full suite **255 pass**; migration parity green.
+      **Live curl on a fresh scratch server** exercised: cross-recipe scale+sum → `1.0 kg`
+      beef mince + `2 × 500g pack`; `2 tbsp + 100 ml soy sauce` → `250 ml` (merged via the
+      20 ml tbsp); `100 g + 150 ml cream` → `needs_review` `"200 g + 300 ml"`; 13 eggs →
+      `1 × dozen + 1 × half dozen` (overage 5, not shown, < half a dozen); `pinch` saffron →
+      `to taste`, no number; no-pack passata → `400 g`; a `have_it=yes` line survived a
+      re-consolidate with a recomputed quantity while a new line defaulted to `unknown`;
+      `/diagnostics/recent-errors` clean. Headless-Edge confirmed the Settings `product_units`
+      card lists the double rows sensibly (closes the 4.5-deferred check).
 - [ ] **Chunk 4.7 — Session UI.** `static/js/sessions.js` on `#/plan` (nav already has
       "Plan"), split by sub-feature if it passes ~350 lines. Create / resume a session, add
       recipes from the library, set servings + day, add a leftovers slot; ingredient review
