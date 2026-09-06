@@ -1626,11 +1626,71 @@ already used from the start.
         pass (frontend-only chunk, no new Python tests).
       **Chunk 3.7 complete 2026-09-06** — commits `4536f09` (3.7a), `1d27e6d` (3.7b), 3.7c
       this commit.
-- [ ] **Phase 3 review** — re-check against [Recipe Capture](#recipe-capture--ai-extraction),
+- [x] **Phase 3 review** — re-check against [Recipe Capture](#recipe-capture--ai-extraction),
       [Scaling Logic](#scaling-logic) (n/a until Phase 4, confirm nothing here needs it yet),
       [Code Architecture](#code-architecture--maintainability), and
       [API Conventions](#api-conventions), per
       [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
+      **Done 2026-09-06.** Full suite 138 pass; `alembic heads` == `alembic current` on the
+      dev DB (`9b903c88b3aa`); `/diagnostics/recent-errors` clean on a fresh dev-server start.
+      Checked and confirmed implemented:
+      - **Recipe Capture** — URL flow (`services/capture_url.py`): httpx, 10s timeout,
+        `follow_redirects`, desktop UA; BeautifulSoup prefers `article`/`main`/`[class*=recipe]`/
+        `[class*=ingredient]`, strips `script`/`style`/`nav`/`footer`/`header`/`noscript`,
+        falls back to whole-page text. Photo flow (`services/capture_photo.py`): UUID filename
+        under `images/`, JPEG/PNG enforced server-side, 10 MB defensive cap, base64 to Claude,
+        image kept. Prompt (`claude_client.EXTRACTION_SYSTEM_PROMPT`): single JSON object with
+        `cuisine`/`protein`/`ingredients[]`+`suggested_section`, rules verbatim from the spec;
+        the `suggested_section` enum is interpolated from `SECTION_VOCABULARY` (kept in sync by
+        construction, stronger than the "by hand" the spec text still describes — see note
+        below). Review UI (`capture-review.js`): every field editable, on confirm creates
+        recipe + `recipe_ingredients` + `product_sections` rows `source='ai_suggested'` for
+        untagged ingredients only (`product_sections.tag_suggested_sections` never clobbers an
+        existing row). Source provenance (3.7): two optional freetext review-screen inputs
+        write `source_book`/`source_page`; extraction prompt deliberately not extended to OCR
+        them.
+      - **§0a prompt-injection hardening** — system-prompt data-not-instructions statement;
+        non-guessable delimiter tag `untrusted_recipe_source_7f3a` wrapping the user content;
+        `MAX_INPUT_TEXT_CHARS = 20_000` truncation with a WARNING log; `_clean_suggested_section`
+        allow-list → `None` for any out-of-vocab value; no tool use granted to the call.
+      - **§0b observability** — `calculate_cost_usd_cents` + `log_api_usage` retained and
+        called inside `extract_ingredients()` immediately after every real call (before the
+        parse, so a billed-but-unparseable response is still logged); `api_usage_resets` +
+        `reset_api_usage_display()` is insert-only and never touches `api_usage`; diagnostics
+        `/status` reports spend, tokens, `last_success`, `reset_at`, `api_enabled`,
+        `fake_mode`. Hard cap gone from code — only explanatory doc/comment references remain.
+      - **§0c enable switch + fake mode** — `CLAUDE_API_ENABLED` (default `false`) checked
+        before any real call → `ClaudeApiDisabledError` → 503; `CLAUDE_API_FAKE_MODE`
+        (default `false`) returns a deterministic canned fixture and bypasses the switch.
+        `app/config.py` and `.env.example` both default both flags to `false`.
+      - **Code Architecture** — zero `fastapi` imports in `app/services/`; capture logic
+        behind the small `claude_client` / `capture_url` / `capture_photo` surfaces;
+        `schemas/capture.py` kept distinct from `schemas/recipes.py`; every capture exception
+        translated centrally in `app/main.py`, none raised as a raw `HTTPException` in a
+        router; `router.js` remains the only hash-parser (capture sub-routes dispatch via the
+        `recipes` route param, the review screen is an in-memory handoff, not a route);
+        `tests/` mirrors `app/`, Claude mocked, migration parity guarded by
+        `tests/test_migrations.py`.
+      - **API Conventions** — all capture endpoints use the `{"ok": ...}` envelope;
+        `CLAUDE_API_DISABLED` / `EXTRACTION_FAILED` / `RECIPE_FETCH_FAILED` / `INVALID_IMAGE`
+        are SCREAMING_SNAKE_CASE; no new list endpoints, so `limit`/`offset` n/a.
+      - **Scaling Logic** — confirmed nothing in Phase 3 touches scaling; the pack-size
+        resolution note added to that section this session is Phase 4 (Chunks 4.3 / 4.6).
+      Gap found and fixed: the **Environment Variables (.env)** block showed
+      `CLAUDE_API_FAKE_MODE=true`, out of step with §0c, `app/config.py`, and `.env.example`
+      (all `false`) — aligned to `false` with a note.
+      Notes, no action taken: (1) `claude_client.py` is ~385 lines, marginally over the
+      ~300–400 "consider splitting" guideline, but it is dominated by the cohesive prompt
+      constant + three fixtures — left as one file. (2) The spec's Recipe Capture text still
+      says the `suggested_section` enum is "kept in sync ... by hand"; the code actually
+      interpolates it from `SECTION_VOCABULARY`, which is better — spec wording could be
+      updated opportunistically.
+      **Carried forward — Chunk 3.6 (live-API verification) stays unticked**, BLOCKED on an
+      empty prepaid account balance (see the Chunk 3.6 entry). Residual risk is real-Haiku
+      strict-JSON parsing (~80–85% confidence); the failure mode is contained and visible.
+      Does not block Phase 4 build/verify, which runs offline against manual + fake-mode
+      recipes; close 3.6 when the account has credit, with a fresh in-conversation go-ahead
+      per §0c.
 
 **Deliverable:** User can capture a recipe from URL or photo, review the extracted
 ingredients, edit if needed, and save to the library.
@@ -2441,7 +2501,7 @@ PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ANTHROPIC_API_KEY=sk-ant-...
 CLAUDE_API_ENABLED=false
-CLAUDE_API_FAKE_MODE=true
+CLAUDE_API_FAKE_MODE=false
 ANYLIST_EMAIL=...
 ANYLIST_PASSWORD=...
 LOG_LEVEL=INFO
@@ -2452,8 +2512,12 @@ LOGS_PATH=logs
 
 `CLAUDE_API_ENABLED`, `CLAUDE_API_FAKE_MODE` — see
 [Security §0c](#0c-api-enable-switch--offline-development-highest-priority), a
-highest-priority standing rule. Enable only with the maintainer's explicit approval;
-`CLAUDE_API_FAKE_MODE` must never be `true` outside local development. (`MAX_API_SPEND_AUD_CENTS`
+highest-priority standing rule. Both default to `false` in `app/config.py` and in the
+shipped `.env.example` (aligned here 2026-09-06 during the Phase 3 review — this block
+previously showed `CLAUDE_API_FAKE_MODE=true`, out of step with the code default). Enable
+`CLAUDE_API_ENABLED` only with the maintainer's explicit approval; set
+`CLAUDE_API_FAKE_MODE=true` only in local development (never on the NUC), when you want the
+capture flow to run against canned fixtures with no key. (`MAX_API_SPEND_AUD_CENTS`
 existed here from 2026-09-05 to 2026-09-06 as part of a hard spend cap that has since been
 removed — see the Non-Negotiable Operating Rules banner and
 [Security §0b](#0b-api-usage-observability-no-hard-cap) — it is no longer a recognised
