@@ -302,3 +302,55 @@ def test_fake_fixtures_all_pass_section_validation():
             section = ingredient["suggested_section"]
             if section is not None:
                 assert _clean_suggested_section(section) == section
+
+
+# --- fallback chain (M3): Flash -> Flash-Lite -> AiQuotaExhaustedError ---------
+
+
+def _client_seq(*responses_or_excs):
+    """A mock genai.Client whose generate_content yields each arg in turn (value or raise)."""
+    client = MagicMock()
+    client.return_value.models.generate_content.side_effect = list(responses_or_excs)
+    return client
+
+
+def _quota_error():
+    from google.genai import errors
+
+    return errors.ClientError(429, {"error": {"status": "RESOURCE_EXHAUSTED"}}, None)
+
+
+def test_falls_back_to_flash_lite_on_primary_429(db, api_enabled):
+    client = _client_seq(_quota_error(), _resp(_EXTRACTION_PAYLOAD))
+    with patch("app.services.ai_extraction.genai.Client", client):
+        result = extract_recipe(db, call_type="recipe_url", text="x")
+    assert len(result.ingredients) == 2
+    # usage logged against the model that actually answered
+    assert db.query(ApiUsage).one().model == "gemini-2.5-flash-lite"
+    assert client.return_value.models.generate_content.call_count == 2
+
+
+def test_both_models_429_raises_quota_exhausted(db, api_enabled):
+    from app.services.ai_extraction import AiQuotaExhaustedError
+
+    client = _client_seq(_quota_error(), _quota_error())
+    with patch("app.services.ai_extraction.genai.Client", client):
+        with pytest.raises(AiQuotaExhaustedError):
+            extract_recipe(db, call_type="recipe_url", text="x")
+    assert db.query(ApiUsage).count() == 0  # nothing answered
+
+
+def test_non_quota_client_error_does_not_fall_back(db, api_enabled):
+    from google.genai import errors
+
+    client = _client_seq(errors.ClientError(400, {"error": {"message": "bad"}}, None))
+    with patch("app.services.ai_extraction.genai.Client", client):
+        with pytest.raises(AiExtractionError):
+            extract_recipe(db, call_type="recipe_url", text="x")
+    assert client.return_value.models.generate_content.call_count == 1  # no fallback attempt
+
+
+def test_quota_exhausted_is_an_ai_extraction_error_subclass(db, fake_mode):
+    from app.services.ai_extraction import AiQuotaExhaustedError
+
+    assert issubclass(AiQuotaExhaustedError, AiExtractionError)

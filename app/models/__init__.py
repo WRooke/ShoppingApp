@@ -7,6 +7,7 @@ from app.models.catalog import IngredientSubstitution, ProductUnit, Staple
 from app.models.diagnostics import ApiUsage, ApiUsageReset
 from app.models.history import ShoppingHistory
 from app.models.planning import PlanningSession, SessionChecklistItem, SessionRecipe
+from app.models.queue import CaptureQueueItem
 from app.models.recipes import Recipe, RecipeIngredient
 from app.models.store import ProductSection, Store, StoreSection
 
@@ -25,4 +26,5 @@ __all__ = [
     "Store",
     "StoreSection",
     "ProductSection",
+    "CaptureQueueItem",
 ]

@@ -28,9 +28,19 @@ from app.schemas.recipes import (
     RecipeRead,
     RecipeUpdate,
 )
-from app.services import capture_photo, capture_url
+from app.services import capture_photo, capture_queue, capture_url
 from app.services import recipes as recipes_service
-from app.services.ai_extraction import ExtractionResult
+from app.services.ai_extraction import AiQuotaExhaustedError, ExtractionResult
+
+# Returned (inside the {"ok": true} envelope) when a capture is parked on the retry queue
+# because every Gemini model is over quota (Phase 3.9 M3).
+_QUEUED = {
+    "queued": True,
+    "message": (
+        "Every AI model is over its quota right now — this capture has been queued and "
+        "will be retried automatically."
+    ),
+}
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +236,13 @@ def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> 
                     )
                 ]
             )
-    result = capture_url.fetch_and_extract(db, data.url)
+    try:
+        result = capture_url.fetch_and_extract(db, data.url)
+    except AiQuotaExhaustedError:
+        capture_queue.enqueue(
+            db, task="extract_url", payload={"url": data.url, "source_type": "url"}
+        )
+        return {"ok": True, "data": _QUEUED}
     return {
         "ok": True,
         "data": _capture_result(result, source_type="url", source_url=data.url),
@@ -236,9 +252,23 @@ def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> 
 @router.post("/capture/photo")
 def capture_from_photo(image: UploadFile = File(...), db: Session = Depends(get_db)) -> dict:
     content = image.file.read()
-    filename, result = capture_photo.store_and_extract(
-        db, content=content, content_type=image.content_type or ""
-    )
+    content_type = image.content_type or ""
+    filename = capture_photo.store_image(content, content_type)  # raises InvalidImageError
+    try:
+        result = capture_photo.extract_stored(
+            db, filename=filename, content=content, content_type=content_type
+        )
+    except AiQuotaExhaustedError:
+        capture_queue.enqueue(
+            db,
+            task="extract_photo",
+            payload={
+                "image_path": filename,
+                "content_type": content_type,
+                "source_type": "photo",
+            },
+        )
+        return {"ok": True, "data": _QUEUED}
     return {
         "ok": True,
         "data": _capture_result(result, source_type="photo", source_image_path=filename),

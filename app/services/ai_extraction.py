@@ -45,8 +45,11 @@ from app.services import api_usage
 
 logger = logging.getLogger(__name__)
 
-# Primary model. M3 adds gemini-2.5-flash-lite as the 429 fallback + the queue.
+# Primary model, then the fallback the chain drops to on a 429. See CLAUDE.md > AI Provider
+# Migration > Fallback & retry. A 429 from BOTH -> AiQuotaExhaustedError -> the caller queues.
 MODEL_ID = "gemini-2.5-flash"
+FALLBACK_MODEL_ID = "gemini-2.5-flash-lite"
+_MODEL_CHAIN = (MODEL_ID, FALLBACK_MODEL_ID)
 MAX_OUTPUT_TOKENS = 4096
 
 # Defensive ceiling on input text length (§0a) — bounds any injected payload.
@@ -197,6 +200,13 @@ class AiExtractionError(Exception):
     this to the {"ok": false, "error": ...} envelope (EXTRACTION_FAILED)."""
 
 
+class AiQuotaExhaustedError(AiExtractionError):
+    """Both gemini-2.5-flash and gemini-2.5-flash-lite returned 429 (RESOURCE_EXHAUSTED).
+    Subclass of AiExtractionError so ``except AiExtractionError`` still catches it — but a
+    caller that can queue the work (capture endpoints) catches this specifically. See
+    CLAUDE.md > AI Provider Migration > Fallback & retry / Queueing."""
+
+
 class AiExtractionDisabledError(Exception):
     """Raised instead of ever calling the real API when settings.ai_extraction_enabled is
     False (the default) — CLAUDE.md > Security > §0c. Fixed by the maintainer setting
@@ -298,6 +308,10 @@ def _require_enabled(task: str) -> None:
         raise AiExtractionDisabledError()
 
 
+def _is_quota_error(exc: Exception) -> bool:
+    return isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 429
+
+
 def _call_gemini(
     db: Session,
     *,
@@ -307,43 +321,60 @@ def _call_gemini(
     response_schema: type[BaseModel],
     parts: list[genai_types.Part],
 ) -> str:
-    """One real Gemini structured-output call. Logs usage right after (§0b), returns the raw
-    JSON text. Wraps every SDK/transport failure as AiExtractionError. (M3 adds the
-    Flash→Flash-Lite→queue chain around this.)"""
+    """One Gemini structured-output call, with the Flash → Flash-Lite fallback chain. Logs
+    usage right after a success (§0b, with the model that actually answered), returns the raw
+    JSON text. A 429 from every model in the chain -> AiQuotaExhaustedError (caller queues).
+    Any non-quota SDK/transport failure -> AiExtractionError immediately (no fallback — a
+    weaker model won't fix a bad request or a network fault)."""
     client = genai.Client(api_key=settings.gemini_api_key)
-    config = genai_types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        response_mime_type="application/json",
-        response_schema=response_schema,
-        max_output_tokens=MAX_OUTPUT_TOKENS,
-        temperature=0,
-    )
-    try:
-        response = client.models.generate_content(model=MODEL_ID, contents=parts, config=config)
-    except genai_errors.ClientError as exc:
-        logger.error(
-            "AI %s failed: client error %s", call_type, getattr(exc, "code", "?"), exc_info=True
-        )
-        raise AiExtractionError(
-            f"Gemini API returned an error ({getattr(exc, 'code', '?')})."
-        ) from exc
-    except genai_errors.APIError as exc:
-        logger.error("AI %s failed: API error", call_type, exc_info=True)
-        raise AiExtractionError("Gemini API returned an error.") from exc
-    except Exception as exc:  # network / DNS / transport
-        logger.error("AI %s: call failed", call_type, exc_info=True)
-        raise AiExtractionError("Could not reach the Gemini API — check network/DNS.") from exc
 
-    usage = response.usage_metadata
-    api_usage.log_api_usage(
-        db,
-        model=MODEL_ID,
-        input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
-        output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
-        call_type=call_type,
-        context_id=context_id,
-    )
-    return response.text or ""
+    for i, model in enumerate(_MODEL_CHAIN):
+        config = genai_types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            max_output_tokens=MAX_OUTPUT_TOKENS,
+            temperature=0,
+        )
+        try:
+            response = client.models.generate_content(model=model, contents=parts, config=config)
+        except genai_errors.ClientError as exc:
+            if _is_quota_error(exc):
+                is_last = i == len(_MODEL_CHAIN) - 1
+                logger.warning(
+                    "AI %s: %s quota-exhausted (429)%s",
+                    call_type,
+                    model,
+                    " — chain exhausted, will queue" if is_last else " — trying fallback",
+                )
+                if is_last:
+                    raise AiQuotaExhaustedError(
+                        "All Gemini models are over quota — the capture has been queued."
+                    ) from exc
+                continue
+            logger.error("AI %s failed: client error %s", call_type, exc.code, exc_info=True)
+            raise AiExtractionError(f"Gemini API returned an error ({exc.code}).") from exc
+        except genai_errors.APIError as exc:
+            logger.error("AI %s failed: API error", call_type, exc_info=True)
+            raise AiExtractionError("Gemini API returned an error.") from exc
+        except Exception as exc:  # network / DNS / transport
+            logger.error("AI %s: call failed", call_type, exc_info=True)
+            raise AiExtractionError("Could not reach the Gemini API — check network/DNS.") from exc
+
+        usage = response.usage_metadata
+        api_usage.log_api_usage(
+            db,
+            model=model,
+            input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
+            output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
+            call_type=call_type,
+            context_id=context_id,
+        )
+        if model != MODEL_ID:
+            logger.info("AI %s: answered by fallback model %s", call_type, model)
+        return response.text or ""
+
+    raise AiQuotaExhaustedError("All Gemini models are over quota.")  # unreachable
 
 
 # --- call 1: recipe extraction -----------------------------------------------------

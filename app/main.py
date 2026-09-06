@@ -6,6 +6,8 @@ start.bat uses the former.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -85,9 +87,33 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    # Capture retry queue poller (Phase 3.9 M3) — wakes ~hourly and retries any capture
+    # tasks parked on a Gemini 429. See app/services/capture_queue.py.
+    poller = asyncio.create_task(_capture_queue_poll_loop())
+
     logger.info("Startup complete - diagnostics available at /#/diagnostics")
     yield
+    poller.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await poller
     logger.info("=== ShoppingApp shutting down ===")
+
+
+async def _capture_queue_poll_loop() -> None:
+    from app.services import capture_queue
+
+    while True:
+        try:
+            await asyncio.sleep(capture_queue.POLL_INTERVAL_SECONDS)
+            db = SessionLocal()
+            try:
+                await asyncio.to_thread(capture_queue.run_once, db)
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error("capture_queue poll loop iteration failed", exc_info=True)
 
 
 app = FastAPI(title="ShoppingApp", version="0.1.0", lifespan=lifespan)

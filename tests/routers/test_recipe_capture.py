@@ -17,6 +17,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models.diagnostics import ApiUsage
 from app.models.store import ProductSection
+from app.services.ai_extraction import AiQuotaExhaustedError
 
 
 @pytest.fixture(autouse=True)
@@ -153,3 +154,32 @@ def test_confirm_capture_rejects_missing_name(client):
     body = resp.json()
     assert body["ok"] is False
     assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+# --- Gemini-429 retry queue (Phase 3.9 M3) --------------------------------------
+
+
+def test_capture_url_over_quota_is_queued(client):
+    html = "<html><body><article>500g beef mince</article></body></html>"
+    with patch("app.services.capture_url.httpx.get", return_value=_mock_html_response(html)), patch(
+        "app.services.ai_extraction.capture_recipe",
+        side_effect=AiQuotaExhaustedError("over quota"),
+    ):
+        resp = client.post("/api/v1/recipes/capture/url", json={"url": "https://example.com/x"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["data"]["queued"] is True
+
+    db = SessionLocal()
+    try:
+        from app.models.queue import CaptureQueueItem
+
+        row = db.query(CaptureQueueItem).filter_by(task="extract_url").order_by(CaptureQueueItem.id.desc()).first()
+        assert row is not None
+        import json as _json
+
+        assert _json.loads(row.payload_json)["url"] == "https://example.com/x"
+    finally:
+        db.close()
