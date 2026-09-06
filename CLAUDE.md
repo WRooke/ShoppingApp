@@ -1742,7 +1742,7 @@ full — the chunks below build them, they are not re-opened here.
       identical); full suite 139 pass; migration applied to the dev DB with its 24
       `product_units` + 5 recipes intact, `session_recipes` FKs (`recipes.id` NO ACTION,
       `planning_sessions.id` CASCADE) and `PRAGMA foreign_key_check` clean after the rebuild.
-- [ ] **Chunk 4.2 — Duplicate recipe prevention.** Slotted early — independent of the session
+- [x] **Chunk 4.2 — Duplicate recipe prevention.** Slotted early — independent of the session
       engine, touches only `services/recipes.py` + both recipe create paths + the
       capture-review / manual-entry UI. `find_possible_duplicates()` (DB-read only, pure,
       unit-testable); `PossibleDuplicateRecipeError` → `409 POSSIBLE_DUPLICATE_RECIPE`
@@ -1754,6 +1754,38 @@ full — the chunks below build them, they are not re-opened here.
       [Duplicate Recipe Prevention](#duplicate-recipe-prevention) — ingredient-set overlap
       stays out. Kickoff open items: fuzzy method + threshold; live `check-duplicate` endpoint
       vs submit-time 409 only.
+      Done 2026-09-06. **Kickoff decisions locked:** fuzzy = `difflib.SequenceMatcher`
+      ratio ≥ 0.85 **OR** token-set Jaccard ≥ 0.8 (tokens lowercased, punctuation-stripped,
+      minus a 10-word stopword set), stdlib only; the live `GET /recipes/check-duplicate`
+      endpoint **was** built (warns on name-field blur) with the submit-time 409 as backstop.
+      Service (`services/recipes.py`): `find_possible_duplicates()` scans all recipes
+      (archived included), best signal per recipe, ordered `source_url` → `name_exact` →
+      `book_page` → `fuzzy_name`; `_normalise_source_url` lowercases host, drops fragment,
+      strips a trailing slash and `utm_*` params (**scheme is NOT normalised** — http vs
+      https do not match; conservative per the spec's enumerated list); `_page_numbers`
+      expands `"142-143"` / `"142 & 145"` / `"ch. 3"`; `find_recipe_by_source_url()` backs
+      the URL short-circuit and prefers a live row over an archived one; `unarchive_recipe()`.
+      `allow_duplicate` on `RecipeCreate` / `CaptureConfirmRequest` / `CaptureUrlRequest`;
+      `create_recipe` + `create_recipe_from_capture` take `allow_duplicate=` kwarg. Router:
+      `GET /recipes/check-duplicate` declared **before** `GET /{recipe_id}` (else "check-
+      duplicate" parses as an id); `POST /recipes/{id}/restore`; `capture/url` raises the
+      409 before `fetch_and_extract`. `main.py` handler → 409 with `detail` = match list.
+      Frontend: new shared `static/js/dup-warn.js` (`DupWarn.panel()` warn-with-override +
+      `DupWarn.liveCheck()` on-blur), wired into `recipe-form.js`, `capture-review.js`,
+      `capture.js`; `api.js` gains `recipes.restore` / `recipes.checkDuplicate` and
+      `captureUrl(url, allowDuplicate)`; `.dup-warn` styles in `app.css`. Verified: full
+      suite **159 pass** (+20 new — 15 service, 5 router); existing recipe tests updated for
+      the now-active check (`_create_recipe` helper opts out with `allow_duplicate`, 2
+      fuzzy-colliding service-test names changed). Live curl pass on a scratch server for
+      every signal + `allow_duplicate` bypass + `check-duplicate` + `restore` + the
+      `capture/url` short-circuit (409 with no fetch attempted, confirmed via
+      `/diagnostics/recent-errors`). Headless-Edge/CDP click-through
+      (`scripts/cdp.py` — see below) of the manual-entry and capture-review screens: live
+      blur hint, submit-time 409 panel, "Save anyway" → new recipe detail, zero console
+      errors. **New verification tooling committed this chunk:** `scripts/cdp.py`
+      (stdlib-only headless-Edge CDP driver) + `HEADLESS_VERIFY.md` (the one documented way
+      to drive the frontend) — replaces the ad-hoc `websocket-client`-install dance every
+      prior frontend chunk reinvented.
 - [ ] **Chunk 4.3 — Scaling engine (pure service).** `services/scaling.py`, plain data in /
       plain data out, no DB or network — one of the three highest bug-risk modules per
       [Code Architecture](#code-architecture--maintainability), so heavy unit tests.
@@ -1908,6 +1940,7 @@ ShoppingApp/
 ├── CLAUDE.md                  ← this file
 ├── SETUP.md                   ← static IP + first-run + backup Task Scheduler setup for NUC
 ├── DEPLOY.md                  ← dev PC → NUC deployment: one-time git/GitHub setup, deploy.bat/update.bat, rollback
+├── HEADLESS_VERIFY.md         ← the one working way to drive the frontend in headless Edge (scratch server + scripts/cdp.py)
 ├── README.md                  ← brief usage guide
 ├── .gitattributes             ← CRLF normalisation (Windows-only project)
 ├── start.bat
@@ -1951,6 +1984,7 @@ ShoppingApp/
 │   └── versions/               ← one file per schema change from Chunk 3.7 onward
 ├── alembic.ini                 ← Alembic config (no hardcoded URL — env.py pulls it from app.config)
 ├── scripts/                    ← maintenance scripts, run as `python -m scripts.<name>`
+│   ├── cdp.py                  ← stdlib-only headless-Edge CDP driver for frontend verification (see HEADLESS_VERIFY.md)
 │   ├── backup.py               ← weekly DB + JSON dump, trims old backups, commits/pushes if git is set up
 │   ├── restore.py              ← lists / dry-runs / restores a backup, with a pre-restore safety copy
 │   ├── deploy.py                ← dev PC: tag + push a release (see DEPLOY.md)

@@ -98,7 +98,10 @@ def test_list_recipes_search_is_case_insensitive_substring(db):
 
 def test_list_recipes_pagination(db):
     for i in range(5):
-        recipes_service.create_recipe(db, _make_recipe(name=f"Recipe {i}"))
+        # distinct, non-fuzzy-similar names; allow_duplicate as a belt-and-braces
+        recipes_service.create_recipe(
+            db, _make_recipe(name=f"Recipe {i}"), allow_duplicate=True
+        )
 
     page1, total = recipes_service.list_recipes(db, limit=2, offset=0)
     page2, _ = recipes_service.list_recipes(db, limit=2, offset=2)
@@ -165,8 +168,8 @@ def test_update_ingredient_partial_update(db):
 
 
 def test_update_ingredient_raises_when_ingredient_belongs_to_different_recipe(db):
-    recipe1 = recipes_service.create_recipe(db, _make_recipe(name="Recipe 1"))
-    recipe2 = recipes_service.create_recipe(db, _make_recipe(name="Recipe 2"))
+    recipe1 = recipes_service.create_recipe(db, _make_recipe(name="Alpha Dish"))
+    recipe2 = recipes_service.create_recipe(db, _make_recipe(name="Bravo Dish"))
     other_ingredient_id = recipe2.ingredients[0].id
 
     with pytest.raises(recipes_service.IngredientNotFoundError):
@@ -301,3 +304,149 @@ def test_update_recipe_sets_source_provenance(db):
     assert updated.source_book == "Ottolenghi SIMPLE"
     assert updated.source_page == "142"
     assert updated.name == "Spaghetti Bolognese"  # untouched
+
+
+# --- duplicate recipe prevention (Phase 4 — CLAUDE.md > Duplicate Recipe Prevention) -----
+
+
+def test_find_possible_duplicates_exact_name_case_and_whitespace_insensitive(db):
+    recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+
+    matches = recipes_service.find_possible_duplicates(db, name="  spaghetti   bolognese ")
+
+    assert [m.matched_signal for m in matches] == ["name_exact"]
+    assert matches[0].archived is False
+
+
+def test_find_possible_duplicates_source_url_normalised(db):
+    recipes_service.create_recipe(
+        db, _make_recipe(name="A", source_url="https://Example.com/recipe/")
+    )
+
+    matches = recipes_service.find_possible_duplicates(
+        db, name="totally different", source_url="https://example.com/recipe?utm_source=news#top"
+    )
+
+    assert [m.matched_signal for m in matches] == ["source_url"]
+
+
+def test_find_possible_duplicates_book_and_overlapping_page_range(db):
+    recipes_service.create_recipe(
+        db, _make_recipe(name="X", source_book="Ottolenghi SIMPLE", source_page="142-143")
+    )
+
+    matches = recipes_service.find_possible_duplicates(
+        db, name="unrelated", source_book="ottolenghi simple", source_page="143 & 150"
+    )
+
+    assert [m.matched_signal for m in matches] == ["book_page"]
+
+
+def test_find_possible_duplicates_book_without_page_overlap_does_not_match(db):
+    recipes_service.create_recipe(
+        db, _make_recipe(name="X", source_book="Ottolenghi SIMPLE", source_page="10")
+    )
+
+    matches = recipes_service.find_possible_duplicates(
+        db, name="unrelated", source_book="Ottolenghi SIMPLE", source_page="99"
+    )
+
+    assert matches == []
+
+
+def test_find_possible_duplicates_fuzzy_name(db):
+    recipes_service.create_recipe(db, _make_recipe(name="Weeknight Beef Tacos"))
+
+    matches = recipes_service.find_possible_duplicates(db, name="Beef Tacos, Weeknight")
+
+    assert [m.matched_signal for m in matches] == ["fuzzy_name"]
+
+
+def test_find_possible_duplicates_unrelated_name_no_match(db):
+    recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+
+    assert recipes_service.find_possible_duplicates(db, name="Thai Green Curry") == []
+
+
+def test_find_possible_duplicates_excludes_self(db):
+    r = recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+
+    matches = recipes_service.find_possible_duplicates(
+        db, name="Spaghetti Bolognese", exclude_id=r.id
+    )
+
+    assert matches == []
+
+
+def test_find_possible_duplicates_includes_archived_and_flags_it(db):
+    r = recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+    recipes_service.archive_recipe(db, r.id)
+
+    matches = recipes_service.find_possible_duplicates(db, name="Spaghetti Bolognese")
+
+    assert len(matches) == 1
+    assert matches[0].archived is True
+
+
+def test_find_possible_duplicates_ranks_strongest_signal_first(db):
+    recipes_service.create_recipe(
+        db, _make_recipe(name="URL match only", source_url="https://example.com/r")
+    )
+    recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+
+    matches = recipes_service.find_possible_duplicates(
+        db, name="Spaghetti Bolognese", source_url="https://example.com/r"
+    )
+
+    assert [m.matched_signal for m in matches] == ["source_url", "name_exact"]
+
+
+def test_create_recipe_raises_on_possible_duplicate(db):
+    recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+
+    with pytest.raises(recipes_service.PossibleDuplicateRecipeError) as exc:
+        recipes_service.create_recipe(db, _make_recipe(name="spaghetti bolognese"))
+
+    assert exc.value.matches[0].matched_signal == "name_exact"
+
+
+def test_create_recipe_allow_duplicate_bypasses_the_check(db):
+    recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+
+    second = recipes_service.create_recipe(
+        db, _make_recipe(name="Spaghetti Bolognese"), allow_duplicate=True
+    )
+
+    assert second.id is not None
+
+
+def test_create_recipe_from_capture_raises_on_possible_duplicate(db):
+    recipes_service.create_recipe_from_capture(db, _make_capture_confirm(name="Weeknight Beef Tacos"))
+
+    with pytest.raises(recipes_service.PossibleDuplicateRecipeError):
+        recipes_service.create_recipe_from_capture(
+            db, _make_capture_confirm(name="Weeknight Beef Tacos", source_url=None)
+        )
+
+
+def test_unarchive_recipe_clears_archived_at(db):
+    r = recipes_service.create_recipe(db, _make_recipe(name="Spaghetti Bolognese"))
+    recipes_service.archive_recipe(db, r.id)
+
+    restored = recipes_service.unarchive_recipe(db, r.id)
+
+    assert restored.archived_at is None
+
+
+def test_find_recipe_by_source_url_prefers_live_over_archived(db):
+    archived = recipes_service.create_recipe(
+        db, _make_recipe(name="Old", source_url="https://example.com/r"), allow_duplicate=True
+    )
+    recipes_service.archive_recipe(db, archived.id)
+    live = recipes_service.create_recipe(
+        db, _make_recipe(name="New", source_url="https://example.com/r/"), allow_duplicate=True
+    )
+
+    found = recipes_service.find_recipe_by_source_url(db, "https://example.com/r?utm_x=1")
+
+    assert found.id == live.id

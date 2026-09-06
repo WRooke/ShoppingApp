@@ -60,6 +60,10 @@
     nameInput.placeholder = "e.g. Weeknight Beef Tacos";
     card.appendChild(labeledField("Recipe name", nameInput));
 
+    // Live "you might already have this" hint (Phase 4) — best-effort, on name blur.
+    var dupHint = el("div", "dup-hint");
+    card.appendChild(dupHint);
+
     var servingsInput = el("input");
     servingsInput.type = "number";
     servingsInput.min = "1";
@@ -107,10 +111,21 @@
     var formErr = el("div", "form-error");
     card.appendChild(formErr);
 
+    var dupPanel = el("div"); // holds the 409 warn-with-override panel, if shown
+    card.appendChild(dupPanel);
+
     var actionsRow = el("div", "log-controls");
     var saveBtn = el("button", "primary", "Save recipe");
     actionsRow.appendChild(saveBtn);
     card.appendChild(actionsRow);
+
+    global.DupWarn.liveCheck(nameInput, dupHint, function () {
+      return {
+        source_url: captureResult.source_url || "",
+        source_book: sourceBookInput.value.trim(),
+        source_page: sourcePageInput.value.trim(),
+      };
+    });
 
     root.appendChild(card);
 
@@ -191,15 +206,12 @@
           "Couldn't load the section list (" + err.message + ") — sections can be added later in Settings.";
       });
 
-    saveBtn.addEventListener("click", function () {
-      formErr.textContent = "";
-
+    function collectPayload() {
       var name = nameInput.value.trim();
       if (!name) {
         formErr.textContent = "Name is required.";
-        return;
+        return null;
       }
-
       var ingredients = [];
       for (var i = 0; i < rows.length; i++) {
         var r = rows[i];
@@ -209,7 +221,7 @@
         var qty = parseFloat(qtyRaw);
         if (!ingName || isNaN(qty)) {
           formErr.textContent = "Each ingredient needs a name and a numeric quantity.";
-          return;
+          return null;
         }
         ingredients.push({
           name: ingName,
@@ -219,29 +231,62 @@
           suggested_section: r.sectionSelect.value || null,
         });
       }
+      return {
+        name: name,
+        source_type: captureResult.source_type,
+        source_url: captureResult.source_url || null,
+        source_image_path: captureResult.source_image_path || null,
+        base_servings: parseInt(servingsInput.value, 10) || 1,
+        cuisine: cuisineInput.value.trim() || null,
+        protein: proteinInput.value.trim() || null,
+        source_book: sourceBookInput.value.trim() || null,
+        source_page: sourcePageInput.value.trim() || null,
+        notes: notesInput.value.trim() || null,
+        ingredients: ingredients,
+      };
+    }
+
+    function submit(allowDuplicate) {
+      formErr.textContent = "";
+      dupPanel.innerHTML = "";
+      var payload = collectPayload();
+      if (!payload) return;
+      payload.allow_duplicate = !!allowDuplicate;
 
       saveBtn.disabled = true;
       api.recipes
-        .confirmCapture({
-          name: name,
-          source_type: captureResult.source_type,
-          source_url: captureResult.source_url || null,
-          source_image_path: captureResult.source_image_path || null,
-          base_servings: parseInt(servingsInput.value, 10) || 1,
-          cuisine: cuisineInput.value.trim() || null,
-          protein: proteinInput.value.trim() || null,
-          source_book: sourceBookInput.value.trim() || null,
-          source_page: sourcePageInput.value.trim() || null,
-          notes: notesInput.value.trim() || null,
-          ingredients: ingredients,
-        })
+        .confirmCapture(payload)
         .then(function (saved) {
           global.Router.navigate("recipes", saved.id);
         })
         .catch(function (err) {
           saveBtn.disabled = false;
+          if (err.code === "POSSIBLE_DUPLICATE_RECIPE" && Array.isArray(err.detail)) {
+            dupPanel.appendChild(
+              global.DupWarn.panel(err.detail, {
+                onSaveAnyway: function () {
+                  submit(true);
+                },
+                onRestore: function (id) {
+                  api.recipes
+                    .restore(id)
+                    .then(function () {
+                      global.Router.navigate("recipes", id);
+                    })
+                    .catch(function (e) {
+                      formErr.textContent = "Couldn't restore: " + e.message;
+                    });
+                },
+              })
+            );
+            return;
+          }
           formErr.textContent = "Couldn't save: " + err.message;
         });
+    }
+
+    saveBtn.addEventListener("click", function () {
+      submit(false);
     });
   }
 

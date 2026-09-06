@@ -97,6 +97,19 @@
           headers: { Accept: "application/json" },
         });
       },
+      restore: function (id) {
+        return jsonBody("POST", "/api/v1/recipes/" + encodeURIComponent(id) + "/restore", {});
+      },
+      checkDuplicate: function (params) {
+        params = params || {};
+        var q = [];
+        ["name", "source_url", "source_book", "source_page", "exclude_id"].forEach(function (k) {
+          if (params[k] != null && params[k] !== "") {
+            q.push(k + "=" + encodeURIComponent(params[k]));
+          }
+        });
+        return api.get("/api/v1/recipes/check-duplicate?" + q.join("&"));
+      },
       addIngredient: function (recipeId, data) {
         return jsonBody(
           "POST",
@@ -123,8 +136,11 @@
           { method: "DELETE", headers: { Accept: "application/json" } }
         );
       },
-      captureUrl: function (url) {
-        return jsonBody("POST", "/api/v1/recipes/capture/url", { url: url });
+      captureUrl: function (url, allowDuplicate) {
+        return jsonBody("POST", "/api/v1/recipes/capture/url", {
+          url: url,
+          allow_duplicate: !!allowDuplicate,
+        });
       },
       capturePhoto: function (file) {
         var formData = new FormData();

@@ -53,13 +53,17 @@
     var formErr = el("div", "form-error");
     card.appendChild(formErr);
 
+    var dupPanel = el("div"); // holds the pre-extraction 409 short-circuit panel, if shown
+    card.appendChild(dupPanel);
+
     var actionsRow = el("div", "log-controls");
     var goBtn = el("button", "primary", "Fetch & extract");
     actionsRow.appendChild(goBtn);
     card.appendChild(actionsRow);
 
-    goBtn.addEventListener("click", function () {
+    function run(allowDuplicate) {
       formErr.textContent = "";
+      dupPanel.innerHTML = "";
       var url = urlInput.value.trim();
       if (!url) {
         formErr.textContent = "Enter a URL first.";
@@ -69,15 +73,43 @@
       goBtn.disabled = true;
       goBtn.textContent = "Fetching & extracting...";
       api.recipes
-        .captureUrl(url)
+        .captureUrl(url, allowDuplicate)
         .then(function (result) {
           global.CaptureReviewView.mount(root, result);
         })
         .catch(function (err) {
           goBtn.disabled = false;
           goBtn.textContent = "Fetch & extract";
+          // Exact source_url match — the backend short-circuited before any Claude call
+          // (CLAUDE.md > Duplicate Recipe Prevention > URL capture short-circuit).
+          if (err.code === "POSSIBLE_DUPLICATE_RECIPE" && Array.isArray(err.detail)) {
+            dupPanel.appendChild(
+              global.DupWarn.panel(err.detail, {
+                heading: "You've already captured this page:",
+                saveAnywayLabel: "Capture again anyway",
+                onSaveAnyway: function () {
+                  run(true);
+                },
+                onRestore: function (id) {
+                  api.recipes
+                    .restore(id)
+                    .then(function () {
+                      global.Router.navigate("recipes", id);
+                    })
+                    .catch(function (e) {
+                      formErr.textContent = "Couldn't restore: " + e.message;
+                    });
+                },
+              })
+            );
+            return;
+          }
           formErr.textContent = describeError(err);
         });
+    }
+
+    goBtn.addEventListener("click", function () {
+      run(false);
     });
 
     root.appendChild(card);

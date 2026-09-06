@@ -71,6 +71,10 @@ class RecipeBase(BaseModel):
 
 class RecipeCreate(RecipeBase):
     ingredients: list[RecipeIngredientCreate] = Field(default_factory=list)
+    # Duplicate-recipe prevention (Phase 4) — when true, skip the possible-duplicate check
+    # for this request only. The frontend sets it after the user clicks "Save anyway" on the
+    # 409 warning panel. See CLAUDE.md > Duplicate Recipe Prevention.
+    allow_duplicate: bool = False
 
 
 class RecipeUpdate(BaseModel):
@@ -127,3 +131,26 @@ class RecipeListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# --- duplicate detection (Phase 4 — see CLAUDE.md > Duplicate Recipe Prevention) ----------
+
+MatchedSignal = Literal["source_url", "name_exact", "book_page", "fuzzy_name"]
+
+
+class DuplicateMatch(BaseModel):
+    """One existing recipe that a save looked like. Carried in the 409
+    POSSIBLE_DUPLICATE_RECIPE body's `detail`, and returned by the live
+    GET /recipes/check-duplicate endpoint."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    source_summary: str | None = None  # URL, or "From {book}, p.{page}", or None
+    matched_signal: MatchedSignal
+    archived: bool
+
+
+class CheckDuplicateResponse(BaseModel):
+    matches: list[DuplicateMatch]

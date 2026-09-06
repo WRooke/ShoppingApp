@@ -334,3 +334,20 @@ select, input[type="text"] {
   border-color: var(--red);
   color: var(--red);
 }
+
+/* --- duplicate-recipe warning panel (Phase 4 — see CLAUDE.md > Duplicate Recipe Prevention) --- */
+.dup-warn {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--amber);
+  border-radius: 6px;
+  background: #fff8ef;
+}
+.dup-warn-heading { font-weight: 600; color: var(--amber); margin-bottom: 6px; }
+.dup-warn-list { margin: 0 0 8px; padding-left: 18px; }
+.dup-warn-list li { margin: 3px 0; }
+.dup-warn .link-btn {
+  min-height: 0;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+}

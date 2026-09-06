@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.capture import CaptureConfirmRequest, CaptureResult, CaptureUrlRequest
 from app.schemas.recipes import (
+    CheckDuplicateResponse,
+    DuplicateMatch,
     RecipeCreate,
     RecipeIngredientCreate,
     RecipeIngredientRead,
@@ -70,7 +72,7 @@ def _capture_result(
 
 @router.post("", status_code=201)
 def create_recipe(data: RecipeCreate, db: Session = Depends(get_db)) -> dict:
-    recipe = recipes_service.create_recipe(db, data)
+    recipe = recipes_service.create_recipe(db, data, allow_duplicate=data.allow_duplicate)
     return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}
 
 
@@ -96,6 +98,34 @@ def list_recipes(
     }
 
 
+# Declared before GET /{recipe_id} on purpose — otherwise "check-duplicate" is parsed as a
+# recipe id and 422s. Lets the review + manual-entry screens warn live on name-field blur
+# rather than only on a submit-and-bounce (CLAUDE.md > Duplicate Recipe Prevention).
+@router.get("/check-duplicate")
+def check_duplicate(
+    name: str = Query(..., min_length=1),
+    source_url: str | None = Query(None),
+    source_book: str | None = Query(None),
+    source_page: str | None = Query(None),
+    exclude_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+) -> dict:
+    matches = recipes_service.find_possible_duplicates(
+        db,
+        name=name,
+        source_url=source_url,
+        source_book=source_book,
+        source_page=source_page,
+        exclude_id=exclude_id,
+    )
+    return {
+        "ok": True,
+        "data": CheckDuplicateResponse(
+            matches=[DuplicateMatch.model_validate(m) for m in matches]
+        ).model_dump(mode="json"),
+    }
+
+
 @router.get("/{recipe_id}")
 def get_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
     recipe = recipes_service.get_recipe(db, recipe_id)
@@ -113,6 +143,14 @@ def archive_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
     """Soft delete — sets archived_at. See CLAUDE.md > Data Model > recipes."""
     recipes_service.archive_recipe(db, recipe_id)
     return {"ok": True, "data": {"id": recipe_id, "archived": True}}
+
+
+@router.post("/{recipe_id}/restore")
+def restore_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
+    """Clears archived_at — the "Restore existing" action on the duplicate-recipe warning
+    panel (CLAUDE.md > Duplicate Recipe Prevention)."""
+    recipe = recipes_service.unarchive_recipe(db, recipe_id)
+    return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}
 
 
 # --- nested recipe_ingredients --------------------------------------------
@@ -162,6 +200,24 @@ def delete_ingredient(recipe_id: int, ingredient_id: int, db: Session = Depends(
 
 @router.post("/capture/url")
 def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> dict:
+    # Duplicate short-circuit: an exact source_url match returns a 409 BEFORE the Claude
+    # call, so a re-capture of a page already in the library costs nothing (CLAUDE.md >
+    # Duplicate Recipe Prevention > URL capture short-circuit). "Capture again anyway"
+    # re-submits with allow_duplicate=true.
+    if not data.allow_duplicate:
+        existing = recipes_service.find_recipe_by_source_url(db, data.url)
+        if existing is not None:
+            raise recipes_service.PossibleDuplicateRecipeError(
+                [
+                    recipes_service.DuplicateMatch(
+                        id=existing.id,
+                        name=existing.name,
+                        source_summary=existing.source_url,
+                        matched_signal="source_url",
+                        archived=existing.archived_at is not None,
+                    )
+                ]
+            )
     result = capture_url.fetch_and_extract(db, data.url)
     return {
         "ok": True,
@@ -183,5 +239,7 @@ def capture_from_photo(image: UploadFile = File(...), db: Session = Depends(get_
 
 @router.post("/capture/confirm", status_code=201)
 def confirm_capture(data: CaptureConfirmRequest, db: Session = Depends(get_db)) -> dict:
-    recipe = recipes_service.create_recipe_from_capture(db, data)
+    recipe = recipes_service.create_recipe_from_capture(
+        db, data, allow_duplicate=data.allow_duplicate
+    )
     return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}

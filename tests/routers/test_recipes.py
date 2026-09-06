@@ -13,6 +13,10 @@ def _create_recipe(client, **overrides):
         "source_type": "manual",
         "base_servings": 4,
         "ingredients": [{"name": "Beef Mince", "quantity": 500, "unit": "g"}],
+        # conftest shares one DB across the session, so repeat creates would trip the
+        # Phase 4 duplicate check — these smoke tests aren't about that (there's a
+        # dedicated test below), so opt out by default.
+        "allow_duplicate": True,
     }
     payload.update(overrides)
     return client.post("/api/v1/recipes", json=payload)
@@ -203,3 +207,98 @@ def test_delete_ingredient_not_found_returns_structured_404(client):
 
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "INGREDIENT_NOT_FOUND"
+
+
+# --- duplicate recipe prevention (Phase 4 — CLAUDE.md > Duplicate Recipe Prevention) -----
+
+
+def test_create_recipe_possible_duplicate_returns_structured_409(client):
+    _create_recipe(client, name="ZZ-Dup-Router-Test")
+
+    resp = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "zz-dup-router-test",
+            "source_type": "manual",
+            "ingredients": [{"name": "salt", "quantity": 1}],
+        },
+    )
+
+    assert resp.status_code == 409
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "POSSIBLE_DUPLICATE_RECIPE"
+    assert body["error"]["detail"][0]["matched_signal"] == "name_exact"
+    assert body["error"]["detail"][0]["archived"] is False
+
+
+def test_create_recipe_allow_duplicate_true_saves_anyway(client):
+    _create_recipe(client, name="ZZ-Allow-Dup-Router-Test")
+
+    resp = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "ZZ-Allow-Dup-Router-Test",
+            "source_type": "manual",
+            "ingredients": [{"name": "salt", "quantity": 1}],
+            "allow_duplicate": True,
+        },
+    )
+
+    assert resp.status_code == 201
+
+
+def test_check_duplicate_endpoint_reports_matches(client):
+    created = _create_recipe(client, name="ZZ-CheckDup-Endpoint-Test").json()["data"]
+
+    resp = client.get("/api/v1/recipes/check-duplicate?name=zz-checkdup-endpoint-test")
+
+    assert resp.status_code == 200
+    ids = {m["id"] for m in resp.json()["data"]["matches"]}
+    assert created["id"] in ids
+
+
+def test_check_duplicate_endpoint_excludes_self(client):
+    created = _create_recipe(client, name="ZZ-CheckDup-ExcludeSelf-Test").json()["data"]
+
+    resp = client.get(
+        f"/api/v1/recipes/check-duplicate?name=ZZ-CheckDup-ExcludeSelf-Test&exclude_id={created['id']}"
+    )
+
+    assert resp.status_code == 200
+    ids = {m["id"] for m in resp.json()["data"]["matches"]}
+    assert created["id"] not in ids
+
+
+def test_restore_recipe_clears_archived(client):
+    created = _create_recipe(client, name="ZZ-Restore-Router-Test").json()["data"]
+    client.delete(f"/api/v1/recipes/{created['id']}")
+
+    resp = client.post(f"/api/v1/recipes/{created['id']}/restore")
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["archived_at"] is None
+
+
+def test_capture_url_short_circuits_on_existing_source_url(client):
+    # An exact source_url match returns 409 BEFORE any Claude call — no fake-mode / httpx
+    # mock needed here precisely because the extraction never runs.
+    client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "ZZ-URL-ShortCircuit-Test",
+            "source_type": "url",
+            "source_url": "https://example.com/zz-shortcircuit",
+            "ingredients": [{"name": "salt", "quantity": 1}],
+            "allow_duplicate": True,
+        },
+    )
+
+    resp = client.post(
+        "/api/v1/recipes/capture/url",
+        json={"url": "https://example.com/zz-shortcircuit?utm_campaign=x"},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "POSSIBLE_DUPLICATE_RECIPE"
+    assert resp.json()["error"]["detail"][0]["matched_signal"] == "source_url"

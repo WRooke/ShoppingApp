@@ -16,6 +16,10 @@ from app.schemas.recipes import SourceType
 
 class CaptureUrlRequest(BaseModel):
     url: str = Field(..., min_length=1)
+    # Duplicate prevention (Phase 4): on an exact source_url match the endpoint short-circuits
+    # with a 409 before calling Claude. "Capture again anyway" re-submits with this true. See
+    # CLAUDE.md > Duplicate Recipe Prevention > URL capture short-circuit.
+    allow_duplicate: bool = False
 
 
 class CapturedIngredient(BaseModel):
@@ -71,3 +75,5 @@ class CaptureConfirmRequest(BaseModel):
     cuisine: str | None = None
     protein: str | None = None
     ingredients: list[CaptureIngredientConfirm] = Field(default_factory=list)
+    # See RecipeCreate.allow_duplicate — "Save anyway" on the review screen's 409 panel.
+    allow_duplicate: bool = False

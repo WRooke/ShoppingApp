@@ -34,7 +34,11 @@ from app.routers import settings as settings_router
 from app.services.capture_photo import InvalidImageError
 from app.services.capture_url import RecipeFetchError
 from app.services.claude_client import ClaudeApiDisabledError, ClaudeExtractionError
-from app.services.recipes import IngredientNotFoundError, RecipeNotFoundError
+from app.services.recipes import (
+    IngredientNotFoundError,
+    PossibleDuplicateRecipeError,
+    RecipeNotFoundError,
+)
 from app.services.settings import (
     DuplicateProductUnitNameError,
     DuplicateStapleNameError,
@@ -201,6 +205,36 @@ async def duplicate_product_unit_name_handler(
             "DUPLICATE_PRODUCT_UNIT_NAME",
             f'A purchase unit for "{exc.ingredient_name}" already exists.',
             None,
+        ),
+    )
+
+
+@app.exception_handler(PossibleDuplicateRecipeError)
+async def possible_duplicate_recipe_handler(request: Request, exc: PossibleDuplicateRecipeError):
+    # Warn-with-override, not a hard block — the frontend shows the matches and offers
+    # "Save anyway" (re-submits with allow_duplicate=true). See CLAUDE.md > Duplicate
+    # Recipe Prevention. Not an error-level event.
+    logger.info(
+        "Possible duplicate recipe on %s %s: %d match(es)",
+        request.method,
+        request.url.path,
+        len(exc.matches),
+    )
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "POSSIBLE_DUPLICATE_RECIPE",
+            "This looks like a recipe you already have.",
+            [
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "source_summary": m.source_summary,
+                    "matched_signal": m.matched_signal,
+                    "archived": m.archived,
+                }
+                for m in exc.matches
+            ],
         ),
     )
 
