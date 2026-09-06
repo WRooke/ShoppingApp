@@ -2664,6 +2664,12 @@ below for the record of what was asked and why.
 
 #### "Substitution flagging" review step (Before Phase 3 AI extraction)
 
+> **Third turn, 2026-09-06 (AI Provider Migration addendum):** substitution flagging is now
+> back to being a **capture-time, per-recipe, confirmation-required** feature — much closer
+> to the *original* 2026-09-05 framing than to the Phase 4 "global remembered rules" design.
+> See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini). The
+> two notes below are kept as the record of the earlier two turns.
+
 **Superseded 2026-09-06 — see [Ingredient Substitution](#ingredient-substitution).** The
 resolution below answered the question as originally asked (was there a pre-existing feature
 Phase 3 should reuse?) correctly — there wasn't. But a follow-up conversation surfaced that a
