@@ -33,7 +33,15 @@
         global.RecipesView.unmount();
       },
     },
-    plan: stub("Plan", "Planning sessions arrive in Phase 4."),
+    plan: {
+      title: "Plan",
+      mount: function (root, param) {
+        global.SessionsView.mount(root, param);
+      },
+      unmount: function () {
+        global.SessionsView.unmount();
+      },
+    },
     settings: {
       title: "Settings",
       mount: function (root) {

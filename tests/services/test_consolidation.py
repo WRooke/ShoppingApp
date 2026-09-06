@@ -134,3 +134,17 @@ def test_substitution_merges_into_one_line():
 def test_names_normalised_and_sorted():
     result = consolidate([L("  Beef  Mince ", 500, "g"), L("apple", 2, None)])
     assert [i.name for i in result] == ["apple", "beef mince"]
+
+
+def test_substitution_chain_default_then_override_on_the_displayed_name():
+    # default: bulgarian feta -> regular feta; session override on "regular feta" -> "goat cheese"
+    result = consolidate(
+        [L("bulgarian feta", 100, "g")],
+        {"bulgarian feta": "regular feta", "regular feta": "goat cheese"},
+    )
+    assert [i.name for i in result] == ["goat cheese"]
+
+
+def test_substitution_chain_cycle_is_safe():
+    result = consolidate([L("a", 1, None)], {"a": "b", "b": "a"})
+    assert len(result) == 1  # doesn't loop forever; lands somewhere deterministic

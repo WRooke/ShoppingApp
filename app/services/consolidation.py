@@ -143,17 +143,32 @@ def _normalise_name(name: str) -> str:
     return " ".join(name.strip().lower().split())
 
 
+def _resolve_through(name: str, sub: dict[str, str]) -> str:
+    """Follow a substitution chain (default rule -> session override on that result -> ...),
+    with a cycle guard. Lets an override key off the *displayed* (already-substituted) name,
+    which is what the Chunk 4.7 review UI does."""
+    seen = {name}
+    for _ in range(8):
+        nxt = sub.get(name)
+        if nxt is None or nxt in seen:
+            return name
+        name = nxt
+        seen.add(name)
+    return name
+
+
 def consolidate(
     lines: list[IngredientLine], substitution_map: dict[str, str] | None = None
 ) -> list[ConsolidatedItem]:
     """Resolve substitutions, group by resolved name, apply the rounding/unit rules.
     Result is sorted by name. `substitution_map` is {original_name: substitute_name}
-    (defaults only — session-only overrides are merged in by the caller)."""
+    (stored defaults + any session-only overrides, merged by the caller). Chains are
+    followed (see `_resolve_through`)."""
     sub = {(_normalise_name(k)): _normalise_name(v) for k, v in (substitution_map or {}).items()}
 
     grouped: dict[str, list[IngredientLine]] = {}
     for ln in lines:
-        resolved = sub.get(_normalise_name(ln.name), _normalise_name(ln.name))
+        resolved = _resolve_through(_normalise_name(ln.name), sub)
         grouped.setdefault(resolved, []).append(ln)
 
     return sorted(

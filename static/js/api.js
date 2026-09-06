@@ -215,6 +215,63 @@
         },
       },
     },
+    sessions: {
+      list: function () {
+        return api.get("/api/v1/sessions?limit=100");
+      },
+      get: function (id) {
+        return api.get("/api/v1/sessions/" + encodeURIComponent(id));
+      },
+      create: function (data) {
+        return jsonBody("POST", "/api/v1/sessions", data || {});
+      },
+      update: function (id, data) {
+        return jsonBody("PATCH", "/api/v1/sessions/" + encodeURIComponent(id), data);
+      },
+      archive: function (id) {
+        return jsonBody("POST", "/api/v1/sessions/" + encodeURIComponent(id) + "/archive", {});
+      },
+      addRecipe: function (id, data) {
+        return jsonBody("POST", "/api/v1/sessions/" + encodeURIComponent(id) + "/recipes", data);
+      },
+      addLeftovers: function (id, data) {
+        return jsonBody(
+          "POST",
+          "/api/v1/sessions/" + encodeURIComponent(id) + "/leftovers",
+          data || {}
+        );
+      },
+      updateSlot: function (id, slotId, data) {
+        return jsonBody(
+          "PATCH",
+          "/api/v1/sessions/" + encodeURIComponent(id) + "/slots/" + encodeURIComponent(slotId),
+          data
+        );
+      },
+      removeSlot: function (id, slotId) {
+        return request(
+          "/api/v1/sessions/" +
+            encodeURIComponent(id) +
+            "/slots/" +
+            encodeURIComponent(slotId),
+          { method: "DELETE", headers: { Accept: "application/json" } }
+        );
+      },
+      reorder: function (id, orderedIds) {
+        return jsonBody(
+          "PUT",
+          "/api/v1/sessions/" + encodeURIComponent(id) + "/slots/order",
+          { ordered_ids: orderedIds }
+        );
+      },
+      consolidate: function (id, overrides) {
+        return jsonBody(
+          "POST",
+          "/api/v1/sessions/" + encodeURIComponent(id) + "/consolidate",
+          { overrides: overrides || [] }
+        );
+      },
+    },
     diagnostics: {
       logs: function (limit, level) {
         let q = "?limit=" + (limit || 200);

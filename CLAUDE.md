@@ -1936,7 +1936,7 @@ full — the chunks below build them, they are not re-opened here.
       a wipe) and returns the consolidated list. Multi-pack seed items (eggs/milk/yoghurt)
       land in `seed_data.py` here (or 4.1's already done — confirm) so the several-rows path
       is exercised.
-      Done 2026-09-06 (commit `<pending>`). Migration `3474369f4c79` adds
+      Done 2026-09-06 (commit `f7ae0b5`). Migration `3474369f4c79` adds
       `session_checklist_items.needs_review` + `note` (same server-default-then-drop batch
       pattern as 4.1's `slot_type`; parity guarded). `services/purchase_units.py` (pure):
       `resolve_packs(required, options)` — 0 → None, 1 → ceil to a whole pack, several →
@@ -1971,7 +1971,7 @@ full — the chunks below build them, they are not re-opened here.
       re-consolidate with a recomputed quantity while a new line defaulted to `unknown`;
       `/diagnostics/recent-errors` clean. Headless-Edge confirmed the Settings `product_units`
       card lists the double rows sensibly (closes the 4.5-deferred check).
-- [ ] **Chunk 4.7 — Session UI.** `static/js/sessions.js` on `#/plan` (nav already has
+- [x] **Chunk 4.7 — Session UI.** `static/js/sessions.js` on `#/plan` (nav already has
       "Plan"), split by sub-feature if it passes ~350 lines. Create / resume a session, add
       recipes from the library, set servings + day, add a leftovers slot; ingredient review
       step with ad-hoc ingredient swap, "Remember this substitution?" prompt (yes → Chunk 4.5
@@ -1980,6 +1980,26 @@ full — the chunks below build them, they are not re-opened here.
       units, shown before the checklist. **Open item for this chunk's kickoff:** confirm the
       session-only-override transport — leaning toward a client-held list in the
       `consolidate` request payload, matching the "No → writes nothing to the DB" design.
+      Done 2026-09-06 (commit `<pending>`). **Transport decision locked: client-held
+      `overrides` list in the `POST /consolidate` payload** (nothing written on "no"). Split
+      into two files per the size guideline: `static/js/sessions.js` (session list + the
+      workspace — inline-editable label, per-slot servings 1–12 / day dropdowns, ↑/↓
+      reorder via `PUT …/slots/order`, add-recipe library picker with search, add-leftovers,
+      remove) and `static/js/session-review.js` (the review screen — an in-memory handoff
+      like capture-review, not a route: consolidated list with pack breakdown + "need ~X" +
+      staple/overage/review notes, per-line **Swap** with a free-text field, quick-pick
+      buttons from `GET /settings/substitutions`, and the "Remember this?" `confirm()` →
+      `POST /settings/substitutions` on yes / client-`overrides`-only on no). `router.js`
+      `plan` stub replaced with a real route (`#/plan`, `#/plan/<id>`, `#/plan/new`);
+      `api.js` gains the full `sessions.*` surface. `consolidation.consolidate()` now
+      **follows a substitution chain** (`_resolve_through`, cycle-guarded) so a swap can key
+      off the *displayed* (already-substituted) name — +2 unit tests. Full suite **257
+      pass**. Headless-Edge/CDP end-to-end: new session → add 2 library recipes → bump one
+      to 8 servings → add a leftovers day → Review → correct consolidated list (`beef mince
+      1 × 500g pack · need ~500 g`, no-pack `bulgarian feta 400 g`, `eggs 1 × dozen + 1 ×
+      half dozen · need ~15`, `olive oil 80 ml (staple)` via the 20 ml tbsp) → swap
+      `bulgarian feta` → `regular feta` re-consolidates and the line changes; zero console
+      errors.
 - [ ] **Phase 4 review** — re-check against [Data Model](#data-model) (`planning_sessions`,
       `session_recipes`, `session_checklist_items`, `ingredient_substitutions`,
       `product_units`), [Scaling Logic](#scaling-logic),
