@@ -1937,14 +1937,28 @@ is folded into this phase's M-review.
       filename when the AI call queues. `capture/url` + `/photo` catch `AiQuotaExhaustedError`
       → enqueue + return `{"ok": true, "data": {"queued": true, …}}`. +10 tests; full suite
       **270 pass**; migration parity green.
-- [ ] **M4 — Substitution redesign (the merge).** Migrations: `recipe_ingredients` +=
-      `resolved_ingredient` / `substitution_note`; `ingredient_substitutions` →
-      `remembered_substitutions` (drop `is_default`; add `note` / `last_used_at`). Rework
-      `services/substitutions.py` (no default logic); **remove** substitution resolution from
-      `consolidation.consolidate()`, keep the session-override resolution in
-      `consolidate_session()` reading `resolved_ingredient`. `capture-review.js` +
-      `recipe-edit.js` per-ingredient confirm/decline + quick-picks + "save this swap";
-      `settings-substitutions.js` reframed; rework the Chunk 4.7 swap.
+- [x] **M4 — Substitution redesign (the merge).** Done 2026-09-06 (commit `cb9ef89`).
+      Migration `173367a2aab2`: `recipe_ingredients` += `resolved_ingredient` /
+      `substitution_note`; `ingredient_substitutions` → `remembered_substitutions`
+      (`is_default` **dropped**, `note` / `last_used_at` added). `services/substitutions.py`
+      reworked — no default logic; `create` / `update` (name + note) / `delete` / `list`
+      (by original, then `last_used_at`) / `quick_picks_for()` / `touch()`;
+      `get_default_substitution_map()` **removed**. `consolidation.consolidate()` is **pure**
+      again — no `substitution_map`; it groups by the name it's given.
+      `sessions.consolidate_session()`: `_scaled_lines` resolves the effective name per
+      ingredient (`resolved_ingredient` → session-only override) **before** the pure
+      `consolidate()`. `recipes.py` create / from-capture / add / update-ingredient pass
+      `resolved_ingredient` (normalised) + `substitution_note`; from-capture calls
+      `substitutions.touch()` for confirmed swaps. Schemas: `RecipeIngredient*` +
+      `CaptureIngredientConfirm` gain the two fields; `RememberedSubstitution*` replace
+      `IngredientSubstitution*`. Frontend: `settings-substitutions.js` → "Saved ingredient
+      swaps" (no default toggle, note per row); new `static/js/ingredient-swap.js`
+      (per-ingredient collapsed swap control — AI-flag pre-fill + saved-swap quick-picks +
+      note + "save this swap"); `capture-review.js` wires it per row + POSTs a remembered
+      row on a ticked swap; `recipe-edit.js` gets `resolved_ingredient`/note inputs per row;
+      `recipes.js` detail shows "→ using X (note)"; `session-review.js` "remember" prompt
+      reworded (quick-pick, not auto-apply). Tests reworked; full suite **267 pass**;
+      migration parity green; headless + curl verified end-to-end.
 - [ ] **M5 — Diagnostics rework.** Drop USD spend (`api_usage` / `api_usage_resets` /
       `cost_usd_cents` / reset-spend button); add `ai_call_log` + daily quota indicator +
       recent-capture-attempt log + AI Studio link.
