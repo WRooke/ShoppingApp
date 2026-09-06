@@ -1718,7 +1718,7 @@ The [ingredient substitution](#ingredient-substitution) and
 [duplicate recipe prevention](#duplicate-recipe-prevention) designs are already written up in
 full — the chunks below build them, they are not re-opened here.
 
-- [ ] **Chunk 4.1 — Migrations + schema groundwork (no behaviour change).** Rides on the
+- [x] **Chunk 4.1 — Migrations + schema groundwork (no behaviour change).** Rides on the
       Alembic bootstrapped in Chunk 3.7a. Migrations + model updates only, nothing wired to
       logic yet: `session_recipes.recipe_id` → nullable and add
       `slot_type TEXT NOT NULL DEFAULT 'recipe'` (`'recipe'`|`'leftovers'`, see
@@ -1728,6 +1728,20 @@ full — the chunks below build them, they are not re-opened here.
       `ingredient_substitutions` table + model (schema already in [Data Model](#data-model)) +
       `models/__init__.py` registration. Verify migrate-up on a throwaway empty DB matches
       `create_all()`; existing suite stays green.
+      Done 2026-09-06 (commit `00c8b8d`) — migration `1bc1ac8991f4` (batch table-rebuild).
+      `slot_type` added with a temporary `server_default='recipe'` to backfill existing rows
+      during the SQLite batch copy, then the default dropped in a second batch op so the
+      column matches `create_all()` (project convention: Python-side defaults only —
+      `tests/test_migrations.py` guards the parity). `product_units` single-column
+      autoindex replaced by the composite unique; `IngredientSubstitution` model added to
+      `app/models/catalog.py` (kept with the other Settings-managed reference tables) and
+      registered in `models/__init__.py`. `tests/services/test_settings.py` updated for the
+      new constraint (same `(name, label)` pair still 409s; a second pack size for the same
+      ingredient is now allowed). Verified: `tests/test_migrations.py` green (`upgrade head`
+      == `create_all()` on a fresh DB — columns/PKs/FKs+`on_delete`/indexes/uniqueness all
+      identical); full suite 139 pass; migration applied to the dev DB with its 24
+      `product_units` + 5 recipes intact, `session_recipes` FKs (`recipes.id` NO ACTION,
+      `planning_sessions.id` CASCADE) and `PRAGMA foreign_key_check` clean after the rebuild.
 - [ ] **Chunk 4.2 — Duplicate recipe prevention.** Slotted early — independent of the session
       engine, touches only `services/recipes.py` + both recipe create paths + the
       capture-review / manual-entry UI. `find_possible_duplicates()` (DB-read only, pure,
