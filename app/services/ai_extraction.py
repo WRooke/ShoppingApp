@@ -22,7 +22,7 @@ Two highest-priority standing rules (CLAUDE.md > Security §0a/§0c):
   * **§0a** — untrusted recipe content is wrapped in a non-guessable delimiter, the system
     prompt says treat it as data, input length is capped, and fixed-vocabulary fields
     (``suggested_section``) are allow-list validated on the way out.
-§0b: usage is logged to ``api_usage`` right after every real call (M5 → ``ai_call_log``).
+§0b: every attempt is logged to ``ai_call_log`` (task / model / outcome / tokens).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.seed_data import SECTION_VOCABULARY
-from app.services import api_usage
+from app.services import ai_call_log
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +341,9 @@ def _call_gemini(
         except genai_errors.ClientError as exc:
             if _is_quota_error(exc):
                 is_last = i == len(_MODEL_CHAIN) - 1
+                ai_call_log.log_ai_call(
+                    db, call_type=call_type, model=model, outcome="quota", context_id=context_id
+                )
                 logger.warning(
                     "AI %s: %s quota-exhausted (429)%s",
                     call_type,
@@ -352,22 +355,35 @@ def _call_gemini(
                         "All Gemini models are over quota — the capture has been queued."
                     ) from exc
                 continue
+            ai_call_log.log_ai_call(
+                db, call_type=call_type, model=model, outcome="error",
+                error_detail=str(exc), context_id=context_id,
+            )
             logger.error("AI %s failed: client error %s", call_type, exc.code, exc_info=True)
             raise AiExtractionError(f"Gemini API returned an error ({exc.code}).") from exc
         except genai_errors.APIError as exc:
+            ai_call_log.log_ai_call(
+                db, call_type=call_type, model=model, outcome="error",
+                error_detail=str(exc), context_id=context_id,
+            )
             logger.error("AI %s failed: API error", call_type, exc_info=True)
             raise AiExtractionError("Gemini API returned an error.") from exc
         except Exception as exc:  # network / DNS / transport
+            ai_call_log.log_ai_call(
+                db, call_type=call_type, model=model, outcome="error",
+                error_detail=str(exc), context_id=context_id,
+            )
             logger.error("AI %s: call failed", call_type, exc_info=True)
             raise AiExtractionError("Could not reach the Gemini API — check network/DNS.") from exc
 
         usage = response.usage_metadata
-        api_usage.log_api_usage(
+        ai_call_log.log_ai_call(
             db,
+            call_type=call_type,
             model=model,
+            outcome="success",
             input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
             output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
-            call_type=call_type,
             context_id=context_id,
         )
         if model != MODEL_ID:

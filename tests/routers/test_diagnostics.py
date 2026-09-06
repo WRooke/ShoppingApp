@@ -1,24 +1,18 @@
 """Smoke tests for /api/v1/diagnostics/* — see CLAUDE.md > Code Architecture &
-Maintainability (every router gets at least a happy-path + one error-path test once
-it has real logic behind it). diagnostics.py has real logic in Phase 1 (log
-filtering/pagination, a DB probe, an api_usage aggregate query) even though the
-AnyList indicator itself is a stub until Phase 5.
+Maintainability. Assertions avoid depending on GEMINI_API_KEY / ANYLIST_* being configured
+in .env (varies by machine) and check shape/invariants instead.
 
-Assertions here deliberately avoid depending on ANTHROPIC_API_KEY / ANYLIST_* actually
-being configured in .env — that varies by machine (this dev machine's .env already has
-real AnyList credentials from the Phase 1.5 spike) — and check shape/invariants instead.
-
-**2026-09-06:** the hard AU$0.50 spend cap this file used to test has been removed — see
-CLAUDE.md > Non-Negotiable Operating Rules and Security §0b. What replaced the
-spend-cap-reached test is coverage of the reset-with-confirmation endpoint
-(`POST /api/v1/diagnostics/reset-spend`), which is purely a display reset.
+**Phase 3.9 M5:** the USD "spend tracker" + its reset button are gone (Gemini free tier).
+The AI block now carries a daily quota indicator (`today_by_model`) + a recent-attempt log.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.config import settings
 from app.database import SessionLocal
-from app.models.diagnostics import ApiUsage, ApiUsageReset
+from app.models.diagnostics import AiCallLog
 
 
 def test_status_reports_disabled_by_default(client, monkeypatch):
@@ -26,7 +20,7 @@ def test_status_reports_disabled_by_default(client, monkeypatch):
     monkeypatch.setattr(settings, "ai_extraction_fake_mode", False)
 
     resp = client.get("/api/v1/diagnostics/status")
-    data = resp.json()["data"]["claude_api"]
+    data = resp.json()["data"]["ai_extraction"]
 
     assert data["api_enabled"] is False
     assert data["fake_mode"] is False
@@ -38,7 +32,7 @@ def test_status_reports_fake_mode(client, monkeypatch):
     monkeypatch.setattr(settings, "ai_extraction_fake_mode", True)
 
     resp = client.get("/api/v1/diagnostics/status")
-    data = resp.json()["data"]["claude_api"]
+    data = resp.json()["data"]["ai_extraction"]
 
     assert data["fake_mode"] is True
     assert data["state"] == "amber"
@@ -53,66 +47,42 @@ def test_status_reports_ok_envelope_and_component_shapes(client):
     assert body["ok"] is True
 
     data = body["data"]
-    assert set(data.keys()) == {"database", "claude_api", "anylist"}
-
-    # The DB is real and reachable in the test client's app lifespan, so this should
-    # always be green regardless of what's configured in .env.
+    assert set(data.keys()) == {"database", "ai_extraction", "anylist"}
     assert data["database"]["state"] == "green"
 
-    # Enable-switch and fake-mode fields (CLAUDE.md > Security > §0c) must always be present.
-    assert isinstance(data["claude_api"]["api_enabled"], bool)
-    assert isinstance(data["claude_api"]["fake_mode"], bool)
-
-    # Spend/token fields (CLAUDE.md > Security > §0b) are observational only — always present,
-    # never a pass/fail gate.
-    assert "estimated_spend_usd" in data["claude_api"]
-    assert "total_input_tokens" in data["claude_api"]
-    assert "total_output_tokens" in data["claude_api"]
-    assert "reset_at" in data["claude_api"]
+    ai = data["ai_extraction"]
+    assert isinstance(ai["api_enabled"], bool)
+    assert isinstance(ai["fake_mode"], bool)
+    assert isinstance(ai["today_by_model"], dict)
+    assert isinstance(ai["recent_calls"], list)
+    assert "last_success" in ai
+    assert ai["dashboard_url"].startswith("https://")
 
     assert data["anylist"]["state"] in ("grey", "amber")
 
 
-def test_reset_spend_inserts_marker_and_resets_display_totals(client):
-    # Writes directly to the shared test DB (api_usage has no delete endpoint — it's an
-    # append-only log per CLAUDE.md > Data Model), so rows are removed again afterwards to
-    # avoid leaking spend/reset state into other tests in this session.
+def test_status_quota_indicator_counts_todays_calls_by_model(client):
     db = SessionLocal()
-    usage_row_id = None
+    ids = []
     try:
-        usage_row = ApiUsage(
-            model="claude-haiku-4-5",
-            input_tokens=500,
-            output_tokens=100,
-            cost_usd_cents=1.0,
-            call_type="recipe_url",
-        )
-        db.add(usage_row)
-        db.commit()
-        usage_row_id = usage_row.id
+        for _ in range(3):
+            row = AiCallLog(
+                timestamp=datetime.now(timezone.utc),
+                task="extract",
+                model="gemini-2.5-flash",
+                outcome="success",
+                input_tokens=100,
+                output_tokens=20,
+            )
+            db.add(row)
+            db.commit()
+            ids.append(row.id)
 
-        before = client.get("/api/v1/diagnostics/status").json()["data"]["claude_api"]
-        assert before["total_input_tokens"] >= 500
-
-        resp = client.post("/api/v1/diagnostics/reset-spend")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["ok"] is True
-        assert body["data"]["reset_at"] is not None
-
-        after = client.get("/api/v1/diagnostics/status").json()["data"]["claude_api"]
-        # Display totals are since the reset — the row logged above no longer counts.
-        assert after["total_input_tokens"] == 0
-        assert after["total_output_tokens"] == 0
-        assert after["estimated_spend_usd"] == 0.0
-        assert after["reset_at"] is not None
-
-        # The underlying api_usage row is untouched — never deleted by a reset.
-        assert db.query(ApiUsage).filter(ApiUsage.id == usage_row_id).count() == 1
+        ai = client.get("/api/v1/diagnostics/status").json()["data"]["ai_extraction"]
+        assert ai["today_by_model"].get("gemini-2.5-flash", 0) >= 3
+        assert any(c["model"] == "gemini-2.5-flash" for c in ai["recent_calls"])
     finally:
-        if usage_row_id is not None:
-            db.query(ApiUsage).filter(ApiUsage.id == usage_row_id).delete()
-        db.query(ApiUsageReset).delete()
+        db.query(AiCallLog).filter(AiCallLog.id.in_(ids)).delete(synchronize_session=False)
         db.commit()
         db.close()
 

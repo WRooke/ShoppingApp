@@ -284,9 +284,6 @@
       status: function () {
         return api.get("/api/v1/diagnostics/status");
       },
-      resetSpend: function () {
-        return jsonBody("POST", "/api/v1/diagnostics/reset-spend", {});
-      },
     },
   };
 

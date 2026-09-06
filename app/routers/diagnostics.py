@@ -3,12 +3,11 @@
 Provides:
   * GET  /api/v1/diagnostics/logs           live log tail (ring buffer)
   * GET  /api/v1/diagnostics/recent-errors  last 10 ERROR+ entries
-  * GET  /api/v1/diagnostics/status         component status panel + spend tracker
-  * POST /api/v1/diagnostics/reset-spend    reset the displayed spend tracker (CLAUDE.md >
-                                             Security §0b) — never touches the underlying
-                                             api_usage log, see api_usage.reset_api_usage_display()
+  * GET  /api/v1/diagnostics/status         component status panel + AI quota / attempt log
 
-AnyList indicator is a stub until Phase 5.
+AnyList indicator is a stub until Phase 5. Phase 3.9 M5 replaced the USD "spend tracker" +
+its reset button with a Gemini daily-quota indicator + recent-attempt log (free tier, no
+per-call cost).
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.log_config import get_log_entries
-from app.services.api_usage import get_display_totals, reset_api_usage_display
+from app.services import ai_call_log
 
 logger = logging.getLogger(__name__)
 
@@ -62,44 +61,48 @@ def status(db: Session = Depends(get_db)) -> dict:
         "message": "Connected" if db_ok else "Connection failed",
     }
 
-    # --- AI extraction (Gemini) --------------------------------------------
-    # Enable-switch and fake-mode fields are always populated — a highest-priority standing
-    # rule (CLAUDE.md > Security §0c). Spend/token totals are observability only (§0b).
-    # NOTE: Phase 3.9 M5 replaces this whole block (quota indicator + attempt log, no USD);
-    # M1 just carries it over with the renamed settings attributes.
-    claude = {
+    # --- AI extraction (Gemini) — Phase 3.9 M5 --------------------------------
+    # Enable-switch / fake-mode fields are always populated (§0c). Quota = an observed
+    # request count per model since local midnight; no dollar cost on Gemini's free tier.
+    ai = {
         "state": "grey",
         "message": "Gemini API key not configured",
-        "last_success": None,
-        "estimated_spend_usd": 0.0,
-        "total_input_tokens": 0,
-        "total_output_tokens": 0,
-        "reset_at": None,
         "api_enabled": settings.ai_extraction_enabled,
         "fake_mode": settings.ai_extraction_fake_mode,
+        "last_success": None,
+        "today_by_model": {},
+        "recent_calls": [],
+        "dashboard_url": "https://aistudio.google.com/app/apikey",
     }
     try:
-        spend_cents, in_tok, out_tok, last_ts, reset_at = get_display_totals(db)
-        claude["estimated_spend_usd"] = round(spend_cents / 100.0, 4)
-        claude["total_input_tokens"] = in_tok
-        claude["total_output_tokens"] = out_tok
-        claude["reset_at"] = str(reset_at) if reset_at is not None else None
+        ai["today_by_model"] = ai_call_log.today_counts_by_model(db)
+        last_ok = ai_call_log.last_success_at(db)
+        ai["last_success"] = str(last_ok) if last_ok is not None else None
+        ai["recent_calls"] = [
+            {
+                "time": r.timestamp.isoformat(timespec="seconds"),
+                "task": r.task,
+                "model": r.model,
+                "outcome": r.outcome,
+                "error_detail": r.error_detail,
+            }
+            for r in ai_call_log.recent_calls(db, limit=15)
+        ]
 
-        if claude["fake_mode"]:
-            claude["state"] = "amber"
-            claude["message"] = "FAKE MODE — extraction returns canned fixtures, no real Gemini calls are made"
-        elif not claude["api_enabled"]:
-            claude["state"] = "grey"
-            claude["message"] = "Disabled (AI_EXTRACTION_ENABLED=false in .env) — enable explicitly to use recipe capture"
-        elif last_ts is not None:
-            claude["last_success"] = str(last_ts)
-            claude["state"] = "green"
-            claude["message"] = "OK"
+        if ai["fake_mode"]:
+            ai["state"] = "amber"
+            ai["message"] = "FAKE MODE — extraction returns canned fixtures, no real Gemini calls are made"
+        elif not ai["api_enabled"]:
+            ai["state"] = "grey"
+            ai["message"] = "Disabled (AI_EXTRACTION_ENABLED=false in .env) — enable explicitly to use recipe capture"
+        elif last_ok is not None:
+            ai["state"] = "green"
+            ai["message"] = "OK"
         elif settings.gemini_configured:
-            claude["state"] = "amber"
-            claude["message"] = "Key configured, no calls yet"
+            ai["state"] = "amber"
+            ai["message"] = "Key configured, no calls yet"
     except Exception:  # noqa: BLE001
-        logger.error("Diagnostics: api_usage aggregate query failed", exc_info=True)
+        logger.error("Diagnostics: ai_call_log query failed", exc_info=True)
 
     # --- AnyList (stub until Phase 5) --------------------------------
     anylist = {
@@ -116,18 +119,7 @@ def status(db: Session = Depends(get_db)) -> dict:
         "ok": True,
         "data": {
             "database": database,
-            "claude_api": claude,
+            "ai_extraction": ai,
             "anylist": anylist,
         },
     }
-
-
-@router.post("/reset-spend")
-def reset_spend(db: Session = Depends(get_db)) -> dict:
-    """Resets the diagnostics-page spend/token tracker (CLAUDE.md > Diagnostics & Logging >
-    "Reset button (with confirmation)"; Security §0b). Purely a display reset — inserts a row
-    into `api_usage_resets` and never touches an `api_usage` row, so the full call history
-    stays intact. The frontend confirms before calling this (see static/js/diagnostics.js)."""
-    marker = reset_api_usage_display(db)
-    logger.info("Diagnostics: spend tracker reset via API at %s", marker.reset_at)
-    return {"ok": True, "data": {"reset_at": str(marker.reset_at)}}

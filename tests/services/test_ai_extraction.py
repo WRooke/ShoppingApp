@@ -17,7 +17,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
-from app.models.diagnostics import ApiUsage
+from app.models.diagnostics import AiCallLog
 from app.services.ai_extraction import (
     MAX_INPUT_TEXT_CHARS,
     AiExtractionDisabledError,
@@ -176,7 +176,7 @@ def test_extract_recipe_logs_usage_even_when_unparseable(db, api_enabled):
     with patch("app.services.ai_extraction.genai.Client", _mock_client(bad)):
         with pytest.raises(AiExtractionError):
             extract_recipe(db, call_type="recipe_url", text="x")
-    row = db.query(ApiUsage).one()
+    row = db.query(AiCallLog).one()
     assert row.input_tokens == 42 and row.model == "gemini-2.5-flash"
 
 
@@ -197,7 +197,7 @@ def test_extract_recipe_fake_mode(db, fake_mode):
         client.assert_not_called()
     assert len(result.ingredients) > 0
     assert all(i.suggested_section is None for i in result.ingredients)
-    assert db.query(ApiUsage).count() == 0
+    assert db.query(AiCallLog).count() == 0
 
 
 def test_extract_recipe_fake_mode_deterministic(db, fake_mode):
@@ -325,9 +325,13 @@ def test_falls_back_to_flash_lite_on_primary_429(db, api_enabled):
     with patch("app.services.ai_extraction.genai.Client", client):
         result = extract_recipe(db, call_type="recipe_url", text="x")
     assert len(result.ingredients) == 2
-    # usage logged against the model that actually answered
-    assert db.query(ApiUsage).one().model == "gemini-2.5-flash-lite"
     assert client.return_value.models.generate_content.call_count == 2
+    # a 'quota' row for flash, then a 'success' row for flash-lite
+    rows = db.query(AiCallLog).order_by(AiCallLog.id).all()
+    assert [(r.model, r.outcome) for r in rows] == [
+        ("gemini-2.5-flash", "quota"),
+        ("gemini-2.5-flash-lite", "success"),
+    ]
 
 
 def test_both_models_429_raises_quota_exhausted(db, api_enabled):
@@ -337,7 +341,8 @@ def test_both_models_429_raises_quota_exhausted(db, api_enabled):
     with patch("app.services.ai_extraction.genai.Client", client):
         with pytest.raises(AiQuotaExhaustedError):
             extract_recipe(db, call_type="recipe_url", text="x")
-    assert db.query(ApiUsage).count() == 0  # nothing answered
+    assert db.query(AiCallLog).filter(AiCallLog.outcome == "success").count() == 0
+    assert db.query(AiCallLog).filter(AiCallLog.outcome == "quota").count() == 2
 
 
 def test_non_quota_client_error_does_not_fall_back(db, api_enabled):

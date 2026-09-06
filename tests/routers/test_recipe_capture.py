@@ -15,7 +15,7 @@ import pytest
 
 from app.config import settings
 from app.database import SessionLocal
-from app.models.diagnostics import ApiUsage
+from app.models.diagnostics import AiCallLog
 from app.models.store import ProductSection
 from app.services.ai_extraction import AiQuotaExhaustedError
 
@@ -50,7 +50,7 @@ def test_capture_from_url_happy_path(client):
     # Fake mode never writes usage rows — nothing was actually billed.
     db = SessionLocal()
     try:
-        assert db.query(ApiUsage).count() == 0
+        assert db.query(AiCallLog).count() == 0
     finally:
         db.close()
 
