@@ -12,8 +12,8 @@ def L(name, qty, unit=None, is_no_scale=False):
     return IngredientLine(name=name, quantity=qty, unit=unit, is_no_scale=is_no_scale)
 
 
-def one(lines, substitution_map=None):
-    result = consolidate(lines, substitution_map)
+def one(lines):
+    result = consolidate(lines)
     assert len(result) == 1, result
     return result[0]
 
@@ -116,35 +116,19 @@ def test_real_quantity_plus_to_taste_keeps_quantity_and_flags_also():
     assert item.also_to_taste is True
 
 
-# --- substitution resolution + cross-recipe merge -----------------------
+# --- name grouping ----------------------------------------------------------
+#
+# Phase 3.9 M4: consolidate() is PURE — no substitution logic. The effective (post-swap)
+# name is resolved by the caller (sessions.consolidate_session), so here two lines that
+# already carry the same name just merge onto one line.
 
 
-def test_substitution_merges_into_one_line():
-    # recipe A needs "bulgarian feta", recipe B needs "regular feta"; default rule maps
-    # bulgarian feta -> regular feta, so they consolidate to a single "regular feta" line
-    result = consolidate(
-        [L("bulgarian feta", 100, "g"), L("regular feta", 150, "g")],
-        {"bulgarian feta": "regular feta"},
-    )
+def test_same_effective_name_merges_into_one_line():
+    result = consolidate([L("regular feta", 100, "g"), L("regular feta", 150, "g")])
     assert len(result) == 1
-    assert result[0].name == "regular feta"
-    assert result[0].quantity == 250  # 250 -> already clean
+    assert result[0].name == "regular feta" and result[0].quantity == 250
 
 
 def test_names_normalised_and_sorted():
     result = consolidate([L("  Beef  Mince ", 500, "g"), L("apple", 2, None)])
     assert [i.name for i in result] == ["apple", "beef mince"]
-
-
-def test_substitution_chain_default_then_override_on_the_displayed_name():
-    # default: bulgarian feta -> regular feta; session override on "regular feta" -> "goat cheese"
-    result = consolidate(
-        [L("bulgarian feta", 100, "g")],
-        {"bulgarian feta": "regular feta", "regular feta": "goat cheese"},
-    )
-    assert [i.name for i in result] == ["goat cheese"]
-
-
-def test_substitution_chain_cycle_is_safe():
-    result = consolidate([L("a", 1, None)], {"a": "b", "b": "a"})
-    assert len(result) == 1  # doesn't loop forever; lands somewhere deterministic

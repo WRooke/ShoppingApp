@@ -65,6 +65,9 @@ class CaptureIngredientConfirm(BaseModel):
     unit: str | None = None
     preparation: str | None = None
     suggested_section: str | None = None
+    # Phase 3.9 M4 — a substitution the user confirmed on the review screen. None = no swap.
+    resolved_ingredient: str | None = None
+    substitution_note: str | None = None
 
 
 class CaptureConfirmRequest(BaseModel):

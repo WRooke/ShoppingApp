@@ -26,6 +26,10 @@ class RecipeIngredientBase(BaseModel):
     unit: str | None = None
     preparation: str | None = None
     sort_order: int = 0
+    # Substitution (Phase 3.9 M4) — the swap this recipe uses, set by explicit per-recipe
+    # confirmation. None = use `name`. See CLAUDE.md > AI Provider Migration.
+    resolved_ingredient: str | None = None
+    substitution_note: str | None = None
 
 
 class RecipeIngredientCreate(RecipeIngredientBase):
@@ -33,13 +37,16 @@ class RecipeIngredientCreate(RecipeIngredientBase):
 
 
 class RecipeIngredientUpdate(BaseModel):
-    """Partial update — every field optional, only fields actually sent are changed."""
+    """Partial update — every field optional, only fields actually sent are changed.
+    Send `resolved_ingredient: null` to clear a substitution (revert to `name`)."""
 
     name: str | None = Field(None, min_length=1)
     quantity: float | None = None
     unit: str | None = None
     preparation: str | None = None
     sort_order: int | None = None
+    resolved_ingredient: str | None = None
+    substitution_note: str | None = None
 
 
 class RecipeIngredientRead(RecipeIngredientBase):

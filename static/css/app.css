@@ -360,3 +360,14 @@ select, input[type="text"] {
   border-top: 1px solid var(--border);
 }
 .sub-group-heading:first-child { border-top: none; margin-top: 0; }
+
+/* --- per-ingredient substitution swap control (Phase 3.9 M4) --- */
+.ingredient-edit-wrap { border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px; }
+.ing-swap { margin: 2px 0 4px; font-size: 0.9rem; }
+.ing-swap-body { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.ing-swap-picks { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ing-swap-flag { font-size: 0.85rem; margin-top: 2px; }
+.ing-swap-remember { font-size: 0.85rem; }
+.link-btn { min-height: 0; padding: 2px 6px; font-size: 0.85rem; }
+/* recipe detail: "using X instead" line */
+.ingredient-resolved { color: var(--accent); font-size: 0.85rem; }

@@ -27,7 +27,6 @@ from app.schemas.sessions import (
 )
 from app.services import consolidation, purchase_units, scaling
 from app.services import recipes as recipes_service
-from app.services import substitutions as substitutions_service
 from app.services.scaling import DEFAULT_TARGET_SERVINGS
 
 logger = logging.getLogger(__name__)
@@ -249,17 +248,28 @@ def reorder_slots(db: Session, session_id: int, ordered_ids: list[int]) -> list[
 # Scaling Logic and > Build Phases > Phase 4 > Chunk 4.6.
 
 
-def _scaled_lines(session: PlanningSession) -> list[consolidation.IngredientLine]:
+def _norm(name: str) -> str:
+    return " ".join(name.strip().lower().split())
+
+
+def _scaled_lines(
+    session: PlanningSession, override_map: dict[str, str]
+) -> list[consolidation.IngredientLine]:
+    """Scaled ingredient lines with the *effective* name already resolved (Phase 3.9 M4):
+    per-recipe `resolved_ingredient` (fallback `name`), then a session-only override keyed
+    off that resolved name. `consolidation.consolidate()` itself does no substitution."""
     lines: list[consolidation.IngredientLine] = []
     for slot in session.recipes:
         if slot.slot_type != "recipe" or slot.recipe is None:
             continue  # leftovers slots contribute nothing
         factor = scaling.scaling_factor(slot.recipe.base_servings, slot.scaled_servings)
         for ing in slot.recipe.ingredients:
+            base = ing.resolved_ingredient or ing.name
+            effective = override_map.get(_norm(base), base)
             sq = scaling.scale_quantity(ing.quantity, ing.unit, factor)
             lines.append(
                 consolidation.IngredientLine(
-                    name=ing.name, quantity=sq.quantity, unit=sq.unit, is_no_scale=not sq.scaled
+                    name=effective, quantity=sq.quantity, unit=sq.unit, is_no_scale=not sq.scaled
                 )
             )
     return lines
@@ -331,12 +341,12 @@ def consolidate_session(
     lines that persist (CLAUDE.md > Scaling Logic > re-running consolidation)."""
     session = get_session(db, session_id)
 
-    # substitution map: stored defaults, then session-only overrides win.
-    sub_map = substitutions_service.get_default_substitution_map(db)
-    for ov in overrides or []:
-        sub_map[ov.original_name.strip().lower()] = ov.substitute_name.strip().lower()
-
-    items = consolidation.consolidate(_scaled_lines(session), sub_map)
+    # Session-only overrides — client-held, not written anywhere (Phase 3.9 M4). Per-recipe
+    # `resolved_ingredient` is applied inside _scaled_lines; there is no global rule map.
+    override_map = {
+        _norm(ov.original_name): _norm(ov.substitute_name) for ov in (overrides or [])
+    }
+    items = consolidation.consolidate(_scaled_lines(session, override_map))
 
     staple_names = {s.name for s in db.query(Staple).all()}
     existing = {ci.ingredient_name: ci for ci in session.checklist_items}

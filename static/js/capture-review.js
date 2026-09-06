@@ -1,11 +1,11 @@
-/* Recipe capture — review + confirm screen. Takes whatever capture.js's extraction
-   endpoints returned (a CaptureResult: cuisine/protein/ingredients, each ingredient
-   carrying an AI-suggested_section) and renders it as one shared, fully editable form —
-   same inline-edit pattern as recipe-form.js/recipe-edit.js. No "can't find X, try Y"
-   substitution UI here (resolved 2026-09-05 — see CLAUDE.md > Security decision dialogues
-   and > Build Phases > Phase 3 > Chunk 3.4): this is a plain review, not a suggestion
-   engine. On confirm, POSTs to /capture/confirm, which also writes product_sections rows
-   for any ingredient still carrying a suggested_section — see CLAUDE.md > Recipe Capture. */
+/* Recipe capture — review + confirm screen. Takes capture.js's CaptureResult
+   (cuisine/protein/ingredients + per-ingredient suggested_section + recipe-level
+   substitution_flags) and renders one fully editable form. Each ingredient row carries a
+   per-ingredient swap control (ingredient-swap.js): the AI's flagged substitution and any
+   saved swaps are offered, the user confirms per ingredient, and on confirm the chosen
+   resolved_ingredient / substitution_note go in the payload (a "save this swap" tick also
+   POSTs a remembered_substitutions row). See CLAUDE.md > AI Provider Migration >
+   Ingredient Substitution Flagging. */
 
 (function (global) {
   "use strict";
@@ -129,19 +129,32 @@
 
     root.appendChild(card);
 
-    var rows = []; // { nameInput, qtyInput, unitInput, prepInput, sectionSelect, rowEl }
+    var rows = []; // { nameInput, qtyInput, unitInput, prepInput, sectionSelect, swap, rowEl }
 
-    // Fetch the section vocabulary once, then build the (already-extracted) ingredient
-    // rows — every row needs the same option list, so this gates rendering rather than
-    // fetching it per-row.
-    api.settings
-      .sectionVocabulary()
-      .then(function (data) {
-        var sections = data.sections || [];
+    // Index the AI's per-recipe substitution flags by the ingredient name they apply to.
+    var flagsByName = {};
+    (captureResult.substitution_flags || []).forEach(function (f) {
+      flagsByName[(f.original || "").toLowerCase()] = f;
+    });
+
+    // Fetch the section vocabulary + saved swaps once, then build the ingredient rows.
+    Promise.all([
+      api.settings.sectionVocabulary(),
+      api.settings.substitutions.list().catch(function () {
+        return { items: [] };
+      }),
+    ])
+      .then(function (results) {
+        var sections = results[0].sections || [];
+        var picksByName = {};
+        (results[1].items || []).forEach(function (r) {
+          (picksByName[r.original_name] = picksByName[r.original_name] || []).push(r);
+        });
         ingList.removeChild(loadingSections);
 
         function addIngredientRow(ing) {
           ing = ing || {};
+          var lname = (ing.name || "").toLowerCase();
           var nameI = el("input", "ingredient-name-input");
           nameI.type = "text";
           nameI.placeholder = "ingredient name";
@@ -166,11 +179,19 @@
           var sectionI = sectionSelect(sections, ing.suggested_section || "");
 
           var removeBtn = el("button", null, "Remove");
+          var swap = global.IngredientSwap.create(
+            flagsByName[lname] || null,
+            picksByName[lname] || []
+          );
+
           var rowEl = el("div", "ingredient-edit-row");
           [nameI, qtyI, unitI, prepI, sectionI, removeBtn].forEach(function (n) {
             rowEl.appendChild(n);
           });
-          ingList.appendChild(rowEl);
+          var wrapEl = el("div", "ingredient-edit-wrap");
+          wrapEl.appendChild(rowEl);
+          wrapEl.appendChild(swap.el);
+          ingList.appendChild(wrapEl);
 
           var record = {
             nameInput: nameI,
@@ -178,7 +199,8 @@
             unitInput: unitI,
             prepInput: prepI,
             sectionSelect: sectionI,
-            rowEl: rowEl,
+            swap: swap,
+            rowEl: wrapEl,
           };
           rows.push(record);
 
@@ -186,7 +208,7 @@
             rows = rows.filter(function (r) {
               return r !== record;
             });
-            ingList.removeChild(rowEl);
+            ingList.removeChild(wrapEl);
           });
         }
 
@@ -206,6 +228,8 @@
           "Couldn't load the section list (" + err.message + ") — sections can be added later in Settings.";
       });
 
+    var swapsToRemember = []; // filled by collectPayload(), POSTed after a successful save
+
     function collectPayload() {
       var name = nameInput.value.trim();
       if (!name) {
@@ -213,6 +237,7 @@
         return null;
       }
       var ingredients = [];
+      swapsToRemember = [];
       for (var i = 0; i < rows.length; i++) {
         var r = rows[i];
         var ingName = r.nameInput.value.trim();
@@ -223,12 +248,22 @@
           formErr.textContent = "Each ingredient needs a name and a numeric quantity.";
           return null;
         }
+        var sw = r.swap.getState();
+        if (sw.remember && sw.resolved_ingredient) {
+          swapsToRemember.push({
+            original_name: ingName,
+            substitute_name: sw.resolved_ingredient,
+            note: sw.substitution_note,
+          });
+        }
         ingredients.push({
           name: ingName,
           quantity: qty,
           unit: r.unitInput.value.trim() || null,
           preparation: r.prepInput.value.trim() || null,
           suggested_section: r.sectionSelect.value || null,
+          resolved_ingredient: sw.resolved_ingredient,
+          substitution_note: sw.substitution_note,
         });
       }
       return {
@@ -254,9 +289,14 @@
       payload.allow_duplicate = !!allowDuplicate;
 
       saveBtn.disabled = true;
+      var remembered = swapsToRemember.slice();
       api.recipes
         .confirmCapture(payload)
         .then(function (saved) {
+          // fire-and-forget the "save this swap" ticks — a duplicate is fine
+          remembered.forEach(function (s) {
+            api.settings.substitutions.create(s).catch(function () {});
+          });
           global.Router.navigate("recipes", saved.id);
         })
         .catch(function (err) {

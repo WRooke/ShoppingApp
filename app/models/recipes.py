@@ -59,11 +59,16 @@ class RecipeIngredient(Base):
     recipe_id = Column(
         Integer, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    name = Column(Text, nullable=False)  # normalised lowercase, e.g. "beef mince"
+    name = Column(Text, nullable=False)  # normalised lowercase, e.g. "beef mince" — the ORIGINAL
     quantity = Column(Float, nullable=False)
     unit = Column(Text, nullable=True)  # null for unitless items (eggs, onions)
     preparation = Column(Text, nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
+    # Substitution (Phase 3.9 M4). The swap THIS recipe uses, set only by explicit per-recipe
+    # confirmation (capture review / recipe editor). NULL = no substitution, use `name`.
+    # Clearing it reverts. Consolidation reads resolved_ingredient (fallback `name`).
+    resolved_ingredient = Column(Text, nullable=True)
+    substitution_note = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 

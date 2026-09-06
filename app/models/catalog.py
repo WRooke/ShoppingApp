@@ -40,24 +40,24 @@ class Staple(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
-class IngredientSubstitution(Base):
-    """A user-kept rule that treats one product as interchangeable with another for
-    shopping purposes (e.g. "bulgarian feta" -> "regular feta"). Never pre-seeded — every
-    row exists because the user made and kept a real substitution during planning. At most
-    one ``is_default`` TRUE per ``original_name`` is enforced in ``services/``, not by a DB
-    constraint (SQLite has no clean partial-unique-index story via the ORM here) — same
-    pattern as the duplicate-name 409s in services/settings.py. See CLAUDE.md >
-    Ingredient Substitution and > Data Model > ingredient_substitutions.
+class RememberedSubstitution(Base):
+    """A quick-pick library entry (Phase 3.9 M4 — was ``IngredientSubstitution`` with an
+    ``is_default`` that auto-applied; that's gone). It NEVER applies a swap on its own — it
+    only pre-fills / top-ranks the suggestion in a per-recipe confirm UI. Every row exists
+    because the user ticked "save this swap" at capture review, the recipe editor, or after a
+    planning swap. See CLAUDE.md > AI Provider Migration > Ingredient Substitution Flagging
+    and > Data Model > remembered_substitutions.
     """
 
-    __tablename__ = "ingredient_substitutions"
+    __tablename__ = "remembered_substitutions"
     __table_args__ = (
         UniqueConstraint("original_name", "substitute_name", name="uq_substitution_pair"),
     )
 
     id = Column(Integer, primary_key=True)
     original_name = Column(Text, nullable=False)  # normalised lowercase, matches recipe_ingredients.name
-    substitute_name = Column(Text, nullable=False)  # normalised lowercase
-    is_default = Column(Boolean, nullable=False, default=False)  # the silently auto-applied one
+    substitute_name = Column(Text, nullable=False)  # normalised lowercase (freetext; 1:many stored verbatim)
+    note = Column(Text, nullable=True)  # pre-fills recipe_ingredients.substitution_note
+    last_used_at = Column(DateTime, nullable=True)  # quick-pick ordering, most-recent first
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

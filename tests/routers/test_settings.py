@@ -193,7 +193,7 @@ def test_section_vocabulary_returns_ok_envelope(client):
     assert "other" in body["data"]["sections"]
 
 
-# --- ingredient substitutions (Phase 4 — CLAUDE.md > Ingredient Substitution) -----------
+# --- remembered substitutions: quick-pick library (Phase 3.9 M4) -----------------------
 
 
 def _create_sub(client, original, substitute, **extra):
@@ -202,12 +202,13 @@ def _create_sub(client, original, substitute, **extra):
     return client.post("/api/v1/settings/substitutions", json=payload)
 
 
-def test_create_substitution_first_is_default(client):
-    resp = _create_sub(client, "ZZ-Bulgarian Feta", "ZZ-Regular Feta")
+def test_create_substitution_normalises_and_no_default_concept(client):
+    resp = _create_sub(client, "ZZ-Bulgarian Feta", "ZZ-Regular Feta", note="close enough")
     assert resp.status_code == 201
     body = resp.json()["data"]
     assert body["original_name"] == "zz-bulgarian feta"  # normalised
-    assert body["is_default"] is True
+    assert body["note"] == "close enough"
+    assert "is_default" not in body
 
 
 def test_create_substitution_duplicate_returns_structured_409(client):
@@ -223,21 +224,20 @@ def test_create_self_substitution_returns_structured_422(client):
     assert resp.json()["error"]["code"] == "INVALID_SUBSTITUTION"
 
 
-def test_reassign_default_via_patch(client):
-    a = _create_sub(client, "ZZ-Reassign", "ZZ-Sub-A").json()["data"]
-    b = _create_sub(client, "ZZ-Reassign", "ZZ-Sub-B").json()["data"]
-    assert (a["is_default"], b["is_default"]) == (True, False)
+def test_multiple_substitutes_per_original_and_patch_note(client):
+    a = _create_sub(client, "ZZ-Multi", "ZZ-Sub-A").json()["data"]
+    b = _create_sub(client, "ZZ-Multi", "ZZ-Sub-B").json()["data"]
+    assert a["id"] != b["id"]
 
     resp = client.patch(
-        f"/api/v1/settings/substitutions/{b['id']}", json={"is_default": True}
+        f"/api/v1/settings/substitutions/{b['id']}", json={"note": "use this in a pinch"}
     )
     assert resp.status_code == 200
-    assert resp.json()["data"]["is_default"] is True
+    assert resp.json()["data"]["note"] == "use this in a pinch"
 
     listed = client.get("/api/v1/settings/substitutions?limit=500").json()["data"]["items"]
-    by_id = {r["id"]: r for r in listed}
-    assert by_id[a["id"]]["is_default"] is False
-    assert by_id[b["id"]]["is_default"] is True
+    mine = [r for r in listed if r["original_name"] == "zz-multi"]
+    assert {r["substitute_name"] for r in mine} == {"zz-sub-a", "zz-sub-b"}
 
 
 def test_delete_substitution(client):

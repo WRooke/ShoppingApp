@@ -169,23 +169,21 @@
     function askRemember(originalName, substituteName) {
       if (
         global.confirm(
-          'Remember this? "' +
+          'Save "' +
             originalName +
             '" → "' +
             substituteName +
-            '" will be applied automatically in future sessions.'
+            '" as a quick pick? It won\'t apply on its own — you\'ll just be offered it when reviewing a recipe that uses "' +
+            originalName +
+            '".'
         )
       ) {
         api.settings.substitutions
-          .create({
-            original_name: originalName,
-            substitute_name: substituteName,
-            is_default: true,
-          })
+          .create({ original_name: originalName, substitute_name: substituteName })
           .catch(function (err) {
-            // a duplicate rule is fine — it already exists
+            // a duplicate saved swap is fine — it already exists
             if (err.code !== "DUPLICATE_SUBSTITUTION") {
-              global.alert("Couldn't save the rule: " + err.message);
+              global.alert("Couldn't save the swap: " + err.message);
             }
           });
       }

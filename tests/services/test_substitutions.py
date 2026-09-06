@@ -1,5 +1,6 @@
-"""Unit tests for app/services/substitutions.py — direct DB session, no HTTP.
-See CLAUDE.md > Ingredient Substitution.
+"""Unit tests for app/services/substitutions.py — the remembered-substitutions quick-pick
+library (Phase 3.9 M4). No `is_default`, no auto-apply — a row only ever pre-fills a
+per-recipe confirm UI.
 """
 
 from __future__ import annotations
@@ -10,8 +11,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.schemas.substitutions import (
-    IngredientSubstitutionCreate,
-    IngredientSubstitutionUpdate,
+    RememberedSubstitutionCreate,
+    RememberedSubstitutionUpdate,
 )
 from app.services import substitutions as subs
 
@@ -31,32 +32,25 @@ def db():
         session.close()
 
 
-def _c(original, substitute, is_default=False):
-    return IngredientSubstitutionCreate(
-        original_name=original, substitute_name=substitute, is_default=is_default
+def _c(original, substitute, note=None):
+    return RememberedSubstitutionCreate(
+        original_name=original, substitute_name=substitute, note=note
     )
 
 
-def test_first_substitute_is_forced_default_and_names_normalised(db):
-    row = subs.create_substitution(db, _c("  Bulgarian Feta ", "Regular  Feta", is_default=False))
+def test_create_normalises_names_and_sets_last_used(db):
+    row = subs.create_substitution(db, _c("  Bulgarian Feta ", "Regular  Feta", note="close enough"))
     assert row.original_name == "bulgarian feta"
     assert row.substitute_name == "regular feta"
-    assert row.is_default is True  # forced — first for this original
+    assert row.note == "close enough"
+    assert row.last_used_at is not None
 
 
-def test_second_substitute_non_default_unless_asked(db):
-    subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
-    second = subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
-    assert second.is_default is False
-
-
-def test_new_default_demotes_the_old_one(db):
-    first = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
-    second = subs.create_substitution(db, _c("bulgarian feta", "goat cheese", is_default=True))
-
-    db.refresh(first)
-    assert first.is_default is False
-    assert second.is_default is True
+def test_multiple_substitutes_per_original_all_allowed_no_default(db):
+    a = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
+    b = subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
+    assert a.id != b.id
+    assert not hasattr(a, "is_default")
 
 
 def test_duplicate_pair_raises(db):
@@ -70,23 +64,12 @@ def test_self_substitution_rejected(db):
         subs.create_substitution(db, _c("feta", "feta"))
 
 
-def test_update_can_reassign_default_via_flag(db):
-    first = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
-    second = subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
-
-    subs.update_substitution(db, second.id, IngredientSubstitutionUpdate(is_default=True))
-
-    db.refresh(first)
-    db.refresh(second)
-    assert (first.is_default, second.is_default) == (False, True)
-
-
-def test_update_can_clear_default_leaving_group_with_none(db):
-    row = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
-    subs.update_substitution(db, row.id, IngredientSubstitutionUpdate(is_default=False))
-    db.refresh(row)
-    assert row.is_default is False
-    assert subs.get_default_substitution_map(db) == {}
+def test_update_substitute_name_and_note(db):
+    row = subs.create_substitution(db, _c("bulgarian feta", "regular feta", note="a"))
+    updated = subs.update_substitution(
+        db, row.id, RememberedSubstitutionUpdate(substitute_name="goat cheese", note="  b  ")
+    )
+    assert updated.substitute_name == "goat cheese" and updated.note == "b"
 
 
 def test_update_substitute_name_collision_raises(db):
@@ -94,46 +77,40 @@ def test_update_substitute_name_collision_raises(db):
     other = subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
     with pytest.raises(subs.DuplicateSubstitutionError):
         subs.update_substitution(
-            db, other.id, IngredientSubstitutionUpdate(substitute_name="regular feta")
+            db, other.id, RememberedSubstitutionUpdate(substitute_name="regular feta")
         )
 
 
-def test_delete_default_does_not_auto_promote(db):
-    default = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
-    sibling = subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
-
-    subs.delete_substitution(db, default.id)
-
-    db.refresh(sibling)
-    assert sibling.is_default is False
-    assert subs.get_default_substitution_map(db) == {}
-
-
-def test_get_substitution_missing_raises(db):
+def test_delete(db):
+    row = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
+    subs.delete_substitution(db, row.id)
     with pytest.raises(subs.SubstitutionNotFoundError):
-        subs.get_substitution(db, 999)
+        subs.get_substitution(db, row.id)
 
 
-def test_list_ordered_original_then_default_first(db):
+def test_list_ordered_by_original_then_most_recent(db):
     subs.create_substitution(db, _c("apple", "pear"))
-    subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
-    subs.create_substitution(db, _c("bulgarian feta", "goat cheese", is_default=True))
+    older = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
+    newer = subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
+    subs.touch(db, original_name="bulgarian feta", substitute_name="regular feta")  # older -> most recent
 
     rows, total = subs.list_substitutions(db)
     assert total == 3
-    assert [(r.original_name, r.is_default) for r in rows] == [
-        ("apple", True),
-        ("bulgarian feta", True),  # goat cheese — the default — first in its group
-        ("bulgarian feta", False),
-    ]
+    assert [r.original_name for r in rows] == ["apple", "bulgarian feta", "bulgarian feta"]
+    assert rows[1].substitute_name == "regular feta"  # touched -> floats to top of its group
+    assert rows[2].substitute_name == "goat cheese"
+    _ = (older, newer)
 
 
-def test_get_default_substitution_map(db):
+def test_quick_picks_for(db):
     subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
+    subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
     subs.create_substitution(db, _c("banana shallot", "eschalot"))
-    subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))  # non-default
 
-    assert subs.get_default_substitution_map(db) == {
-        "bulgarian feta": "regular feta",
-        "banana shallot": "eschalot",
-    }
+    picks = subs.quick_picks_for(db, "  Bulgarian Feta ")
+    assert {p.substitute_name for p in picks} == {"regular feta", "goat cheese"}
+    assert subs.quick_picks_for(db, "nothing here") == []
+
+
+def test_touch_is_silent_noop_for_unknown_pair(db):
+    subs.touch(db, original_name="ghost", substitute_name="phantom")  # no row, no error

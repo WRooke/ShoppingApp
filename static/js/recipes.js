@@ -244,7 +244,18 @@
         parts.push(ing.quantity + (ing.unit ? " " + ing.unit : ""));
         parts.push(ing.name);
         if (ing.preparation) parts.push("(" + ing.preparation + ")");
-        list.appendChild(el("li", null, parts.join(" ")));
+        var li = el("li", null, parts.join(" "));
+        if (ing.resolved_ingredient) {
+          var swapLine = el(
+            "div",
+            "ingredient-resolved",
+            "→ using " +
+              ing.resolved_ingredient +
+              (ing.substitution_note ? " (" + ing.substitution_note + ")" : "")
+          );
+          li.appendChild(swapLine);
+        }
+        list.appendChild(li);
       });
       card.appendChild(list);
     }

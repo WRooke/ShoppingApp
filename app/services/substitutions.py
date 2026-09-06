@@ -1,13 +1,13 @@
-"""Ingredient substitution rules — persistence + the read helper consolidation uses
-(Phase 4, Chunk 4.5). Plain Python / SQLAlchemy only, no `fastapi` import — see
-CLAUDE.md > Code Architecture & Maintainability. Exceptions below are translated to
-the {"ok": false, ...} envelope centrally in app/main.py.
+"""Remembered substitutions — the quick-pick library (Phase 3.9 M4).
 
-Design: CLAUDE.md > Ingredient Substitution. Key invariant — at most one `is_default`
-row per `original_name` — is enforced here in the service (SQLite has no clean
-partial-unique-index via the ORM), the same "enforce in services/" pattern as the
-duplicate-name handling in services/settings.py. Setting a new default is a *reassign*
-(the old one is demoted), never a 409.
+Was a table of global auto-applying rules with an ``is_default``; that's gone (CLAUDE.md >
+AI Provider Migration > The substitution merge). A ``remembered_substitutions`` row NEVER
+applies a swap — it only pre-fills / top-ranks the suggestion in a per-recipe confirm UI
+(capture review, recipe editor). The actual swap a recipe uses lives on
+``recipe_ingredients.resolved_ingredient``.
+
+Plain Python / SQLAlchemy — no ``fastapi`` import. Exceptions translate to the envelope in
+app/main.py.
 """
 
 from __future__ import annotations
@@ -17,10 +17,11 @@ import logging
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.catalog import IngredientSubstitution
+from app.database import utcnow
+from app.models.catalog import RememberedSubstitution
 from app.schemas.substitutions import (
-    IngredientSubstitutionCreate,
-    IngredientSubstitutionUpdate,
+    RememberedSubstitutionCreate,
+    RememberedSubstitutionUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,43 +51,29 @@ class InvalidSubstitutionError(Exception):
 
 
 def _normalise(name: str) -> str:
-    """Lowercase + collapse internal whitespace — matches recipe_ingredients.name so a
-    rule lines up with consolidated ingredient names (CLAUDE.md > Ingredient Normalisation)."""
     return " ".join(name.strip().lower().split())
 
 
-def _siblings(db: Session, original_name: str, *, exclude_id: int | None = None):
-    q = db.query(IngredientSubstitution).filter(
-        IngredientSubstitution.original_name == original_name
-    )
-    if exclude_id is not None:
-        q = q.filter(IngredientSubstitution.id != exclude_id)
-    return q.all()
-
-
-def _clear_default(db: Session, original_name: str, *, exclude_id: int | None = None) -> None:
-    for row in _siblings(db, original_name, exclude_id=exclude_id):
-        if row.is_default:
-            row.is_default = False
+def _clean_note(note: str | None) -> str | None:
+    if note is None:
+        return None
+    trimmed = note.strip()
+    return trimmed or None
 
 
 def create_substitution(
-    db: Session, data: IngredientSubstitutionCreate
-) -> IngredientSubstitution:
+    db: Session, data: RememberedSubstitutionCreate
+) -> RememberedSubstitution:
     original = _normalise(data.original_name)
     substitute = _normalise(data.substitute_name)
     if original == substitute:
         raise InvalidSubstitutionError("An ingredient can't be substituted with itself.")
 
-    existing = _siblings(db, original)
-    # First substitute for this ingredient always becomes the default; otherwise honour the
-    # requested flag, demoting the current default if this one is taking that role.
-    make_default = True if not existing else data.is_default
-    if make_default:
-        _clear_default(db, original)
-
-    row = IngredientSubstitution(
-        original_name=original, substitute_name=substitute, is_default=make_default
+    row = RememberedSubstitution(
+        original_name=original,
+        substitute_name=substitute,
+        note=_clean_note(data.note),
+        last_used_at=utcnow(),
     )
     db.add(row)
     try:
@@ -95,18 +82,12 @@ def create_substitution(
         db.rollback()
         raise DuplicateSubstitutionError(original, substitute) from None
     db.refresh(row)
-    logger.info(
-        "Substitution added: id=%s %r -> %r (default=%s)",
-        row.id,
-        original,
-        substitute,
-        row.is_default,
-    )
+    logger.info("Remembered substitution added: id=%s %r -> %r", row.id, original, substitute)
     return row
 
 
-def get_substitution(db: Session, substitution_id: int) -> IngredientSubstitution:
-    row = db.get(IngredientSubstitution, substitution_id)
+def get_substitution(db: Session, substitution_id: int) -> RememberedSubstitution:
+    row = db.get(RememberedSubstitution, substitution_id)
     if row is None:
         raise SubstitutionNotFoundError(substitution_id)
     return row
@@ -114,16 +95,16 @@ def get_substitution(db: Session, substitution_id: int) -> IngredientSubstitutio
 
 def list_substitutions(
     db: Session, *, limit: int = 200, offset: int = 0
-) -> tuple[list[IngredientSubstitution], int]:
-    """(page, total). Grouped-ish order: by original name, default first within a group,
-    then substitute name — so the Settings UI can render groups without re-sorting."""
-    query = db.query(IngredientSubstitution)
+) -> tuple[list[RememberedSubstitution], int]:
+    """(page, total). Grouped-ish order: by original name, then most-recently-used, then
+    substitute — so the Settings UI renders groups and the quick-pick order for free."""
+    query = db.query(RememberedSubstitution)
     total = query.count()
     rows = (
         query.order_by(
-            IngredientSubstitution.original_name.asc(),
-            IngredientSubstitution.is_default.desc(),
-            IngredientSubstitution.substitute_name.asc(),
+            RememberedSubstitution.original_name.asc(),
+            RememberedSubstitution.last_used_at.desc().nullslast(),
+            RememberedSubstitution.substitute_name.asc(),
         )
         .offset(offset)
         .limit(limit)
@@ -132,9 +113,20 @@ def list_substitutions(
     return rows, total
 
 
+def quick_picks_for(db: Session, original_name: str) -> list[RememberedSubstitution]:
+    """Remembered substitutes for one ingredient name, most-recently-used first — the
+    quick-pick list shown in the per-recipe confirm UI."""
+    return (
+        db.query(RememberedSubstitution)
+        .filter(RememberedSubstitution.original_name == _normalise(original_name))
+        .order_by(RememberedSubstitution.last_used_at.desc().nullslast())
+        .all()
+    )
+
+
 def update_substitution(
-    db: Session, substitution_id: int, data: IngredientSubstitutionUpdate
-) -> IngredientSubstitution:
+    db: Session, substitution_id: int, data: RememberedSubstitutionUpdate
+) -> RememberedSubstitution:
     row = get_substitution(db, substitution_id)
     changes = data.model_dump(exclude_unset=True)
 
@@ -143,13 +135,8 @@ def update_substitution(
         if new_sub == row.original_name:
             raise InvalidSubstitutionError("An ingredient can't be substituted with itself.")
         row.substitute_name = new_sub
-
-    if changes.get("is_default") is True:
-        _clear_default(db, row.original_name, exclude_id=row.id)
-        row.is_default = True
-    elif changes.get("is_default") is False:
-        # Allowed to leave a group with no default — nothing auto-applies for it then.
-        row.is_default = False
+    if "note" in changes:
+        row.note = _clean_note(changes["note"])
 
     try:
         db.commit()
@@ -157,26 +144,31 @@ def update_substitution(
         db.rollback()
         raise DuplicateSubstitutionError(row.original_name, row.substitute_name) from None
     db.refresh(row)
-    logger.info("Substitution updated: id=%s fields=%s", substitution_id, list(changes.keys()))
+    logger.info("Remembered substitution updated: id=%s fields=%s", substitution_id, list(changes))
     return row
 
 
 def delete_substitution(db: Session, substitution_id: int) -> None:
-    """Deleting the default does NOT auto-promote a sibling — deleting a rule means
-    "stop auto-substituting"; remaining siblings stay as non-default quick-picks."""
+    """Removing a quick-pick never touches any recipe's resolved_ingredient or any past
+    session (reversibility is recipe-level)."""
     row = get_substitution(db, substitution_id)
     db.delete(row)
     db.commit()
-    logger.info("Substitution deleted: id=%s", substitution_id)
+    logger.info("Remembered substitution deleted: id=%s", substitution_id)
 
 
-def get_default_substitution_map(db: Session) -> dict[str, str]:
-    """{original_name: substitute_name} for every default rule. Consumed by
-    consolidation (Chunk 4.6) to resolve names before summing — see CLAUDE.md >
-    Ingredient Substitution > Application."""
-    return {
-        row.original_name: row.substitute_name
-        for row in db.query(IngredientSubstitution).filter(
-            IngredientSubstitution.is_default.is_(True)
+def touch(db: Session, *, original_name: str, substitute_name: str) -> None:
+    """Bump last_used_at on a matching remembered row (if any) so it floats to the top of
+    the quick-picks. Called when a swap is confirmed on a recipe. Silent no-op if the pair
+    isn't remembered."""
+    row = (
+        db.query(RememberedSubstitution)
+        .filter(
+            RememberedSubstitution.original_name == _normalise(original_name),
+            RememberedSubstitution.substitute_name == _normalise(substitute_name),
         )
-    }
+        .first()
+    )
+    if row is not None:
+        row.last_used_at = utcnow()
+        db.commit()

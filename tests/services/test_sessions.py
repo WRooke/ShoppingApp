@@ -20,7 +20,6 @@ from app.schemas.sessions import (
 )
 from app.services import recipes as recipes_service
 from app.services import sessions as sessions_service
-from app.services import substitutions as substitutions_service
 from app.services.scaling import DEFAULT_TARGET_SERVINGS
 
 
@@ -305,21 +304,42 @@ def test_consolidate_removes_lines_no_longer_needed(db):
     assert items == []
 
 
-def test_consolidate_session_override_beats_stored_default(db):
-    from app.schemas.substitutions import IngredientSubstitutionCreate
-
-    substitutions_service.create_substitution(
-        db, IngredientSubstitutionCreate(original_name="bulgarian feta", substitute_name="regular feta")
-    )
+def test_consolidate_session_uses_per_recipe_resolved_ingredient(db):
+    # M4: the recipe carries a confirmed swap on the ingredient itself
     s = sessions_service.create_session(db, PlanningSessionCreate())
-    r = _recipe_with(db, "Salad", [{"name": "bulgarian feta", "quantity": 100, "unit": "g"}])
+    r = _recipe_with(
+        db,
+        "Salad",
+        [{"name": "bulgarian feta", "quantity": 100, "unit": "g",
+          "resolved_ingredient": "regular feta"}],
+    )
     sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
 
-    # stored default would map -> "regular feta"; a session override says "goat cheese" this time
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["regular feta"]
+
+
+def test_consolidate_session_override_beats_resolved_ingredient(db):
+    # a session-only override keys off the DISPLAYED (already-resolved) name and wins for
+    # this run only — nothing is written back
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(
+        db,
+        "Salad",
+        [{"name": "bulgarian feta", "quantity": 100, "unit": "g",
+          "resolved_ingredient": "regular feta"}],
+    )
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
     items = sessions_service.consolidate_session(
-        db, s.id, overrides=[SessionOverride(original_name="bulgarian feta", substitute_name="goat cheese")]
+        db, s.id,
+        overrides=[SessionOverride(original_name="regular feta", substitute_name="goat cheese")],
     )
     assert [i.ingredient_name for i in items] == ["goat cheese"]
+
+    # the recipe's own data is untouched
+    reloaded = recipes_service.get_recipe(db, r.id)
+    assert reloaded.ingredients[0].resolved_ingredient == "regular feta"
 
 
 def test_consolidate_to_taste_item_note(db):

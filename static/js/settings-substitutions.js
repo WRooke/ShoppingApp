@@ -1,8 +1,8 @@
-/* Settings — "Ingredient substitutions" card (Phase 4, Chunk 4.5). Split from
-   settings.js per CLAUDE.md > Code Architecture & Maintainability > file size
-   discipline (own sub-feature, own file). Management only: rules are *created*
-   from the planning flow (Chunk 4.7); here they're viewed, re-defaulted, edited
-   and removed. See CLAUDE.md > Ingredient Substitution. */
+/* Settings — "Saved ingredient swaps" card (Phase 3.9 M4). Was a card of global
+   auto-applying rules with a default toggle; now it's a pure quick-pick library —
+   a saved swap NEVER applies itself, it only pre-fills the per-recipe confirm UI
+   (capture review, recipe editor). See CLAUDE.md > AI Provider Migration >
+   Ingredient Substitution Flagging. */
 
 (function (global) {
   "use strict";
@@ -32,35 +32,28 @@
   function renderSubRow(row, onChanged) {
     var wrap = el("div", "settings-row");
 
-    var defaultBox = el("input");
-    defaultBox.type = "checkbox";
-    defaultBox.checked = !!row.is_default;
-    defaultBox.title = "Auto-apply this substitute";
-
     var subInput = el("input");
     subInput.type = "text";
     subInput.value = row.substitute_name;
     subInput.className = "settings-name-input";
 
+    var noteInput = el("input");
+    noteInput.type = "text";
+    noteInput.value = row.note || "";
+    noteInput.placeholder = "note (why / how)";
+    noteInput.className = "settings-notes-input";
+
     var saveBtn = el("button", null, "Save");
     var deleteBtn = el("button", null, "Delete");
     var rowErr = el("span", "form-error");
 
-    defaultBox.addEventListener("change", function () {
-      rowErr.textContent = "";
-      api.settings.substitutions
-        .update(row.id, { is_default: defaultBox.checked })
-        .then(onChanged)
-        .catch(function (err) {
-          defaultBox.checked = !!row.is_default;
-          rowErr.textContent = err.message;
-        });
-    });
-
     saveBtn.addEventListener("click", function () {
       rowErr.textContent = "";
       api.settings.substitutions
-        .update(row.id, { substitute_name: subInput.value.trim() })
+        .update(row.id, {
+          substitute_name: subInput.value.trim(),
+          note: noteInput.value.trim() || null,
+        })
         .then(onChanged)
         .catch(function (err) {
           rowErr.textContent = err.message;
@@ -68,7 +61,7 @@
     });
 
     deleteBtn.addEventListener("click", function () {
-      if (!global.confirm('Remove "' + row.original_name + '" → "' + row.substitute_name + '"?')) {
+      if (!global.confirm('Forget the swap "' + row.original_name + '" → "' + row.substitute_name + '"?')) {
         return;
       }
       api.settings.substitutions
@@ -79,8 +72,8 @@
         });
     });
 
-    wrap.appendChild(el("span", "muted", "use"));
-    [defaultBox, subInput, saveBtn, deleteBtn, rowErr].forEach(function (n) {
+    wrap.appendChild(el("span", "muted", "→"));
+    [subInput, noteInput, saveBtn, deleteBtn, rowErr].forEach(function (n) {
       wrap.appendChild(n);
     });
     return wrap;
@@ -99,11 +92,12 @@
     subInput.placeholder = "buy this instead";
     subInput.className = "settings-name-input";
 
-    var defaultBox = el("input");
-    defaultBox.type = "checkbox";
-    defaultBox.title = "Auto-apply (first rule for an ingredient is always the default)";
+    var noteInput = el("input");
+    noteInput.type = "text";
+    noteInput.placeholder = "note (optional)";
+    noteInput.className = "settings-notes-input";
 
-    var addBtn = el("button", "primary", "Add");
+    var addBtn = el("button", "primary", "Save swap");
     var rowErr = el("span", "form-error");
 
     addBtn.addEventListener("click", function () {
@@ -118,12 +112,12 @@
         .create({
           original_name: original,
           substitute_name: substitute,
-          is_default: defaultBox.checked,
+          note: noteInput.value.trim() || null,
         })
         .then(function () {
           origInput.value = "";
           subInput.value = "";
-          defaultBox.checked = false;
+          noteInput.value = "";
           onAdded();
         })
         .catch(function (err) {
@@ -131,7 +125,7 @@
         });
     });
 
-    [origInput, el("span", "muted", "→"), subInput, defaultBox, addBtn, rowErr].forEach(function (n) {
+    [origInput, el("span", "muted", "→"), subInput, noteInput, addBtn, rowErr].forEach(function (n) {
       wrap.appendChild(n);
     });
     return wrap;
@@ -139,12 +133,12 @@
 
   function renderCard(root) {
     var card = el("div", "card");
-    card.appendChild(el("h2", null, "Ingredient substitutions"));
+    card.appendChild(el("h2", null, "Saved ingredient swaps"));
     card.appendChild(
       el(
         "div",
         "muted",
-        "Swap a hard-to-find ingredient for one you can actually buy. A ticked substitute is applied automatically when planning; untick to keep it as a quick pick only."
+        "Swaps you've saved for hard-to-find ingredients. These never apply on their own — they're offered as a quick pick when you review a recipe that uses that ingredient."
       )
     );
 
@@ -165,7 +159,7 @@
           var groups = groupByOriginal(data.items);
           if (groups.length === 0) {
             listBody.appendChild(
-              el("div", "muted", "No substitution rules yet — make one while planning a session.")
+              el("div", "muted", "No saved swaps yet — save one while reviewing a recipe.")
             );
           } else {
             groups.forEach(function (group) {
@@ -178,7 +172,7 @@
           addSlot.appendChild(renderAddRow(load));
         })
         .catch(function (err) {
-          listBody.textContent = "Couldn't load substitutions: " + err.message;
+          listBody.textContent = "Couldn't load saved swaps: " + err.message;
         });
     }
 

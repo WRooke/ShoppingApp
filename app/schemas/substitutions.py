@@ -1,11 +1,6 @@
-"""Pydantic models for ingredient substitution rules (Phase 4 — see CLAUDE.md >
-Ingredient Substitution and > Data Model > ingredient_substitutions).
-
-A rule says "treat `substitute_name` as interchangeable with `original_name` for
-shopping". One `original_name` can have several substitutes; at most one is the
-`is_default` (the one consolidation auto-applies silently). Kept separate from the
-ORM in app/models/catalog.py per CLAUDE.md > Code Architecture & Maintainability.
-"""
+"""Pydantic models for the remembered-substitutions quick-pick library (Phase 3.9 M4 — see
+CLAUDE.md > Data Model > remembered_substitutions). Was ``IngredientSubstitution*`` with an
+``is_default``; that concept is gone."""
 
 from __future__ import annotations
 
@@ -14,36 +9,34 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class IngredientSubstitutionBase(BaseModel):
+class RememberedSubstitutionBase(BaseModel):
     original_name: str = Field(..., min_length=1, description="Normalised lowercase on save")
     substitute_name: str = Field(..., min_length=1, description="Normalised lowercase on save")
-    is_default: bool = False
+    note: str | None = None
 
 
-class IngredientSubstitutionCreate(IngredientSubstitutionBase):
-    """The first substitute recorded for an `original_name` always becomes the default,
-    regardless of `is_default` here (see CLAUDE.md > Ingredient Substitution)."""
+class RememberedSubstitutionCreate(RememberedSubstitutionBase):
+    pass
 
 
-class IngredientSubstitutionUpdate(BaseModel):
-    """Partial update. Setting `is_default=true` demotes the current default for that
-    `original_name` (reassign, not a 409). `original_name` is not editable — delete and
-    recreate instead."""
+class RememberedSubstitutionUpdate(BaseModel):
+    """Partial update. `original_name` is not editable — delete and recreate."""
 
     substitute_name: str | None = Field(None, min_length=1)
-    is_default: bool | None = None
+    note: str | None = None
 
 
-class IngredientSubstitutionRead(IngredientSubstitutionBase):
+class RememberedSubstitutionRead(RememberedSubstitutionBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    last_used_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
 
-class IngredientSubstitutionListResponse(BaseModel):
-    items: list[IngredientSubstitutionRead]
+class RememberedSubstitutionListResponse(BaseModel):
+    items: list[RememberedSubstitutionRead]
     total: int
     limit: int
     offset: int

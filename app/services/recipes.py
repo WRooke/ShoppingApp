@@ -43,6 +43,15 @@ class IngredientNotFoundError(Exception):
         super().__init__(f"Ingredient {ingredient_id} not found on recipe {recipe_id}")
 
 
+def _norm_resolved(value: str | None) -> str | None:
+    """Normalise a resolved_ingredient the same way as an ingredient name (lowercase, trim);
+    blank -> None (clears the substitution). Phase 3.9 M4."""
+    if value is None:
+        return None
+    trimmed = " ".join(value.strip().lower().split())
+    return trimmed or None
+
+
 def _normalise_ingredient_name(name: str) -> str:
     """Lowercase + strip whitespace — see CLAUDE.md > Ingredient Normalisation.
     Automatic synonym matching ("green onion" vs "spring onion") is explicitly
@@ -300,6 +309,8 @@ def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = Fa
                 unit=ing.unit,
                 preparation=ing.preparation,
                 sort_order=ing.sort_order or i,
+                resolved_ingredient=_norm_resolved(ing.resolved_ingredient),
+                substitution_note=_clean_optional_text(ing.substitution_note),
             )
         )
     db.add(recipe)
@@ -335,8 +346,10 @@ def create_recipe_from_capture(
         protein=data.protein,
     )
     ingredient_sections: dict[str, str] = {}
+    confirmed_swaps: list[tuple[str, str]] = []
     for i, ing in enumerate(data.ingredients):
         normalised_name = _normalise_ingredient_name(ing.name)
+        resolved = _norm_resolved(ing.resolved_ingredient)
         recipe.ingredients.append(
             RecipeIngredient(
                 name=normalised_name,
@@ -344,10 +357,14 @@ def create_recipe_from_capture(
                 unit=ing.unit,
                 preparation=ing.preparation,
                 sort_order=i,
+                resolved_ingredient=resolved,
+                substitution_note=_clean_optional_text(ing.substitution_note),
             )
         )
         if ing.suggested_section:
             ingredient_sections[normalised_name] = ing.suggested_section
+        if resolved:
+            confirmed_swaps.append((normalised_name, resolved))
 
     db.add(recipe)
     db.commit()
@@ -361,6 +378,15 @@ def create_recipe_from_capture(
     )
 
     product_sections.tag_suggested_sections(db, ingredient_sections)
+
+    # Bump last_used_at on any remembered substitution the user re-confirmed here, so it
+    # floats to the top of the quick-picks next time (Phase 3.9 M4). Silent no-op for swaps
+    # that aren't in the library.
+    from app.services import substitutions as substitutions_service
+
+    for original, substitute in confirmed_swaps:
+        substitutions_service.touch(db, original_name=original, substitute_name=substitute)
+
     return recipe
 
 
@@ -441,6 +467,8 @@ def add_ingredient(db: Session, recipe_id: int, data: RecipeIngredientCreate) ->
         unit=data.unit,
         preparation=data.preparation,
         sort_order=data.sort_order,
+        resolved_ingredient=_norm_resolved(data.resolved_ingredient),
+        substitution_note=_clean_optional_text(data.substitution_note),
     )
     db.add(ingredient)
     db.commit()
@@ -468,6 +496,10 @@ def update_ingredient(
     changes = data.model_dump(exclude_unset=True)
     if "name" in changes and changes["name"] is not None:
         changes["name"] = _normalise_ingredient_name(changes["name"])
+    if "resolved_ingredient" in changes:  # may be an explicit null to clear the swap
+        changes["resolved_ingredient"] = _norm_resolved(changes["resolved_ingredient"])
+    if "substitution_note" in changes:
+        changes["substitution_note"] = _clean_optional_text(changes["substitution_note"])
     for field, value in changes.items():
         setattr(ingredient, field, value)
     db.commit()

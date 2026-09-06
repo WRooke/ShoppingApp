@@ -143,33 +143,16 @@ def _normalise_name(name: str) -> str:
     return " ".join(name.strip().lower().split())
 
 
-def _resolve_through(name: str, sub: dict[str, str]) -> str:
-    """Follow a substitution chain (default rule -> session override on that result -> ...),
-    with a cycle guard. Lets an override key off the *displayed* (already-substituted) name,
-    which is what the Chunk 4.7 review UI does."""
-    seen = {name}
-    for _ in range(8):
-        nxt = sub.get(name)
-        if nxt is None or nxt in seen:
-            return name
-        name = nxt
-        seen.add(name)
-    return name
+def consolidate(lines: list[IngredientLine]) -> list[ConsolidatedItem]:
+    """Group by ingredient name and apply the rounding/unit rules. Result sorted by name.
 
-
-def consolidate(
-    lines: list[IngredientLine], substitution_map: dict[str, str] | None = None
-) -> list[ConsolidatedItem]:
-    """Resolve substitutions, group by resolved name, apply the rounding/unit rules.
-    Result is sorted by name. `substitution_map` is {original_name: substitute_name}
-    (stored defaults + any session-only overrides, merged by the caller). Chains are
-    followed (see `_resolve_through`)."""
-    sub = {(_normalise_name(k)): _normalise_name(v) for k, v in (substitution_map or {}).items()}
-
+    **Pure — no substitution logic** (Phase 3.9 M4). Each ``IngredientLine.name`` is already
+    the *effective* name: the caller (``sessions.consolidate_session``) resolves
+    ``recipe_ingredients.resolved_ingredient`` and any session-only override before building
+    the lines. See CLAUDE.md > Scaling Logic > Consolidation across recipes."""
     grouped: dict[str, list[IngredientLine]] = {}
     for ln in lines:
-        resolved = _resolve_through(_normalise_name(ln.name), sub)
-        grouped.setdefault(resolved, []).append(ln)
+        grouped.setdefault(_normalise_name(ln.name), []).append(ln)
 
     return sorted(
         (_resolve_group(name, group) for name, group in grouped.items()),

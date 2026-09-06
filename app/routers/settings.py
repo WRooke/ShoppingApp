@@ -27,9 +27,9 @@ from app.schemas.settings import (
     StapleUpdate,
 )
 from app.schemas.substitutions import (
-    IngredientSubstitutionCreate,
-    IngredientSubstitutionRead,
-    IngredientSubstitutionUpdate,
+    RememberedSubstitutionCreate,
+    RememberedSubstitutionRead,
+    RememberedSubstitutionUpdate,
 )
 from app.services import settings as settings_service
 from app.services import substitutions as substitutions_service
@@ -134,20 +134,20 @@ def delete_product_unit(product_unit_id: int, db: Session = Depends(get_db)) -> 
     return {"ok": True, "data": {"id": product_unit_id, "deleted": True}}
 
 
-# --- ingredient substitutions (Phase 4 — see CLAUDE.md > Ingredient Substitution) --------
+# --- remembered substitutions: the quick-pick library (Phase 3.9 M4) -------------------
 #
-# Management only. Rules are *created* reactively from the Phase 4 planning flow (Chunk 4.7);
-# this section is where they're viewed, re-defaulted, edited and removed — there is no
-# proactive "tag this ingredient" screen. Exceptions translate centrally in app/main.py.
+# A row is *created* when the user ticks "save this swap" at capture review, in the recipe
+# editor, or after a planning swap. This section views / edits the note / deletes them. It
+# never applies a swap and has no "default". Exceptions translate centrally in app/main.py.
 
 
 def _sub_read(row) -> dict:
-    return IngredientSubstitutionRead.model_validate(row).model_dump(mode="json")
+    return RememberedSubstitutionRead.model_validate(row).model_dump(mode="json")
 
 
 @router.post("/substitutions", status_code=201)
 def create_substitution(
-    data: IngredientSubstitutionCreate, db: Session = Depends(get_db)
+    data: RememberedSubstitutionCreate, db: Session = Depends(get_db)
 ) -> dict:
     return {"ok": True, "data": _sub_read(substitutions_service.create_substitution(db, data))}
 
@@ -173,7 +173,7 @@ def list_substitutions(
 @router.patch("/substitutions/{substitution_id}")
 def update_substitution(
     substitution_id: int,
-    data: IngredientSubstitutionUpdate,
+    data: RememberedSubstitutionUpdate,
     db: Session = Depends(get_db),
 ) -> dict:
     row = substitutions_service.update_substitution(db, substitution_id, data)

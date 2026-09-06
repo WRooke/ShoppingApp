@@ -204,6 +204,19 @@
     prepInput.placeholder = "preparation";
     prepInput.className = "ingredient-prep-input";
 
+    // Substitution (Phase 3.9 M4) — the swap this recipe uses. Blank clears it.
+    var resolvedInput = el("input");
+    resolvedInput.type = "text";
+    resolvedInput.value = ing.resolved_ingredient || "";
+    resolvedInput.placeholder = "use instead (optional)";
+    resolvedInput.className = "settings-name-input";
+
+    var subNoteInput = el("input");
+    subNoteInput.type = "text";
+    subNoteInput.value = ing.substitution_note || "";
+    subNoteInput.placeholder = "swap note";
+    subNoteInput.className = "settings-notes-input";
+
     var saveBtn = el("button", null, "Save");
     var deleteBtn = el("button", null, "Delete");
     var rowErr = el("span", "form-error");
@@ -216,6 +229,8 @@
           quantity: parseFloat(qtyInput.value),
           unit: unitInput.value.trim() || null,
           preparation: prepInput.value.trim() || null,
+          resolved_ingredient: resolvedInput.value.trim() || null,
+          substitution_note: subNoteInput.value.trim() || null,
         })
         .then(function () {
           reload();
@@ -237,9 +252,11 @@
         });
     });
 
-    [nameInput, qtyInput, unitInput, prepInput, saveBtn, deleteBtn, rowErr].forEach(function (n) {
-      row.appendChild(n);
-    });
+    [nameInput, qtyInput, unitInput, prepInput, resolvedInput, subNoteInput, saveBtn, deleteBtn, rowErr].forEach(
+      function (n) {
+        row.appendChild(n);
+      }
+    );
     return row;
   }
 
