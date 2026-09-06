@@ -44,13 +44,14 @@ document, any convenience, any feature request, and any deadline.** Full detail 
 [Security](#security) (§0a, §0b, §0c below); this banner exists so none of them can be missed
 by skimming straight to a phase's chunk list.
 
-> **Provider note (2026-09-06):** the AI extraction provider is migrating Anthropic Claude →
-> Google Gemini (see
-> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini)). Rules 1
-> (prompt-injection hardening) and 2 (explicit enable switch, fake mode, ask-before-real-call,
-> no agent flips the switch) are **provider-agnostic and unchanged**. §0b's *dollar-spend*
-> observability becomes *quota* observability (Gemini free tier, no per-call cost). The
-> `CLAUDE_API_ENABLED` / `CLAUDE_API_FAKE_MODE` names will become provider-neutral.
+> **Provider note (2026-09-06):** the AI extraction provider is Anthropic Claude → Google
+> Gemini as of Phase 3.9 (see
+> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39)).
+> Rules 1 (prompt-injection hardening) and 2 (explicit enable switch, fake mode,
+> ask-before-real-call, no agent flips the switch) are **provider-agnostic and carry over
+> verbatim** — the switches are just renamed `AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`
+> and the key becomes `GEMINI_API_KEY`. §0b's *dollar-spend* observability becomes *quota*
+> observability (Gemini free tier has no per-call cost).
 
 1. **Prompt injection hardening.** Any content this app sends to an LLM that originated
    from outside the household's own direct input — a scraped webpage, a photographed
@@ -124,7 +125,7 @@ consolidated shopping list to AnyList, a shared grocery list app they both use.
 | Backend | Python 3.11+, FastAPI | FastAPI is async, modern, serves static files, has auto-docs |
 | Database | SQLite via SQLAlchemy (ORM) | Zero config, single file, sufficient for household scale |
 | Frontend | Vanilla HTML5 / CSS3 / JS | No build step, no framework complexity, easy to debug, runs in any browser |
-| AI (recipe extraction) | ~~Anthropic Claude API — Haiku 4.5~~ **⚠️ SUPERSEDED → Google Gemini API (`gemini-2.5-flash`, fallback `gemini-2.5-flash-lite`, then queue)** — see [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini) | Was: one API for vision + text, cheapest model. Now: Anthropic account can't add credit; Gemini free tier. Code still on Anthropic until the migration is built. |
+| AI (recipe extraction) | Google Gemini API — `gemini-2.5-flash` (primary), `gemini-2.5-flash-lite` (fallback), then a retry queue. `google-genai` SDK, structured-output mode. Three separate calls per capture (extraction / substitution flagging / section suggestion). See [AI Provider Migration (Phase 3.9)](#ai-provider-migration--anthropic-claude--google-gemini--phase-39). | Anthropic account can't add billing credit; Gemini's free tier replaces it. *(Code is on the `anthropic` SDK / Haiku 4.5 until Phase 3.9 chunk M1 lands.)* |
 | URL scraping | httpx + BeautifulSoup4 | Fetch recipe page content for Claude to parse |
 | AnyList | See Phase 5 note | Unofficial reverse-engineered API — implementation approach TBD at Phase 5 |
 | Deployment | Python venv, batch scripts, Windows Task Scheduler | No Docker; simple start/stop scripts |
@@ -250,15 +251,17 @@ A `/diagnostics` page in the web app (accessible from the main nav) must show:
 - **Live log tail**: last 200 log entries, auto-refreshing every 5 seconds, filterable by level
 - **Component status panel**: green/amber/red indicators for:
   - Database connection
-  - AI extraction service (last successful call timestamp) — ⚠️ was "Claude API + estimated
-    spend"; under the [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini)
-    this becomes Gemini, and "spend" becomes a **daily quota usage indicator** + a **recent
-    capture attempt log** (which model handled each task, or queued). Not built yet.
+  - AI extraction service (Gemini) — last successful call timestamp, and which model handled
+    it (`flash` / `flash-lite`) or whether the last capture is queued
   - AnyList connection (last successful auth timestamp)
-- **⚠️ SUPERSEDED — API spend tracker**: was a running USD-cost total of Claude tokens with a
-  reset button. The Gemini free tier has no dollar cost, so this is replaced by the quota
-  indicator + attempt log above — see the [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).
-  Still Claude-based in code until the migration is built.
+- **Daily quota usage indicator**: observed Gemini request count today per model (from
+  `ai_call_log`), plus a link to the Google AI Studio dashboard. Best-effort — exact free-tier
+  caps are not reliably documented, so this is an observed count, not "X of Y". *(Replaced the
+  old USD "API spend tracker" + reset button at Phase 3.9 — the Gemini free tier has no
+  per-call dollar cost. See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39).)*
+- **Recent capture attempt log**: last N `ai_call_log` rows — task type, model tried, outcome
+  (`success` / `quota` / `error` / `queued`), error detail. Queued captures are also surfaced
+  here.
 - **Recent errors**: last 10 ERROR-level entries highlighted prominently at the top
 
 The diagnostics page must be built as a skeleton in Phase 1 and populated progressively as
@@ -431,6 +434,11 @@ protein         TEXT            -- nullable, freetext or small controlled list
 -- Soft-delete (Addendum #5). Build now (Phase 1 schema).
 archived_at     DATETIME        -- nullable; set instead of hard DELETE. Default library views
                                  -- filter WHERE archived_at IS NULL (Phase 2 logic).
+
+-- AI capture status (Phase 3.9 M6). JSON array of still-outstanding AI sub-tasks for this
+-- recipe, e.g. ["flag_substitutions","suggest_sections"]. NULL or "[]" => nothing pending
+-- (manual recipes, or a capture fully processed). Drives the "Pending AI processing" badge.
+ai_tasks_pending TEXT           -- nullable
 ```
 > **Resolved at kickoff:** the addendum proposed a second freetext `note` field
 > ("used half the chilli next time") alongside the above. Confirmed this is the same purpose
@@ -440,18 +448,22 @@ archived_at     DATETIME        -- nullable; set instead of hard DELETE. Default
 ```
 id              INTEGER PRIMARY KEY
 recipe_id       INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE
-name            TEXT NOT NULL       -- normalised lowercase, e.g. "beef mince"
+name            TEXT NOT NULL       -- normalised lowercase, e.g. "beef mince". This is the
+                                     -- ORIGINAL ingredient (merge decision #2 — no separate
+                                     -- original_ingredient column).
 quantity        REAL NOT NULL
 unit            TEXT               -- nullable for unitless items (e.g. "eggs", "onions")
 preparation     TEXT               -- nullable, e.g. "finely diced", "at room temperature"
 sort_order      INTEGER NOT NULL DEFAULT 0
+-- Substitution (Phase 3.9 M4 — see AI Provider Migration > Ingredient Substitution Flagging).
+-- The swap THIS recipe actually uses, set only by explicit per-recipe user confirmation
+-- (capture review or recipe editor). NULL = no substitution, use `name`. Clearing it reverts
+-- to the original. Consolidation reads resolved_ingredient (fallback `name`) as plain data.
+resolved_ingredient TEXT           -- nullable
+substitution_note   TEXT           -- nullable, freetext — why the swap works
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
-> **⚠️ Pending — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini):**
-> capture-time substitution flagging adds `original_ingredient`, `resolved_ingredient` (null
-> until the user confirms the swap on that recipe), `substitution_note` (freetext) here — the
-> replacement for the now-removed global `ingredient_substitutions` table. Not built yet.
 
 ### `product_units`
 ```
@@ -490,34 +502,32 @@ created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
-### `ingredient_substitutions`
+### `remembered_substitutions`
 
-> **⚠️ SUPERSEDED — to be REMOVED. See
-> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).** This
-> table of global, name-scoped, auto-applying, cross-session substitution rules was built in
-> Phase 4 (Chunks 4.1/4.5) and is explicitly out of scope under the 2026-09-06 addendum:
-> substitution is now **capture-time, per-recipe, per-ingredient, confirmation-required**,
-> with no global rules and nothing in the consolidation path. The replacement is three
-> columns on [`recipe_ingredients`](#recipe_ingredients). The migration to drop this table
-> (and delete `services/substitutions.py`, `schemas/substitutions.py`,
-> `static/js/settings-substitutions.js`, the Settings substitution endpoints, and the
-> `consolidation.py` / `consolidate_session()` resolution step) is part of that addendum's
-> build. **Still present in code until then.** Original schema kept below for reference:
+**Phase 3.9 M4** — the Phase 4 `ingredient_substitutions` table, reshaped: **`is_default`
+dropped** (no silent auto-apply anywhere), `note` and `last_used_at` added. It is now a
+**pure quick-pick library** — it never applies a swap; it only pre-fills / top-ranks the
+suggestion in a per-recipe confirm UI (see
+[AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec)).
+A row is created only when the user ticks "save this swap" at capture-review, in the recipe
+editor, or (optionally) after a planning-session swap.
 
 ```
 id              INTEGER PRIMARY KEY
 original_name   TEXT NOT NULL       -- normalised lowercase, matches recipe_ingredients.name
-substitute_name TEXT NOT NULL       -- normalised lowercase
-is_default      BOOLEAN NOT NULL DEFAULT 0  -- the substitute that auto-applies silently; at
-                                             -- most one TRUE per original_name — enforced in
-                                             -- services/, not a DB constraint (SQLite has no
-                                             -- clean partial-unique-index story via the ORM
-                                             -- here), same pattern as the duplicate-name 409s
-                                             -- already used in services/settings.py
+substitute_name TEXT NOT NULL       -- normalised lowercase (a single freetext string; 1:many
+                                     -- like "milk + lemon juice" is stored verbatim — see
+                                     -- Deferred Decisions)
+note            TEXT               -- nullable, freetext — pre-fills recipe_ingredients.substitution_note
+last_used_at    DATETIME           -- nullable, for quick-pick ordering (most-recent first)
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 UNIQUE(original_name, substitute_name)
 ```
+Multiple substitutes per `original_name` are allowed; **none is a "default"** — they are all
+just quick-picks, ordered by `last_used_at`. Never pre-seeded. Deleting a row never touches
+any recipe's `resolved_ingredient` or any past session (reversibility is recipe-level).
+Managed in Settings (`settings-substitutions.js`, reframed at M4).
 
 ### `planning_sessions`
 ```
@@ -579,38 +589,49 @@ items_json      TEXT NOT NULL       -- JSON snapshot of what was pushed
 anylist_response_json TEXT          -- nullable, raw AnyList response for diagnostics
 ```
 
-### `api_usage`
+### `ai_call_log`
 
-> **⚠️ Pending rework — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).**
-> Gemini's free tier has no dollar cost, so `cost_usd_cents` and `calculate_cost_usd_cents()`
-> lose their purpose and the diagnostics USD "spend tracker" is replaced by a daily quota
-> indicator + a recent-capture-attempt log. Open decision (Migration Notes item 3): repurpose
-> this table (drop `cost_usd_cents`, add per-task status / model-used / queued fields) or
-> replace it (and `api_usage_resets`) with a new table. Unchanged in code until then.
+**Phase 3.9 M5** — replaces `api_usage` + `api_usage_resets` (both dropped in the same
+migration; there is no real data — Chunk 3.6 never made a live call). Gemini's free tier has
+no per-call dollar cost, so there is no cost column and no "reset spend tracker". One
+append-only row per **attempted** Gemini call:
 
 ```
 id              INTEGER PRIMARY KEY
 timestamp       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-model           TEXT NOT NULL
-input_tokens    INTEGER NOT NULL
-output_tokens   INTEGER NOT NULL
-cost_usd_cents  REAL NOT NULL       -- calculated at call time
-call_type       TEXT NOT NULL       -- 'recipe_url', 'recipe_photo', 'ingredient_normalise'
-context_id      TEXT               -- nullable, e.g. recipe id for traceability
+task            TEXT NOT NULL       -- 'extract' | 'flag_substitutions' | 'suggest_sections'
+model           TEXT NOT NULL       -- 'gemini-2.5-flash' | 'gemini-2.5-flash-lite'
+outcome         TEXT NOT NULL       -- 'success' | 'quota' | 'error'  ('quota' = 429; a task
+                                     -- that then went to the queue also gets a 'queued' row —
+                                     -- see capture_queue)
+input_tokens    INTEGER            -- nullable (unknown on a pre-response failure)
+output_tokens   INTEGER            -- nullable
+error_detail    TEXT               -- nullable
+context_id      TEXT               -- nullable, e.g. recipe id / capture_queue id for traceability
 ```
-Genuinely append-only — see the audit-columns note above. Never deleted or edited by the
-diagnostics reset button (below); that button only ever inserts into `api_usage_resets`.
+The diagnostics quota indicator counts rows per `model` since local midnight; the attempt
+log shows the most recent N. Append-only — never edited or deleted.
 
-### `api_usage_resets`
+### `capture_queue`
+
+**Phase 3.9 M3** — a capture task deferred because both `gemini-2.5-flash` and
+`gemini-2.5-flash-lite` returned `429`. Retried ~hourly by a lifespan background poller (not
+on an assumed fixed reset). On success the task runs through the normal capture pipeline and
+its row is deleted.
+
 ```
 id              INTEGER PRIMARY KEY
-reset_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+task            TEXT NOT NULL       -- 'extract_url' | 'extract_photo' | 'flag_substitutions' | 'suggest_sections'
+payload_json    TEXT NOT NULL       -- JSON: {url|text} or {image_path}; plus {recipe_id} for the
+                                     -- post-extraction enrichment tasks (flag/suggest)
+recipe_id       INTEGER            -- nullable REFERENCES recipes(id) ON DELETE CASCADE — set for
+                                     -- enrichment tasks (the recipe already exists); NULL for a
+                                     -- still-pending extraction
+queued_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+attempt_count   INTEGER NOT NULL DEFAULT 0
+last_attempt_at DATETIME           -- nullable
+last_error      TEXT               -- nullable
 ```
-Built at Phase 3 Chunk 3.5 (see [Security §0b](#0b-api-usage-observability-no-hard-cap)).
-Backs the diagnostics "reset spend tracker" button: inserting a row here is the entire effect
-of a reset. The diagnostics running-total display sums `api_usage` rows with
-`timestamp > (most recent api_usage_resets.reset_at, or the beginning of time if none)` —
-`api_usage` itself is never touched. Also append-only, same reasoning as `api_usage`.
 
 ### `stores`, `store_sections`, `product_sections`
 
@@ -719,18 +740,16 @@ and not in `NO_SCALE_UNITS` is treated as **discrete** — scaled, then ceil-to-
 [Deferred Decisions](#deferred-decisions)) — it's the pragmatic default, not a confident one.
 
 ### Consolidation across recipes
-> **⚠️ Change pending — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).**
-> Phase 4 built consolidation to resolve global `ingredient_substitutions` rules *before*
-> summing (both `consolidation.consolidate()` and `consolidate_session()` do this today). The
-> 2026-09-06 addendum removes substitution from the planning/consolidation path entirely —
-> consolidation will consume already-resolved `recipe_ingredients.resolved_ingredient` only.
-> The paragraph below describes current (to-be-removed) behaviour.
-
-Ingredient names are resolved through any applicable
-[substitution rule](#ingredient-substitution) *before* consolidation runs — so an ingredient
-substituted to match another recipe's ingredient consolidates into a single line, not two.
-The per-ingredient sum → normalise → round → flag pipeline is the "Rounding & unit rules"
-list above. A consolidated line always carries the **required quantity** (the rounded sum);
+Each ingredient's effective name is its `recipe_ingredients.resolved_ingredient` if set,
+else its `name` — so a recipe whose "bulgarian feta" the user resolved to "regular feta"
+consolidates onto the same line as another recipe's "regular feta". **The pure
+`consolidation.consolidate()` does no substitution *resolution*** (Phase 3.9 M4 — see
+[AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39)):
+it is handed already-resolved names as plain data. A **session-only** planning swap (the
+Chunk 4.7 ad-hoc swap) is applied one layer up, in the `consolidate_session()` orchestrator,
+which computes each ingredient's effective name (resolved_ingredient → session override)
+before feeding `consolidate()`. The per-ingredient sum → normalise → round → flag pipeline
+is the "Rounding & unit rules" list above. A consolidated line always carries the **required quantity** (the rounded sum);
 purchase-unit resolution below may *add* a pack breakdown next to it but never replaces it —
 so a no-pack-size ingredient still shows an amount (`passata — 1.05 kg`), and a pack-size
 ingredient shows both (`passata — 2 × 750 g jars · need ~1.05 kg`).
@@ -795,17 +814,29 @@ discards checklist progress.
 
 ## Recipe Capture — AI Extraction
 
-> **⚠️ SUPERSEDED provider — see
-> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).** Under
-> that 2026-06 addendum this moves to Google Gemini (`gemini-2.5-flash` →
-> `gemini-2.5-flash-lite` → queue), splits into **three separate calls per capture**
-> (extraction / substitution flagging / section suggestion) instead of the one combined call
-> below, adds a `capture_queue` retry table and a "Pending AI processing" badge, and uses
-> Gemini structured-output mode. The extraction *prompt* and JSON *shape* below are otherwise
-> preserved. **Code is still on Claude Haiku / the `anthropic` SDK until the migration is
-> built.** The rest of this section describes current behaviour.
+**Provider: Google Gemini** (`gemini-2.5-flash` → `gemini-2.5-flash-lite` → `capture_queue`),
+`google-genai` SDK, structured-output mode. See
+[AI Provider Migration (Phase 3.9)](#ai-provider-migration--anthropic-claude--google-gemini--phase-39)
+for the full spec — the provider swap, the Flash→Flash-Lite→queue chain, the "Pending AI
+processing" badge, and the substitution merge. *(Code is on the `anthropic` SDK / Haiku 4.5
+until Phase 3.9 chunk M1.)*
 
-Use Claude Haiku 4.5 via the official Anthropic Python SDK (`anthropic`).
+**Three separate Gemini calls per capture**, not one combined call (Phase 3.9 M2):
+1. **Recipe extraction** — ingredients + `cuisine` / `protein` (the JSON below, minus
+   `suggested_section`).
+2. **Ingredient substitution flagging** — per recipe, per-ingredient confirm/decline (the
+   merged spec — see the migration section).
+3. **Store section suggestion** — per ingredient (`suggested_section`), moved out of the
+   extraction prompt into its own call.
+
+Each call: its own system prompt, its own Gemini `response_schema` (structured-output), its
+own fake-mode fixture, its own place in the Flash→Flash-Lite→queue chain. A failed/queued
+enrichment call (2 or 3) does not block extraction — the recipe is still usable, and
+`recipes.ai_tasks_pending` + the badge track what's outstanding.
+
+The rest of this section — the extraction prompt, the §0a hardening, the review flow — is
+otherwise preserved across the provider swap. Where it still says "Claude", read "the AI
+extraction service".
 
 ### URL capture flow
 1. User pastes URL
@@ -915,34 +946,54 @@ Ingredient names must be consistent across recipes for consolidation to work. Ru
 
 ## Ingredient Substitution
 
-> **⚠️ SUPERSEDED 2026-09-06 by the
-> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini) addendum
-> — the design in this section is being TORN OUT.** The addendum's substitution-flagging spec
-> replaces it: **capture-time, per-recipe, per-ingredient, confirmation-required**, stored as
-> `original_ingredient` / `resolved_ingredient` / `substitution_note` on
-> [`recipe_ingredients`](#recipe_ingredients) — **no** global rules, **no** silent auto-apply,
-> **no** cross-session memory, **nothing** in meal planning / consolidation. To be removed:
-> the `ingredient_substitutions` table, `services/substitutions.py`,
-> `schemas/substitutions.py`, `static/js/settings-substitutions.js`, the Settings
-> substitution endpoints, `get_default_substitution_map()`, and the substitution-resolution
-> step in `consolidation.consolidate()` / `consolidate_session()` — all built in Phase 4
-> Chunks 4.1 / 4.5 / 4.6 / 4.7 and all still present in code. The section below is the
-> now-defunct Phase 4 design, kept for history until the migration is built.
-
-**Status: ~~in scope, Phase 4~~ SUPERSEDED — see banner above.** Resolved 2026-09-06,
-superseding the 2026-09-05 "substitution
-flagging" resolution (see [Deferred Decisions](#deferred-decisions) and the Decision Dialogue
-below) — that resolution was correct on its own narrow question (no such feature existed, and
-Phase 3's Chunk 3.4 correctly shipped without one), but a follow-up conversation surfaced that a
-related, genuinely-wanted feature had gotten lost along the way. This section is that feature,
-designed properly.
+**Status: in scope. Design = the MERGE of the Phase 4 approach and the addendum's
+capture-time flagging, confirmed 2026-09-06. Built in Phase 3.9 chunk M4.** The full,
+authoritative spec is
+[AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec)
+and the merge table just above it. This section is now a summary + the history.
 
 Distinct from [Ingredient Normalisation](#ingredient-normalisation) above: normalisation
-recognises two names as *the same thing* ("green onion" = "spring onion") so consolidation sums
-them correctly. Substitution deliberately treats two *different* products as interchangeable for
-shopping purposes, because one is obscure or hard to find and the other isn't — e.g. a recipe
-calling for "bulgarian feta", which is close enough to regular feta that there's no reason to
-hunt down the specific product.
+recognises two names as *the same thing* ("green onion" = "spring onion"). Substitution
+treats two *different* products as interchangeable for shopping, because one is obscure or
+hard to find — e.g. "bulgarian feta" → "regular feta".
+
+### Summary of the merged design
+
+- **Proposed** by a dedicated Gemini call at capture time (per recipe), *and* editable later
+  in the recipe editor, *and* swappable session-only during planning.
+- **Stored** on the ingredient record: `recipe_ingredients.resolved_ingredient` (nullable —
+  the swap this recipe uses) + `substitution_note`. `name` stays the original. Clearing
+  `resolved_ingredient` reverts.
+- **Confirmed per recipe, always.** No silent auto-apply, no `is_default`.
+- **Remembered** in [`remembered_substitutions`](#remembered_substitutions) *only* as a
+  quick-pick accelerator — it pre-fills / top-ranks the suggestion in the per-recipe confirm
+  UI under a "from your saved swaps" label; the user still confirms. The AI flagging call is
+  never told about past choices.
+- **Consolidation** reads `resolved_ingredient` (fallback `name`) as plain data — no
+  substitution logic in the pure `consolidate()`. A session-only planning swap resolves in
+  the `consolidate_session()` orchestrator.
+- **1:many** ("buttermilk" → "milk + lemon juice") is a single freetext string for now — see
+  [Deferred Decisions](#deferred-decisions).
+
+### History (superseded designs, kept for the record)
+
+- **2026-09-05** — "substitution flagging" asked about; resolved "doesn't exist, not built"
+  (correct for that narrow question). See the Decision Dialogue.
+- **2026-09-06 (a)** — reopened as a **Phase 4** feature: a global `ingredient_substitutions`
+  table of name-scoped rules, one `is_default` per name **auto-applying silently at
+  consolidation**, cross-session memory, a Settings management screen, created reactively
+  from a planning-session "Remember this?" prompt. **Built** in Chunks 4.1 / 4.5 / 4.6 / 4.7.
+- **2026-09-06 (b)** — the AI Provider Migration addendum's capture-time flagging idea +
+  the Phase 4 approach were **merged** (this section). M4 keeps the library table (as
+  `remembered_substitutions`, minus `is_default`), the multi-substitute quick-picks, Settings
+  management, and the planning-swap plumbing; removes silent auto-apply and the
+  `consolidate()` resolution step; adds the capture-time AI call and the
+  `recipe_ingredients` columns.
+
+> The detailed 2026-09-06 (a) design text (scope decisions, "where this lives", the open
+> item about bulk rename) previously filled this section. It has been removed as defunct;
+> `git log` on this file has it if ever needed. The Phase 4 chunk-list entries for 4.5–4.7
+> still describe what was built and what M4 changes.
 
 ### Two situations, not one
 - **Genuinely one-off** — "I'm out of basil this week, using oregano instead." Applies to this
@@ -1826,6 +1877,49 @@ already used from the start.
 **Deliverable:** User can capture a recipe from URL or photo, review the extracted
 ingredients, edit if needed, and save to the library.
 
+### Phase 3.9 — AI Provider Migration (Anthropic Claude → Google Gemini) + substitution merge
+
+**Added 2026-09-06.** Full spec, rationale and all resolved decisions:
+[AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39).
+Runs on top of the completed Phase 4 chunks 4.1–4.4 / 4.6; **M4 removes** the substitution
+parts of Chunks 4.5 / 4.6 / 4.7 and replaces them with the merged design. The Phase 4 review
+is folded into this phase's M-review.
+
+- [ ] **M0 — Decisions + CLAUDE.md fold-in.** Done 2026-09-06 (this edit). No code.
+- [ ] **M1 — Config + `google-genai` SDK + fake-mode skeleton.** `anthropic` out /
+      `google-genai` pinned in; `ANTHROPIC_API_KEY`→`GEMINI_API_KEY`,
+      `CLAUDE_API_*`→`AI_EXTRACTION_*`; `services/claude_client.py`→`services/ai_extraction.py`
+      with the Gemini client, Pydantic `response_schema` models, ported fake fixtures, §0c
+      gates verbatim. Extraction call only, still one-call-shaped. All tests mocked / fake.
+- [ ] **M2 — Split into 3 per-task calls.** `extract_recipe()` / `flag_substitutions()` /
+      `suggest_sections()` — section suggestion leaves the extraction prompt. Each own prompt +
+      schema + fixture. `capture_url` / `capture_photo` orchestrate.
+- [ ] **M3 — Fallback chain + `capture_queue`.** Flash → Flash-Lite → queue on `429`;
+      non-quota errors fail normally. `capture_queue` table + migration. Hourly retry poller
+      (lifespan background task).
+- [ ] **M4 — Substitution redesign (the merge).** Migrations: `recipe_ingredients` +=
+      `resolved_ingredient` / `substitution_note`; `ingredient_substitutions` →
+      `remembered_substitutions` (drop `is_default`; add `note` / `last_used_at`). Rework
+      `services/substitutions.py` (no default logic); **remove** substitution resolution from
+      `consolidation.consolidate()`, keep the session-override resolution in
+      `consolidate_session()` reading `resolved_ingredient`. `capture-review.js` +
+      `recipe-edit.js` per-ingredient confirm/decline + quick-picks + "save this swap";
+      `settings-substitutions.js` reframed; rework the Chunk 4.7 swap.
+- [ ] **M5 — Diagnostics rework.** Drop USD spend (`api_usage` / `api_usage_resets` /
+      `cost_usd_cents` / reset-spend button); add `ai_call_log` + daily quota indicator +
+      recent-capture-attempt log + AI Studio link.
+- [ ] **M6 — "Pending AI processing" badge.** `recipes.ai_tasks_pending` (migration); badge
+      in the recipe list + detail; queued items visible in diagnostics.
+- [ ] **M7 — Live Gemini verification.** The one real call, §0c-gated, explicit
+      in-conversation go-ahead. Structured output parses, `429` handling, one real end-to-end
+      capture. Revisit the free-tier-data-usage decision.
+- [ ] **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together,
+      per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
+
+**Deliverable:** recipe capture works end-to-end on Gemini with the Flash→Flash-Lite→queue
+chain; substitution is capture-time per-recipe flagging with a quick-pick memory, no silent
+auto-apply, nothing in consolidation; diagnostics shows Gemini quota + attempt log.
+
 ### Phase 4 — Planning Engine
 
 **Chunked 2026-09-06** (during Phase 3 Chunk 3.7 / the Phase 3 review — Phase 3 is not yet
@@ -1952,6 +2046,9 @@ full — the chunks below build them, they are not re-opened here.
       `SESSION_SLOT_NOT_FOUND` → 404, `SLOT_ORDER_MISMATCH` → 422. 16 service unit tests + 11
       router smoke tests; full suite **200 pass**.
 - [x] **Chunk 4.5 — Ingredient substitution: persistence + Settings management.**
+      **⚠️ Partly superseded by Phase 3.9 M4** — the `is_default` / auto-apply / global-rule
+      parts are removed; the table becomes `remembered_substitutions` (a quick-pick library),
+      the Settings screen is reframed. What was built (below) still ran; M4 reshapes it.
       `schemas/substitutions.py`, `services/substitutions.py` (CRUD; at-most-one-default per
       `original_name` enforced in the service via the 409 pattern, see
       [`ingredient_substitutions`](#ingredient_substitutions)); management section in Settings
@@ -1977,6 +2074,9 @@ full — the chunks below build them, they are not re-opened here.
       normalisation applied, zero console errors. `product_units` multi-row Settings display
       re-check deferred to Chunk 4.6 (lands with the eggs/milk/yoghurt seed).
 - [x] **Chunk 4.6 — Consolidation + purchase-unit resolution + summary endpoint.**
+      **⚠️ Phase 3.9 M4 removes the substitution step** from `consolidation.consolidate()`
+      (it becomes pure — reads `resolved_ingredient` / `name` as data); the session-override
+      resolution stays in `consolidate_session()`. Rounding / unit / pack rules are unaffected.
       `services/consolidation.py` and `services/purchase_units.py` — both pure, both in the
       high bug-risk trio, both heavily unit-tested. **All the rounding/normalisation rules
       settled in the 2026-09-06 grilling live here** (see
@@ -2033,7 +2133,12 @@ full — the chunks below build them, they are not re-opened here.
       re-consolidate with a recomputed quantity while a new line defaulted to `unknown`;
       `/diagnostics/recent-errors` clean. Headless-Edge confirmed the Settings `product_units`
       card lists the double rows sensibly (closes the 4.5-deferred check).
-- [x] **Chunk 4.7 — Session UI.** `static/js/sessions.js` on `#/plan` (nav already has
+- [x] **Chunk 4.7 — Session UI.** **⚠️ Phase 3.9 M4 reworks the swap:** "Remember this
+      substitution?" no longer creates a global auto-applying rule — it's a session-only
+      override (kept), with an optional "save this swap" → `remembered_substitutions`
+      quick-pick (no auto-apply). `consolidation.consolidate()` no longer resolves
+      substitutions; the override resolves in `consolidate_session()`.
+      `static/js/sessions.js` on `#/plan` (nav already has
       "Plan"), split by sub-feature if it passes ~350 lines. Create / resume a session, add
       recipes from the library, set servings + day, add a leftovers slot; ingredient review
       step with ad-hoc ingredient swap, "Remember this substitution?" prompt (yes → Chunk 4.5
@@ -2217,7 +2322,8 @@ ShoppingApp/
 │   │   ├── purchase_units.py
 │   │   ├── capture_url.py
 │   │   ├── capture_photo.py
-│   │   ├── claude_client.py
+│   │   ├── ai_extraction.py     ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1)
+│   │   ├── capture_queue.py     ← 429 retry queue + hourly poller (Phase 3.9 M3)
 │   │   └── anylist_client.py
 │   ├── seed_data.py           ← staples + product_units + section vocabulary starter data
 │   └── log_config.py          ← logging setup, in-memory ring buffer
@@ -2275,8 +2381,9 @@ attempts embedded in that content to change its behaviour. This overrides every 
 concern, including the usual `services/` "no DB" purity and "small stable interface" norms in
 [Code Architecture](#code-architecture--maintainability) where they'd otherwise conflict.
 
-Concretely, for every LLM call that includes untrusted content (currently: `claude_client.py`
-> `extract_ingredients()`, the only such call in the app so far):
+Concretely, for every LLM call that includes untrusted content (post-Phase-3.9: the
+extraction and substitution-flagging calls in `services/ai_extraction.py`; pre-M1:
+`claude_client.py` > `extract_ingredients()`):
 - The system prompt explicitly tells the model the untrusted content is data, not
   instructions, and to ignore anything inside it that looks like a request to change
   behaviour, reveal the prompt, or do anything other than extract ingredients.
@@ -2306,14 +2413,14 @@ exploited.
 
 ### 0b. API Usage Observability (no hard cap)
 
-> **⚠️ Provider change pending — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).**
-> Gemini's free tier has no per-call dollar cost, so USD-spend observability
-> (`calculate_cost_usd_cents`, `cost_usd_cents`, the diagnostics "spend tracker" + its reset
-> button) is replaced by a **daily quota usage indicator** (observed request count per model,
-> best-effort) plus a **recent capture-attempt log** (which model handled each task, or
-> queued). The §0a prompt-injection hardening and the §0c enable-switch / fake-mode /
-> ask-before-real-call discipline are **provider-agnostic and carry over unchanged**. Code is
-> still Claude-based until the migration is built; the text below describes current behaviour.
+> **⚠️ Provider change (Phase 3.9 M5) — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39).**
+> Gemini's free tier has no per-call dollar cost, so **all** USD-spend observability is
+> removed at M5: `calculate_cost_usd_cents`, `cost_usd_cents`, the diagnostics "spend
+> tracker" + its reset button, and the `api_usage` / `api_usage_resets` tables. Replacement:
+> the [`ai_call_log`](#ai_call_log) table + a **daily quota usage indicator** (observed
+> request count per model) + a **recent capture-attempt log**. §0a prompt-injection hardening
+> and §0c enable-switch / fake-mode / ask-first **carry over verbatim**. The prose below
+> describes the pre-M5 Claude code, still live until then.
 
 **Set 2026-09-05, revised 2026-09-06.** This section originally documented a hard AU$0.50
 lifetime spend cap enforced in code (`enforce_spend_cap()`, `MAX_API_SPEND_AUD_CENTS`,
@@ -2349,6 +2456,14 @@ cost" — the maintainer still wants to see what recipe capture actually costs i
 that number is cheap to keep accurate now that it's already wired through every real call.
 
 ### 0c. API Enable Switch & Offline Development (highest priority)
+
+> **⚠️ Names change at Phase 3.9 M1, semantics unchanged
+> ([AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39)):**
+> `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE` →
+> `AI_EXTRACTION_FAKE_MODE`, and the check moves from `claude_client.extract_ingredients()`
+> to `ai_extraction.py`'s per-task call functions. Everything below applies verbatim to
+> Gemini — off by default, no agent flips it, ask before any real call, fake mode bypasses
+> everything. Phase 3.9 M1–M6 build entirely in fake mode; **M7** is the single live call.
 
 **Set 2026-09-05, still in force after the 2026-09-06 spend-cap revision above.** Two
 mechanisms push the real API's involvement in building this app as close to the very end as
@@ -2534,7 +2649,8 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Nutrition read-back into the app (per-recipe macros) | Post-MVP / unscheduled | Recipe→MFP export (row above) is the in-scope design. Reading macros *back* has no API path — only MFP scraping — so it's parked with the fragility/ToS trade-off to weigh, and needs a derisking spike if adopted. Independent in-app estimation (USDA FoodData Central / Claude / manual `ingredient_nutrition` table) set aside 2026-09-06: the ask is specifically MFP, and a non-matching estimate is a second source of truth; unit conversion (tsp/tbsp/cup/"each" → grams) is the hard part. See [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export). |
 | Local LLM (Ollama) fallback for AI extraction | Future phase, not scheduled | Placeholder direction if the Gemini dependency ever must go entirely (cost/privacy/availability). Ollama native on the NUC (Windows, no Docker); candidates `llama3.2-vision` / `qwen2-VL` / `moondream2`. Trade-offs to check against real NUC hardware then: weaker messy-handwriting OCR, latency depends on GPU vs CPU-only. **No Ollama deps or code paths now.** See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini). |
 | Gemini free-tier data usage | Unresolved — revisit before the AI-extraction feature is signed off | On Gemini's free tier, recipe photos/text may be used by Google to improve their products; enabling Cloud Billing (even at $0 under free quota) stops this. Decision: is adding a Google Cloud payment method viable (unlike Anthropic), and worth it purely for the privacy improvement? See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini). |
-| Combine the 3 per-task Gemini calls into 1 | Revisit only if daily quota pressure is real | The [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini) deliberately keeps extraction / substitution-flagging / section-suggestion as **separate** Gemini calls (independent prompts, schemas, failure handling — diagnostics-first). Uses more quota; do **not** pre-optimise. |
+| Combine the 3 per-task Gemini calls into 1 | Revisit only if daily quota pressure is real | The [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39) deliberately keeps extraction / substitution-flagging / section-suggestion as **separate** Gemini calls (independent prompts, schemas, failure handling — diagnostics-first). Uses more quota; do **not** pre-optimise. |
+| 1-to-many ingredient substitutions as structured data | Not scheduled | Merge decision #5 (2026-09-06): `remembered_substitutions.substitute_name` and `recipe_ingredients.resolved_ingredient` are a single freetext string; `buttermilk → "milk + lemon juice"` is stored verbatim and the user splits it by hand if they want. Making a resolved ingredient a real *list* ripples into scaling / consolidation / pack-resolution counting — revisit only if the freetext approach proves annoying in practice. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
 
 ### Decision Dialogues
 
@@ -2834,37 +2950,49 @@ chunk.
 
 ---
 
-## AI Provider Migration — Anthropic Claude → Google Gemini
+## AI Provider Migration — Anthropic Claude → Google Gemini (Phase 3.9)
 
-**Status: SPEC ONLY — added 2026-09-06, NOTHING BELOW IS BUILT YET.** This is the
-authoritative spec for the AI extraction provider going forward. It **supersedes** every
-prior reference to "Claude API" / "Anthropic API" / "Claude Haiku" in the AI-extraction
-context — [Tech Stack](#tech-stack) (AI row), [Recipe Capture](#recipe-capture--ai-extraction),
-[Ingredient Substitution](#ingredient-substitution), [Diagnostics & Logging](#diagnostics--logging)
-(spend tracker), [Security §0b](#0b-api-usage-observability-no-hard-cap),
-[Data Model](#data-model) (`api_usage`, `ingredient_substitutions`, `recipe_ingredients`),
-and the [Environment Variables](#environment-variables-env) block. Those sections carry a
-`⚠️ SUPERSEDED` pointer back here; they have **not** been rewritten in place yet because the
-code still matches the old text — the fold-in happens as the migration is built, per the
-Document history norm. Non-AI uses of the name "Claude" (Claude Code as this project's dev
-tool; git commit `Co-Authored-By` lines) are unaffected.
+**Status: IN PROGRESS — added 2026-09-06, chunked as Phase 3.9 (chunks M0–M7 below), all
+decisions resolved 2026-09-06.** This is the authoritative spec for the AI extraction
+provider and for ingredient substitution going forward. It **supersedes** the earlier
+"Claude API" / "Anthropic API" / "Claude Haiku" references in the AI-extraction context and
+the Phase 4 [Ingredient Substitution](#ingredient-substitution) design. As each chunk lands,
+the relevant section ([Tech Stack](#tech-stack), [Recipe Capture](#recipe-capture--ai-extraction),
+[Ingredient Substitution](#ingredient-substitution), [Diagnostics & Logging](#diagnostics--logging),
+[Security §0a/§0b/§0c](#security), [Data Model](#data-model), [Environment
+Variables](#environment-variables-env)) is rewritten in place and its `⚠️` banner removed.
+Non-AI uses of the name "Claude" (Claude Code as this project's dev tool; git commit
+`Co-Authored-By` lines) are unaffected.
 
 **Why:** the Anthropic account used for recipe extraction is permanently unable to add
 billing credit (see [Phase 3 Chunk 3.6](#phase-3--recipe-capture-ai), BLOCKED). Gemini's
 free tier replaces it.
 
-### ⚠️ This reverses Phase 4 Chunks 4.5 / 4.6 / 4.7 substitution work
+### The substitution merge — Phase 4 design + capture-time flagging
 
-The [Ingredient Substitution](#ingredient-substitution) design that Phase 4 built —
-`ingredient_substitutions` table of **global, name-scoped rules**, an `is_default` that
-**auto-applies silently at consolidation time**, **cross-session memory**, resolution inside
-`consolidation.py` / `consolidate_session()`, and a Settings management screen — is
-**explicitly out of scope under this addendum** and must be removed. See "Ingredient
-Substitution Flagging" below for the replacement (capture-time, per-recipe, per-ingredient,
-confirmation-required, no global rules, nothing in the planning/consolidation path). This is
-a genuine teardown of code committed 2026-09-06, not a tweak — it needs its own chunked plan
-before execution (see [Migration Notes](#migration-notes--open-decisions) at the end of this
-section).
+The Phase 4 [Ingredient Substitution](#ingredient-substitution) design (global
+`ingredient_substitutions` rules, an `is_default` that auto-applies **silently** at
+consolidation, cross-session memory, resolution inside the pure `consolidation.consolidate()`)
+and the addendum's capture-time flagging idea are **merged** (decisions confirmed 2026-09-06):
+
+| Axis | Merged behaviour |
+|---|---|
+| **Who proposes a swap** | Both: a dedicated Gemini call flags candidates per recipe at capture; the user can also swap later in the recipe editor, or session-only during planning. |
+| **Source of truth** | The **ingredient record**. `recipe_ingredients` gains `resolved_ingredient` (nullable — the swap this recipe actually uses) and `substitution_note` (freetext why). `name` stays the *original* (merge decision #2 — reuse `name`, no separate `original_ingredient` column). |
+| **Auto-apply** | **Never silent.** `is_default` and `get_default_substitution_map()` are removed. Every swap is confirmed per recipe. |
+| **Memory** | A remembered swap is a **suggestion accelerator, not an action** (merge decision #1). `ingredient_substitutions` → `remembered_substitutions` (drop `is_default`; add `note`, `last_used_at`). When an ingredient is confirmed and a remembered swap exists for its name, that swap is **pre-selected / top-ranked** in the confirm UI under a visible "from your saved swaps" label — the user still clicks confirm. The AI *flagging* call is never told about past choices; only the UI pre-fill uses memory. |
+| **Reversibility** | Recipe-level: clear `resolved_ingredient` in the editor → back to `name`. The original is never lost. Deleting a `remembered_substitutions` entry never cascades to recipes or past sessions. |
+| **Consolidation** | `consolidation.consolidate()` becomes **pure again** — it reads `resolved_ingredient` (fallback `name`) as plain data, no substitution logic. Session-only planning swaps resolve in the `consolidate_session()` orchestrator *before* the pure function runs (merge decision #3 — the plumbing built in Chunk 4.7 stays, the resolution point moves). "Also remember" from a planning swap may add a `remembered_substitutions` row (merge decision #4). |
+| **1-to-many** | Out of scope for now (merge decision #5). `substitute_name` stays a single freetext string; `buttermilk → "milk + lemon juice"` is one string the user splits by hand if they want. 1:many is a [Deferred Decision](#deferred-decisions). |
+
+**Kept from Phase 4:** the library table (as `remembered_substitutions`), multiple
+substitutes per ingredient, Settings management (reframed as a quick-pick library),
+the planning-time ad-hoc swap + `ConsolidateRequest.overrides` plumbing, `substitution_note`.
+**Removed:** `is_default` + its reassign/enforce logic, silent auto-apply,
+`get_default_substitution_map()`, substitution resolution inside `consolidate()`.
+**Added:** the capture-time AI flagging call, per-ingredient confirm/decline,
+`recipe_ingredients.resolved_ingredient` / `substitution_note`, the "Pending AI processing"
+badge.
 
 ### Provider & model selection
 
@@ -2895,36 +3023,55 @@ philosophy. **Do not pre-optimise by combining** — revisit only if quota press
 real problem. Every call uses Gemini structured-output / JSON-schema mode to preserve the
 schema parity from prior addenda.
 
-### ⚠️ Ingredient Substitution Flagging — full & complete spec
+### Ingredient Substitution Flagging — the merged spec
 
-This feature has drifted from spec before. **If existing code disagrees with the rules
-below, the code is wrong.**
+Supersedes both the addendum's stricter "no memory at all" wording and the Phase 4
+"global auto-applying rules" design — see the merge table above. **If existing code
+disagrees with the rules below, the code is wrong** (this feature has drifted before).
 
 **What it IS:**
-- At capture time, the AI flags ingredients *in this specific recipe* that could be
-  substituted (e.g. "buttermilk" → "milk + lemon juice").
-- Each flag is surfaced for **per-recipe, per-ingredient confirmation** before anything is
-  stored as a confirmed substitution.
-- Only user-confirmed substitutions become part of *that recipe's* resolved ingredient data.
+- At capture time, a dedicated Gemini call flags ingredients *in this specific recipe* that
+  could be substituted, each with a suggested substitute + a short note (e.g. `buttermilk` →
+  `"milk + lemon juice"`, note "acidulate the milk and rest 10 min").
+- Each flag is surfaced for **per-recipe, per-ingredient confirm/decline** before anything is
+  stored. Confirm → `recipe_ingredients.resolved_ingredient` + `substitution_note` set on
+  *that* recipe. Decline → `resolved_ingredient` left NULL (falls back to `name`); the flag
+  is dismissed, not hidden from history.
+- On confirm, an optional **"save this swap"** tick writes/updates a
+  [`remembered_substitutions`](#remembered_substitutions) row (name → name + note). Unticked
+  = one-off, this recipe only.
 
-**What it is NOT — do not implement:**
-- ❌ No global / app-wide substitution defaults or rules that auto-apply across recipes.
-- ❌ No auto-applying a substitution without explicit per-recipe user confirmation.
-- ❌ No learning / memory of past choices that changes future suggestions. Every recipe's
-  flags are independent.
-- ❌ No substitution logic anywhere outside the capture-time flow — **not** in meal planning,
-  shopping-list generation, or consolidation (those consume already-resolved ingredients only).
+**Memory — accelerator, never an action:**
+- If `remembered_substitutions` has entries for a flagged ingredient's `name`, they are
+  **pre-selected / top-ranked** in the confirm UI beneath a visible "from your saved swaps"
+  label. The user still clicks confirm — nothing is applied without that per-recipe action.
+- The Gemini flagging call is **never** given past choices — every recipe's AI flags are
+  independent. Only the UI pre-fill consults memory.
 
-**Data model:** each ingredient record carries `original_ingredient`, `resolved_ingredient`
-(null until the user confirms), `substitution_note` (freetext — why the swap works). Declining
-a flag sets `resolved_ingredient = original_ingredient` (dismissed, not deleted/hidden from
-history). *(The addendum cites a "prior addendum" for this data model that is not in this
-file — see [Migration Notes](#migration-notes--open-decisions).)*
+**What it is NOT:**
+- ❌ No silent auto-apply anywhere. No `is_default`.
+- ❌ No substitution *resolution* inside the pure `consolidation.consolidate()` — it reads
+  `resolved_ingredient` (fallback `name`) as plain data. (A session-only planning swap
+  resolves one layer up, in the `consolidate_session()` orchestrator — that's retained.)
+- ❌ No 1-to-many split as structured data yet (`substitute_name` is one freetext string).
 
 **Call behaviour:** its own Gemini call; same Flash → Flash-Lite → queue chain; if it
-fails/queues, extraction can still complete and be usable — flags are enrichment, not a
-blocker. The "Pending AI processing" badge names *which* sub-task (extraction / substitution
-/ section) is still outstanding.
+fails/queues, extraction still completes and the recipe is usable — flags are enrichment,
+not a blocker. The "Pending AI processing" badge names *which* sub-task (extraction /
+substitution / section) is still outstanding.
+
+**Where it lives in the app:**
+- **Capture review screen** (`capture-review.js`) — the per-ingredient confirm/decline +
+  quick-picks + "save this swap" tick, after extraction, before the recipe is saved.
+- **Recipe editor** (`recipe-edit.js`) — the same per-ingredient controls, so a swap can be
+  added / changed / cleared later. Clearing `resolved_ingredient` reverts to `name`.
+- **Planning session review** (`session-review.js`) — the existing ad-hoc swap, now a
+  **session-only override** (client-held, passed in `ConsolidateRequest.overrides`, resolved
+  in `consolidate_session()` before `consolidate()`). Optional "also save this swap" →
+  `remembered_substitutions` row; never edits recipe data.
+- **Settings** (`settings-substitutions.js`) — reframed: view / edit note / delete
+  `remembered_substitutions` entries. A pure quick-pick library. No default toggle. Deleting
+  never touches recipes or past sessions.
 
 ### Photo capture
 
@@ -2961,9 +3108,15 @@ blocker. The "Pending AI processing" badge names *which* sub-task (extraction / 
 - **Recent capture attempt log** — success/fail per capture task, which model handled it
   (Flash / Flash-Lite / queued), and any error detail.
 
-Cost-in-dollars tracking goes away (Gemini free tier). `calculate_cost_usd_cents` and the
-`cost_usd_cents` column lose their purpose; `api_usage` is repurposed or replaced (see
-Migration Notes).
+Cost-in-dollars tracking goes away (Gemini free tier). `calculate_cost_usd_cents`, the
+`cost_usd_cents` column, the `api_usage` / `api_usage_resets` tables and the "reset spend
+tracker" button are all **removed** (decision #3 below — replace, don't repurpose; there is
+essentially no real data — Chunk 3.6 never made a live call). Replacement: a purpose-built
+`ai_call_log` table (see [Data Model](#ai_call_log)) recording one row per attempted Gemini
+call — task type, model tried (`flash` / `flash-lite`), outcome
+(`success` / `quota` / `error` / `queued`), token counts, error detail, timestamp. The
+diagnostics quota indicator counts today's `ai_call_log` rows per model; the attempt log
+lists the most recent.
 
 ### API key storage
 
@@ -2986,41 +3139,67 @@ Placeholder direction only, if the Gemini dependency ever must be removed entire
 hardware at that time: weaker messy-handwriting OCR; latency depends heavily on GPU vs
 CPU-only. **Do not add Ollama dependencies or code paths now.**
 
-### Migration Notes & open decisions
+### Resolved decisions (2026-09-06)
 
-Code touch-points (all still Anthropic today): `services/claude_client.py` (→ rename, e.g.
-`ai_extraction.py`; `google-genai` SDK; split into 3 per-task calls; Flash→Flash-Lite→queue
-chain; structured-output mode), `services/api_usage.py` (drop cost math; repurpose to
-quota/attempt logging), `models/diagnostics.py` (`ApiUsage` / `ApiUsageReset`),
-`routers/diagnostics.py` + `static/js/diagnostics.js` (quota indicator + attempt log),
-`app/config.py` + `.env.example` (`ANTHROPIC_API_KEY`→`GEMINI_API_KEY`, `CLAUDE_API_ENABLED`
-/ `CLAUDE_API_FAKE_MODE` → provider-neutral names), `requirements.txt` (`anthropic` out,
-`google-genai` in), `services/capture_url.py` / `capture_photo.py` (call sites),
-`services/consolidation.py` + `services/sessions.py` (**remove** substitution resolution),
-delete `services/substitutions.py` / `schemas/substitutions.py` /
-`static/js/settings-substitutions.js` + the Settings substitution endpoints, drop the
-`ingredient_substitutions` table (migration), add `original_ingredient` / `resolved_ingredient`
-/ `substitution_note` to `recipe_ingredients` (migration), add `capture_queue` (migration),
-add per-recipe AI-task status for the pending badge (migration), rework Chunk 4.7's
-Swap/"Remember this?" into per-recipe capture-time confirmation. Plus ~40 test files.
-Existing JSON schema *shapes* (recipe / substitution original-resolved-note / section) are
-unchanged — only the calling mechanism.
+1. **Sequence & scoping** — its own chunked mini-phase, **Phase 3.9**, chunks M0–M7 (below).
+   The **Phase 4 review** is deferred until Phase 3.9's own review (M-review), which
+   re-checks Phase 4 + 3.9 together — running it earlier would sign off substitution code
+   that M4 removes. Phase 3.9 builds on top of the completed Phase 4 chunks 4.1–4.4/4.6.
+2. **The "prior addendum" isn't in this file** — treat the merged spec above as complete.
+   With merge decision #2, it's **two** new columns on `recipe_ingredients`
+   (`resolved_ingredient`, `substitution_note`); `name` is the original.
+3. **`api_usage` — replace, don't repurpose.** Drop `api_usage` + `api_usage_resets` +
+   `cost_usd_cents` + `calculate_cost_usd_cents()` + the reset-spend button; add `ai_call_log`
+   (see [Data Model](#ai_call_log)). No real data is lost — Chunk 3.6 never made a live call.
+4. **Env var names — provider-neutral for the switches, provider-specific for the key.**
+   `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`; `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`;
+   `CLAUDE_API_FAKE_MODE` → `AI_EXTRACTION_FAKE_MODE`. (Neutral so the deferred Ollama option
+   wouldn't force another rename.) Touches `config.py`, `.env.example`, tests, and the NUC's
+   real `.env` (call out in `DEPLOY.md` / the M-review).
+5. **No Gemini key assumed.** Phase 3.9 builds and verifies entirely against fake mode +
+   mocks (M1–M6). **M7** is the single live call — `AI_EXTRACTION_ENABLED=true`, real key,
+   and an explicit in-conversation go-ahead per §0c (a standing "yes" does not carry).
+6. **§0c carries over verbatim.** Enable switch off by default; no agent session flips it;
+   ask the maintainer before any real call even once it's on; fake mode bypasses everything.
+   Same for §0a prompt-injection hardening (provider-agnostic).
+7. **Phase numbering** — this is **Phase 3.9** in this document. The addendum's "Phase 1"
+   references are wrong for this repo; capture is Phase 3.
 
-**Decisions needed before build:**
-1. Sequence & scoping — this is ~Phase-3-sized plus a Phase-4 partial teardown. Its own
-   chunked mini-phase? Where does it sit relative to the pending Phase 4 review?
-2. The "prior addendum" defining `original_ingredient` / `resolved_ingredient` /
-   `substitution_note` isn't in this file. Provide it, or treat the three-field description
-   above as complete?
-3. `api_usage` — repurpose the table (rename columns, drop `cost_usd_cents`) or new table +
-   drop `api_usage` / `api_usage_resets`?
-4. Env var names — keep `CLAUDE_API_*` (jarring), or rename to `GEMINI_API_*` /
-   `AI_EXTRACTION_*` (touches config + tests + docs + the NUC's real `.env`).
-5. Is a Gemini API key available now, or does this build offline against fake mode + mocks
-   like Phase 3 did (real call deferred, needs explicit go-ahead per §0c)?
-6. §0c enable-switch / fake-mode / ask-before-real-call discipline: confirm it carries over
-   verbatim to Gemini (the addendum implies yes but doesn't restate it).
-7. Phase renumbering — the addendum repeatedly says "Phase 1"; capture is Phase 3 here.
+### Phase 3.9 chunks (M0–M7)
+
+- **M0 — Decisions + CLAUDE.md fold-in** (this edit). Resolve the above, rewrite the
+  superseded sections in place, drop the `⚠️` banners. No code.
+- **M1 — Config + SDK + fake-mode skeleton.** `requirements.txt` (`anthropic` out,
+  `google-genai` pinned in); `config.py` + `.env.example` env-var rename; rename
+  `services/claude_client.py` → `services/ai_extraction.py` with the `google-genai` client,
+  Pydantic `response_schema` models, ported fake fixtures, §0c gates verbatim. Extraction
+  call only, still single-call-shaped. All tests mocked / fake — no real key.
+- **M2 — Split into 3 per-task calls.** `extract_recipe()` / `flag_substitutions()` /
+  `suggest_sections()` — section suggestion moves out of the extraction prompt into its own
+  call. Each its own prompt + JSON schema + fixture. `capture_url` / `capture_photo`
+  orchestrate the three.
+- **M3 — Fallback chain + `capture_queue`.** Flash → Flash-Lite → queue on `429`
+  (`RESOURCE_EXHAUSTED`); non-quota errors fail normally. `capture_queue` table + migration.
+  Hourly retry poller as a lifespan background task.
+- **M4 — Substitution redesign (the merge).** Migrations: `recipe_ingredients` +=
+  `resolved_ingredient` / `substitution_note`; `ingredient_substitutions` →
+  `remembered_substitutions` (drop `is_default`; add `note` / `last_used_at`). Rework
+  `services/substitutions.py` (no default logic); **remove** substitution resolution from
+  `consolidation.consolidate()`, keep the session-override resolution in
+  `consolidate_session()` reading `resolved_ingredient`. `capture-review.js` +
+  `recipe-edit.js` per-ingredient confirm/decline + quick-picks + "save this swap" tick;
+  `settings-substitutions.js` reframed to the quick-pick library; rework the Chunk 4.7 swap.
+- **M5 — Diagnostics rework.** Drop USD spend (cost math, `cost_usd_cents`, reset-spend
+  button, `api_usage` / `api_usage_resets`); add `ai_call_log` + a daily quota indicator +
+  recent-capture-attempt log + AI Studio dashboard link. `models/diagnostics.py`,
+  `routers/diagnostics.py`, `static/js/diagnostics.js`.
+- **M6 — "Pending AI processing" badge.** Per-recipe outstanding-AI-task tracking
+  (`recipes.ai_tasks_pending`, migration); badge in the recipe list + detail; queued items
+  visible in diagnostics.
+- **M7 — Live Gemini verification.** The one real call, §0c-gated, explicit go-ahead.
+  Confirms structured output parses, `429` handling, one real end-to-end capture. Revisit the
+  free-tier-data-usage decision.
+- **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together.
 
 ---
 
@@ -3038,20 +3217,20 @@ Confirmed during planning, not revisited unless raised again:
 
 ## Environment Variables (.env)
 
-> **⚠️ AI keys change under the
-> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini):**
-> `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`, and `CLAUDE_API_ENABLED` / `CLAUDE_API_FAKE_MODE`
-> get provider-neutral names (final names are Migration Notes open decision #4). The §0c
-> semantics — off by default, explicit maintainer opt-in, fake mode bypasses everything, no
-> agent flips the switch — are unchanged. Code + `.env.example` still use the `CLAUDE_API_*`
-> names until the migration is built.
+> **⚠️ AI env vars change at Phase 3.9 M1
+> ([AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39)):**
+> `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`, `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`,
+> `CLAUDE_API_FAKE_MODE` → `AI_EXTRACTION_FAKE_MODE`. §0c semantics unchanged (off by
+> default, explicit maintainer opt-in, fake mode bypasses, no agent flips it). Code +
+> `.env.example` + the NUC's real `.env` still use the `CLAUDE_API_*` names until M1;
+> `DEPLOY.md` will note the `.env` update.
 
 ```
 PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
-ANTHROPIC_API_KEY=sk-ant-...           # ⚠️ → GEMINI_API_KEY (AI Provider Migration)
-CLAUDE_API_ENABLED=false               # ⚠️ → provider-neutral name (AI Provider Migration)
-CLAUDE_API_FAKE_MODE=false             # ⚠️ → provider-neutral name (AI Provider Migration)
+ANTHROPIC_API_KEY=sk-ant-...           # M1 → GEMINI_API_KEY
+CLAUDE_API_ENABLED=false               # M1 → AI_EXTRACTION_ENABLED
+CLAUDE_API_FAKE_MODE=false             # M1 → AI_EXTRACTION_FAKE_MODE
 ANYLIST_EMAIL=...
 ANYLIST_PASSWORD=...
 LOG_LEVEL=INFO
