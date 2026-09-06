@@ -50,6 +50,9 @@ class SessionRecipe(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     session = relationship("PlanningSession", back_populates="recipes")
+    # Read-only convenience so a slot can render "which recipe" without a second query.
+    # joined so listing a session's slots doesn't N+1. NULL for a 'leftovers' slot.
+    recipe = relationship("Recipe", lazy="joined", viewonly=True)
 
 
 class SessionChecklistItem(Base):

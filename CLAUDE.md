@@ -1857,17 +1857,32 @@ full — the chunks below build them, they are not re-opened here.
       multiplies* — `scaling_factor()` + `scale_quantity()` (unit preserved verbatim,
       `NO_SCALE_UNITS` pass through `scaled=False`). **No rounding, no unit conversion, no
       pack logic** — all of that moved to Chunk 4.6 and runs once on the summed quantity.
-      Done 2026-09-06 (commit `<pending>`): 14 unit tests (exact multiplication incl. "ugly"
+      Done 2026-09-06 (commit `4ee99a8`): 14 unit tests (exact multiplication incl. "ugly"
       results, unit preserved incl. `kg`/free-text, discrete *not* rounded here, factor <1 /
       zero qty, `NO_SCALE_UNITS` case-insensitive passthrough, non-positive base raises).
       Full suite green. `DEFAULT_TARGET_SERVINGS = 4` constant lands with Chunk 4.4's form.
-- [ ] **Chunk 4.4 — Session CRUD + session-recipe management.** `schemas/sessions.py`,
+- [x] **Chunk 4.4 — Session CRUD + session-recipe management.** `schemas/sessions.py`,
       `services/sessions.py`, flesh out `routers/sessions.py`. Session CRUD (create / list /
       get / update label+status / archive) with `?limit`/`?offset`; add / update / remove /
       reorder session recipes with `scaled_servings`, `day_of_week` (plain dropdown — calendar
       is Phase 6), `sort_order`. Leftovers slot as its own small service function, not an
       `if slot_type == ...` pile ([Code Architecture](#file-size-and-scope-discipline)).
       Service unit tests + router smoke tests.
+      Done 2026-09-06 (commit `<pending>`). Endpoints: `POST /sessions`, `GET /sessions`
+      (`?limit`/`?offset`/`?status`), `GET|PATCH /sessions/{id}`, `POST /sessions/{id}/archive`
+      (status→'archived'; no hard delete), `POST /sessions/{id}/recipes`,
+      `POST /sessions/{id}/leftovers`, `PATCH|DELETE /sessions/{id}/slots/{slot_id}`,
+      `PUT /sessions/{id}/slots/order` (`{"ordered_ids":[…]}`, must be exactly the session's
+      current slot ids → else `422 SLOT_ORDER_MISMATCH`). `add_session_recipe` /
+      `add_leftovers_slot` are separate service functions (no `if slot_type` pile); a recipe
+      slot defaults `scaled_servings` to `DEFAULT_TARGET_SERVINGS` (4, added to
+      `services/scaling.py`) and appends `sort_order`; a leftovers slot pins
+      `scaled_servings=0`, `recipe_id=None`, and `update_slot` keeps `scaled_servings` inert
+      on it. `SessionRecipe` gains a read-only joined `recipe` relationship so a slot can
+      report `recipe_name` without an N+1 (no column, no migration). Unknown recipe on a slot
+      reuses `RecipeNotFoundError`→404. `main.py`: `SESSION_NOT_FOUND` /
+      `SESSION_SLOT_NOT_FOUND` → 404, `SLOT_ORDER_MISMATCH` → 422. 16 service unit tests + 11
+      router smoke tests; full suite **200 pass**.
 - [ ] **Chunk 4.5 — Ingredient substitution: persistence + Settings management.**
       `schemas/substitutions.py`, `services/substitutions.py` (CRUD; at-most-one-default per
       `original_name` enforced in the service via the 409 pattern, see

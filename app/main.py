@@ -39,6 +39,11 @@ from app.services.recipes import (
     PossibleDuplicateRecipeError,
     RecipeNotFoundError,
 )
+from app.services.sessions import (
+    SessionNotFoundError,
+    SessionSlotNotFoundError,
+    SlotOrderMismatchError,
+)
 from app.services.settings import (
     DuplicateProductUnitNameError,
     DuplicateStapleNameError,
@@ -235,6 +240,59 @@ async def possible_duplicate_recipe_handler(request: Request, exc: PossibleDupli
                 }
                 for m in exc.matches
             ],
+        ),
+    )
+
+
+@app.exception_handler(SessionNotFoundError)
+async def session_not_found_handler(request: Request, exc: SessionNotFoundError):
+    logger.info(
+        "Planning session not found: id=%s (%s %s)",
+        exc.session_id,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "SESSION_NOT_FOUND", f"Planning session {exc.session_id} not found.", None
+        ),
+    )
+
+
+@app.exception_handler(SessionSlotNotFoundError)
+async def session_slot_not_found_handler(request: Request, exc: SessionSlotNotFoundError):
+    logger.info(
+        "Session slot not found: session_id=%s slot_id=%s (%s %s)",
+        exc.session_id,
+        exc.slot_id,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "SESSION_SLOT_NOT_FOUND",
+            f"Slot {exc.slot_id} not found on session {exc.session_id}.",
+            None,
+        ),
+    )
+
+
+@app.exception_handler(SlotOrderMismatchError)
+async def slot_order_mismatch_handler(request: Request, exc: SlotOrderMismatchError):
+    logger.info(
+        "Slot reorder id-list mismatch: session_id=%s (%s %s)",
+        exc.session_id,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=422,
+        content=_error_body(
+            "SLOT_ORDER_MISMATCH",
+            "The reorder request must list exactly this session's current slot ids.",
+            None,
         ),
     )
 

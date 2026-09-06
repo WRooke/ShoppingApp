@@ -24,6 +24,12 @@ NO_SCALE_UNITS = frozenset(
     {"pinch", "to taste", "taste", "splash", "drizzle", "dash"}
 )
 
+# Household default target servings — two adults, each also taking a serving as next-day
+# lunch (see CLAUDE.md > Scaling Logic). Used to pre-fill the per-recipe servings field when
+# a recipe is added to a session (Chunk 4.4); always overridable. Not yet a Settings field —
+# see CLAUDE.md > Deferred Decisions.
+DEFAULT_TARGET_SERVINGS = 4
+
 
 @dataclass(frozen=True)
 class ScaledQuantity:
