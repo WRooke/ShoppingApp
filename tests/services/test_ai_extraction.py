@@ -19,7 +19,9 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models.diagnostics import AiCallLog
 from app.services.ai_extraction import (
+    FALLBACK_MODEL_ID,
     MAX_INPUT_TEXT_CHARS,
+    MODEL_ID,
     AiExtractionDisabledError,
     AiExtractionError,
     ExtractedIngredient,
@@ -177,7 +179,7 @@ def test_extract_recipe_logs_usage_even_when_unparseable(db, api_enabled):
         with pytest.raises(AiExtractionError):
             extract_recipe(db, call_type="recipe_url", text="x")
     row = db.query(AiCallLog).one()
-    assert row.input_tokens == 42 and row.model == "gemini-2.5-flash"
+    assert row.input_tokens == 42 and row.model == MODEL_ID
 
 
 def test_extract_recipe_refuses_when_disabled(db, monkeypatch):
@@ -326,11 +328,11 @@ def test_falls_back_to_flash_lite_on_primary_429(db, api_enabled):
         result = extract_recipe(db, call_type="recipe_url", text="x")
     assert len(result.ingredients) == 2
     assert client.return_value.models.generate_content.call_count == 2
-    # a 'quota' row for flash, then a 'success' row for flash-lite
+    # a 'quota' row for the primary model, then a 'success' row for the fallback
     rows = db.query(AiCallLog).order_by(AiCallLog.id).all()
     assert [(r.model, r.outcome) for r in rows] == [
-        ("gemini-2.5-flash", "quota"),
-        ("gemini-2.5-flash-lite", "success"),
+        (MODEL_ID, "quota"),
+        (FALLBACK_MODEL_ID, "success"),
     ]
 
 

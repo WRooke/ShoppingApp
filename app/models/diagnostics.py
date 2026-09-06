@@ -17,7 +17,7 @@ class AiCallLog(Base):
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, nullable=False, default=utcnow)
     task = Column(Text, nullable=False)  # 'extract' | 'flag_substitutions' | 'suggest_sections'
-    model = Column(Text, nullable=False)  # 'gemini-2.5-flash' | 'gemini-2.5-flash-lite'
+    model = Column(Text, nullable=False)  # e.g. 'gemini-flash-latest' | 'gemini-flash-lite-latest'
     outcome = Column(Text, nullable=False)  # 'success' | 'quota' | 'error'
     input_tokens = Column(Integer, nullable=True)  # unknown on a pre-response failure
     output_tokens = Column(Integer, nullable=True)

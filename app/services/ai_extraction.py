@@ -51,8 +51,16 @@ logger = logging.getLogger(__name__)
 
 # Primary model, then the fallback the chain drops to on a 429. See CLAUDE.md > AI Provider
 # Migration > Fallback & retry. A 429 from BOTH -> AiQuotaExhaustedError -> the caller queues.
-MODEL_ID = "gemini-2.5-flash"
-FALLBACK_MODEL_ID = "gemini-2.5-flash-lite"
+#
+# Floating aliases, not pinned versions (maintainer's call, 2026-09-07 at M7): the spec's
+# original pin `gemini-2.5-flash` was retired by Google between the spec being written
+# (2026-09-06) and M7 being run (2026-09-07) — a newly-created key gets 404
+# "no longer available to new users". `*-latest` always resolves to the current
+# flash / flash-lite, so this class of break can't recur. Trade-off accepted: a model
+# swap underneath us could shift extraction behaviour without a code change — the capture
+# review step (user confirms every ingredient before save) is the backstop.
+MODEL_ID = "gemini-flash-latest"
+FALLBACK_MODEL_ID = "gemini-flash-lite-latest"
 _MODEL_CHAIN = (MODEL_ID, FALLBACK_MODEL_ID)
 MAX_OUTPUT_TOKENS = 4096
 
@@ -210,7 +218,7 @@ class AiExtractionError(Exception):
 
 
 class AiQuotaExhaustedError(AiExtractionError):
-    """Both gemini-2.5-flash and gemini-2.5-flash-lite returned 429 (RESOURCE_EXHAUSTED).
+    """Both the primary and fallback Gemini models returned 429 (RESOURCE_EXHAUSTED).
     Subclass of AiExtractionError so ``except AiExtractionError`` still catches it — but a
     caller that can queue the work (capture endpoints) catches this specifically. See
     CLAUDE.md > AI Provider Migration > Fallback & retry / Queueing."""

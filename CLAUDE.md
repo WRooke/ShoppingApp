@@ -125,7 +125,7 @@ consolidated shopping list to AnyList, a shared grocery list app they both use.
 | Backend | Python 3.11+, FastAPI | FastAPI is async, modern, serves static files, has auto-docs |
 | Database | SQLite via SQLAlchemy (ORM) | Zero config, single file, sufficient for household scale |
 | Frontend | Vanilla HTML5 / CSS3 / JS | No build step, no framework complexity, easy to debug, runs in any browser |
-| AI (recipe extraction) | Google Gemini API — `gemini-2.5-flash` (primary), `gemini-2.5-flash-lite` (fallback), then a retry queue. `google-genai` SDK, structured-output mode. Three separate calls per capture (extraction / substitution flagging / section suggestion). See [AI Provider Migration (Phase 3.9)](#ai-provider-migration--anthropic-claude--google-gemini--phase-39). | Anthropic account can't add billing credit; Gemini's free tier replaces it. *(Code is on the `anthropic` SDK / Haiku 4.5 until Phase 3.9 chunk M1 lands.)* |
+| AI (recipe extraction) | Google Gemini API — `gemini-flash-latest` (primary), `gemini-flash-lite-latest` (fallback), then a retry queue. `google-genai` SDK, structured-output mode. Three separate calls per capture (extraction / substitution flagging / section suggestion). See [AI Provider Migration (Phase 3.9)](#ai-provider-migration--anthropic-claude--google-gemini--phase-39). | Anthropic account can't add billing credit; Gemini's free tier replaces it. Floating `*-latest` model aliases — see the migration section (Google retired the originally-pinned `gemini-2.5-flash` mid-migration). |
 | URL scraping | httpx + BeautifulSoup4 | Fetch recipe page content for Claude to parse |
 | AnyList | See Phase 5 note | Unofficial reverse-engineered API — implementation approach TBD at Phase 5 |
 | Deployment | Python venv, batch scripts, Windows Task Scheduler | No Docker; simple start/stop scripts |
@@ -2014,9 +2014,25 @@ is folded into this phase's M-review.
       gains a `queue` `{depth, items[]}` summary. Frontend: `recipes.js` badge in list +
       detail; `diagnostics.js` "Capture queue: N item(s)" line. +tests; full suite **267
       pass**; migration parity green; badge headless-verified.
-- [ ] **M7 — Live Gemini verification.** The one real call, §0c-gated, explicit
-      in-conversation go-ahead. Structured output parses, `429` handling, one real end-to-end
-      capture. Revisit the free-tier-data-usage decision.
+- [x] **M7 — Live Gemini verification.** Done 2026-09-07 with the maintainer's explicit
+      in-conversation go-ahead (test recipe:
+      `recipetineats.com/satay-chicken-legs-with-peanut-sauce`). One real end-to-end URL
+      capture against the real dev DB: all three Gemini calls
+      (`extract` 5716/1007 tok, `suggest_sections` 235/222, `flag_substitutions` 308/56)
+      returned `success`; structured output parsed against `_GExtraction` /
+      `_GSections` / `_GFlags` first time, no parser tweak needed; 15 ingredients extracted
+      faithfully (cuisine `thai`, protein `chicken`), 11 `product_sections` rows written
+      `source='ai_suggested'`, 1 substitution flag (`dark soy sauce` → regular soy sauce).
+      `ai_call_log` has the `success` rows; `/diagnostics/status` → `ai_extraction.state:
+      green`, `last_success` populated, `queue` empty. Recipe **kept** (id 6, not archived).
+      **Model-ID fix folded in:** the spec's pinned `gemini-2.5-flash` was retired by Google
+      between M0 and M7 (`404` "no longer available to new users") — switched primary +
+      fallback to the floating `gemini-flash-latest` / `gemini-flash-lite-latest` aliases at
+      the maintainer's direction. See the note under
+      [Provider & model selection](#provider--model-selection). `429` handling itself is
+      still covered only by unit tests (`test_ai_extraction.py` fallback-chain tests) — the
+      live call did not hit quota. Free-tier-data-usage deferred decision still open — carry
+      to the M-review.
 - [ ] **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together,
       per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
 
@@ -3100,11 +3116,24 @@ badge.
 
 ### Provider & model selection
 
-- **Primary:** `gemini-2.5-flash` — closest quality match to Haiku, especially for messy
-  handwritten photo OCR.
-- **Fallback (primary's daily quota exhausted):** `gemini-2.5-flash-lite` — for volume, not
-  the default; photo-capture accuracy is the priority.
+- **Primary:** `gemini-flash-latest` — the current Gemini Flash, closest quality match to
+  Haiku, especially for messy handwritten photo OCR.
+- **Fallback (primary's daily quota exhausted):** `gemini-flash-lite-latest` — for volume,
+  not the default; photo-capture accuracy is the priority.
 - **Queue (both exhausted):** the capture is queued and retried later (see Queueing).
+
+> **Model IDs — floating `*-latest` aliases, not pinned (resolved 2026-09-07 at M7).** The
+> spec originally pinned `gemini-2.5-flash` / `gemini-2.5-flash-lite`. Between the spec being
+> written (2026-09-06) and the M7 live call being run (2026-09-07), Google retired
+> `gemini-2.5-flash` for newly-created keys — the live call came back `404 NOT_FOUND`,
+> *"This model … is no longer available to new users."* Google's model line moves fast enough
+> (3.5, 3.6, 3.7, 3.8 flashes all released within 2026) that pinning a specific version means
+> a periodic forced bump. The maintainer chose the floating aliases so this can't recur.
+> Accepted trade-off: a model swap underneath the app could shift extraction behaviour with
+> no code change — the capture review step (the user confirms every ingredient before the
+> recipe is saved) is the backstop, and `ai_call_log` records which concrete model answered
+> each call. `ai_extraction.MODEL_ID` / `FALLBACK_MODEL_ID` are the single source of truth in
+> code; older `gemini-2.5-flash` mentions elsewhere in this section are historical.
 
 **Do not hardcode Gemini rate limits.** Free-tier RPM/TPM/RPD have changed repeatedly in
 2026 and third-party numbers conflict. Instead: read quota state from `429`
@@ -3300,9 +3329,13 @@ CPU-only. **Do not add Ollama dependencies or code paths now.**
 - **M6 — "Pending AI processing" badge.** Per-recipe outstanding-AI-task tracking
   (`recipes.ai_tasks_pending`, migration); badge in the recipe list + detail; queued items
   visible in diagnostics.
-- **M7 — Live Gemini verification.** The one real call, §0c-gated, explicit go-ahead.
-  Confirms structured output parses, `429` handling, one real end-to-end capture. Revisit the
-  free-tier-data-usage decision.
+- **M7 — Live Gemini verification.** ✅ Done 2026-09-07 — one real URL capture (satay chicken
+  legs), all 3 calls `success`, structured output parsed first time, recipe kept (id 6).
+  Folded in a model-ID fix: Google retired the pinned `gemini-2.5-flash` mid-migration, so
+  primary/fallback are now the floating `gemini-flash-latest` / `gemini-flash-lite-latest`
+  aliases. See the M7 chunk entry above and
+  [Provider & model selection](#provider--model-selection). Free-tier-data-usage decision
+  still open → M-review.
 - **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together.
 
 ---
