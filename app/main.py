@@ -33,7 +33,7 @@ from app.routers import (
 from app.routers import settings as settings_router
 from app.services.capture_photo import InvalidImageError
 from app.services.capture_url import RecipeFetchError
-from app.services.claude_client import ClaudeApiDisabledError, ClaudeExtractionError
+from app.services.ai_extraction import AiExtractionDisabledError, AiExtractionError
 from app.services.recipes import (
     IngredientNotFoundError,
     PossibleDuplicateRecipeError,
@@ -346,26 +346,28 @@ async def slot_order_mismatch_handler(request: Request, exc: SlotOrderMismatchEr
     )
 
 
-@app.exception_handler(ClaudeApiDisabledError)
-async def claude_api_disabled_handler(request: Request, exc: ClaudeApiDisabledError):
+@app.exception_handler(AiExtractionDisabledError)
+async def ai_extraction_disabled_handler(request: Request, exc: AiExtractionDisabledError):
     # Not logged as an error — this is the highest-priority §0c gate working as designed,
     # not a failure. See CLAUDE.md > Security > §0c.
-    logger.warning("Claude API call refused (disabled): %s %s", request.method, request.url.path)
+    logger.warning(
+        "AI extraction call refused (disabled): %s %s", request.method, request.url.path
+    )
     return JSONResponse(
         status_code=503,
         content=_error_body(
-            "CLAUDE_API_DISABLED",
+            "AI_EXTRACTION_DISABLED",
             "Recipe capture is currently switched off. Ask the maintainer to enable it.",
             None,
         ),
     )
 
 
-@app.exception_handler(ClaudeExtractionError)
-async def claude_extraction_error_handler(request: Request, exc: ClaudeExtractionError):
-    # Already logged at ERROR with exc_info=True inside claude_client.py at the point of
+@app.exception_handler(AiExtractionError)
+async def ai_extraction_error_handler(request: Request, exc: AiExtractionError):
+    # Already logged at ERROR with exc_info=True inside ai_extraction.py at the point of
     # failure (CLAUDE.md > Diagnostics & Logging) — this is just the envelope translation.
-    logger.warning("Claude extraction failed: %s %s (%s)", request.method, request.url.path, exc)
+    logger.warning("AI extraction failed: %s %s (%s)", request.method, request.url.path, exc)
     return JSONResponse(
         status_code=502,
         content=_error_body(

@@ -1,48 +1,44 @@
-"""Anthropic Claude API integration — recipe ingredient extraction.
+"""Google Gemini API integration — recipe ingredient extraction.
+
+Phase 3.9 (see CLAUDE.md > AI Provider Migration): this replaces the Anthropic
+``claude_client.py``. M1 is a straight provider swap — one extraction call, still
+single-shaped; M2 splits it into three per-task calls, M3 adds the
+Flash → Flash-Lite → queue fallback chain.
 
 Small, stable function surface per CLAUDE.md > Code Architecture & Maintainability >
 "External integrations sit behind a small, stable interface": the rest of the app calls
-``extract_ingredients()`` and never touches the ``anthropic`` SDK directly, so if this
-integration ever needs to change (different model, different provider) that's a rewrite of
-this one file, not a hunt through every router/service that captures a recipe. No `fastapi`
-import here — this module is plain Python, per the same section.
+``extract_ingredients()`` and never touches ``google.genai`` directly. No ``fastapi``
+import here.
 
-Two highest-priority standing rules govern this module (see CLAUDE.md > Security §0a/§0c —
+Two highest-priority standing rules govern this module (CLAUDE.md > Security §0a/§0c —
 both take precedence over every other design concern here, including the "no DB" purity
-`services/` modules otherwise aim for). A third, related concern (§0b) is logging-only, not a
-gate — see below.
+``services/`` modules otherwise aim for). §0b (usage logging) is observability-only.
 
-1. **Enable switch + fake mode (§0c).** A real call requires `settings.claude_api_enabled` —
-   off by default, so a real call needs an explicit "yes, use it".
-   `settings.claude_api_fake_mode` bypasses that entirely by never calling the real API at
-   all, returning a canned fixture instead — see `_FAKE_FIXTURES` below. This is what lets
-   Chunks 3.2-3.5 be built and manually verified with zero API key and zero cost.
-2. **Prompt injection (§0a).** Recipe text/images passed in here originate from an untrusted
-   external source (a scraped webpage, a photographed cookbook page). The system prompt
-   explicitly tells Claude to treat that content as inert data, the untrusted content is
-   wrapped in an explicit delimiter so it can never be mistaken for an instruction, input
-   length is capped (bounds injection payload size), and the parsed response is validated
-   against a strict allow-list (`suggested_section`) and expected types rather than trusted
-   as-is.
-3. **Usage logging (§0b, observability only — 2026-09-06).** `extract_ingredients()` still
-   takes a DB session specifically so it can call `api_usage.log_api_usage()` immediately
-   after every real call — logging happens inside this function, not left to the caller, so a
-   real call can never go unrecorded. This module used to also call
-   `api_usage.enforce_spend_cap()` before every call and refuse to proceed past a hard AU$0.50
-   lifetime cap; that cap has been removed (see CLAUDE.md's Non-Negotiable Operating Rules
-   banner and Security §0b) — nothing in this module refuses a call on cost grounds any more.
-
-See CLAUDE.md > Recipe Capture — AI Extraction for the extraction prompt spec.
+1. **Enable switch + fake mode (§0c).** A real call requires ``settings.ai_extraction_enabled``
+   — off by default. ``settings.ai_extraction_fake_mode`` bypasses that entirely by never
+   calling the real API, returning a canned fixture instead (``_FAKE_FIXTURES``). No agent
+   session flips the switch; the maintainer is asked before any real call even once it's on.
+2. **Prompt injection (§0a).** Recipe text/images passed in here come from an untrusted
+   external source. The system prompt tells Gemini to treat that content as inert data, it's
+   wrapped in a non-guessable delimiter, input length is capped, and the parsed response is
+   validated against a strict allow-list (``suggested_section``) and expected types.
+3. **Usage logging (§0b).** ``extract_ingredients()`` takes a DB session so it can call
+   ``api_usage.log_api_usage()`` immediately after a real call. (M5 replaces this with the
+   ``ai_call_log`` table.)
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
 from dataclasses import dataclass
 
-import anthropic
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -51,27 +47,22 @@ from app.services import api_usage
 
 logger = logging.getLogger(__name__)
 
-# Haiku 4.5 — cheapest model, handles both vision (photo OCR) and text (URL content) in one
-# API. See CLAUDE.md > Tech Stack.
-MODEL_ID = "claude-haiku-4-5"
+# Primary model. M3 adds gemini-2.5-flash-lite as the 429 fallback; for M1 only the primary
+# is used. See CLAUDE.md > AI Provider Migration > Provider & model selection.
+MODEL_ID = "gemini-2.5-flash"
 
-MAX_TOKENS = 4096
+MAX_OUTPUT_TOKENS = 4096
 
-# Defensive ceiling on input text length — see "Prompt injection" above. ~20k chars is far
-# more than any real recipe page needs; a page (malicious or just bloated) larger than that
-# is truncated rather than sent whole, which also bounds worst-case per-call cost.
+# Defensive ceiling on input text length (§0a) — bounds any injected payload.
 MAX_INPUT_TEXT_CHARS = 20_000
 
 _SECTION_VOCABULARY_SET = frozenset(SECTION_VOCABULARY)
 
-# The untrusted content is wrapped in a delimiter Claude is told, in the system prompt, never
-# to treat as instructions. A random-looking tag (rather than something guessable like
-# <content>) makes it harder for injected text to spoof its own closing tag.
+# Untrusted content is wrapped in this delimiter, which the system prompt tells Gemini never
+# to treat as instructions. Random-looking so injected text can't spoof its own closing tag.
 _UNTRUSTED_CONTENT_TAG = "untrusted_recipe_source_7f3a"
 
-# Kept in sync by hand with app/seed_data.py > SECTION_VOCABULARY (see CLAUDE.md > Recipe
-# Capture > Claude extraction prompt — that starter list is still provisional, so if it
-# changes, update this prompt text too).
+# Kept in sync by construction with app/seed_data.py > SECTION_VOCABULARY.
 EXTRACTION_SYSTEM_PROMPT = f"""You are a recipe extraction assistant. Given recipe text or an image of a recipe, extract
 the ingredients list plus a few recipe-level fields.
 
@@ -113,6 +104,27 @@ Rules:
 - Return ONLY valid JSON. No markdown, no explanation, no preamble."""
 
 
+# --- Gemini structured-output schema -------------------------------------------------
+# Passed to Gemini as `response_schema` so the model returns JSON matching this shape. The
+# response is still run through _parse_extraction() below — the §0a allow-list validation on
+# suggested_section is not something we delegate to the model.
+
+
+class _GeminiIngredient(BaseModel):
+    name: str
+    quantity: float
+    unit: str | None = None
+    preparation: str | None = None
+    original_text: str = ""
+    suggested_section: str | None = None
+
+
+class _GeminiExtraction(BaseModel):
+    cuisine: str | None = None
+    protein: str | None = None
+    ingredients: list[_GeminiIngredient]
+
+
 @dataclass
 class ExtractedIngredient:
     name: str
@@ -133,32 +145,25 @@ class ExtractionResult:
     model: str = MODEL_ID
 
 
-class ClaudeExtractionError(Exception):
-    """Raised when the Claude API call fails, or succeeds but the response can't be parsed
-    as the expected extraction JSON. Callers (routers, via a service) translate this to the
-    {"ok": false, "error": ...} envelope — see CLAUDE.md > API Conventions."""
+class AiExtractionError(Exception):
+    """Raised when the Gemini call fails, or succeeds but the response can't be parsed as the
+    expected extraction JSON. Callers translate this to the {"ok": false, "error": ...}
+    envelope (EXTRACTION_FAILED)."""
 
 
-class ClaudeApiDisabledError(Exception):
-    """Raised instead of ever calling the real API when settings.claude_api_enabled is False
-    (the default). See CLAUDE.md > Security > §0c — this is a deliberate, explicit "yes, use
-    it" gate; a configured key alone is not enough on its own. Fixed by the maintainer setting
-    CLAUDE_API_ENABLED=true in .env — never by an agent session editing that value itself."""
+class AiExtractionDisabledError(Exception):
+    """Raised instead of ever calling the real API when settings.ai_extraction_enabled is
+    False (the default). See CLAUDE.md > Security > §0c. Fixed by the maintainer setting
+    AI_EXTRACTION_ENABLED=true in .env — never by an agent session editing that value."""
 
     def __init__(self) -> None:
         super().__init__(
-            "Claude API calls are disabled (CLAUDE_API_ENABLED is not 'true' in .env). "
+            "AI recipe extraction is disabled (AI_EXTRACTION_ENABLED is not 'true' in .env). "
             "This is a deliberate default — see CLAUDE.md > Security > §0c."
         )
 
 
 # --- fake mode: canned fixtures, no network, no cost, no key required ------------------
-#
-# Three generic recipes (no PII) so manual click-through testing of the capture/review flow
-# during Chunks 3.2-3.5 sees some variety rather than the exact same result every time (see
-# CLAUDE.md > Security > §0c). Selection is a stable hash of the input, not random — the same
-# input always produces the same fixture, which is what you want when re-testing a specific
-# case, but different inputs naturally land on different fixtures.
 _FAKE_FIXTURES: list[dict] = [
     {
         "_label": "weeknight beef tacos",
@@ -203,15 +208,13 @@ _FAKE_FIXTURES: list[dict] = [
 
 
 def _pick_fake_fixture(seed_material: str) -> dict:
-    """Deterministic (not random) so the same input always returns the same fixture across
-    repeated manual test runs — see the fake-mode note above."""
+    """Deterministic (not random) so the same input always returns the same fixture."""
     digest = hashlib.sha256(seed_material.encode("utf-8")).hexdigest()
     return _FAKE_FIXTURES[int(digest, 16) % len(_FAKE_FIXTURES)]
 
 
 def _strip_code_fence(raw_text: str) -> str:
-    """Claude is instructed to return bare JSON, but strip a ```json fence defensively in
-    case it wraps the response anyway — cheap insurance, not a sign we expect it to happen."""
+    """Gemini structured-output mode returns bare JSON, but strip a ```json fence defensively."""
     text = raw_text.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text
@@ -221,10 +224,7 @@ def _strip_code_fence(raw_text: str) -> str:
 
 
 def _clean_suggested_section(value: object) -> str | None:
-    """Only ever returns a value from the fixed section vocabulary, or None. Defends against
-    a poisoned/hallucinated section name reaching product_sections — whether from an
-    injection attempt in the source content or an ordinary model mistake (see CLAUDE.md >
-    Prompt Injection Hardening and > Shopping List Store Layout)."""
+    """Only ever returns a value from the fixed section vocabulary, or None (§0a)."""
     if isinstance(value, str) and value in _SECTION_VOCABULARY_SET:
         return value
     return None
@@ -257,31 +257,25 @@ def extract_ingredients(
     image_base64: str | None = None,
     image_media_type: str | None = None,
 ) -> ExtractionResult:
-    """Extracts ingredients (+ cuisine/protein/suggested_section) from recipe text and/or an
-    image. Exactly one of `text` / `image_base64` is the common case; both may be given (e.g.
-    a photo with a caption) since Claude accepts mixed content in one message.
+    """Extract ingredients (+ cuisine/protein/suggested_section) from recipe text and/or an
+    image via Gemini structured-output mode.
 
-    `db`, `call_type` ('recipe_url' | 'recipe_photo' | 'ingredient_normalise' — see CLAUDE.md
-    > Data Model) and `context_id` are required/passed through so this function can log real
-    usage immediately after the call — see the module docstring for why that lives here
-    rather than in the caller.
-
-    Gate order (see CLAUDE.md > Security §0c): fake mode bypasses everything below and
-    returns a canned fixture (no DB writes, no cost, no key needed) — checked first since it's
-    meant to work with none of the real infrastructure in place. Otherwise: the enable switch
-    is checked (raises ClaudeApiDisabledError if off), then the real call is made. Raises
-    ClaudeExtractionError for any other failure — network, API, or unparseable response.
+    Gate order (§0c): fake mode bypasses everything and returns a canned fixture (no DB
+    writes, no cost, no key). Otherwise the enable switch is checked (raises
+    AiExtractionDisabledError if off), then the real call is made. Raises AiExtractionError
+    for any other failure — network, API, quota (M1: quota is just an error; M3 adds the
+    fallback chain), or an unparseable response.
     """
     if not text and not image_base64:
         raise ValueError("extract_ingredients requires text and/or image_base64")
 
     mode = "photo" if image_base64 else "url"
 
-    if settings.claude_api_fake_mode:
+    if settings.ai_extraction_fake_mode:
         fixture = _pick_fake_fixture(text or image_base64 or "")
         logger.info(
-            "Claude extraction: FAKE MODE (CLAUDE_API_FAKE_MODE=true) — returning canned "
-            "fixture %r, mode=%s, no real API call made, no cost incurred",
+            "AI extraction: FAKE MODE (AI_EXTRACTION_FAKE_MODE=true) — returning canned "
+            "fixture %r, mode=%s, no real API call made",
             fixture["_label"],
             mode,
         )
@@ -290,95 +284,96 @@ def extract_ingredients(
             cuisine=cuisine, protein=protein, ingredients=ingredients, input_tokens=0, output_tokens=0
         )
 
-    if not settings.claude_api_enabled:
+    if not settings.ai_extraction_enabled:
         logger.warning(
-            "Claude extraction refused: CLAUDE_API_ENABLED is not 'true' (mode=%s)", mode
+            "AI extraction refused: AI_EXTRACTION_ENABLED is not 'true' (mode=%s)", mode
         )
-        raise ClaudeApiDisabledError()
+        raise AiExtractionDisabledError()
 
     if text and len(text) > MAX_INPUT_TEXT_CHARS:
         logger.warning(
-            "Claude extraction: input text truncated from %d to %d chars",
+            "AI extraction: input text truncated from %d to %d chars",
             len(text),
             MAX_INPUT_TEXT_CHARS,
         )
         text = text[:MAX_INPUT_TEXT_CHARS]
 
-    logger.info("Claude extraction attempt: model=%s mode=%s", MODEL_ID, mode)
+    logger.info("AI extraction attempt: model=%s mode=%s", MODEL_ID, mode)
 
-    content: list[dict] = []
+    parts: list[genai_types.Part] = []
     if image_base64:
-        content.append(
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": image_media_type or "image/jpeg",
-                    "data": image_base64,
-                },
-            }
+        parts.append(
+            genai_types.Part.from_bytes(
+                data=base64.b64decode(image_base64),
+                mime_type=image_media_type or "image/jpeg",
+            )
         )
     if text:
-        # Delimited so untrusted content can never be mistaken for an instruction — see the
-        # module docstring and the system prompt above.
-        content.append(
-            {
-                "type": "text",
-                "text": f"<{_UNTRUSTED_CONTENT_TAG}>\n{text}\n</{_UNTRUSTED_CONTENT_TAG}>",
-            }
+        # Delimited so untrusted content can never be mistaken for an instruction (§0a).
+        parts.append(
+            genai_types.Part.from_text(
+                text=f"<{_UNTRUSTED_CONTENT_TAG}>\n{text}\n</{_UNTRUSTED_CONTENT_TAG}>"
+            )
         )
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = genai.Client(api_key=settings.gemini_api_key)
+    config = genai_types.GenerateContentConfig(
+        system_instruction=EXTRACTION_SYSTEM_PROMPT,
+        response_mime_type="application/json",
+        response_schema=_GeminiExtraction,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+        temperature=0,
+    )
     try:
-        response = client.messages.create(
-            model=MODEL_ID,
-            max_tokens=MAX_TOKENS,
-            system=EXTRACTION_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}],
+        response = client.models.generate_content(
+            model=MODEL_ID, contents=parts, config=config
         )
-    except anthropic.RateLimitError as exc:
-        logger.error("Claude extraction rate-limited", exc_info=True)
-        raise ClaudeExtractionError("Claude API rate limit hit — try again shortly.") from exc
-    except anthropic.APIStatusError as exc:
-        logger.error("Claude extraction failed: HTTP %s", exc.status_code, exc_info=True)
-        raise ClaudeExtractionError(f"Claude API returned an error ({exc.status_code}).") from exc
-    except anthropic.APIConnectionError as exc:
-        logger.error("Claude extraction: connection failed", exc_info=True)
-        raise ClaudeExtractionError("Could not reach the Claude API — check network/DNS.") from exc
+    except genai_errors.ClientError as exc:
+        # 429 RESOURCE_EXHAUSTED is a quota error — M3 turns this into the Flash-Lite / queue
+        # fallback; for M1 it's just a failure like any other.
+        logger.error("AI extraction failed: client error %s", getattr(exc, "code", "?"), exc_info=True)
+        raise AiExtractionError(f"Gemini API returned an error ({getattr(exc, 'code', '?')}).") from exc
+    except genai_errors.APIError as exc:
+        logger.error("AI extraction failed: API error", exc_info=True)
+        raise AiExtractionError("Gemini API returned an error.") from exc
+    except Exception as exc:  # network / DNS / transport
+        logger.error("AI extraction: call failed", exc_info=True)
+        raise AiExtractionError("Could not reach the Gemini API — check network/DNS.") from exc
 
-    # Log real usage immediately — the call has already been billed by Anthropic at this
-    # point regardless of whether parsing below succeeds, so the usage log must include it
-    # either way (see the module docstring, point 3).
+    usage = response.usage_metadata
+    input_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+    output_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
+
+    # Log usage immediately — before the parse, so a billed-but-unparseable response is still
+    # recorded (M5 replaces api_usage with ai_call_log).
     api_usage.log_api_usage(
         db,
         model=MODEL_ID,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         call_type=call_type,
         context_id=context_id,
     )
 
-    raw_text = "".join(block.text for block in response.content if block.type == "text")
+    raw_text = response.text or ""
     try:
         cuisine, protein, ingredients = _parse_extraction(raw_text)
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         logger.error(
-            "Claude extraction: response was not the expected JSON shape: %r",
-            raw_text,
-            exc_info=True,
+            "AI extraction: response was not the expected JSON shape: %r", raw_text, exc_info=True
         )
-        raise ClaudeExtractionError("Claude's response could not be parsed.") from exc
+        raise AiExtractionError("Gemini's response could not be parsed.") from exc
 
     logger.info(
-        "Claude extraction succeeded: %d ingredient(s), input_tokens=%d output_tokens=%d",
+        "AI extraction succeeded: %d ingredient(s), input_tokens=%d output_tokens=%d",
         len(ingredients),
-        response.usage.input_tokens,
-        response.usage.output_tokens,
+        input_tokens,
+        output_tokens,
     )
     return ExtractionResult(
         cuisine=cuisine,
         protein=protein,
         ingredients=ingredients,
-        input_tokens=response.usage.input_tokens,
-        output_tokens=response.usage.output_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )

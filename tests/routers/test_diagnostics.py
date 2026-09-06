@@ -22,8 +22,8 @@ from app.models.diagnostics import ApiUsage, ApiUsageReset
 
 
 def test_status_reports_disabled_by_default(client, monkeypatch):
-    monkeypatch.setattr(settings, "claude_api_enabled", False)
-    monkeypatch.setattr(settings, "claude_api_fake_mode", False)
+    monkeypatch.setattr(settings, "ai_extraction_enabled", False)
+    monkeypatch.setattr(settings, "ai_extraction_fake_mode", False)
 
     resp = client.get("/api/v1/diagnostics/status")
     data = resp.json()["data"]["claude_api"]
@@ -35,7 +35,7 @@ def test_status_reports_disabled_by_default(client, monkeypatch):
 
 
 def test_status_reports_fake_mode(client, monkeypatch):
-    monkeypatch.setattr(settings, "claude_api_fake_mode", True)
+    monkeypatch.setattr(settings, "ai_extraction_fake_mode", True)
 
     resp = client.get("/api/v1/diagnostics/status")
     data = resp.json()["data"]["claude_api"]

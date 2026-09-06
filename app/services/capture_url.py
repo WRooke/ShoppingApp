@@ -3,7 +3,7 @@
 See CLAUDE.md > Recipe Capture — AI Extraction > URL capture flow. Plain Python /
 httpx / BeautifulSoup only, no `fastapi` import — see CLAUDE.md > Code Architecture &
 Maintainability. Never executes anything derived from the fetched page — it's parsed as
-text only and handed to `claude_client`, which treats it as untrusted data (see CLAUDE.md >
+text only and handed to `ai_extraction`, which treats it as untrusted data (see CLAUDE.md >
 Security §0a and §4).
 """
 
@@ -15,7 +15,7 @@ import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 
-from app.services import claude_client
+from app.services import ai_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class RecipeFetchError(Exception):
 def _extract_text(html: str) -> str:
     """Best-effort readable text from a recipe page. Falls back to the whole page's text if
     none of the preferred selectors match anything — still safe to send on, since
-    claude_client wraps it in the untrusted-content delimiter and enforces a length cap
+    ai_extraction wraps it in the untrusted-content delimiter and enforces a length cap
     regardless of how it was extracted (see CLAUDE.md > Security §0a)."""
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup.find_all(_NOISE_TAGS):
@@ -70,10 +70,10 @@ def _extract_text(html: str) -> str:
     return soup.get_text(separator="\n", strip=True)
 
 
-def fetch_and_extract(db: Session, url: str) -> claude_client.ExtractionResult:
-    """Fetches `url`, extracts readable text, and calls claude_client.extract_ingredients()
+def fetch_and_extract(db: Session, url: str) -> ai_extraction.ExtractionResult:
+    """Fetches `url`, extracts readable text, and calls ai_extraction.extract_ingredients()
     with call_type='recipe_url'. Raises RecipeFetchError on fetch failure; extraction-side
-    errors (spend cap, disabled, unparseable response) propagate from claude_client as-is."""
+    errors (spend cap, disabled, unparseable response) propagate from ai_extraction as-is."""
     logger.info("Recipe URL fetch attempt: %s", url)
     try:
         response = httpx.get(
@@ -97,4 +97,4 @@ def fetch_and_extract(db: Session, url: str) -> claude_client.ExtractionResult:
 
     logger.info("Recipe URL fetch succeeded: %s (%d bytes)", url, len(response.content))
     text = _extract_text(response.text)
-    return claude_client.extract_ingredients(db, call_type="recipe_url", context_id=url, text=text)
+    return ai_extraction.extract_ingredients(db, call_type="recipe_url", context_id=url, text=text)

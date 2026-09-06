@@ -1,5 +1,5 @@
-"""Unit tests for app/services/capture_url.py. httpx and claude_client are both mocked — no
-network, no Claude call, per CLAUDE.md > Code Architecture & Maintainability > Tests.
+"""Unit tests for app/services/capture_url.py. httpx and ai_extraction are both mocked — no
+network, no Gemini call, per CLAUDE.md > Code Architecture & Maintainability > Tests.
 """
 
 from __future__ import annotations
@@ -64,10 +64,10 @@ def test_extract_text_strips_script_and_style():
 # --- fetch_and_extract ---------------------------------------------------
 
 
-def test_fetch_and_extract_calls_claude_with_extracted_text():
+def test_fetch_and_extract_calls_ai_with_extracted_text():
     html = "<html><body><article>500g beef mince</article></body></html>"
     with patch("app.services.capture_url.httpx.get", return_value=_mock_response(html)):
-        with patch("app.services.capture_url.claude_client.extract_ingredients") as mock_extract:
+        with patch("app.services.capture_url.ai_extraction.extract_ingredients") as mock_extract:
             mock_extract.return_value = "dummy-result"
             result = fetch_and_extract("fake-db", "https://example.com/tacos")
 

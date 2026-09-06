@@ -2,8 +2,8 @@
 per CLAUDE.md > Code Architecture & Maintainability.
 
 Fake mode (CLAUDE.md > Security > §0c) is forced on for every test here so these never depend
-on the developer's local .env state and never make a real Claude call — the URL endpoint's
-own network fetch is separately mocked (httpx.get), since fake mode only covers the Claude
+on the developer's local .env state and never make a real Gemini call — the URL endpoint's
+own network fetch is separately mocked (httpx.get), since fake mode only covers the Gemini
 call, not capture_url's own HTTP fetch.
 """
 
@@ -21,7 +21,7 @@ from app.models.store import ProductSection
 
 @pytest.fixture(autouse=True)
 def fake_mode(monkeypatch):
-    monkeypatch.setattr(settings, "claude_api_fake_mode", True)
+    monkeypatch.setattr(settings, "ai_extraction_fake_mode", True)
 
 
 def _mock_html_response(html: str):

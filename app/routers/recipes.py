@@ -30,7 +30,7 @@ from app.schemas.recipes import (
 )
 from app.services import capture_photo, capture_url
 from app.services import recipes as recipes_service
-from app.services.claude_client import ExtractionResult
+from app.services.ai_extraction import ExtractionResult
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def _capture_result(
     source_url: str | None = None,
     source_image_path: str | None = None,
 ) -> dict:
-    """Shapes a claude_client.ExtractionResult into the CaptureResult envelope payload — the
+    """Shapes a ai_extraction.ExtractionResult into the CaptureResult envelope payload — the
     two extraction endpoints below share this, the confirm endpoint doesn't need it (it
     already gets the reviewed shape straight from the frontend)."""
     return CaptureResult(
@@ -191,16 +191,16 @@ def delete_ingredient(recipe_id: int, ingredient_id: int, db: Session = Depends(
 #
 # The two extraction endpoints below return a CaptureResult for the frontend to review —
 # nothing is saved yet. /capture/confirm is the separate save step (Chunk 3.4). All three
-# route through claude_client.extract_ingredients() (URL/photo) or
+# route through ai_extraction.extract_ingredients() (URL/photo) or
 # recipes_service.create_recipe_from_capture() (confirm), which enforce the
 # enable-switch/fake-mode gates and prompt-injection hardening — see CLAUDE.md > Security
-# §0a/§0c. Their exceptions (ClaudeApiDisabledError, ClaudeExtractionError, RecipeFetchError,
+# §0a/§0c. Their exceptions (AiExtractionDisabledError, AiExtractionError, RecipeFetchError,
 # InvalidImageError) are translated to the envelope centrally in app/main.py, not here.
 
 
 @router.post("/capture/url")
 def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> dict:
-    # Duplicate short-circuit: an exact source_url match returns a 409 BEFORE the Claude
+    # Duplicate short-circuit: an exact source_url match returns a 409 BEFORE the Gemini extraction
     # call, so a re-capture of a page already in the library costs nothing (CLAUDE.md >
     # Duplicate Recipe Prevention > URL capture short-circuit). "Capture again anyway"
     # re-submits with allow_duplicate=true.

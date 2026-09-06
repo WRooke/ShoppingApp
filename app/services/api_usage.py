@@ -30,10 +30,13 @@ from app.models.diagnostics import ApiUsage, ApiUsageReset
 
 logger = logging.getLogger(__name__)
 
-# USD per 1M tokens. Extend this dict as other models are used — see CLAUDE.md >
-# Tech Stack (Haiku 4.5 chosen for recipe extraction: cheapest model, ~$0.005/recipe).
+# USD per 1M tokens. Phase 3.9 M5 removes this whole module (Gemini's free tier has no
+# per-call cost — see CLAUDE.md > AI Provider Migration). Until then the Gemini models are
+# listed at $0 so log_api_usage() keeps working during M1-M4 without a pricing lookup error.
 _PRICING_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
+    "gemini-2.5-flash": {"input": 0.0, "output": 0.0},
+    "gemini-2.5-flash-lite": {"input": 0.0, "output": 0.0},
 }
 
 

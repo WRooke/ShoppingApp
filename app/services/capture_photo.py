@@ -14,7 +14,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.services import claude_client
+from app.services import ai_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,9 @@ class InvalidImageError(Exception):
 
 def store_and_extract(
     db: Session, *, content: bytes, content_type: str
-) -> tuple[str, claude_client.ExtractionResult]:
+) -> tuple[str, ai_extraction.ExtractionResult]:
     """Validates and stores the image under `images/` with a UUID filename, then calls
-    claude_client.extract_ingredients() with call_type='recipe_photo'. Returns
+    ai_extraction.extract_ingredients() with call_type='recipe_photo'. Returns
     (stored_filename, extraction_result). Raises InvalidImageError before ever touching disk
     or calling out if the upload itself is bad."""
     extension = _ALLOWED_CONTENT_TYPES.get(content_type)
@@ -62,7 +62,7 @@ def store_and_extract(
     logger.info("Recipe photo stored: %s (%d bytes)", filename, len(content))
 
     image_base64 = base64.standard_b64encode(content).decode("utf-8")
-    result = claude_client.extract_ingredients(
+    result = ai_extraction.extract_ingredients(
         db,
         call_type="recipe_photo",
         context_id=filename,

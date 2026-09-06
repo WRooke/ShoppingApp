@@ -44,23 +44,27 @@ class Settings:
             if o.strip()
         ]
 
-        self.anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        # AI recipe extraction — Google Gemini as of Phase 3.9 (was Anthropic Claude). See
+        # CLAUDE.md > AI Provider Migration. Env vars renamed at M1; §0c semantics unchanged.
+        self.gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
         self.anylist_email: str = os.getenv("ANYLIST_EMAIL", "").strip()
         self.anylist_password: str = os.getenv("ANYLIST_PASSWORD", "").strip()
 
-        # Gate on real Claude API calls — see CLAUDE.md > Security > §0c. Defaults OFF: a real
-        # call is refused even with a valid key unless this is explicitly set to true. Claude
-        # Code must never flip this to true in .env on its own initiative. (A hard AU$0.50
-        # spend cap used to sit alongside this switch, in a `max_api_spend_aud_cents` setting
-        # here — removed 2026-09-06, see CLAUDE.md's Non-Negotiable Operating Rules banner and
-        # Security §0b; Anthropic billing is prepaid, so there was no runaway-invoice scenario
-        # for an in-app dollar ceiling to guard against.)
-        self.claude_api_enabled: bool = self._as_bool(os.getenv("CLAUDE_API_ENABLED", "false"))
+        # Gate on real Gemini API calls — see CLAUDE.md > Security > §0c. Defaults OFF: a real
+        # call is refused even with a valid key unless this is explicitly set to true. An agent
+        # session must never flip this to true in .env on its own initiative. (A hard AU$0.50
+        # spend cap used to sit alongside the old CLAUDE_API_ENABLED switch — removed
+        # 2026-09-06; and Gemini's free tier has no per-call dollar cost at all.)
+        self.ai_extraction_enabled: bool = self._as_bool(
+            os.getenv("AI_EXTRACTION_ENABLED", "false")
+        )
 
         # Dev-only escape hatch that bypasses both gates above entirely by never calling the
-        # real API at all — see CLAUDE.md > Security > §0c. When true, extract_ingredients()
-        # returns a canned fixture, zero cost, zero network. Must never be true on the NUC.
-        self.claude_api_fake_mode: bool = self._as_bool(os.getenv("CLAUDE_API_FAKE_MODE", "false"))
+        # real API at all — see CLAUDE.md > Security > §0c. When true, the extraction calls
+        # return a canned fixture, zero cost, zero network. Must never be true on the NUC.
+        self.ai_extraction_fake_mode: bool = self._as_bool(
+            os.getenv("AI_EXTRACTION_FAKE_MODE", "false")
+        )
 
         self.database_path: str = _resolve(os.getenv("DATABASE_PATH", "data/mealplanner.db"))
         self.images_path: str = _resolve(os.getenv("IMAGES_PATH", "images"))
@@ -81,8 +85,8 @@ class Settings:
         return value.strip().lower() in ("1", "true", "yes", "on")
 
     @property
-    def anthropic_configured(self) -> bool:
-        return self._is_real(self.anthropic_api_key)
+    def gemini_configured(self) -> bool:
+        return self._is_real(self.gemini_api_key)
 
     @property
     def anylist_configured(self) -> bool:
@@ -98,10 +102,10 @@ class Settings:
             "database_path": self.database_path,
             "images_path": self.images_path,
             "logs_path": self.logs_path,
-            "anthropic_api_key_configured": self.anthropic_configured,
+            "gemini_api_key_configured": self.gemini_configured,
             "anylist_credentials_configured": self.anylist_configured,
-            "claude_api_enabled": self.claude_api_enabled,
-            "claude_api_fake_mode": self.claude_api_fake_mode,
+            "ai_extraction_enabled": self.ai_extraction_enabled,
+            "ai_extraction_fake_mode": self.ai_extraction_fake_mode,
         }
 
 

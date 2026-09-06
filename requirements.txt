@@ -19,8 +19,8 @@ pytest==9.1.1
 httpx==0.28.1  # required by fastapi.testclient.TestClient; also used directly in Phase 3
               # for recipe URL fetching (see services/capture_url.py)
 
-# Phase 3 — recipe capture (AI). anthropic 1.x brings its own httpx2 dependency, unrelated
-# to the httpx pin above.
-anthropic==1.4.0
+# Phase 3 — recipe capture (AI). Google Gemini as of Phase 3.9 (was anthropic; see CLAUDE.md >
+# AI Provider Migration). google-genai pulls google-auth + its own requests/websockets.
+google-genai==2.22.0
 beautifulsoup4==4.15.0  # HTML parsing for URL capture (services/capture_url.py)
 python-multipart==0.0.32  # required by FastAPI to parse the photo-upload multipart form

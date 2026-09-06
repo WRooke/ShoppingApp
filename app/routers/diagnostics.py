@@ -62,21 +62,21 @@ def status(db: Session = Depends(get_db)) -> dict:
         "message": "Connected" if db_ok else "Connection failed",
     }
 
-    # --- Claude API -----------------------------------------------------
+    # --- AI extraction (Gemini) --------------------------------------------
     # Enable-switch and fake-mode fields are always populated — a highest-priority standing
-    # rule (CLAUDE.md > Security §0c) that must be visible on diagnostics regardless of what
-    # phase the rest of the Claude integration has reached. Spend/token totals are observability
-    # only (§0b) — nothing here gates a call.
+    # rule (CLAUDE.md > Security §0c). Spend/token totals are observability only (§0b).
+    # NOTE: Phase 3.9 M5 replaces this whole block (quota indicator + attempt log, no USD);
+    # M1 just carries it over with the renamed settings attributes.
     claude = {
         "state": "grey",
-        "message": "Claude API key not configured",
+        "message": "Gemini API key not configured",
         "last_success": None,
         "estimated_spend_usd": 0.0,
         "total_input_tokens": 0,
         "total_output_tokens": 0,
         "reset_at": None,
-        "api_enabled": settings.claude_api_enabled,
-        "fake_mode": settings.claude_api_fake_mode,
+        "api_enabled": settings.ai_extraction_enabled,
+        "fake_mode": settings.ai_extraction_fake_mode,
     }
     try:
         spend_cents, in_tok, out_tok, last_ts, reset_at = get_display_totals(db)
@@ -85,21 +85,17 @@ def status(db: Session = Depends(get_db)) -> dict:
         claude["total_output_tokens"] = out_tok
         claude["reset_at"] = str(reset_at) if reset_at is not None else None
 
-        # Precedence, most urgent/most-likely-to-explain-current-behaviour first. Fake mode
-        # and the enable switch are config, not accounting, so they're checked ahead of the
-        # spend numbers — those numbers are accurate either way, but they're not why a call
-        # would succeed or fail right now.
         if claude["fake_mode"]:
             claude["state"] = "amber"
-            claude["message"] = "FAKE MODE — extraction returns canned fixtures, no real Claude calls are made"
+            claude["message"] = "FAKE MODE — extraction returns canned fixtures, no real Gemini calls are made"
         elif not claude["api_enabled"]:
             claude["state"] = "grey"
-            claude["message"] = "Disabled (CLAUDE_API_ENABLED=false in .env) — enable explicitly to use recipe capture"
+            claude["message"] = "Disabled (AI_EXTRACTION_ENABLED=false in .env) — enable explicitly to use recipe capture"
         elif last_ts is not None:
             claude["last_success"] = str(last_ts)
             claude["state"] = "green"
             claude["message"] = "OK"
-        elif settings.anthropic_configured:
+        elif settings.gemini_configured:
             claude["state"] = "amber"
             claude["message"] = "Key configured, no calls yet"
     except Exception:  # noqa: BLE001

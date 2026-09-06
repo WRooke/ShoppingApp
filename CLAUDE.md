@@ -1886,11 +1886,27 @@ parts of Chunks 4.5 / 4.6 / 4.7 and replaces them with the merged design. The Ph
 is folded into this phase's M-review.
 
 - [ ] **M0 — Decisions + CLAUDE.md fold-in.** Done 2026-09-06 (this edit). No code.
-- [ ] **M1 — Config + `google-genai` SDK + fake-mode skeleton.** `anthropic` out /
-      `google-genai` pinned in; `ANTHROPIC_API_KEY`→`GEMINI_API_KEY`,
-      `CLAUDE_API_*`→`AI_EXTRACTION_*`; `services/claude_client.py`→`services/ai_extraction.py`
-      with the Gemini client, Pydantic `response_schema` models, ported fake fixtures, §0c
-      gates verbatim. Extraction call only, still one-call-shaped. All tests mocked / fake.
+- [x] **M1 — Config + `google-genai` SDK + fake-mode skeleton.** Done 2026-09-06.
+      `requirements.txt`: `anthropic==1.4.0` out, `google-genai==2.22.0` in (also uninstalled
+      from the venv). `config.py` + `.env.example`: `ANTHROPIC_API_KEY`→`GEMINI_API_KEY`,
+      `CLAUDE_API_ENABLED`→`AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE`→
+      `AI_EXTRACTION_FAKE_MODE`; `settings.anthropic_configured`→`gemini_configured`; summary
+      keys renamed. `services/claude_client.py` → `services/ai_extraction.py`: `genai.Client`
+      + `types.GenerateContentConfig(response_mime_type="application/json",
+      response_schema=_GeminiExtraction, system_instruction=…)`, `Part.from_text` /
+      `Part.from_bytes`; `usage_metadata.prompt_token_count` / `candidates_token_count`.
+      `ClaudeExtractionError`→`AiExtractionError`, `ClaudeApiDisabledError`→
+      `AiExtractionDisabledError`; `main.py` error code `CLAUDE_API_DISABLED`→
+      `AI_EXTRACTION_DISABLED`. `MODEL_ID = "gemini-2.5-flash"` (fallback chain is M3). §0c
+      gates + §0a hardening (delimiter, `MAX_INPUT_TEXT_CHARS`, `suggested_section`
+      allow-list) + fake fixtures carried over **verbatim**. `capture_url.py` /
+      `capture_photo.py` / `routers/recipes.py` / `routers/diagnostics.py` call-site renames;
+      diagnostics still exposes the `claude_api` block + spend fields (M5 replaces it).
+      `api_usage._PRICING_USD_PER_MTOK` gains the two Gemini models at $0 so `log_api_usage()`
+      keeps working until M5. `tests/services/test_claude_client.py` →
+      `test_ai_extraction.py` (20 tests, `genai.Client` mocked); capture / diagnostics /
+      recipe-capture test refs renamed. Full suite **257 pass**, still fully offline
+      (fake mode + mocks, no key).
 - [ ] **M2 — Split into 3 per-task calls.** `extract_recipe()` / `flag_substitutions()` /
       `suggest_sections()` — section suggestion leaves the extraction prompt. Each own prompt +
       schema + fixture. `capture_url` / `capture_photo` orchestrate.
