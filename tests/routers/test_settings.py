@@ -181,3 +181,13 @@ def test_delete_product_unit_not_found_returns_structured_404(client):
 
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "PRODUCT_UNIT_NOT_FOUND"
+
+
+def test_section_vocabulary_returns_ok_envelope(client):
+    resp = client.get("/api/v1/settings/section-vocabulary")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert "produce" in body["data"]["sections"]
+    assert "other" in body["data"]["sections"]

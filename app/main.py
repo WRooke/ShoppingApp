@@ -31,6 +31,9 @@ from app.routers import (
     sessions,
 )
 from app.routers import settings as settings_router
+from app.services.capture_photo import InvalidImageError
+from app.services.capture_url import RecipeFetchError
+from app.services.claude_client import ClaudeApiDisabledError, ClaudeExtractionError
 from app.services.recipes import IngredientNotFoundError, RecipeNotFoundError
 from app.services.settings import (
     DuplicateProductUnitNameError,
@@ -199,6 +202,58 @@ async def duplicate_product_unit_name_handler(
             f'A purchase unit for "{exc.ingredient_name}" already exists.',
             None,
         ),
+    )
+
+
+@app.exception_handler(ClaudeApiDisabledError)
+async def claude_api_disabled_handler(request: Request, exc: ClaudeApiDisabledError):
+    # Not logged as an error — this is the highest-priority §0c gate working as designed,
+    # not a failure. See CLAUDE.md > Security > §0c.
+    logger.warning("Claude API call refused (disabled): %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=503,
+        content=_error_body(
+            "CLAUDE_API_DISABLED",
+            "Recipe capture is currently switched off. Ask the maintainer to enable it.",
+            None,
+        ),
+    )
+
+
+@app.exception_handler(ClaudeExtractionError)
+async def claude_extraction_error_handler(request: Request, exc: ClaudeExtractionError):
+    # Already logged at ERROR with exc_info=True inside claude_client.py at the point of
+    # failure (CLAUDE.md > Diagnostics & Logging) — this is just the envelope translation.
+    logger.warning("Claude extraction failed: %s %s (%s)", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=502,
+        content=_error_body(
+            "EXTRACTION_FAILED",
+            "Couldn't extract ingredients from that. Try again, or add the recipe manually.",
+            str(exc),
+        ),
+    )
+
+
+@app.exception_handler(RecipeFetchError)
+async def recipe_fetch_error_handler(request: Request, exc: RecipeFetchError):
+    logger.warning("Recipe URL fetch failed: %s (%s)", exc.url, exc.reason)
+    return JSONResponse(
+        status_code=502,
+        content=_error_body(
+            "RECIPE_FETCH_FAILED",
+            f"Couldn't fetch that page — {exc.reason}. Check the URL and try again.",
+            None,
+        ),
+    )
+
+
+@app.exception_handler(InvalidImageError)
+async def invalid_image_error_handler(request: Request, exc: InvalidImageError):
+    logger.info("Recipe photo upload rejected: %s", exc.reason)
+    return JSONResponse(
+        status_code=422,
+        content=_error_body("INVALID_IMAGE", exc.reason, None),
     )
 
 

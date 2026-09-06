@@ -48,19 +48,13 @@ class Settings:
         self.anylist_email: str = os.getenv("ANYLIST_EMAIL", "").strip()
         self.anylist_password: str = os.getenv("ANYLIST_PASSWORD", "").strip()
 
-        # Hard spend cap on paid API calls (Claude today; any future metered API later) —
-        # highest-priority standing rule, set 2026-09-05, see CLAUDE.md > Security > API
-        # Spend Cap. This is the maintainer's own AUD figure, read here as the single source
-        # of truth; app/services/api_usage.py converts it to a conservative USD-cents ceiling
-        # and enforces it before every billable call. Claude Code must never edit this value
-        # in .env on its own initiative — raising it is the maintainer's explicit approval
-        # mechanism, not something the app or an agent session does for itself.
-        self.max_api_spend_aud_cents: float = float(os.getenv("MAX_API_SPEND_AUD_CENTS", "50"))
-
-        # Second, independent gate on top of the spend cap above — see CLAUDE.md > Security
-        # > §0c. Defaults OFF: a real Claude call is refused even with a valid key and budget
-        # remaining unless this is explicitly set to true. Claude Code must never flip this
-        # to true in .env on its own initiative — same standing rule as the spend cap.
+        # Gate on real Claude API calls — see CLAUDE.md > Security > §0c. Defaults OFF: a real
+        # call is refused even with a valid key unless this is explicitly set to true. Claude
+        # Code must never flip this to true in .env on its own initiative. (A hard AU$0.50
+        # spend cap used to sit alongside this switch, in a `max_api_spend_aud_cents` setting
+        # here — removed 2026-09-06, see CLAUDE.md's Non-Negotiable Operating Rules banner and
+        # Security §0b; Anthropic billing is prepaid, so there was no runaway-invoice scenario
+        # for an in-app dollar ceiling to guard against.)
         self.claude_api_enabled: bool = self._as_bool(os.getenv("CLAUDE_API_ENABLED", "false"))
 
         # Dev-only escape hatch that bypasses both gates above entirely by never calling the
@@ -106,7 +100,6 @@ class Settings:
             "logs_path": self.logs_path,
             "anthropic_api_key_configured": self.anthropic_configured,
             "anylist_credentials_configured": self.anylist_configured,
-            "max_api_spend_aud_cents": self.max_api_spend_aud_cents,
             "claude_api_enabled": self.claude_api_enabled,
             "claude_api_fake_mode": self.claude_api_fake_mode,
         }

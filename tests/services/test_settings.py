@@ -168,3 +168,9 @@ def test_delete_product_unit_removes_row(db):
 def test_delete_product_unit_raises_when_missing(db):
     with pytest.raises(settings_service.ProductUnitNotFoundError):
         settings_service.delete_product_unit(db, 999)
+
+
+def test_get_section_vocabulary_returns_the_canonical_list():
+    from app.seed_data import SECTION_VOCABULARY
+
+    assert settings_service.get_section_vocabulary() == SECTION_VOCABULARY

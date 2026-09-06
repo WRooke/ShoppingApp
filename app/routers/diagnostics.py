@@ -1,11 +1,14 @@
 """Diagnostics API — backs the /diagnostics page.
 
-Phase 1 provides:
-  * GET /api/v1/diagnostics/logs           live log tail (ring buffer)
-  * GET /api/v1/diagnostics/recent-errors  last 10 ERROR+ entries
-  * GET /api/v1/diagnostics/status         component status panel + spend
+Provides:
+  * GET  /api/v1/diagnostics/logs           live log tail (ring buffer)
+  * GET  /api/v1/diagnostics/recent-errors  last 10 ERROR+ entries
+  * GET  /api/v1/diagnostics/status         component status panel + spend tracker
+  * POST /api/v1/diagnostics/reset-spend    reset the displayed spend tracker (CLAUDE.md >
+                                             Security §0b) — never touches the underlying
+                                             api_usage log, see api_usage.reset_api_usage_display()
 
-Claude and AnyList indicators are stubs until Phases 3 and 5 respectively.
+AnyList indicator is a stub until Phase 5.
 """
 
 from __future__ import annotations
@@ -13,14 +16,13 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.log_config import get_log_entries
-from app.models.diagnostics import ApiUsage
-from app.services.api_usage import get_spend_cap_usd_cents
+from app.services.api_usage import get_display_totals, reset_api_usage_display
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +63,10 @@ def status(db: Session = Depends(get_db)) -> dict:
     }
 
     # --- Claude API -----------------------------------------------------
-    # Spend-cap, enable-switch, and fake-mode fields are always populated — highest-priority
-    # standing rules (CLAUDE.md > Security §0b/§0c) that must be visible on diagnostics
-    # regardless of what phase the rest of the Claude integration has reached.
-    spend_cap_usd_cents = get_spend_cap_usd_cents()
+    # Enable-switch and fake-mode fields are always populated — a highest-priority standing
+    # rule (CLAUDE.md > Security §0c) that must be visible on diagnostics regardless of what
+    # phase the rest of the Claude integration has reached. Spend/token totals are observability
+    # only (§0b) — nothing here gates a call.
     claude = {
         "state": "grey",
         "message": "Claude API key not configured",
@@ -72,37 +74,24 @@ def status(db: Session = Depends(get_db)) -> dict:
         "estimated_spend_usd": 0.0,
         "total_input_tokens": 0,
         "total_output_tokens": 0,
-        "spend_cap_aud_cents": settings.max_api_spend_aud_cents,
-        "spend_cap_usd_cents": round(spend_cap_usd_cents, 4),
-        "remaining_usd_cents": round(spend_cap_usd_cents, 4),
-        "spend_cap_reached": False,
+        "reset_at": None,
         "api_enabled": settings.claude_api_enabled,
         "fake_mode": settings.claude_api_fake_mode,
     }
     try:
-        spend_cents, in_tok, out_tok, last_ts = db.query(
-            func.coalesce(func.sum(ApiUsage.cost_usd_cents), 0.0),
-            func.coalesce(func.sum(ApiUsage.input_tokens), 0),
-            func.coalesce(func.sum(ApiUsage.output_tokens), 0),
-            func.max(ApiUsage.timestamp),
-        ).one()
-        spend_cents = spend_cents or 0.0
+        spend_cents, in_tok, out_tok, last_ts, reset_at = get_display_totals(db)
         claude["estimated_spend_usd"] = round(spend_cents / 100.0, 4)
-        claude["total_input_tokens"] = int(in_tok or 0)
-        claude["total_output_tokens"] = int(out_tok or 0)
-        claude["remaining_usd_cents"] = round(max(spend_cap_usd_cents - spend_cents, 0.0), 4)
-        claude["spend_cap_reached"] = spend_cents >= spend_cap_usd_cents
+        claude["total_input_tokens"] = in_tok
+        claude["total_output_tokens"] = out_tok
+        claude["reset_at"] = str(reset_at) if reset_at is not None else None
 
         # Precedence, most urgent/most-likely-to-explain-current-behaviour first. Fake mode
         # and the enable switch are config, not accounting, so they're checked ahead of the
-        # real spend numbers — those numbers are accurate either way, but they're not why a
-        # call would succeed or fail right now.
+        # spend numbers — those numbers are accurate either way, but they're not why a call
+        # would succeed or fail right now.
         if claude["fake_mode"]:
             claude["state"] = "amber"
             claude["message"] = "FAKE MODE — extraction returns canned fixtures, no real Claude calls are made"
-        elif claude["spend_cap_reached"]:
-            claude["state"] = "red"
-            claude["message"] = "Spend cap reached — further Claude calls are refused"
         elif not claude["api_enabled"]:
             claude["state"] = "grey"
             claude["message"] = "Disabled (CLAUDE_API_ENABLED=false in .env) — enable explicitly to use recipe capture"
@@ -135,3 +124,14 @@ def status(db: Session = Depends(get_db)) -> dict:
             "anylist": anylist,
         },
     }
+
+
+@router.post("/reset-spend")
+def reset_spend(db: Session = Depends(get_db)) -> dict:
+    """Resets the diagnostics-page spend/token tracker (CLAUDE.md > Diagnostics & Logging >
+    "Reset button (with confirmation)"; Security §0b). Purely a display reset — inserts a row
+    into `api_usage_resets` and never touches an `api_usage` row, so the full call history
+    stays intact. The frontend confirms before calling this (see static/js/diagnostics.js)."""
+    marker = reset_api_usage_display(db)
+    logger.info("Diagnostics: spend tracker reset via API at %s", marker.reset_at)
+    return {"ok": True, "data": {"reset_at": str(marker.reset_at)}}

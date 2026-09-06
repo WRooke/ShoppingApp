@@ -33,6 +33,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 
+# --- section vocabulary (read-only constant, see CLAUDE.md > Section Vocabulary Starter
+# List) — used by the capture review UI's suggested_section dropdown (Chunk 3.4) --------
+
+
+@router.get("/section-vocabulary")
+def section_vocabulary() -> dict:
+    return {"ok": True, "data": {"sections": settings_service.get_section_vocabulary()}}
+
+
 # --- staples ---------------------------------------------------------------
 
 

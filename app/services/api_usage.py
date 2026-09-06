@@ -1,13 +1,22 @@
-"""Cost calculation, spend-cap enforcement, and logging for Claude API calls (see CLAUDE.md >
-Data Model > `api_usage`, CLAUDE.md > Diagnostics & Logging — "every external API call ...
-log the attempt at INFO, log success at INFO, log failure at ERROR" — and CLAUDE.md >
-Security > API Spend Cap, a highest-priority standing rule).
+"""Cost calculation and usage logging for Claude API calls (see CLAUDE.md > Data Model >
+`api_usage`, CLAUDE.md > Diagnostics & Logging — "every external API call ... log the attempt
+at INFO, log success at INFO, log failure at ERROR" — and CLAUDE.md > Security §0b, API Usage
+Observability).
+
+**2026-09-06:** this module used to also enforce a hard AU$0.50 lifetime spend cap
+(`enforce_spend_cap()`, `SpendCapExceededError`, `get_spend_cap_usd_cents()`,
+`estimate_worst_case_cost_usd_cents()`). That cap has been removed — see the Non-Negotiable
+Operating Rules banner and Security §0b in CLAUDE.md for why (short version: Anthropic billing
+is prepaid, not an open invoice, so there was nothing left for an in-app dollar ceiling to
+protect against). What's left is purely observational: calculate what a call cost, log it, and
+let the diagnostics page total it up. Nothing in this module refuses a call any more — the
+enable switch and fake mode in `claude_client.py` (Security §0c) are what gate real calls now.
 
 Deliberately separate from `claude_client.py` conceptually — this is where the cost math and
-the `api_usage` table live — but `claude_client.py` imports and calls straight into
-`enforce_spend_cap()` / `log_api_usage()` before/after every real API call, specifically so the
-spend cap cannot be bypassed by a caller forgetting to check it. See CLAUDE.md > Code
-Architecture & Maintainability for why `claude_client.py` is otherwise the DB-free one.
+the `api_usage`/`api_usage_resets` tables live — but `claude_client.py` still imports and calls
+straight into `log_api_usage()` after every real API call, so a real call can never go unlogged
+because a caller forgot. See CLAUDE.md > Code Architecture & Maintainability for why
+`claude_client.py` is otherwise the DB-free one.
 """
 
 from __future__ import annotations
@@ -17,8 +26,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.config import settings
-from app.models.diagnostics import ApiUsage
+from app.models.diagnostics import ApiUsage, ApiUsageReset
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +36,6 @@ _PRICING_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
 }
 
-# Deliberately BELOW the real historical AUD/USD rate (roughly 0.60-0.70 USD per AUD in
-# recent years) — see CLAUDE.md > Security > API Spend Cap. Using a low "USD per AUD" figure
-# makes the computed USD-cent ceiling *smaller* than the true equivalent of the maintainer's
-# AUD cap, so the enforced limit stays stricter than 50c AUD even if the real exchange rate
-# drifts. Never raise this to "get a more accurate" cap — the whole point is the pad.
-_CONSERVATIVE_USD_PER_AUD = 0.55
-
 
 class UnknownModelPricingError(Exception):
     """Raised when cost can't be calculated because the model isn't in the pricing table."""
@@ -42,22 +43,6 @@ class UnknownModelPricingError(Exception):
     def __init__(self, model: str) -> None:
         self.model = model
         super().__init__(f"No pricing entry for model {model!r}")
-
-
-class SpendCapExceededError(Exception):
-    """Raised when a call would push (or has already pushed) total Claude API spend past the
-    maintainer's hard cap (see CLAUDE.md > Security > API Spend Cap). Never caught and
-    silently ignored anywhere — routers translate this straight to a blocking error response,
-    per CLAUDE.md > API Conventions."""
-
-    def __init__(self, current_usd_cents: float, projected_usd_cents: float, cap_usd_cents: float) -> None:
-        self.current_usd_cents = current_usd_cents
-        self.projected_usd_cents = projected_usd_cents
-        self.cap_usd_cents = cap_usd_cents
-        super().__init__(
-            f"Spend cap would be exceeded: current={current_usd_cents:.2f}c "
-            f"projected_call={projected_usd_cents:.2f}c cap={cap_usd_cents:.2f}c (all USD)"
-        )
 
 
 def calculate_cost_usd_cents(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -71,61 +56,52 @@ def calculate_cost_usd_cents(model: str, input_tokens: int, output_tokens: int) 
     return dollars * 100
 
 
-def get_spend_cap_usd_cents() -> float:
-    """The maintainer's AUD cap (`.env` > MAX_API_SPEND_AUD_CENTS), converted to a
-    conservative USD-cent ceiling. See the `_CONSERVATIVE_USD_PER_AUD` comment above."""
-    return settings.max_api_spend_aud_cents * _CONSERVATIVE_USD_PER_AUD
+def get_last_reset_at(db: Session):
+    """The most recent time the diagnostics "reset spend tracker" button was used, or None if
+    it never has been. See `reset_api_usage_display()` below."""
+    return db.query(func.max(ApiUsageReset.reset_at)).scalar()
 
 
-def get_total_spend_usd_cents(db: Session) -> float:
-    """Cumulative spend across every api_usage row ever recorded — this is a lifetime total,
-    not a per-day/per-session figure, matching the maintainer's "at all times" cap wording."""
-    total = db.query(func.coalesce(func.sum(ApiUsage.cost_usd_cents), 0.0)).scalar()
-    return float(total or 0.0)
+def get_lifetime_totals(db: Session) -> tuple[float, int, int, object]:
+    """True lifetime totals across every api_usage row ever recorded, unaffected by any
+    display reset — (spend_usd_cents, input_tokens, output_tokens, last_call_timestamp)."""
+    spend_cents, in_tok, out_tok, last_ts = db.query(
+        func.coalesce(func.sum(ApiUsage.cost_usd_cents), 0.0),
+        func.coalesce(func.sum(ApiUsage.input_tokens), 0),
+        func.coalesce(func.sum(ApiUsage.output_tokens), 0),
+        func.max(ApiUsage.timestamp),
+    ).one()
+    return float(spend_cents or 0.0), int(in_tok or 0), int(out_tok or 0), last_ts
 
 
-def estimate_worst_case_cost_usd_cents(
-    model: str, *, input_char_count: int, image_count: int, max_output_tokens: int
-) -> float:
-    """A deliberately pessimistic pre-call cost estimate, used to refuse a call *before* it's
-    made rather than only noticing the overspend after the fact. Two conservative choices:
-      - ~3 characters per input token (real English/HTML text is usually ~4+) — overestimates
-        input tokens, so overestimates cost.
-      - every image charged at a flat 1600 tokens (a generous worst case for a single photo
-        at the resolutions this app handles) rather than trying to compute the real figure.
-    Assumes the call always spends the full `max_output_tokens` — the true worst case, since
-    actual output is not known until after the (billable) call completes."""
-    estimated_input_tokens = (input_char_count // 3) + (image_count * 1600)
-    return calculate_cost_usd_cents(model, estimated_input_tokens, max_output_tokens)
-
-
-def enforce_spend_cap(
-    db: Session,
-    *,
-    model: str,
-    input_char_count: int,
-    image_count: int,
-    max_output_tokens: int,
-) -> None:
-    """Refuses to proceed if the worst-case cost of the call about to be made would push
-    cumulative spend past the maintainer's cap. Must be called before every billable API call
-    — see CLAUDE.md > Security > API Spend Cap. Raises SpendCapExceededError; never returns a
-    partial/soft warning, because a soft warning is a safeguard someone can learn to ignore."""
-    cap = get_spend_cap_usd_cents()
-    current = get_total_spend_usd_cents(db)
-    projected_call_cost = estimate_worst_case_cost_usd_cents(
-        model, input_char_count=input_char_count, image_count=image_count,
-        max_output_tokens=max_output_tokens,
+def get_display_totals(db: Session) -> tuple[float, int, int, object, object]:
+    """Totals since the last reset (or lifetime, if never reset) — this is what the
+    diagnostics page's running counter shows. Returns
+    (spend_usd_cents, input_tokens, output_tokens, last_call_timestamp, reset_at)."""
+    reset_at = get_last_reset_at(db)
+    query = db.query(
+        func.coalesce(func.sum(ApiUsage.cost_usd_cents), 0.0),
+        func.coalesce(func.sum(ApiUsage.input_tokens), 0),
+        func.coalesce(func.sum(ApiUsage.output_tokens), 0),
+        func.max(ApiUsage.timestamp),
     )
-    if current + projected_call_cost > cap:
-        logger.error(
-            "Spend cap would be exceeded: current=%.2fc projected_call=%.2fc cap=%.2fc "
-            "(cap is MAX_API_SPEND_AUD_CENTS=%.2f converted conservatively to USD) — "
-            "refusing to call the Claude API. Raise MAX_API_SPEND_AUD_CENTS in .env to "
-            "proceed; this requires explicit maintainer approval.",
-            current, projected_call_cost, cap, settings.max_api_spend_aud_cents,
-        )
-        raise SpendCapExceededError(current, projected_call_cost, cap)
+    if reset_at is not None:
+        query = query.filter(ApiUsage.timestamp > reset_at)
+    spend_cents, in_tok, out_tok, last_ts = query.one()
+    return float(spend_cents or 0.0), int(in_tok or 0), int(out_tok or 0), last_ts, reset_at
+
+
+def reset_api_usage_display(db: Session) -> ApiUsageReset:
+    """Backs the diagnostics "reset spend tracker" button (CLAUDE.md > Security §0b). Inserts
+    a new reset marker — never deletes or edits an `api_usage` row, so the underlying call log
+    stays a complete, genuinely append-only record regardless of how many times this is
+    clicked."""
+    marker = ApiUsageReset()
+    db.add(marker)
+    db.commit()
+    db.refresh(marker)
+    logger.info("api_usage display reset at %s (underlying log untouched)", marker.reset_at)
+    return marker
 
 
 def log_api_usage(

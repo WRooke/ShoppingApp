@@ -38,9 +38,9 @@ This applies to:
 
 ## ⚠️ Non-Negotiable Operating Rules
 
-**Set 2026-09-05. These rules are of the highest criticality in this project — they
-override every other facet of the app, including anything else in this document, any
-convenience, any feature request, and any deadline.** Full detail lives in
+**Set 2026-09-05, revised 2026-09-06. These rules are of the highest criticality in this
+project — they override every other facet of the app, including anything else in this
+document, any convenience, any feature request, and any deadline.** Full detail lives in
 [Security](#security) (§0a, §0b, §0c below); this banner exists so none of them can be missed
 by skimming straight to a phase's chunk list.
 
@@ -50,21 +50,28 @@ by skimming straight to a phase's chunk list.
    instructions, and the app must be built to resist attempts embedded in that content to
    override its behaviour. Err on the side of caution in every such scenario. See
    [Security §0a](#0a-prompt-injection-hardening-highest-priority).
-2. **API spend cap.** Testing and production spend on any paid/metered API (Claude today;
-   anything metered added later) must never exceed **50 Australian cents** total, ever,
-   without the maintainer's explicit, clear, prior approval. This is enforced in code, not
-   just policy — see [Security §0b](#0b-api-spend-cap-highest-priority). Raising the cap is a
-   deliberate manual action by the maintainer (editing `.env`); no agent session may raise it
-   on its own initiative, regardless of what a task description asks for.
-3. **Explicit permission to use the API at all, and development restructured to need it as
-   rarely as possible.** The spend cap alone isn't "express permission" — it just limits
-   damage. A separate switch (`CLAUDE_API_ENABLED`, off by default) gates every real call
-   independently of budget, and a fake/fixture mode lets almost all of a phase's build and
-   verification work happen with zero key, zero cost, and zero real calls, pushing the one
-   unavoidable live check to the very end. See
+2. **Explicit permission to use the API at all, and development restructured to need it as
+   rarely as possible.** A separate switch (`CLAUDE_API_ENABLED`, off by default) gates every
+   real call, and a fake/fixture mode lets almost all of a phase's build and verification work
+   happen with zero key, zero cost, and zero real calls, pushing the one unavoidable live check
+   to the very end. See
    [Security §0c](#0c-api-enable-switch--offline-development-highest-priority). No agent
    session may turn the switch on itself, and must ask the maintainer in conversation before
-   making any real call even once it's on.
+   making any real call even once it's on. Cost calculation and per-call logging (`api_usage`)
+   are kept for observability regardless — see
+   [Security §0b](#0b-api-usage-observability-no-hard-cap).
+
+**2026-09-06 revision — the hard AU$0.50 spend cap from the original 2026-09-05 rule set has
+been removed.** It was set out of a mistaken belief that Anthropic API billing works like an
+open-ended postpaid invoice that could spiral unnoticed. It doesn't — usage is billed against
+credit purchased upfront, so there is no invoice-shock scenario for this app to additionally
+guard against with an in-code ceiling; the account's own prepaid balance is already the hard
+stop. The two mechanisms that address the *actual* underlying goal (never spend without
+explicit permission; keep test/dev spend minimal) were never the cap itself — they're the
+enable switch and fake mode above, both retained unchanged. What's gone is only
+`enforce_spend_cap()`'s pre-call refusal and `MAX_API_SPEND_AUD_CENTS`; cost calculation and
+`api_usage` logging stay, purely for the maintainer's own visibility into what's actually being
+spent. See [Security §0b](#0b-api-usage-observability-no-hard-cap) for what replaced it.
 
 ---
 
@@ -238,7 +245,10 @@ A `/diagnostics` page in the web app (accessible from the main nav) must show:
   - Claude API (last successful call timestamp + estimated spend to date)
   - AnyList connection (last successful auth timestamp)
 - **API spend tracker**: running total of Claude API input/output tokens used, converted to
-  estimated USD cost. Reset button (with confirmation). Store in DB.
+  estimated USD cost. Reset button (with confirmation) — clears the *displayed* running total
+  via a reset marker, without deleting the underlying `api_usage` log (see
+  [Security §0b](#0b-api-usage-observability-no-hard-cap); this is observability only, not a
+  spend cap — that was tried and removed, see the Non-Negotiable Operating Rules banner).
 - **Recent errors**: last 10 ERROR-level entries highlighted prominently at the top
 
 The diagnostics page must be built as a skeleton in Phase 1 and populated progressively as
@@ -343,8 +353,9 @@ uses `Base.metadata.create_all()` directly since the schema is still settling.
 
 **Audit columns (Schema & Planning Addendum #5, build now):** `created_at` / `updated_at` are
 added to every *mutable* table below — trivial to add now, effectively impossible to backfill
-onto existing rows later. `shopping_history` and `api_usage` are append-only logs that are never
-updated after insert, so they keep their existing single timestamp (`pushed_at` /
+onto existing rows later. `shopping_history`, `api_usage`, and `api_usage_resets` are
+append-only logs that are never updated after insert, so they keep their existing single
+timestamp (`pushed_at` /
 `timestamp`) instead of a redundant pair.
 
 ### `recipes`
@@ -493,6 +504,19 @@ cost_usd_cents  REAL NOT NULL       -- calculated at call time
 call_type       TEXT NOT NULL       -- 'recipe_url', 'recipe_photo', 'ingredient_normalise'
 context_id      TEXT               -- nullable, e.g. recipe id for traceability
 ```
+Genuinely append-only — see the audit-columns note above. Never deleted or edited by the
+diagnostics reset button (below); that button only ever inserts into `api_usage_resets`.
+
+### `api_usage_resets`
+```
+id              INTEGER PRIMARY KEY
+reset_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+```
+Built at Phase 3 Chunk 3.5 (see [Security §0b](#0b-api-usage-observability-no-hard-cap)).
+Backs the diagnostics "reset spend tracker" button: inserting a row here is the entire effect
+of a reset. The diagnostics running-total display sums `api_usage` rows with
+`timestamp > (most recent api_usage_resets.reset_at, or the beginning of time if none)` —
+`api_usage` itself is never touched. Also append-only, same reasoning as `api_usage`.
 
 ### `stores`, `store_sections`, `product_sections`
 
@@ -1113,7 +1137,7 @@ already used from the start.
       `extract_ingredients(db, *, call_type, context_id=None, text=None, image_base64=None,
       ...)` returning parsed ingredients + `cuisine`/`protein`/per-ingredient
       `suggested_section` + token usage); `services/api_usage.py` (cost-calculation helper,
-      `log_api_usage()`, `enforce_spend_cap()` — [Security §0b](#0b-api-spend-cap-highest-priority)).
+      `log_api_usage()` — [Security §0b](#0b-api-usage-observability-no-hard-cap)).
       Also folds in [Security §0a](#0a-prompt-injection-hardening-highest-priority)
       (untrusted-content delimiter, explicit system-prompt instruction, input length cap,
       `suggested_section` allow-list validation) and
@@ -1127,18 +1151,22 @@ already used from the start.
       `CLAUDE_API_FAKE_MODE=true`, no key set at all, returned a canned fixture correctly).
       Full suite 106/106. **The real-API call itself is deliberately deferred to Chunk 3.6,
       not required to close this chunk** — see §0c for why.
-- [ ] **Chunk 3.2 — URL capture endpoint.** `POST /api/v1/recipes/capture/url`: fetch (httpx,
+      **2026-09-06 revision:** the spend cap this chunk originally built
+      (`enforce_spend_cap()`, `SpendCapExceededError`, `MAX_API_SPEND_AUD_CENTS`) was removed
+      — see the Non-Negotiable Operating Rules banner and Security §0b for why. Cost
+      calculation and `api_usage` logging, and the §0a/§0c hardening, are unaffected and stay
+      exactly as built.
+- [x] **Chunk 3.2 — URL capture endpoint.** `POST /api/v1/recipes/capture/url`: fetch (httpx,
       10s timeout, desktop UA), parse (BeautifulSoup4, prefer `<article>`/`<main>`/
       `[class*="recipe"]`/`[class*="ingredient"]`), call `claude_client.extract_ingredients()`
-      (usage logging + spend-cap enforcement happen inside that call, not here), return the
-      extraction for review — does not save a recipe yet. Manual verification uses
-      `CLAUDE_API_FAKE_MODE=true` (no key needed) — real extraction is exercised once, in
-      Chunk 3.6, not per-chunk.
-- [ ] **Chunk 3.3 — Photo upload endpoint.** `POST /api/v1/recipes/capture/photo`: multipart
+      (usage logging happens inside that call, not here), return the extraction for review —
+      does not save a recipe yet. Manual verification uses `CLAUDE_API_FAKE_MODE=true` (no key
+      needed) — real extraction is exercised once, in Chunk 3.6, not per-chunk.
+- [x] **Chunk 3.3 — Photo upload endpoint.** `POST /api/v1/recipes/capture/photo`: multipart
       image upload, store under `images/` with a UUID filename, call
       `claude_client.extract_ingredients()` with the image, return the extraction for review.
       Same fake-mode manual verification approach as 3.2.
-- [ ] **Chunk 3.4 — Review + confirm UI.** Unified review screen: editable name/qty/unit/
+- [x] **Chunk 3.4 — Review + confirm UI.** Unified review screen: editable name/qty/unit/
       preparation per ingredient (same inline-edit pattern as the Phase 2 recipe editor) plus
       editable `suggested_section` (dropdown, [Section Vocabulary](#section-vocabulary-starter-list)),
       `cuisine`, `protein`. On confirm: create the recipe + `recipe_ingredients`, write
@@ -1146,11 +1174,29 @@ already used from the start.
       tagged. No substitution-suggestion UI (resolved — see above). Fully buildable/clickable
       through with fake-mode fixtures — this layer never distinguishes a real extraction from
       a canned one.
-- [ ] **Chunk 3.5 — Diagnostics wiring.** Claude API status indicator (last successful call
+      Verified 2026-09-05/06: real headless-Edge + CDP session against the dev server —
+      capture-from-URL and capture-from-photo entry points both render correctly from the
+      recipe list, the review screen renders all 6 fake-fixture ingredients with populated
+      section dropdowns, editing the recipe name and saving creates the real recipe + its
+      ingredients + `product_sections` rows (`source='ai_suggested'`), and the app navigates
+      to the saved recipe's real detail view. `/api/v1/diagnostics/recent-errors` stayed empty
+      throughout, no browser console errors. Test recipe archived and its `product_sections`
+      rows deleted afterwards, leaving the DB as it was before.
+- [x] **Chunk 3.5 — Diagnostics wiring.** Claude API status indicator (last successful call
       timestamp) and spend tracker (running input/output token totals + estimated USD) on
-      `/diagnostics`, backed by `api_usage` (the query already exists in
-      `routers/diagnostics.py`, spend-cap/enable/fake-mode fields already wired per §0b/§0c —
-      remaining work here is the reset-with-confirmation button).
+      `/diagnostics`, backed by `api_usage`.
+      **2026-09-06 revision:** originally specified with spend-cap fields
+      (`spend_cap_aud_cents`, `remaining_usd_cents`, `spend_cap_reached`) per the
+      then-current §0b — those are gone along with the cap itself (see Security §0b). What
+      shipped instead: `routers/diagnostics.py` reports `estimated_spend_usd`,
+      `total_input_tokens`, `total_output_tokens`, `last_success`, `api_enabled`, `fake_mode`,
+      and `reset_at` (when the tracker was last reset, or null); `static/js/diagnostics.js`
+      renders all of these plus a "Reset spend tracker" button with a confirm-dialog guard,
+      wired to the new `POST /api/v1/diagnostics/reset-spend` endpoint
+      (`services/api_usage.py` > `reset_api_usage_display()`, backed by the new
+      `api_usage_resets` table — see [Data Model](#data-model)). Component states: fake mode →
+      amber "FAKE MODE"; disabled → grey; a real logged call → green; key configured but no
+      calls yet → amber; no key → grey.
 - [ ] **Chunk 3.6 — Live API verification (real key, explicit go-ahead required).** The one
       point in the whole phase that actually needs a real Claude call: with a real
       `ANTHROPIC_API_KEY` in `.env`, `CLAUDE_API_ENABLED=true`, `CLAUDE_API_FAKE_MODE=false`,
@@ -1159,9 +1205,8 @@ already used from the start.
       standing "yes" is not enough, ask each time), run one real extraction (the staged
       scratchpad script, or through the actual UI) and confirm: a sane ingredient list comes
       back, a matching `api_usage` row is logged with a plausible cost, and
-      `/diagnostics` reflects it. Cost: a few USD-cents, comfortably inside the cap. Blocked
-      today on both the placeholder key and not yet having asked for that go-ahead — do not
-      run this chunk speculatively alongside 3.2-3.5.
+      `/diagnostics` reflects it. Blocked today on both the placeholder key and not yet having
+      asked for that go-ahead — do not run this chunk speculatively alongside 3.2-3.5.
 - [ ] **Phase 3 review** — re-check against [Recipe Capture](#recipe-capture--ai-extraction),
       [Scaling Logic](#scaling-logic) (n/a until Phase 4, confirm nothing here needs it yet),
       [Code Architecture](#code-architecture--maintainability), and
@@ -1378,8 +1423,8 @@ Concretely, for every LLM call that includes untrusted content (currently: `clau
 - The untrusted content is wrapped in an explicit, non-guessable delimiter tag in the user
   message, so it can never be mistaken for a system-level instruction or spoof its own
   closing tag.
-- Input length is capped (`MAX_INPUT_TEXT_CHARS` in `claude_client.py`) — this bounds both the
-  size of any injected payload and worst-case per-call cost (ties into §0b below).
+- Input length is capped (`MAX_INPUT_TEXT_CHARS` in `claude_client.py`) — this bounds the
+  size of any injected payload, and incidentally keeps per-call cost predictable too.
 - The parsed response is validated against strict expected types and, for any field with a
   fixed vocabulary (`suggested_section`), an allow-list — a hallucinated or injected value
   outside that vocabulary is discarded (set to `null`), never passed through. Never trust a
@@ -1399,73 +1444,71 @@ injection surface. Erring on the side of caution here costs little (a delimiter,
 parse) and closes off a class of failure that would otherwise be easy to miss until it's
 exploited.
 
-### 0b. API Spend Cap (highest priority)
+### 0b. API Usage Observability (no hard cap)
 
-**Set 2026-09-05 — see [Non-Negotiable Operating Rules](#-non-negotiable-operating-rules).**
-Total spend on any paid/metered API — Claude today, anything metered added later — must never
-exceed **50 Australian cents**, cumulative, ever, without the maintainer's explicit and clear
-prior approval. This is a lifetime total across all testing and production use combined, not
-a per-day or per-session allowance, and it is enforced in code:
+**Set 2026-09-05, revised 2026-09-06.** This section originally documented a hard AU$0.50
+lifetime spend cap enforced in code (`enforce_spend_cap()`, `MAX_API_SPEND_AUD_CENTS`,
+`SpendCapExceededError`). **That cap has been removed** — it was based on a mistaken
+assumption that Anthropic API billing is an open-ended postpaid invoice that could run away
+unnoticed. It isn't: calls are billed against credit purchased upfront, so the account's own
+prepaid balance is already the real ceiling, and an additional in-app dollar cap wasn't
+protecting against anything that couldn't otherwise happen. There is no cap-related
+`Security §0b` mechanism to follow any more, and none should be re-added without the
+maintainer explicitly asking for it again.
 
-- `app/services/api_usage.py` > `enforce_spend_cap()` computes a deliberately pessimistic
-  worst-case cost for the call about to be made (assuming the full `max_tokens` ceiling is
-  spent as output, and a conservative chars-per-token ratio for input) and compares
-  `current_cumulative_spend + worst_case_call_cost` against the cap. If that would exceed the
-  cap, the call is refused with `SpendCapExceededError` — **before** any billable request is
-  made, not just recorded as a warning afterward.
-- The cap is stored as `MAX_API_SPEND_AUD_CENTS` in `.env` (the maintainer's own AUD figure,
-  default `50`) and converted to a USD-cent ceiling using a deliberately low "USD per AUD"
-  constant (`_CONSERVATIVE_USD_PER_AUD` in `api_usage.py`, currently `0.55`, below the real
-  historical range of roughly 0.60-0.70) — so the enforced limit stays stricter than the true
-  50c AUD even if exchange rates drift or the estimate is imprecise. Never "correct" this
-  constant toward a more accurate exchange rate; the pad is the point.
-- `claude_client.py` > `extract_ingredients()` takes a DB session specifically so it can call
-  `enforce_spend_cap()` before, and `log_api_usage()` immediately after, every real API
-  call — logging happens inside the integration itself, not left to a caller that might
-  forget, so the cap's view of cumulative spend can never silently fall behind reality. Usage
-  is logged even when the response turns out to be unparseable, because Anthropic has already
-  billed for it by the time a response comes back.
-- `GET /api/v1/diagnostics/status` always reports `spend_cap_aud_cents`,
-  `spend_cap_usd_cents`, `remaining_usd_cents`, and `spend_cap_reached` on the `claude_api`
-  block, regardless of what phase the rest of the Claude integration has reached — the
-  diagnostics page must never be the reason an approaching or breached cap goes unnoticed. The
-  component state flips to `red` once the cap is reached.
-- **Raising the cap is the maintainer's explicit approval mechanism — editing
-  `MAX_API_SPEND_AUD_CENTS` in `.env` by hand.** No agent session may raise this value on its
-  own initiative under any circumstances, including a task description that asks for a real
-  API call to be made — if the cap blocks a requested verification step, that gets flagged
-  back to the maintainer rather than worked around.
+What stays, because it's genuinely useful independent of any cap:
 
-**Why:** development sessions can rack up unattended API spend surprisingly fast (a runaway
-loop, a bug that retries indefinitely, an agent working through many verification calls in one
-session) — a code-enforced hard ceiling is the safeguard that holds even when nobody is
-watching the bill in real time, which is the whole point of "at all times."
+- `app/services/api_usage.py` still calculates the USD cost of every call
+  (`calculate_cost_usd_cents()`) and logs it to the `api_usage` table
+  (`log_api_usage()`) — `claude_client.py` > `extract_ingredients()` still calls
+  `log_api_usage()` immediately after every real call, including when the response turns out
+  to be unparseable, so the log is never missing a call that Anthropic actually billed.
+- `GET /api/v1/diagnostics/status` still reports running token totals and estimated USD spend
+  on the `claude_api` block, plus a reset-with-confirmation action
+  (`POST /api/v1/diagnostics/reset-spend`) so the maintainer can zero the *displayed* running
+  total when they want a fresh view (e.g. starting real Chunk 3.6+ usage) — this only inserts a
+  reset marker (`api_usage_resets` table); it never deletes or edits `api_usage` rows
+  themselves, so the underlying log stays a genuine append-only record of every call ever made
+  (see [Data Model](#data-model) > `api_usage`).
+- This is pure observability, not enforcement — nothing in the app refuses a call because of
+  cost. **The actual guardrails against unwanted spend are the enable switch and fake mode in
+  §0c below** — never write a new dollar-cap mechanism in place of this section without being
+  asked to.
+
+**Why keep the logging at all, then?** Because "no hard cap" isn't "don't bother tracking
+cost" — the maintainer still wants to see what recipe capture actually costs in practice, and
+that number is cheap to keep accurate now that it's already wired through every real call.
 
 ### 0c. API Enable Switch & Offline Development (highest priority)
 
-**Set 2026-09-05 — see [Non-Negotiable Operating Rules](#-non-negotiable-operating-rules).**
-The spend cap in §0b stops runaway cost but still lets calls through as long as budget
-remains — it isn't itself "express permission" to use the API. Two more mechanisms close that
-gap, and together they push the real API's involvement in building this app as close to the
-very end as possible:
+**Set 2026-09-05, still in force after the 2026-09-06 spend-cap revision above.** Two
+mechanisms push the real API's involvement in building this app as close to the very end as
+possible, and give the maintainer explicit, deliberate control over when it's used at all —
+this is the part of the original rule set that actually did the job the spend cap was
+mistakenly added alongside:
 
 **The enable switch.** `CLAUDE_API_ENABLED` in `.env`, defaulting to `false`. Checked in
-`claude_client.py` > `extract_ingredients()` before the spend cap, before anything else — a
-configured key and remaining budget are not enough on their own; a real call also needs this
-explicitly set to `true`. Raising it is the maintainer's action alone, taken in `.env`, the
-same standing rule as the spend cap in §0b: **no agent session may set this to `true` on its
+`claude_client.py` > `extract_ingredients()` before anything else — a configured key alone is
+not enough; a real call also needs this explicitly set to `true`. Raising it is the
+maintainer's action alone, taken in `.env`: **no agent session may set this to `true` on its
 own initiative, ever, including when a task description asks for a real API call to be made.**
 Separately, and just as binding: an agent session must ask the maintainer in conversation
-before running anything that would make a real call, even once this switch is on and budget
-remains — the switch protects the app; asking protects against an agent deciding "close
-enough to permission" on the maintainer's behalf.
+before running anything that would make a real call, even once this switch is on — the switch
+protects the app; asking protects against an agent deciding "close enough to permission" on
+the maintainer's behalf.
 
 **Fake mode.** `CLAUDE_API_FAKE_MODE` in `.env`, defaulting to `false`. When `true`,
 `extract_ingredients()` returns a canned fixture (one of a small set of generic sample
 recipes, picked deterministically from a hash of the input — same input always gives the same
 fixture, different inputs land on different ones) instead of calling the real API at all. Zero
-network, zero cost, no key required, bypasses the enable switch and spend cap entirely because
-nothing billable happens. Must never be `true` outside local development.
+network, zero cost, no key required, bypasses the enable switch entirely because nothing
+billable happens. Must never be `true` outside local development.
+
+**Even with no hard cap, minimising real calls during development still matters** — every real
+call has a real (if now unbounded-by-code) cost, and there's no reason to spend anything at all
+on a call whose only purpose is checking that a button renders correctly. Fake mode and the
+enable switch remain the mechanism for that, same as before 2026-09-06 — nothing about their
+behaviour changed, only the (now-removed) cap that used to sit alongside them.
 
 **What this buys, concretely — restructuring Phase 3 so the real key is needed exactly once:**
 almost none of Phase 3's remaining work actually depends on a real Claude response:
@@ -1475,15 +1518,16 @@ almost none of Phase 3's remaining work actually depends on a real Claude respon
 - Chunk 3.4 (review UI): operates entirely on whatever extraction result it's handed — a real
   one or a fixture look identical to this layer. Fully buildable and clickable-through with
   fake mode on.
-- Chunk 3.5 (diagnostics wiring): the spend-cap/enable/fake-mode fields are exercised by
-  writing directly to `api_usage` in tests, not by real calls.
+- Chunk 3.5 (diagnostics wiring): the enable/fake-mode/spend-observability fields are
+  exercised by writing directly to `api_usage` in tests, not by real calls.
 - **One live check, at the very end of the phase, not spread across it.** After 3.2-3.5 are
   built and manually verified with fake mode, a single explicit "does this actually work
   against the real API" pass is what Chunk 3.1's own verification step becomes — see the Phase
   3 chunk list, where this is now its own final chunk rather than a Chunk 3.1 blocker. It
   needs, in order: a real key added to `.env` (maintainer's action), `CLAUDE_API_ENABLED=true`
   (maintainer's action), and the maintainer's go-ahead in conversation for that specific call
-  (agent's obligation to ask, per above). Cost is a few USD-cents, comfortably inside the cap.
+  (agent's obligation to ask, per above). Cost is a few USD-cents — no cap to stay inside of
+  any more, but still no reason to make more than the one call this chunk needs.
 
 **Why:** the maintainer asked directly — "how much of the development can be restructured to
 be developed without the API key" — and the honest answer turned out to be "nearly all of it."
@@ -1811,9 +1855,8 @@ Confirmed during planning, not revisited unless raised again:
 PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ANTHROPIC_API_KEY=sk-ant-...
-MAX_API_SPEND_AUD_CENTS=50
 CLAUDE_API_ENABLED=false
-CLAUDE_API_FAKE_MODE=false
+CLAUDE_API_FAKE_MODE=true
 ANYLIST_EMAIL=...
 ANYLIST_PASSWORD=...
 LOG_LEVEL=INFO
@@ -1822,11 +1865,14 @@ IMAGES_PATH=images
 LOGS_PATH=logs
 ```
 
-`MAX_API_SPEND_AUD_CENTS`, `CLAUDE_API_ENABLED`, `CLAUDE_API_FAKE_MODE` — see
-[Security §0b](#0b-api-spend-cap-highest-priority) and
-[§0c](#0c-api-enable-switch--offline-development-highest-priority), highest-priority standing
-rules. Raise/enable only with the maintainer's explicit approval; `CLAUDE_API_FAKE_MODE` must
-never be `true` outside local development.
+`CLAUDE_API_ENABLED`, `CLAUDE_API_FAKE_MODE` — see
+[Security §0c](#0c-api-enable-switch--offline-development-highest-priority), a
+highest-priority standing rule. Enable only with the maintainer's explicit approval;
+`CLAUDE_API_FAKE_MODE` must never be `true` outside local development. (`MAX_API_SPEND_AUD_CENTS`
+existed here from 2026-09-05 to 2026-09-06 as part of a hard spend cap that has since been
+removed — see the Non-Negotiable Operating Rules banner and
+[Security §0b](#0b-api-usage-observability-no-hard-cap) — it is no longer a recognised
+setting.)
 
 ---
 

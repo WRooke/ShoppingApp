@@ -45,11 +45,22 @@
     searchCard.appendChild(searchRow);
     root.appendChild(searchCard);
 
+    var actionsRow = el("div", "log-controls");
+    actionsRow.style.marginBottom = "16px";
+
     var newLink = el("a", "btn primary", "+ Add recipe");
     newLink.href = "#/recipes/new";
-    newLink.style.display = "inline-block";
-    newLink.style.marginBottom = "16px";
-    root.appendChild(newLink);
+    actionsRow.appendChild(newLink);
+
+    var captureUrlLink = el("a", "btn", "Capture from URL");
+    captureUrlLink.href = "#/recipes/capture-url";
+    actionsRow.appendChild(captureUrlLink);
+
+    var capturePhotoLink = el("a", "btn", "Capture from photo");
+    capturePhotoLink.href = "#/recipes/capture-photo";
+    actionsRow.appendChild(capturePhotoLink);
+
+    root.appendChild(actionsRow);
 
     var listCard = el("div", "card");
     listCard.appendChild(el("h2", null, "Recipes"));
@@ -203,6 +214,10 @@
   function mount(root, param) {
     if (param === "new") {
       global.RecipeFormView.mount(root);
+    } else if (param === "capture-url") {
+      global.CaptureView.mountUrl(root);
+    } else if (param === "capture-photo") {
+      global.CaptureView.mountPhoto(root);
     } else if (param) {
       renderDetail(root, param);
     } else {

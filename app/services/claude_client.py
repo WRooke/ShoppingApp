@@ -7,27 +7,30 @@ integration ever needs to change (different model, different provider) that's a 
 this one file, not a hunt through every router/service that captures a recipe. No `fastapi`
 import here — this module is plain Python, per the same section.
 
-Three highest-priority standing rules govern this module (see CLAUDE.md > Security §0a/§0b/§0c
-— all three take precedence over every other design concern here, including the "no DB"
-purity `services/` modules otherwise aim for):
+Two highest-priority standing rules govern this module (see CLAUDE.md > Security §0a/§0c —
+both take precedence over every other design concern here, including the "no DB" purity
+`services/` modules otherwise aim for). A third, related concern (§0b) is logging-only, not a
+gate — see below.
 
-1. **Spend cap (§0b).** `extract_ingredients()` takes a DB session and a call_type
-   specifically so it can call `api_usage.enforce_spend_cap()` before every billable request
-   and `api_usage.log_api_usage()` immediately after — logging happens inside this function,
-   not left to the caller, so a real API call can never go unrecorded even if a caller forgets.
-2. **Enable switch + fake mode (§0c).** A real call additionally requires
-   `settings.claude_api_enabled` — off by default, independent of the spend cap, so a real
-   call needs both budget *and* an explicit "yes, use it". `settings.claude_api_fake_mode`
-   bypasses both gates entirely by never calling the real API at all, returning a canned
-   fixture instead — see `_FAKE_FIXTURES` below. This is what lets Chunks 3.2-3.5 be built and
-   manually verified with zero API key and zero cost.
-3. **Prompt injection (§0a).** Recipe text/images passed in here originate from an untrusted
+1. **Enable switch + fake mode (§0c).** A real call requires `settings.claude_api_enabled` —
+   off by default, so a real call needs an explicit "yes, use it".
+   `settings.claude_api_fake_mode` bypasses that entirely by never calling the real API at
+   all, returning a canned fixture instead — see `_FAKE_FIXTURES` below. This is what lets
+   Chunks 3.2-3.5 be built and manually verified with zero API key and zero cost.
+2. **Prompt injection (§0a).** Recipe text/images passed in here originate from an untrusted
    external source (a scraped webpage, a photographed cookbook page). The system prompt
    explicitly tells Claude to treat that content as inert data, the untrusted content is
    wrapped in an explicit delimiter so it can never be mistaken for an instruction, input
-   length is capped (bounds both injection payload size and worst-case cost), and the parsed
-   response is validated against a strict allow-list (`suggested_section`) and expected types
-   rather than trusted as-is.
+   length is capped (bounds injection payload size), and the parsed response is validated
+   against a strict allow-list (`suggested_section`) and expected types rather than trusted
+   as-is.
+3. **Usage logging (§0b, observability only — 2026-09-06).** `extract_ingredients()` still
+   takes a DB session specifically so it can call `api_usage.log_api_usage()` immediately
+   after every real call — logging happens inside this function, not left to the caller, so a
+   real call can never go unrecorded. This module used to also call
+   `api_usage.enforce_spend_cap()` before every call and refuse to proceed past a hard AU$0.50
+   lifetime cap; that cap has been removed (see CLAUDE.md's Non-Negotiable Operating Rules
+   banner and Security §0b) — nothing in this module refuses a call on cost grounds any more.
 
 See CLAUDE.md > Recipe Capture — AI Extraction for the extraction prompt spec.
 """
@@ -139,9 +142,8 @@ class ClaudeExtractionError(Exception):
 class ClaudeApiDisabledError(Exception):
     """Raised instead of ever calling the real API when settings.claude_api_enabled is False
     (the default). See CLAUDE.md > Security > §0c — this is a deliberate, explicit "yes, use
-    it" gate independent of the spend cap; a configured key and remaining budget are not
-    enough on their own. Fixed by the maintainer setting CLAUDE_API_ENABLED=true in .env —
-    never by an agent session editing that value itself."""
+    it" gate; a configured key alone is not enough on its own. Fixed by the maintainer setting
+    CLAUDE_API_ENABLED=true in .env — never by an agent session editing that value itself."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -260,17 +262,15 @@ def extract_ingredients(
     a photo with a caption) since Claude accepts mixed content in one message.
 
     `db`, `call_type` ('recipe_url' | 'recipe_photo' | 'ingredient_normalise' — see CLAUDE.md
-    > Data Model) and `context_id` are required/passed through so this function can enforce
-    the spend cap before calling out and log real usage immediately after — see the module
-    docstring for why that lives here rather than in the caller.
+    > Data Model) and `context_id` are required/passed through so this function can log real
+    usage immediately after the call — see the module docstring for why that lives here
+    rather than in the caller.
 
-    Gate order (see CLAUDE.md > Security §0b/§0c): fake mode bypasses everything below and
+    Gate order (see CLAUDE.md > Security §0c): fake mode bypasses everything below and
     returns a canned fixture (no DB writes, no cost, no key needed) — checked first since it's
     meant to work with none of the real infrastructure in place. Otherwise: the enable switch
-    is checked (raises ClaudeApiDisabledError if off), then the spend cap (raises
-    SpendCapExceededError before ever calling out if the worst-case cost of this call would
-    breach the maintainer's cap), then the real call. Raises ClaudeExtractionError for any
-    other failure — network, API, or unparseable response.
+    is checked (raises ClaudeApiDisabledError if off), then the real call is made. Raises
+    ClaudeExtractionError for any other failure — network, API, or unparseable response.
     """
     if not text and not image_base64:
         raise ValueError("extract_ingredients requires text and/or image_base64")
@@ -303,14 +303,6 @@ def extract_ingredients(
             MAX_INPUT_TEXT_CHARS,
         )
         text = text[:MAX_INPUT_TEXT_CHARS]
-
-    api_usage.enforce_spend_cap(
-        db,
-        model=MODEL_ID,
-        input_char_count=len(text or "") + len(EXTRACTION_SYSTEM_PROMPT),
-        image_count=1 if image_base64 else 0,
-        max_output_tokens=MAX_TOKENS,
-    )
 
     logger.info("Claude extraction attempt: model=%s mode=%s", MODEL_ID, mode)
 
@@ -355,8 +347,8 @@ def extract_ingredients(
         raise ClaudeExtractionError("Could not reach the Claude API — check network/DNS.") from exc
 
     # Log real usage immediately — the call has already been billed by Anthropic at this
-    # point regardless of whether parsing below succeeds, so the spend cap's view of
-    # cumulative spend must include it either way (see the module docstring, point 1).
+    # point regardless of whether parsing below succeeds, so the usage log must include it
+    # either way (see the module docstring, point 3).
     api_usage.log_api_usage(
         db,
         model=MODEL_ID,

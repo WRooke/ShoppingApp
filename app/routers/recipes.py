@@ -1,20 +1,22 @@
-"""Recipe library API — recipe CRUD (soft delete) and nested ingredient CRUD.
+"""Recipe library API — recipe CRUD (soft delete), nested ingredient CRUD, and recipe
+capture (URL/photo extraction + confirm-save).
 
-HTTP only: parse the request, call app/services/recipes.py, wrap the result in
+HTTP only: parse the request, call app/services/*.py, wrap the result in
 the {"ok": ...} envelope (see CLAUDE.md > API Conventions). Business logic and
 query construction live in the service layer — see CLAUDE.md > Code
-Architecture & Maintainability. RecipeNotFoundError / IngredientNotFoundError
-are translated to a 404 envelope centrally in app/main.py, not here.
+Architecture & Maintainability. Every exception raised below is translated to a
+structured envelope centrally in app/main.py, not here.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.schemas.capture import CaptureConfirmRequest, CaptureResult, CaptureUrlRequest
 from app.schemas.recipes import (
     RecipeCreate,
     RecipeIngredientCreate,
@@ -24,11 +26,43 @@ from app.schemas.recipes import (
     RecipeRead,
     RecipeUpdate,
 )
+from app.services import capture_photo, capture_url
 from app.services import recipes as recipes_service
+from app.services.claude_client import ExtractionResult
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/recipes", tags=["recipes"])
+
+
+def _capture_result(
+    result: ExtractionResult,
+    *,
+    source_type: str,
+    source_url: str | None = None,
+    source_image_path: str | None = None,
+) -> dict:
+    """Shapes a claude_client.ExtractionResult into the CaptureResult envelope payload — the
+    two extraction endpoints below share this, the confirm endpoint doesn't need it (it
+    already gets the reviewed shape straight from the frontend)."""
+    return CaptureResult(
+        source_type=source_type,
+        source_url=source_url,
+        source_image_path=source_image_path,
+        cuisine=result.cuisine,
+        protein=result.protein,
+        ingredients=[
+            {
+                "name": ing.name,
+                "quantity": ing.quantity,
+                "unit": ing.unit,
+                "preparation": ing.preparation,
+                "original_text": ing.original_text,
+                "suggested_section": ing.suggested_section,
+            }
+            for ing in result.ingredients
+        ],
+    ).model_dump(mode="json")
 
 
 # --- recipes -------------------------------------------------------------
@@ -113,3 +147,41 @@ def update_ingredient(
 def delete_ingredient(recipe_id: int, ingredient_id: int, db: Session = Depends(get_db)) -> dict:
     recipes_service.delete_ingredient(db, recipe_id, ingredient_id)
     return {"ok": True, "data": {"id": ingredient_id, "deleted": True}}
+
+
+# --- capture (Phase 3 — see CLAUDE.md > Recipe Capture — AI Extraction) --------------------
+#
+# The two extraction endpoints below return a CaptureResult for the frontend to review —
+# nothing is saved yet. /capture/confirm is the separate save step (Chunk 3.4). All three
+# route through claude_client.extract_ingredients() (URL/photo) or
+# recipes_service.create_recipe_from_capture() (confirm), which enforce the
+# enable-switch/fake-mode gates and prompt-injection hardening — see CLAUDE.md > Security
+# §0a/§0c. Their exceptions (ClaudeApiDisabledError, ClaudeExtractionError, RecipeFetchError,
+# InvalidImageError) are translated to the envelope centrally in app/main.py, not here.
+
+
+@router.post("/capture/url")
+def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> dict:
+    result = capture_url.fetch_and_extract(db, data.url)
+    return {
+        "ok": True,
+        "data": _capture_result(result, source_type="url", source_url=data.url),
+    }
+
+
+@router.post("/capture/photo")
+def capture_from_photo(image: UploadFile = File(...), db: Session = Depends(get_db)) -> dict:
+    content = image.file.read()
+    filename, result = capture_photo.store_and_extract(
+        db, content=content, content_type=image.content_type or ""
+    )
+    return {
+        "ok": True,
+        "data": _capture_result(result, source_type="photo", source_image_path=filename),
+    }
+
+
+@router.post("/capture/confirm", status_code=201)
+def confirm_capture(data: CaptureConfirmRequest, db: Session = Depends(get_db)) -> dict:
+    recipe = recipes_service.create_recipe_from_capture(db, data)
+    return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}

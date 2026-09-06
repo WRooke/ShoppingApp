@@ -14,12 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.database import utcnow
 from app.models.recipes import Recipe, RecipeIngredient
+from app.schemas.capture import CaptureConfirmRequest
 from app.schemas.recipes import (
     RecipeCreate,
     RecipeIngredientCreate,
     RecipeIngredientUpdate,
     RecipeUpdate,
 )
+from app.services import product_sections
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,50 @@ def create_recipe(db: Session, data: RecipeCreate) -> Recipe:
         recipe.name,
         len(recipe.ingredients),
     )
+    return recipe
+
+
+def create_recipe_from_capture(db: Session, data: CaptureConfirmRequest) -> Recipe:
+    """Saves a reviewed recipe capture (Chunk 3.4 — see CLAUDE.md > Build Phases > Phase 3).
+    Differs from create_recipe() only in also writing product_sections rows for any
+    ingredient carrying a suggested_section — see services/product_sections.py."""
+    recipe = Recipe(
+        name=data.name.strip(),
+        source_type=data.source_type,
+        source_url=data.source_url,
+        source_image_path=data.source_image_path,
+        base_servings=data.base_servings,
+        notes=data.notes,
+        cuisine=data.cuisine,
+        protein=data.protein,
+    )
+    ingredient_sections: dict[str, str] = {}
+    for i, ing in enumerate(data.ingredients):
+        normalised_name = _normalise_ingredient_name(ing.name)
+        recipe.ingredients.append(
+            RecipeIngredient(
+                name=normalised_name,
+                quantity=ing.quantity,
+                unit=ing.unit,
+                preparation=ing.preparation,
+                sort_order=i,
+            )
+        )
+        if ing.suggested_section:
+            ingredient_sections[normalised_name] = ing.suggested_section
+
+    db.add(recipe)
+    db.commit()
+    db.refresh(recipe)
+    logger.info(
+        "Recipe created from capture: id=%s name=%r source_type=%s ingredients=%d",
+        recipe.id,
+        recipe.name,
+        recipe.source_type,
+        len(recipe.ingredients),
+    )
+
+    product_sections.tag_suggested_sections(db, ingredient_sections)
     return recipe
 
 

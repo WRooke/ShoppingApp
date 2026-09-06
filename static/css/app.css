@@ -280,7 +280,8 @@ select, input[type="text"] {
   border-top: 1px solid var(--border);
 }
 .ingredient-edit-row:first-child { border-top: none; }
-.ingredient-edit-row input {
+.ingredient-edit-row input,
+.ingredient-edit-row select {
   font: inherit;
   min-height: 40px;
   padding: 4px 8px;
@@ -293,6 +294,7 @@ select, input[type="text"] {
 .ingredient-qty-input { flex: 0 1 70px; }
 .ingredient-unit-input,
 .ingredient-prep-input { flex: 1 1 90px; }
+.ingredient-section-select { flex: 1 1 130px; }
 
 .form-error {
   color: var(--red);

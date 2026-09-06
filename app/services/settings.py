@@ -20,8 +20,17 @@ from app.schemas.settings import (
     StapleCreate,
     StapleUpdate,
 )
+from app.seed_data import SECTION_VOCABULARY
 
 logger = logging.getLogger(__name__)
+
+
+def get_section_vocabulary() -> list[str]:
+    """The canonical, fixed section list for the capture review UI's dropdown (Chunk 3.4) and
+    the future store-setup UI (Phase 6) — see CLAUDE.md > Section Vocabulary Starter List.
+    Not a DB table, so this is the whole "service": expose the Python constant without every
+    caller importing app.seed_data directly."""
+    return list(SECTION_VOCABULARY)
 
 
 class StapleNotFoundError(Exception):

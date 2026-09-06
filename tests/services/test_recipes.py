@@ -11,6 +11,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
+from app.models.store import ProductSection
+from app.schemas.capture import CaptureConfirmRequest, CaptureIngredientConfirm
 from app.schemas.recipes import (
     RecipeCreate,
     RecipeIngredientCreate,
@@ -190,3 +192,63 @@ def test_delete_ingredient_raises_when_missing(db):
 
     with pytest.raises(recipes_service.IngredientNotFoundError):
         recipes_service.delete_ingredient(db, recipe.id, 999)
+
+
+# --- create_recipe_from_capture (Phase 3, Chunk 3.4) ------------------------
+
+
+def _make_capture_confirm(**overrides) -> CaptureConfirmRequest:
+    payload = {
+        "name": "Weeknight Beef Tacos",
+        "source_type": "url",
+        "source_url": "https://example.com/tacos",
+        "base_servings": 4,
+        "cuisine": "mexican",
+        "protein": "beef mince",
+        "ingredients": [
+            CaptureIngredientConfirm(
+                name="  Beef Mince  ", quantity=500, unit="g", suggested_section="meat & seafood"
+            ),
+            CaptureIngredientConfirm(name="onion", quantity=1, unit=None, suggested_section="produce"),
+        ],
+    }
+    payload.update(overrides)
+    return CaptureConfirmRequest(**payload)
+
+
+def test_create_recipe_from_capture_saves_recipe_and_ingredients(db):
+    recipe = recipes_service.create_recipe_from_capture(db, _make_capture_confirm())
+
+    assert recipe.id is not None
+    assert recipe.source_type == "url"
+    assert recipe.source_url == "https://example.com/tacos"
+    assert recipe.cuisine == "mexican"
+    assert [i.name for i in recipe.ingredients] == ["beef mince", "onion"]
+
+
+def test_create_recipe_from_capture_writes_product_sections(db):
+    recipes_service.create_recipe_from_capture(db, _make_capture_confirm())
+
+    sections = {row.ingredient_name: (row.section_name, row.source) for row in db.query(ProductSection).all()}
+    assert sections["beef mince"] == ("meat & seafood", "ai_suggested")
+    assert sections["onion"] == ("produce", "ai_suggested")
+
+
+def test_create_recipe_from_capture_skips_ingredient_with_no_suggested_section(db):
+    data = _make_capture_confirm(
+        ingredients=[CaptureIngredientConfirm(name="salt", quantity=1, unit=None, suggested_section=None)]
+    )
+    recipes_service.create_recipe_from_capture(db, data)
+
+    assert db.query(ProductSection).count() == 0
+
+
+def test_create_recipe_from_capture_never_overwrites_existing_product_section(db):
+    db.add(ProductSection(ingredient_name="beef mince", section_name="pantry", source="user_corrected"))
+    db.commit()
+
+    recipes_service.create_recipe_from_capture(db, _make_capture_confirm())
+
+    row = db.query(ProductSection).filter_by(ingredient_name="beef mince").one()
+    assert row.section_name == "pantry"
+    assert row.source == "user_corrected"

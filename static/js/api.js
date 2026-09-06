@@ -54,6 +54,16 @@
     });
   }
 
+  function formBody(method, path, formData) {
+    // No Content-Type header here on purpose — the browser sets the multipart boundary
+    // itself; setting it manually breaks the upload.
+    return request(path, {
+      method: method,
+      headers: { Accept: "application/json" },
+      body: formData,
+    });
+  }
+
   const api = {
     ApiError: ApiError,
     get: function (path) {
@@ -113,8 +123,22 @@
           { method: "DELETE", headers: { Accept: "application/json" } }
         );
       },
+      captureUrl: function (url) {
+        return jsonBody("POST", "/api/v1/recipes/capture/url", { url: url });
+      },
+      capturePhoto: function (file) {
+        var formData = new FormData();
+        formData.append("image", file);
+        return formBody("POST", "/api/v1/recipes/capture/photo", formData);
+      },
+      confirmCapture: function (data) {
+        return jsonBody("POST", "/api/v1/recipes/capture/confirm", data);
+      },
     },
     settings: {
+      sectionVocabulary: function () {
+        return api.get("/api/v1/settings/section-vocabulary");
+      },
       staples: {
         list: function () {
           return api.get("/api/v1/settings/staples?limit=200");
@@ -165,6 +189,9 @@
       },
       status: function () {
         return api.get("/api/v1/diagnostics/status");
+      },
+      resetSpend: function () {
+        return jsonBody("POST", "/api/v1/diagnostics/reset-spend", {});
       },
     },
   };

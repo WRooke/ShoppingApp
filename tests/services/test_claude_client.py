@@ -4,13 +4,13 @@ The Anthropic SDK client is mocked throughout — per CLAUDE.md > Code Architect
 Maintainability > Tests, "Claude API and AnyList calls are mocked in tests. Automated tests
 never hit the real network or spend real API budget." The one real network call for this
 phase is a manual, explicitly-approved verification step (see CLAUDE.md > Security > §0c and
-the Phase 3 Chunk 3.1 checklist), never this suite.
+the Phase 3 Chunk 3.6 checklist), never this suite.
 
-Also covers the three highest-priority standing rules this module implements (see CLAUDE.md >
-Security §0a/§0b/§0c): the enable switch defaults calls to refused, fake mode bypasses both
-the switch and the spend cap without ever touching the network, the spend cap is checked
-before every real call and usage logged immediately after, and untrusted content/a
-hallucinated section name can never skip validation.
+Also covers the standing rules this module implements (see CLAUDE.md > Security §0a/§0c): the
+enable switch defaults calls to refused, fake mode bypasses it without ever touching the
+network, usage is logged immediately after every real call (§0b, observability only — no
+spend cap since 2026-09-06), and untrusted content/a hallucinated section name can never skip
+validation.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models.diagnostics import ApiUsage
-from app.services import api_usage
 from app.services.claude_client import (
     MAX_INPUT_TEXT_CHARS,
     ClaudeApiDisabledError,
@@ -55,16 +54,14 @@ def db():
 
 
 @pytest.fixture()
-def cap_50_aud_cents(monkeypatch):
-    monkeypatch.setattr(api_usage.settings, "max_api_spend_aud_cents", 50.0)
-
-
-@pytest.fixture()
 def api_enabled(monkeypatch):
     """Every test that exercises the mocked-real-call path needs this — CLAUDE_API_ENABLED
     defaults to False (CLAUDE.md > Security > §0c), so without it extract_ingredients() would
-    raise ClaudeApiDisabledError before ever reaching the mocked SDK client."""
+    raise ClaudeApiDisabledError before ever reaching the mocked SDK client. Also forces fake
+    mode off regardless of this machine's real .env — a test must never depend on the
+    developer's local CLAUDE_API_FAKE_MODE setting to reach the code path it's testing."""
     monkeypatch.setattr("app.services.claude_client.settings.claude_api_enabled", True)
+    monkeypatch.setattr("app.services.claude_client.settings.claude_api_fake_mode", False)
 
 
 def _fake_response(payload: dict, input_tokens: int = 1200, output_tokens: int = 300):
@@ -99,12 +96,12 @@ def _payload(suggested_section: str | object = "meat & seafood"):
     }
 
 
-def test_extract_ingredients_requires_text_or_image(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_requires_text_or_image(db, api_enabled):
     with pytest.raises(ValueError):
         extract_ingredients(db, call_type="recipe_url")
 
 
-def test_extract_ingredients_success_from_text(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_success_from_text(db, api_enabled):
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = _fake_response(_payload())
         result = extract_ingredients(
@@ -128,7 +125,7 @@ def test_extract_ingredients_success_from_text(db, cap_50_aud_cents, api_enabled
     assert result.ingredients[1].unit is None
 
 
-def test_extract_ingredients_sends_image_content_block(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_sends_image_content_block(db, api_enabled):
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = _fake_response(_payload())
         extract_ingredients(
@@ -142,7 +139,7 @@ def test_extract_ingredients_sends_image_content_block(db, cap_50_aud_cents, api
     assert content[0]["source"]["data"] == "ZmFrZQ=="
 
 
-def test_extract_ingredients_delimits_untrusted_text(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_delimits_untrusted_text(db, api_enabled):
     """Prompt-injection hardening: the recipe text must be wrapped in the untrusted-content
     delimiter, never sent as bare/unmarked user text (see CLAUDE.md > Security > §0a)."""
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
@@ -160,7 +157,7 @@ def test_extract_ingredients_delimits_untrusted_text(db, cap_50_aud_cents, api_e
     assert "Ignore previous instructions" in sent_text  # present, but inside the delimiter
 
 
-def test_extract_ingredients_truncates_oversized_input(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_truncates_oversized_input(db, api_enabled):
     huge_text = "a" * (MAX_INPUT_TEXT_CHARS + 5000)
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = _fake_response(_payload())
@@ -171,7 +168,7 @@ def test_extract_ingredients_truncates_oversized_input(db, cap_50_aud_cents, api
     assert len(sent_text) < len(huge_text)
 
 
-def test_extract_ingredients_rejects_section_outside_vocabulary(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_rejects_section_outside_vocabulary(db, api_enabled):
     """A hallucinated or injected suggested_section must never reach the caller — only values
     from the fixed section vocabulary, or None."""
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
@@ -183,7 +180,7 @@ def test_extract_ingredients_rejects_section_outside_vocabulary(db, cap_50_aud_c
     assert result.ingredients[0].suggested_section is None
 
 
-def test_extract_ingredients_strips_markdown_code_fence(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_strips_markdown_code_fence(db, api_enabled):
     fenced = "```json\n" + json.dumps(_payload()) + "\n```"
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = SimpleNamespace(
@@ -195,7 +192,7 @@ def test_extract_ingredients_strips_markdown_code_fence(db, cap_50_aud_cents, ap
     assert len(result.ingredients) == 2
 
 
-def test_extract_ingredients_wraps_rate_limit_error(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_wraps_rate_limit_error(db, api_enabled):
     resp = httpx2.Response(429, request=_REQUEST)
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.side_effect = anthropic.RateLimitError(
@@ -205,7 +202,7 @@ def test_extract_ingredients_wraps_rate_limit_error(db, cap_50_aud_cents, api_en
             extract_ingredients(db, call_type="recipe_url", text="whatever")
 
 
-def test_extract_ingredients_wraps_api_status_error(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_wraps_api_status_error(db, api_enabled):
     resp = httpx2.Response(500, request=_REQUEST)
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.side_effect = anthropic.APIStatusError(
@@ -215,7 +212,7 @@ def test_extract_ingredients_wraps_api_status_error(db, cap_50_aud_cents, api_en
             extract_ingredients(db, call_type="recipe_url", text="whatever")
 
 
-def test_extract_ingredients_wraps_connection_error(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_wraps_connection_error(db, api_enabled):
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.side_effect = anthropic.APIConnectionError(
             request=_REQUEST
@@ -224,7 +221,7 @@ def test_extract_ingredients_wraps_connection_error(db, cap_50_aud_cents, api_en
             extract_ingredients(db, call_type="recipe_url", text="whatever")
 
 
-def test_extract_ingredients_wraps_unparseable_response(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_wraps_unparseable_response(db, api_enabled):
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = SimpleNamespace(
             content=[SimpleNamespace(type="text", text="not json at all")],
@@ -234,7 +231,7 @@ def test_extract_ingredients_wraps_unparseable_response(db, cap_50_aud_cents, ap
             extract_ingredients(db, call_type="recipe_url", text="whatever")
 
 
-def test_extract_ingredients_wraps_missing_ingredients_key(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_wraps_missing_ingredients_key(db, api_enabled):
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = _fake_response(
             {"cuisine": None, "protein": None}
@@ -243,10 +240,10 @@ def test_extract_ingredients_wraps_missing_ingredients_key(db, cap_50_aud_cents,
             extract_ingredients(db, call_type="recipe_url", text="whatever")
 
 
-# --- spend cap integration --------------------------------------------------
+# --- usage logging (§0b, observability only) --------------------------------
 
 
-def test_extract_ingredients_logs_usage_after_real_call(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_logs_usage_after_real_call(db, api_enabled):
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = _fake_response(
             _payload(), input_tokens=1500, output_tokens=400
@@ -260,9 +257,9 @@ def test_extract_ingredients_logs_usage_after_real_call(db, cap_50_aud_cents, ap
     assert row.output_tokens == 400
 
 
-def test_extract_ingredients_logs_usage_even_if_response_unparseable(db, cap_50_aud_cents, api_enabled):
+def test_extract_ingredients_logs_usage_even_if_response_unparseable(db, api_enabled):
     """The call has already been billed once Claude responds — usage must be recorded even
-    when the response body turns out to be garbage, so the spend cap's view stays accurate."""
+    when the response body turns out to be garbage, so the observability log stays accurate."""
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.messages.create.return_value = SimpleNamespace(
             content=[SimpleNamespace(type="text", text="not json at all")],
@@ -276,43 +273,19 @@ def test_extract_ingredients_logs_usage_even_if_response_unparseable(db, cap_50_
     assert row.output_tokens == 7
 
 
-def test_extract_ingredients_refuses_call_when_cap_already_reached(db, cap_50_aud_cents, api_enabled):
-    db.add(
-        ApiUsage(
-            model="claude-haiku-4-5",
-            input_tokens=0,
-            output_tokens=0,
-            cost_usd_cents=api_usage.get_spend_cap_usd_cents(),
-            call_type="recipe_url",
-        )
-    )
-    db.commit()
-
-    with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
-        with pytest.raises(api_usage.SpendCapExceededError):
-            extract_ingredients(db, call_type="recipe_url", text="whatever")
-        # The whole point: no real API call was made.
-        mock_anthropic.return_value.messages.create.assert_not_called()
-
-
 # --- enable switch (§0c) ----------------------------------------------------
 
 
-def test_extract_ingredients_refuses_by_default_when_not_enabled(db, cap_50_aud_cents):
-    """CLAUDE_API_ENABLED defaults to False — a real call must be refused even with budget
-    remaining and even if the SDK client would otherwise happily respond."""
+def test_extract_ingredients_refuses_by_default_when_not_enabled(db, monkeypatch):
+    """CLAUDE_API_ENABLED defaults to False — a real call must be refused even if the SDK
+    client would otherwise happily respond. Explicitly forces both flags rather than relying
+    on their .env defaults, so this test doesn't depend on the developer's local .env state."""
+    monkeypatch.setattr("app.services.claude_client.settings.claude_api_enabled", False)
+    monkeypatch.setattr("app.services.claude_client.settings.claude_api_fake_mode", False)
     with patch("app.services.claude_client.anthropic.Anthropic") as mock_anthropic:
         with pytest.raises(ClaudeApiDisabledError):
             extract_ingredients(db, call_type="recipe_url", text="whatever")
         mock_anthropic.assert_not_called()
-
-
-def test_extract_ingredients_disabled_check_runs_before_spend_cap(db, monkeypatch):
-    """The enable switch is checked even when the spend cap has plenty of headroom — being
-    under budget is not itself permission to call out."""
-    monkeypatch.setattr(api_usage.settings, "max_api_spend_aud_cents", 10_000.0)  # huge headroom
-    with pytest.raises(ClaudeApiDisabledError):
-        extract_ingredients(db, call_type="recipe_url", text="whatever")
 
 
 # --- fake mode (§0c) ---------------------------------------------------------
@@ -341,23 +314,6 @@ def test_fake_mode_works_with_no_key_and_disabled_switch(db, fake_mode, monkeypa
     monkeypatch.setattr("app.services.claude_client.settings.claude_api_enabled", False)
     monkeypatch.setattr("app.services.claude_client.settings.anthropic_api_key", "")
     result = extract_ingredients(db, call_type="recipe_url", text="anything")
-    assert len(result.ingredients) > 0
-
-
-def test_fake_mode_bypasses_spend_cap_even_when_already_exceeded(db, fake_mode, cap_50_aud_cents):
-    db.add(
-        ApiUsage(
-            model="claude-haiku-4-5",
-            input_tokens=0,
-            output_tokens=0,
-            cost_usd_cents=api_usage.get_spend_cap_usd_cents() * 2,  # already well over
-            call_type="recipe_url",
-        )
-    )
-    db.commit()
-
-    # Must not raise SpendCapExceededError — fake mode makes no real (billable) call at all.
-    result = extract_ingredients(db, call_type="recipe_url", text="whatever")
     assert len(result.ingredients) > 0
 
 

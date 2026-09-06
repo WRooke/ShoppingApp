@@ -23,7 +23,7 @@
     return String(iso).replace("T", " ");
   }
 
-  function renderStatusPanel(container, data) {
+  function renderStatusPanel(container, data, onResetClick) {
     container.innerHTML = "";
     var rows = [
       { key: "database", name: "Database connection" },
@@ -41,15 +41,42 @@
       body.appendChild(el("div", "status-msg", d.message || ""));
 
       if (r.key === "claude_api") {
-        var spend = el(
-          "div",
-          "status-msg",
-          "Estimated spend: $" +
-            (d.estimated_spend_usd != null ? d.estimated_spend_usd.toFixed(4) : "0.0000") +
-            "  ·  last call: " +
-            fmtTime(d.last_success)
+        // Observability only, no cap (CLAUDE.md > Security §0b) — this is a running total
+        // since the last reset (or ever, if never reset), not a budget being checked against.
+        body.appendChild(
+          el(
+            "div",
+            "status-msg",
+            "Spend tracked: $" +
+              (d.estimated_spend_usd != null ? d.estimated_spend_usd.toFixed(4) : "0.0000") +
+              " (" +
+              (d.total_input_tokens || 0) +
+              " input / " +
+              (d.total_output_tokens || 0) +
+              " output tokens)"
+          )
         );
-        body.appendChild(spend);
+        body.appendChild(
+          el(
+            "div",
+            "status-msg",
+            "Last call: " +
+              fmtTime(d.last_success) +
+              (d.reset_at ? "  ·  tracker last reset: " + fmtTime(d.reset_at) : "  ·  never reset")
+          )
+        );
+        body.appendChild(
+          el(
+            "div",
+            "status-msg",
+            "API enabled: " + (d.api_enabled ? "yes" : "no") + "  ·  fake mode: " + (d.fake_mode ? "yes" : "no")
+          )
+        );
+
+        var resetBtn = el("button", null, "Reset spend tracker");
+        resetBtn.style.marginTop = "6px";
+        resetBtn.addEventListener("click", onResetClick);
+        body.appendChild(resetBtn);
       }
       if (r.key === "anylist" && d.last_success) {
         body.appendChild(el("div", "status-msg", "Last auth: " + fmtTime(d.last_success)));
@@ -76,6 +103,23 @@
     });
   }
 
+  function onResetSpendClick() {
+    // Reset button (with confirmation) — see CLAUDE.md > Diagnostics & Logging. This only
+    // clears the displayed running total (a new api_usage_resets marker); the underlying
+    // api_usage log is untouched — see Security §0b.
+    if (!global.confirm("Reset the spend tracker display? This does not delete any logged API usage.")) {
+      return;
+    }
+    api.diagnostics
+      .resetSpend()
+      .then(function () {
+        refresh(document.getElementById("view"));
+      })
+      .catch(function (err) {
+        global.alert("Couldn't reset the spend tracker: " + err.message);
+      });
+  }
+
   function refresh(root) {
     var statusPanel = root.querySelector("#diag-status");
     var errorsBox = root.querySelector("#diag-errors");
@@ -85,7 +129,7 @@
     api.diagnostics
       .status()
       .then(function (d) {
-        if (statusPanel) renderStatusPanel(statusPanel, d);
+        if (statusPanel) renderStatusPanel(statusPanel, d, onResetSpendClick);
       })
       .catch(function (err) {
         if (statusPanel) statusPanel.textContent = "Status unavailable: " + err.message;
