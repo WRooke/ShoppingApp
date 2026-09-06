@@ -25,6 +25,10 @@ Two highest-priority standing rules (CLAUDE.md > Security §0a/§0c):
 §0b: every attempt is logged to ``ai_call_log`` (task / model / outcome / tokens).
 """
 
+# NOTE (file size): ~630 lines -- over the 300-400 guideline. Cohesive (the 3 Gemini
+# calls + their prompts/fixtures/schemas + orchestrator) but flagged to split into an
+# `ai_extraction/` package at the Phase 3.9 M-review. See CLAUDE.md > File size and scope.
+
 from __future__ import annotations
 
 import base64

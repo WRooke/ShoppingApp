@@ -68,6 +68,8 @@ def _normalise_name(name: str) -> str:
 
 
 def create_staple(db: Session, data: StapleCreate) -> Staple:
+    """Insert one staple (name normalised lowercase). Duplicate name -> DuplicateStapleNameError
+    (caught from the UNIQUE constraint, not a raw IntegrityError)."""
     staple = Staple(name=_normalise_name(data.name), notes=data.notes)
     db.add(staple)
     try:
@@ -98,6 +100,7 @@ def list_staples(db: Session, *, limit: int = 100, offset: int = 0) -> tuple[lis
 
 
 def update_staple(db: Session, staple_id: int, data: StapleUpdate) -> Staple:
+    """Partial update; a renamed-into-a-collision -> DuplicateStapleNameError."""
     staple = _get_staple(db, staple_id)
     changes = data.model_dump(exclude_unset=True)
     if "name" in changes and changes["name"] is not None:
@@ -127,6 +130,9 @@ def delete_staple(db: Session, staple_id: int) -> None:
 
 
 def create_product_unit(db: Session, data: ProductUnitCreate) -> ProductUnit:
+    """Insert one purchase-unit row (ingredient_name normalised lowercase, is_preseeded always
+    False for user additions). Uniqueness is (ingredient_name, purchase_label) since Phase 4;
+    a repeated pair -> DuplicateProductUnitNameError."""
     product_unit = ProductUnit(
         ingredient_name=_normalise_name(data.ingredient_name),
         purchase_label=data.purchase_label.strip(),
@@ -172,6 +178,8 @@ def list_product_units(
 def update_product_unit(
     db: Session, product_unit_id: int, data: ProductUnitUpdate
 ) -> ProductUnit:
+    """Partial update; a change that collides on (ingredient_name, purchase_label) ->
+    DuplicateProductUnitNameError."""
     product_unit = _get_product_unit(db, product_unit_id)
     changes = data.model_dump(exclude_unset=True)
     if "ingredient_name" in changes and changes["ingredient_name"] is not None:

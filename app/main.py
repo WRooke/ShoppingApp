@@ -67,6 +67,11 @@ STATIC_DIR = BASE_DIR / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """App startup/shutdown. On startup: create tables (fresh-DB fast path — Alembic owns
+    schema *changes*, see CLAUDE.md > Migrations), seed the idempotent reference data, and
+    start the hourly capture-queue retry poller (Phase 3.9 M3). On shutdown: cancel the
+    poller. A failure in init_db / seed is fatal (re-raised); the poller's own errors are
+    caught per-iteration so one bad run doesn't kill it."""
     logger.info(
         "=== ShoppingApp starting (port %s, log level %s) ===", settings.port, settings.log_level
     )

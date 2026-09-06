@@ -340,6 +340,35 @@ data. The same applies to anything else with an external dependency added later.
   (see [`session_recipes`](#session_recipes)) should land as its own small piece of logic in
   `services/`, not as a growing pile of `if slot_type == ...` checks inside whatever else is
   already in `sessions.py`.
+- **Known oversized files to split at the Phase 3.9 M-review** (flagged 2026-09-06):
+  `services/ai_extraction.py` (~630 lines — the 3 Gemini calls + their prompts + fixtures +
+  schemas + orchestrator; split into an `ai_extraction/` package), `services/recipes.py`
+  (~525 — pull the Chunk 4.2 duplicate-detection block into `services/recipe_duplicates.py`),
+  and `services/sessions.py` (~410 — the `consolidate_session` orchestrator could move to its
+  own module). Each carries a `# NOTE:` marker at the top.
+
+### Documentation & comments — thorough and judicious (set 2026-09-06)
+Every file, function and non-obvious block must be documented well enough that a session
+which has read only CLAUDE.md plus the two or three files it's touching can make a correct
+change. This is not optional polish — it's what makes the incremental-over-many-sessions
+build safe (see the intro to this section).
+
+- **Every module** gets a docstring: what it's for, where it sits in the layering, and a
+  pointer to the CLAUDE.md section(s) it exists *because of* (e.g. "see CLAUDE.md > AI
+  Provider Migration").
+- **Every non-trivial function** gets a docstring: what it does, what the args mean when not
+  obvious, what it raises, and any invariant it upholds. One-line helpers can stay bare.
+- **Comment the "why", not the "what".** Explain a decision, a workaround, a subtlety, an
+  ordering constraint, a spec cross-reference — never narrate code that already reads
+  plainly. A comment that restates the next line is noise; delete it.
+- **Judicious, not exhaustive.** Don't pad. Dense, obvious code needs no commentary;
+  surprising code needs a sentence. If a block needs a paragraph to explain, that's usually
+  a sign it should be a named function instead.
+- **Keep comments true.** A comment that's drifted from the code is worse than none — update
+  or delete it in the same change that moves the code. Same rule as
+  [Keep this document and the code pointing at each other](#keep-this-document-and-the-code-pointing-at-each-other),
+  applied at the comment level.
+- This applies to **all further code** — Python, JS, migrations, scripts, tests.
 
 ### Migrations
 - Alembic from Phase 2 onward, as already stated in [Data Model](#data-model). Once Alembic is in

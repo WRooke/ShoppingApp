@@ -5,6 +5,9 @@ here — see CLAUDE.md > Code Architecture & Maintainability. Routers
 below into the {"ok": false, "error": ...} envelope.
 """
 
+# NOTE (file size): ~525 lines. The Chunk 4.2 duplicate-detection block should move to
+# `services/recipe_duplicates.py` at the Phase 3.9 M-review. See CLAUDE.md > File size.
+
 from __future__ import annotations
 
 import difflib
@@ -287,6 +290,11 @@ def _raise_if_duplicate(db: Session, data: RecipeCreate | CaptureConfirmRequest)
 
 
 def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = False) -> Recipe:
+    """Create a recipe + its nested ingredients in one commit. Ingredient names are
+    normalised lowercase; `resolved_ingredient` / `substitution_note` (the per-recipe swap,
+    Phase 3.9 M4) pass through normalised. Unless `allow_duplicate`, raises
+    PossibleDuplicateRecipeError first if this looks like a recipe already in the library
+    (CLAUDE.md > Duplicate Recipe Prevention)."""
     if not allow_duplicate:
         _raise_if_duplicate(db, data)
     recipe = Recipe(
@@ -459,6 +467,9 @@ def unarchive_recipe(db: Session, recipe_id: int) -> Recipe:
 
 
 def add_ingredient(db: Session, recipe_id: int, data: RecipeIngredientCreate) -> RecipeIngredient:
+    """Append one ingredient to an existing recipe. Name normalised lowercase;
+    `resolved_ingredient` / `substitution_note` pass through normalised (Phase 3.9 M4).
+    Raises RecipeNotFoundError if the recipe is gone."""
     recipe = get_recipe(db, recipe_id)
     ingredient = RecipeIngredient(
         recipe_id=recipe.id,
@@ -492,6 +503,9 @@ def _get_ingredient(db: Session, recipe_id: int, ingredient_id: int) -> RecipeIn
 def update_ingredient(
     db: Session, recipe_id: int, ingredient_id: int, data: RecipeIngredientUpdate
 ) -> RecipeIngredient:
+    """Partial update — only fields actually sent are changed (`exclude_unset`). Name +
+    `resolved_ingredient` are re-normalised; sending `resolved_ingredient: null` clears the
+    substitution (reverts to `name`). Phase 3.9 M4."""
     ingredient = _get_ingredient(db, recipe_id, ingredient_id)
     changes = data.model_dump(exclude_unset=True)
     if "name" in changes and changes["name"] is not None:

@@ -5,10 +5,15 @@ A capture AI call that hits 429 on *both* Gemini models
 request. A lifespan background poller (``app.main``) calls ``run_once`` about once an hour;
 a task that succeeds on retry runs through the normal pipeline and its row is deleted.
 
-M3 wires the ``extract_url`` / ``extract_photo`` tasks end-to-end (a successful retry
-auto-saves the recipe to the library — the user names/edits it afterwards). The
-``flag_substitutions`` / ``suggest_sections`` enrichment tasks are enqueued against a saved
-recipe by M4/M6; ``run_once`` leaves them alone until then.
+Task types and how ``run_once`` handles each:
+  * ``extract_url`` / ``extract_photo`` — re-run the capture; on success **auto-save** the
+    recipe (placeholder name — the user renames/reviews it later) and, if section
+    suggestion is still owed, enqueue a ``suggest_sections`` follow-up + set the badge.
+  * ``suggest_sections`` — retry the call for the saved ``recipe_id``, tag
+    ``product_sections``, clear ``recipes.ai_tasks_pending`` (M6).
+  * ``flag_substitutions`` — never retried post-capture (interactive-only); dropped if seen.
+A task still over quota is kept (``record_attempt``) and retried next hour; any other error
+is logged and the task is kept too.
 
 Plain Python / SQLAlchemy — no ``fastapi`` import.
 """
@@ -40,6 +45,10 @@ POLL_INTERVAL_SECONDS = 3600
 def enqueue(
     db: Session, *, task: str, payload: dict, recipe_id: int | None = None
 ) -> CaptureQueueItem:
+    """Park a capture task for the hourly poller. `task` is one of extract_url /
+    extract_photo / suggest_sections; `payload` carries the url/text/image_path (+ recipe_id
+    for enrichment). `recipe_id` is also set as a column so a deleted recipe cascades its
+    orphan tasks away."""
     item = CaptureQueueItem(
         task=task, payload_json=json.dumps(payload), recipe_id=recipe_id
     )

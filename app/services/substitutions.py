@@ -64,6 +64,10 @@ def _clean_note(note: str | None) -> str | None:
 def create_substitution(
     db: Session, data: RememberedSubstitutionCreate
 ) -> RememberedSubstitution:
+    """Save one quick-pick swap. Names normalised lowercase; `last_used_at` set to now so a
+    fresh entry sorts to the top of its group. No "default" concept (Phase 3.9 M4) — a row
+    never applies itself. Raises InvalidSubstitutionError for a self-swap,
+    DuplicateSubstitutionError for a repeated (original, substitute) pair."""
     original = _normalise(data.original_name)
     substitute = _normalise(data.substitute_name)
     if original == substitute:
@@ -127,6 +131,9 @@ def quick_picks_for(db: Session, original_name: str) -> list[RememberedSubstitut
 def update_substitution(
     db: Session, substitution_id: int, data: RememberedSubstitutionUpdate
 ) -> RememberedSubstitution:
+    """Partial update of a saved swap — `substitute_name` and/or `note` only (`original_name`
+    is immutable: delete + recreate). Re-normalises the substitute and re-checks the
+    self-swap / duplicate-pair invariants."""
     row = get_substitution(db, substitution_id)
     changes = data.model_dump(exclude_unset=True)
 

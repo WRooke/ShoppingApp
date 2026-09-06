@@ -49,6 +49,11 @@ def recent_errors() -> dict:
 
 @router.get("/status")
 def status(db: Session = Depends(get_db)) -> dict:
+    """The component status panel: a `database`, `ai_extraction` (Gemini) and `anylist`
+    block, each with a green/amber/red `state` + `message`. The AI block also carries the
+    §0c enable/fake-mode flags, the daily quota indicator (`today_by_model`), the recent
+    capture-attempt log, and the retry-queue summary. Every sub-query is wrapped so one
+    failing block still returns the others."""
     # --- database -------------------------------------------------------
     db_ok = False
     try:

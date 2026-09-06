@@ -9,6 +9,9 @@ own function (`add_leftovers_slot`), not an `if slot_type == ...` branch inside 
 recipe path.
 """
 
+# NOTE (file size): ~410 lines. The `consolidate_session` orchestrator could move to its
+# own module at the Phase 3.9 M-review. See CLAUDE.md > File size and scope discipline.
+
 from __future__ import annotations
 
 import logging

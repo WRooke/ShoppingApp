@@ -77,6 +77,9 @@ def resolve_packs(required: float, options: list[PackOption]) -> PackResolution 
     best: tuple[float, int, tuple[int, ...]] | None = None  # (overage, pack_count, counts)
 
     def recurse(idx: int, remaining: float, chosen: list[int]) -> None:
+        # DFS over "how many of pack `idx`" (0..cap). When `remaining` <= 0 the combo covers
+        # the requirement — score it (overage, then pack count) and keep the best. `cap`
+        # keeps the branching tiny; the pack list is a handful of sizes, 2-3 deep.
         nonlocal best
         if remaining <= 0:
             total = sum(c * usable[i].qty for i, c in enumerate(chosen))
