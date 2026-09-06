@@ -191,3 +191,65 @@ def test_section_vocabulary_returns_ok_envelope(client):
     assert body["ok"] is True
     assert "produce" in body["data"]["sections"]
     assert "other" in body["data"]["sections"]
+
+
+# --- ingredient substitutions (Phase 4 — CLAUDE.md > Ingredient Substitution) -----------
+
+
+def _create_sub(client, original, substitute, **extra):
+    payload = {"original_name": original, "substitute_name": substitute}
+    payload.update(extra)
+    return client.post("/api/v1/settings/substitutions", json=payload)
+
+
+def test_create_substitution_first_is_default(client):
+    resp = _create_sub(client, "ZZ-Bulgarian Feta", "ZZ-Regular Feta")
+    assert resp.status_code == 201
+    body = resp.json()["data"]
+    assert body["original_name"] == "zz-bulgarian feta"  # normalised
+    assert body["is_default"] is True
+
+
+def test_create_substitution_duplicate_returns_structured_409(client):
+    _create_sub(client, "ZZ-Dup-Orig", "ZZ-Dup-Sub")
+    resp = _create_sub(client, "zz-dup-orig", "zz-dup-sub")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "DUPLICATE_SUBSTITUTION"
+
+
+def test_create_self_substitution_returns_structured_422(client):
+    resp = _create_sub(client, "ZZ-Self", "zz-self")
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_SUBSTITUTION"
+
+
+def test_reassign_default_via_patch(client):
+    a = _create_sub(client, "ZZ-Reassign", "ZZ-Sub-A").json()["data"]
+    b = _create_sub(client, "ZZ-Reassign", "ZZ-Sub-B").json()["data"]
+    assert (a["is_default"], b["is_default"]) == (True, False)
+
+    resp = client.patch(
+        f"/api/v1/settings/substitutions/{b['id']}", json={"is_default": True}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["is_default"] is True
+
+    listed = client.get("/api/v1/settings/substitutions?limit=500").json()["data"]["items"]
+    by_id = {r["id"]: r for r in listed}
+    assert by_id[a["id"]]["is_default"] is False
+    assert by_id[b["id"]]["is_default"] is True
+
+
+def test_delete_substitution(client):
+    row = _create_sub(client, "ZZ-DeleteMe", "ZZ-DeleteMe-Sub").json()["data"]
+    resp = client.delete(f"/api/v1/settings/substitutions/{row['id']}")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["deleted"] is True
+
+
+def test_update_substitution_not_found_returns_structured_404(client):
+    resp = client.patch(
+        "/api/v1/settings/substitutions/999999", json={"substitute_name": "x"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "SUBSTITUTION_NOT_FOUND"

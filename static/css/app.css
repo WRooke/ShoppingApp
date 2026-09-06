@@ -351,3 +351,12 @@ select, input[type="text"] {
   padding: 2px 6px;
   font-size: 0.85rem;
 }
+
+/* --- settings: ingredient substitution groups (Phase 4, Chunk 4.5) --- */
+.sub-group-heading {
+  font-weight: 600;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.sub-group-heading:first-child { border-top: none; margin-top: 0; }

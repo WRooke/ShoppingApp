@@ -327,6 +327,7 @@
     root.innerHTML = "";
     renderStaplesCard(root);
     renderProductUnitsCard(root);
+    global.SettingsSubstitutionsView.renderCard(root); // Phase 4, see settings-substitutions.js
   }
 
   function unmount() {

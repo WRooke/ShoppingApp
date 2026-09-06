@@ -50,6 +50,11 @@ from app.services.settings import (
     ProductUnitNotFoundError,
     StapleNotFoundError,
 )
+from app.services.substitutions import (
+    DuplicateSubstitutionError,
+    InvalidSubstitutionError,
+    SubstitutionNotFoundError,
+)
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -241,6 +246,50 @@ async def possible_duplicate_recipe_handler(request: Request, exc: PossibleDupli
                 for m in exc.matches
             ],
         ),
+    )
+
+
+@app.exception_handler(SubstitutionNotFoundError)
+async def substitution_not_found_handler(request: Request, exc: SubstitutionNotFoundError):
+    logger.info(
+        "Substitution not found: id=%s (%s %s)",
+        exc.substitution_id,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "SUBSTITUTION_NOT_FOUND", f"Substitution {exc.substitution_id} not found.", None
+        ),
+    )
+
+
+@app.exception_handler(DuplicateSubstitutionError)
+async def duplicate_substitution_handler(request: Request, exc: DuplicateSubstitutionError):
+    logger.info(
+        "Duplicate substitution: %r -> %r (%s %s)",
+        exc.original_name,
+        exc.substitute_name,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "DUPLICATE_SUBSTITUTION",
+            f'A rule for "{exc.original_name}" → "{exc.substitute_name}" already exists.',
+            None,
+        ),
+    )
+
+
+@app.exception_handler(InvalidSubstitutionError)
+async def invalid_substitution_handler(request: Request, exc: InvalidSubstitutionError):
+    logger.info("Invalid substitution: %s (%s %s)", exc.reason, request.method, request.url.path)
+    return JSONResponse(
+        status_code=422,
+        content=_error_body("INVALID_SUBSTITUTION", exc.reason, None),
     )
 
 

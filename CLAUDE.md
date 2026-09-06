@@ -1868,7 +1868,7 @@ full — the chunks below build them, they are not re-opened here.
       is Phase 6), `sort_order`. Leftovers slot as its own small service function, not an
       `if slot_type == ...` pile ([Code Architecture](#file-size-and-scope-discipline)).
       Service unit tests + router smoke tests.
-      Done 2026-09-06 (commit `<pending>`). Endpoints: `POST /sessions`, `GET /sessions`
+      Done 2026-09-06 (commit `dece4ee`). Endpoints: `POST /sessions`, `GET /sessions`
       (`?limit`/`?offset`/`?status`), `GET|PATCH /sessions/{id}`, `POST /sessions/{id}/archive`
       (status→'archived'; no hard delete), `POST /sessions/{id}/recipes`,
       `POST /sessions/{id}/leftovers`, `PATCH|DELETE /sessions/{id}/slots/{slot_id}`,
@@ -1883,7 +1883,7 @@ full — the chunks below build them, they are not re-opened here.
       reuses `RecipeNotFoundError`→404. `main.py`: `SESSION_NOT_FOUND` /
       `SESSION_SLOT_NOT_FOUND` → 404, `SLOT_ORDER_MISMATCH` → 422. 16 service unit tests + 11
       router smoke tests; full suite **200 pass**.
-- [ ] **Chunk 4.5 — Ingredient substitution: persistence + Settings management.**
+- [x] **Chunk 4.5 — Ingredient substitution: persistence + Settings management.**
       `schemas/substitutions.py`, `services/substitutions.py` (CRUD; at-most-one-default per
       `original_name` enforced in the service via the 409 pattern, see
       [`ingredient_substitutions`](#ingredient_substitutions)); management section in Settings
@@ -1891,6 +1891,23 @@ full — the chunks below build them, they are not re-opened here.
       `product_units` view still renders sensibly now an ingredient can have several pack-size
       rows ([`product_units`](#product_units) note). The ad-hoc swap + "remember this?" flow
       is Chunk 4.7 — this chunk is the persistence + management half only.
+      Done 2026-09-06 (commit `<pending>`). `services/substitutions.py`: names normalised
+      lowercase; first substitute for an `original_name` is *forced* default; setting a new
+      default **reassigns** (demotes the old — not a 409); `is_default=false` on the last
+      default is allowed (group then has no auto-apply); deleting the default does **not**
+      auto-promote a sibling; self-substitution → `INVALID_SUBSTITUTION` (422); duplicate
+      `(original, substitute)` pair → `DUPLICATE_SUBSTITUTION` (409, `IntegrityError` on the
+      composite unique). `get_default_substitution_map(db) -> {original: substitute}` is the
+      read helper Chunk 4.6 consolidation will call. Endpoints under
+      `/api/v1/settings/substitutions` (POST/GET/PATCH/DELETE), `main.py` translates the 3
+      new exceptions. Frontend: new `static/js/settings-substitutions.js` (split from
+      settings.js per the file-size guideline — settings.js was already 338 lines), a third
+      Settings card grouping rules by original ingredient with a per-row "use" (default)
+      checkbox; `api.js` `settings.substitutions.*`; `.sub-group-heading` CSS. 12 service
+      unit tests + 6 router smoke tests; full suite **218 pass**. Headless-Edge/CDP verified:
+      3 cards render, add-rule works, first substitute auto-defaults, one default per group,
+      normalisation applied, zero console errors. `product_units` multi-row Settings display
+      re-check deferred to Chunk 4.6 (lands with the eggs/milk/yoghurt seed).
 - [ ] **Chunk 4.6 — Consolidation + purchase-unit resolution + summary endpoint.**
       `services/consolidation.py` and `services/purchase_units.py` — both pure, both in the
       high bug-risk trio, both heavily unit-tested. **All the rounding/normalisation rules

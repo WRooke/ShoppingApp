@@ -26,7 +26,13 @@ from app.schemas.settings import (
     StapleRead,
     StapleUpdate,
 )
+from app.schemas.substitutions import (
+    IngredientSubstitutionCreate,
+    IngredientSubstitutionRead,
+    IngredientSubstitutionUpdate,
+)
 from app.services import settings as settings_service
+from app.services import substitutions as substitutions_service
 
 logger = logging.getLogger(__name__)
 
@@ -126,3 +132,55 @@ def update_product_unit(
 def delete_product_unit(product_unit_id: int, db: Session = Depends(get_db)) -> dict:
     settings_service.delete_product_unit(db, product_unit_id)
     return {"ok": True, "data": {"id": product_unit_id, "deleted": True}}
+
+
+# --- ingredient substitutions (Phase 4 — see CLAUDE.md > Ingredient Substitution) --------
+#
+# Management only. Rules are *created* reactively from the Phase 4 planning flow (Chunk 4.7);
+# this section is where they're viewed, re-defaulted, edited and removed — there is no
+# proactive "tag this ingredient" screen. Exceptions translate centrally in app/main.py.
+
+
+def _sub_read(row) -> dict:
+    return IngredientSubstitutionRead.model_validate(row).model_dump(mode="json")
+
+
+@router.post("/substitutions", status_code=201)
+def create_substitution(
+    data: IngredientSubstitutionCreate, db: Session = Depends(get_db)
+) -> dict:
+    return {"ok": True, "data": _sub_read(substitutions_service.create_substitution(db, data))}
+
+
+@router.get("/substitutions")
+def list_substitutions(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> dict:
+    items, total = substitutions_service.list_substitutions(db, limit=limit, offset=offset)
+    return {
+        "ok": True,
+        "data": {
+            "items": [_sub_read(r) for r in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
+
+
+@router.patch("/substitutions/{substitution_id}")
+def update_substitution(
+    substitution_id: int,
+    data: IngredientSubstitutionUpdate,
+    db: Session = Depends(get_db),
+) -> dict:
+    row = substitutions_service.update_substitution(db, substitution_id, data)
+    return {"ok": True, "data": _sub_read(row)}
+
+
+@router.delete("/substitutions/{substitution_id}")
+def delete_substitution(substitution_id: int, db: Session = Depends(get_db)) -> dict:
+    substitutions_service.delete_substitution(db, substitution_id)
+    return {"ok": True, "data": {"id": substitution_id, "deleted": True}}

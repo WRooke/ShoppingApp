@@ -193,6 +193,27 @@
           });
         },
       },
+      substitutions: {
+        list: function () {
+          return api.get("/api/v1/settings/substitutions?limit=500");
+        },
+        create: function (data) {
+          return jsonBody("POST", "/api/v1/settings/substitutions", data);
+        },
+        update: function (id, data) {
+          return jsonBody(
+            "PATCH",
+            "/api/v1/settings/substitutions/" + encodeURIComponent(id),
+            data
+          );
+        },
+        delete: function (id) {
+          return request("/api/v1/settings/substitutions/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          });
+        },
+      },
     },
     diagnostics: {
       logs: function (limit, level) {
