@@ -71,7 +71,7 @@ def _extract_text(html: str) -> str:
 
 
 def fetch_and_extract(db: Session, url: str) -> ai_extraction.ExtractionResult:
-    """Fetches `url`, extracts readable text, and calls ai_extraction.extract_ingredients()
+    """Fetches `url`, extracts readable text, and calls ai_extraction.capture_recipe()
     with call_type='recipe_url'. Raises RecipeFetchError on fetch failure; extraction-side
     errors (spend cap, disabled, unparseable response) propagate from ai_extraction as-is."""
     logger.info("Recipe URL fetch attempt: %s", url)
@@ -97,4 +97,4 @@ def fetch_and_extract(db: Session, url: str) -> ai_extraction.ExtractionResult:
 
     logger.info("Recipe URL fetch succeeded: %s (%d bytes)", url, len(response.content))
     text = _extract_text(response.text)
-    return ai_extraction.extract_ingredients(db, call_type="recipe_url", context_id=url, text=text)
+    return ai_extraction.capture_recipe(db, call_type="recipe_url", context_id=url, text=text)

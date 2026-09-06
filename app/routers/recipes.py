@@ -64,6 +64,14 @@ def _capture_result(
             }
             for ing in result.ingredients
         ],
+        substitution_flags=[
+            {
+                "original": f.original,
+                "suggested_substitute": f.suggested_substitute,
+                "note": f.note,
+            }
+            for f in result.substitution_flags
+        ],
     ).model_dump(mode="json")
 
 

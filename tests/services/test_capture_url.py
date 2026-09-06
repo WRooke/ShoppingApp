@@ -67,7 +67,7 @@ def test_extract_text_strips_script_and_style():
 def test_fetch_and_extract_calls_ai_with_extracted_text():
     html = "<html><body><article>500g beef mince</article></body></html>"
     with patch("app.services.capture_url.httpx.get", return_value=_mock_response(html)):
-        with patch("app.services.capture_url.ai_extraction.extract_ingredients") as mock_extract:
+        with patch("app.services.capture_url.ai_extraction.capture_recipe") as mock_extract:
             mock_extract.return_value = "dummy-result"
             result = fetch_and_extract("fake-db", "https://example.com/tacos")
 

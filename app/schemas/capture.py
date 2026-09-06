@@ -34,6 +34,15 @@ class CapturedIngredient(BaseModel):
     suggested_section: str | None = None
 
 
+class SubstitutionFlagOut(BaseModel):
+    """One AI-flagged substitution candidate for this recipe (Phase 3.9 M2). Enrichment —
+    the review UI's per-ingredient confirm/decline is wired in M4."""
+
+    original: str
+    suggested_substitute: str
+    note: str | None = None
+
+
 class CaptureResult(BaseModel):
     """What the two extraction endpoints return — enough for the review UI to render, and
     enough for the confirm-save step to reuse when the user hasn't edited anything."""
@@ -44,6 +53,7 @@ class CaptureResult(BaseModel):
     cuisine: str | None = None
     protein: str | None = None
     ingredients: list[CapturedIngredient]
+    substitution_flags: list[SubstitutionFlagOut] = Field(default_factory=list)
 
 
 # --- confirm-save ------------------------------------------------------------

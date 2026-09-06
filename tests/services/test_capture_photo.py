@@ -15,7 +15,7 @@ from app.services.capture_photo import InvalidImageError, store_and_extract
 
 
 def test_store_and_extract_saves_file_and_calls_ai():
-    with patch("app.services.capture_photo.ai_extraction.extract_ingredients") as mock_extract:
+    with patch("app.services.capture_photo.ai_extraction.capture_recipe") as mock_extract:
         mock_extract.return_value = "dummy-result"
         filename, result = store_and_extract(
             "fake-db", content=b"fake-jpeg-bytes", content_type="image/jpeg"
@@ -35,7 +35,7 @@ def test_store_and_extract_saves_file_and_calls_ai():
 
 
 def test_store_and_extract_accepts_png():
-    with patch("app.services.capture_photo.ai_extraction.extract_ingredients"):
+    with patch("app.services.capture_photo.ai_extraction.capture_recipe"):
         filename, _ = store_and_extract("fake-db", content=b"fake-png", content_type="image/png")
     assert filename.endswith(".png")
 
@@ -60,7 +60,7 @@ def test_store_and_extract_rejects_oversized_content():
 
 
 def test_store_and_extract_never_touches_disk_or_claude_for_invalid_image():
-    with patch("app.services.capture_photo.ai_extraction.extract_ingredients") as mock_extract:
+    with patch("app.services.capture_photo.ai_extraction.capture_recipe") as mock_extract:
         with pytest.raises(InvalidImageError):
             store_and_extract("fake-db", content=b"x", content_type="image/gif")
         mock_extract.assert_not_called()
