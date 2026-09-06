@@ -1922,9 +1922,21 @@ is folded into this phase's M-review.
       `capture_url` / `capture_photo` call `capture_recipe()`.
       `tests/services/test_ai_extraction.py` rewritten (23 tests). Full suite **260 pass**,
       offline; fake-mode 3-call orchestration verified against a scratch server.
-- [ ] **M3 — Fallback chain + `capture_queue`.** Flash → Flash-Lite → queue on `429`;
-      non-quota errors fail normally. `capture_queue` table + migration. Hourly retry poller
-      (lifespan background task).
+- [x] **M3 — Fallback chain + `capture_queue`.** Done 2026-09-06.
+      `ai_extraction._call_gemini` iterates `(gemini-2.5-flash, gemini-2.5-flash-lite)`: a
+      `429` on one → try the next; `429` on both → `AiQuotaExhaustedError` (subclass of
+      `AiExtractionError`). Non-quota errors don't fall back. Usage logged against the model
+      that answered. Migration `285e886712e0` adds `capture_queue`; `models/queue.py`
+      `CaptureQueueItem`. `services/capture_queue.py`: `enqueue` / `due_items` /
+      `record_attempt` / `remove` / `run_once` — `run_once` drives `extract_url` /
+      `extract_photo` end-to-end (a successful retry **auto-saves** the recipe with a
+      placeholder name — user renames/reviews after); `flag_substitutions` /
+      `suggest_sections` enrichment tasks are left for M4/M6. `app.main` lifespan runs an
+      hourly `asyncio` poll loop (`POLL_INTERVAL_SECONDS=3600`), cancelled on shutdown.
+      `capture_photo` split `store_image()` + `extract_stored()` so the endpoint keeps the
+      filename when the AI call queues. `capture/url` + `/photo` catch `AiQuotaExhaustedError`
+      → enqueue + return `{"ok": true, "data": {"queued": true, …}}`. +10 tests; full suite
+      **270 pass**; migration parity green.
 - [ ] **M4 — Substitution redesign (the merge).** Migrations: `recipe_ingredients` +=
       `resolved_ingredient` / `substitution_note`; `ingredient_substitutions` →
       `remembered_substitutions` (drop `is_default`; add `note` / `last_used_at`). Rework
