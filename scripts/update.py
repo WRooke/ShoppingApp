@@ -97,6 +97,20 @@ def main() -> int:
         _fail("pip install failed - see output above. Server NOT restarted.")
         return 1
 
+    # Apply any DB schema migrations the pulled commit added, BEFORE the restart, so the
+    # new code never starts against an old schema. Alembic bootstrapped in Phase 3 Chunk
+    # 3.7 (see CLAUDE.md > Code Architecture > Migrations). Nullable-column adds are the
+    # common case and safe on a populated table; a migration that fails here aborts the
+    # update with the old version still running, same as a failed pip install above.
+    logger.info("Update: applying database migrations (alembic upgrade head)...")
+    alembic_run = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=BASE_DIR,
+    )
+    if alembic_run.returncode != 0:
+        _fail("alembic upgrade head failed - see output above. Server NOT restarted.")
+        return 1
+
     _, version = run_git(BASE_DIR, "describe", "--tags", "--always")
     logger.info("Update: now at %s", version.strip())
     print(f"\nUpdated to {version.strip()}. Restarting the server...\n")

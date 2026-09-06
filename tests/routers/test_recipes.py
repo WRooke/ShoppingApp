@@ -98,6 +98,34 @@ def test_update_recipe_not_found_returns_structured_404(client):
     assert resp.json()["error"]["code"] == "RECIPE_NOT_FOUND"
 
 
+def test_source_provenance_round_trips_through_create_and_get(client):
+    created = _create_recipe(
+        client, name="ZZ-Provenance-Test", source_book="Ottolenghi SIMPLE", source_page="142-143"
+    ).json()["data"]
+    assert created["source_book"] == "Ottolenghi SIMPLE"
+    assert created["source_page"] == "142-143"
+
+    fetched = client.get(f"/api/v1/recipes/{created['id']}").json()["data"]
+    assert fetched["source_book"] == "Ottolenghi SIMPLE"
+    assert fetched["source_page"] == "142-143"
+
+
+def test_update_recipe_sets_source_page(client):
+    created = _create_recipe(client, name="ZZ-Provenance-Patch-Test").json()["data"]
+
+    resp = client.patch(f"/api/v1/recipes/{created['id']}", json={"source_page": "ch. 3"})
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["source_page"] == "ch. 3"
+
+
+def test_create_recipe_rejects_overlong_source_page(client):
+    resp = _create_recipe(client, name="ZZ-Provenance-TooLong", source_page="x" * 51)
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_archive_recipe_removes_it_from_default_list(client):
     created = _create_recipe(client, name="ZZ-Archive-Test").json()["data"]
 

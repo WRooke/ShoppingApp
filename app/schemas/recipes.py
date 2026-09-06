@@ -60,6 +60,10 @@ class RecipeBase(BaseModel):
     source_url: str | None = None
     source_image_path: str | None = None
     base_servings: int = Field(4, ge=1)
+    # Source provenance (Chunk 3.7) — free text, orthogonal to source_type/source_url.
+    # See CLAUDE.md > Data Model > recipes.
+    source_book: str | None = Field(None, max_length=200)
+    source_page: str | None = Field(None, max_length=50)
     notes: str | None = None
     cuisine: str | None = None
     protein: str | None = None
@@ -80,6 +84,8 @@ class RecipeUpdate(BaseModel):
     source_url: str | None = None
     source_image_path: str | None = None
     base_servings: int | None = Field(None, ge=1)
+    source_book: str | None = Field(None, max_length=200)
+    source_page: str | None = Field(None, max_length=50)
     notes: str | None = None
     cuisine: str | None = None
     protein: str | None = None
@@ -110,6 +116,8 @@ class RecipeRead(RecipeListItem):
 
     source_url: str | None
     source_image_path: str | None
+    source_book: str | None
+    source_page: str | None
     notes: str | None
     ingredients: list[RecipeIngredientRead] = Field(default_factory=list)
 

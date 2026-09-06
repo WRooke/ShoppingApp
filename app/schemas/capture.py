@@ -63,6 +63,10 @@ class CaptureConfirmRequest(BaseModel):
     source_url: str | None = None
     source_image_path: str | None = None
     base_servings: int = Field(4, ge=1)
+    # Source provenance (Chunk 3.7) — the review screen's optional cookbook name / page
+    # inputs. See CLAUDE.md > Recipe Capture > Source provenance on the review screen.
+    source_book: str | None = Field(None, max_length=200)
+    source_page: str | None = Field(None, max_length=50)
     notes: str | None = None
     cuisine: str | None = None
     protein: str | None = None

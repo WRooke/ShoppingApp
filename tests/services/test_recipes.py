@@ -252,3 +252,52 @@ def test_create_recipe_from_capture_never_overwrites_existing_product_section(db
     row = db.query(ProductSection).filter_by(ingredient_name="beef mince").one()
     assert row.section_name == "pantry"
     assert row.source == "user_corrected"
+
+
+# --- source provenance (Chunk 3.7) ----------------------------------------
+
+
+def test_create_recipe_stores_source_provenance(db):
+    recipe = recipes_service.create_recipe(
+        db, _make_recipe(source_book="Ottolenghi SIMPLE", source_page="142-143")
+    )
+
+    assert recipe.source_book == "Ottolenghi SIMPLE"
+    assert recipe.source_page == "142-143"
+
+
+def test_create_recipe_trims_provenance_and_nulls_blanks(db):
+    recipe = recipes_service.create_recipe(
+        db, _make_recipe(source_book="  Ottolenghi SIMPLE  ", source_page="   ")
+    )
+
+    assert recipe.source_book == "Ottolenghi SIMPLE"  # trimmed
+    assert recipe.source_page is None  # whitespace-only -> not set
+
+
+def test_create_recipe_defaults_provenance_to_none(db):
+    recipe = recipes_service.create_recipe(db, _make_recipe())
+
+    assert recipe.source_book is None
+    assert recipe.source_page is None
+
+
+def test_create_recipe_from_capture_stores_source_provenance(db):
+    recipe = recipes_service.create_recipe_from_capture(
+        db, _make_capture_confirm(source_book="  Bittman: How to Cook Everything  ", source_page="88")
+    )
+
+    assert recipe.source_book == "Bittman: How to Cook Everything"
+    assert recipe.source_page == "88"
+
+
+def test_update_recipe_sets_source_provenance(db):
+    recipe = recipes_service.create_recipe(db, _make_recipe())
+
+    updated = recipes_service.update_recipe(
+        db, recipe.id, RecipeUpdate(source_book="Ottolenghi SIMPLE", source_page="142")
+    )
+
+    assert updated.source_book == "Ottolenghi SIMPLE"
+    assert updated.source_page == "142"
+    assert updated.name == "Spaghetti Bolognese"  # untouched

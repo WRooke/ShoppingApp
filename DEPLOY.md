@@ -117,10 +117,16 @@ update.bat
 ```
 
 This pulls the new commit on `production` (fast-forward only — it will never merge or
-force anything), reinstalls dependencies in case `requirements.txt` changed, then stops and
-restarts the server. If any of that fails, it stops before touching the running server, so
-a bad update leaves the *old* version running rather than the app down. Run it directly at
-the NUC's keyboard or over Remote Desktop.
+force anything), reinstalls dependencies in case `requirements.txt` changed, applies any DB
+schema migrations (`alembic upgrade head`), then stops and restarts the server. If any of
+that fails, it stops before touching the running server, so a bad update leaves the *old*
+version running rather than the app down. Run it directly at the NUC's keyboard or over
+Remote Desktop.
+
+(Alembic was bootstrapped in Phase 3 Chunk 3.7 — see CLAUDE.md > Code Architecture >
+Migrations. A rollback to an *older* tag whose schema predates a migration is not
+auto-downgraded; if that ever comes up, run `alembic downgrade <rev>` by hand or restore a
+pre-migration backup.)
 
 ---
 
@@ -152,6 +158,7 @@ then next `update.bat` will fast-forward from wherever `production` currently is
 | `update.bat` says "uncommitted or local changes" on the NUC | Someone edited a file directly on the NUC, or a backup commit is sitting there unpushed | Check `git status` on the NUC; commit/push or discard as appropriate, then re-run |
 | `update.bat` says "git pull --ff-only failed - diverged" | The NUC's `production` has commits `origin` doesn't (shouldn't normally happen — backups commit to the same branch but `backup.py` now rebases onto origin before pushing, precisely to avoid this) | Look at `git log --oneline --all --graph` on the NUC and resolve by hand; don't force-push over it without understanding why first |
 | `update.bat` says "pip install failed" | A new/changed dependency couldn't install (e.g. no internet on the NUC right then) | Fix connectivity or the dependency, re-run `update.bat` — the old server is still running until this step succeeds |
+| `update.bat` says "alembic upgrade head failed" | A schema migration in the pulled commit errored against the NUC's DB | Old server is still running. Read the alembic output; run `alembic current` / `alembic history` on the NUC. Fix the migration (or restore a backup), then re-run `update.bat` |
 | Weekly backup push fails after a deploy | Backup ran before you deployed and its push raced with yours, or vice versa | Not fatal — the backup is still saved locally in `backups/`; `backup.py` will rebase and push cleanly next week. Check `logs/app.log` if it keeps happening |
 
 ---

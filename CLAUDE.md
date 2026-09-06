@@ -994,6 +994,69 @@ new AI calls beyond the existing per-recipe extraction (section suggestion piggy
 
 ---
 
+## Nutrition & MyFitnessPal Export
+
+**Status: post-MVP, unscheduled.** Raised 2026-09-06 — a secondary user wants recipes in
+MyFitnessPal (MFP) for calorie/macro tracking. Designed here so the shape is on record;
+**do not implement speculatively.** There is no reserved phase — it is picked up only if the
+household still wants it once the core app is in daily use. When it does come up, re-verify
+the MFP-API situation below first (this note may be a year or more old by then).
+
+### The MyFitnessPal API reality (checked 2026-09-06)
+MFP has **no usable API for a project like this, in either direction:**
+- The official diary/food API has been approved-partner-only for years (fitness-device makers
+  and similar), with no self-serve key. Under Armour closed it to general developers; Francisco
+  Partners (current owner) has not reopened it.
+- There is therefore no supported way to **push** a recipe into MFP, nor to **read** MFP's food
+  database or a recipe's computed nutrition back out.
+- Community reverse-engineered libraries (e.g. `python-myfitnesspal`) scrape the logged-in web
+  UI. Same fragility class as the AnyList connector — breaks on site changes and bot-protection
+  — but with a stricter ToS and no derisking spike behind it. Not used in the in-scope design
+  below; considered only in the deferred item.
+
+### In scope (when built): recipe export for MFP's Recipe Importer
+MFP has a built-in **Recipe Importer** that takes a recipe URL or pasted ingredient text,
+matches each line against MFP's own food database, and computes per-serving macros inside MFP.
+That feature does the nutrition work; the app's only job is to hand it a clean recipe.
+
+- New `services/` module (e.g. `nutrition_export.py`) that renders a saved recipe as
+  MFP-importer-friendly output: the ingredient lines (quantity + unit + name, one per line,
+  from `recipe_ingredients`) plus the serving count (`recipes.base_servings`). Plain data
+  formatting, no external calls, unit-testable with no DB — fits the `services/` purity norm in
+  [Code Architecture](#code-architecture--maintainability).
+- One endpoint (e.g. `GET /api/v1/recipes/{id}/mfp-export`), `{"ok": ...}` envelope.
+- One button on the recipe detail view ("Export to MyFitnessPal") that shows the formatted
+  text to copy, and surfaces the recipe's `source_url` directly if it has one (MFP's importer
+  accepts a URL; Chunk 3.7 makes `source_url` reliably available and displayed).
+- **No schema change.** Everything needed already exists on `recipes` / `recipe_ingredients`.
+- **No macros stored or shown in the app.** MFP holds the nutrition data; the app does not try
+  to mirror it. Confirmed 2026-09-06.
+
+### Deferred: reading nutrition back into the app
+Whether the app should ever hold per-recipe macros — for a per-planning-session nutrition
+summary, say — is left open. The only realistic source is scraping MFP (no API, as above), so
+this needs its own decision with the fragility/ToS trade-off in view, and a derisking spike
+like AnyList had if adopted. Independent alternatives (an in-app estimate from USDA FoodData
+Central, Claude estimation, or a hand-maintained `ingredient_nutrition` table) were considered
+and set aside 2026-09-06 — the ask is specifically to use MFP, and a parallel estimate that
+doesn't match MFP's numbers is two sources of truth. See [Deferred Decisions](#deferred-decisions)
+and the Decision Dialogue.
+
+If this is ever built, expect roughly: an `ingredient_nutrition` reference table keyed by
+`ingredient_name` (per-100g / per-unit macros, user-correctable — same pattern as
+[`product_units`](#product_units) / [`product_sections`](#stores-store_sections-product_sections)),
+per-recipe cached totals, and ingredient-level weight/density data to convert
+tsp/tbsp/cup/"each" into the grams nutrition data is quoted in (partly overlapping
+`product_units.purchase_qty`). That unit conversion is the genuinely hard part and the main
+reason this is not a small feature.
+
+### Out of scope (unchanged)
+Cost/budget tracking stays out ([Explicitly Out of Scope](#explicitly-out-of-scope)); this does
+not reopen it. Nutrition display, if it ever lands, is a reference readout — not a calorie-goal
+or diet-tracking feature inside the app. MFP is that tool.
+
+---
+
 ## Pre-seeded Product Units
 
 Seed the `product_units` table on first run with Australian common grocery items. Mark all
@@ -1438,6 +1501,15 @@ already used from the start.
         `create_recipe_from_capture` (whitespace-trim, empty → `None`; `update_recipe` is
         already automatic via its `exclude_unset` loop). Service unit tests + router smoke
         tests, no network.
+        **Done 2026-09-06** — migration `9b903c88b3aa` (batch `add_column`, nullable, no
+        default — applied to the populated dev DB, its 5 existing rows untouched).
+        `_clean_optional_text()` in `services/recipes.py` trims + maps blank→`None` on both
+        create paths; `update_recipe` left as-is per the note above. `scripts/update.py` now
+        runs `alembic upgrade head` between `pip install` and the restart, aborting the
+        restart on failure (same contract as a failed `pip install`); `DEPLOY.md` updated to
+        match. 8 new tests (5 `tests/services/test_recipes.py`, 3
+        `tests/routers/test_recipes.py`); suite 138 pass; `tests/test_migrations.py` confirms
+        `upgrade head` still equals `create_all()` with the new columns.
       - **3.7c — Frontend (three files).** `recipes.js` detail view gets a "Source" line —
         URL rendered as `<a target="_blank" rel="noopener noreferrer">` **only** if it parses
         as `http:`/`https:` (never `javascript:`/`data:`), else plain text; book as
@@ -1906,6 +1978,8 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Git branching strategy: `production` / `develop` branches | ~~Phase 2 review~~ **Resolved 2026-09-05 — option 2 (`develop` + `production`)** | `deploy.bat`/`scripts/deploy.py` (dev PC, ships from `develop`, fast-forwards `production`) and `update.bat`/`scripts/update.py` (NUC, pulls `production` only) updated and verified against a sandbox origin+dev+NUC repo trio, including the diverged-`production`-from-a-backup-commit failure/recovery path. `backup.py` needed no logic change (already branch-agnostic via `HEAD`). Local `main` renamed to `develop`, `production` branched off it — **pushing both to origin and updating GitHub's default branch is still a manual step for the maintainer** (Claude Code creates commits but never pushes, see [Commits](#commits)); see `DEPLOY.md > One-time setup` for the exact commands. Full workflow in `DEPLOY.md`. |
 | "The usuals" — recurring non-recipe household items checklist | Phase 5 kickoff | e.g. laundry powder, dishwashing liquid — bought periodically regardless of what's being cooked. Distinct from `staples` (recipe ingredients assumed on hand, surfaced only when a recipe needs them this session). Needs its own storage decision, a cadence decision (every session vs. periodic), and a decision on whether it's part of the existing checklist UI or a separate step. See [Checklist Screen Logic](#checklist-screen-logic). |
 | AI pre-fill of cookbook name / page from a photo | Revisit if hand-entry proves tedious | Phase 3 Chunk 3.7 collects `source_book` / `source_page` via manual review-screen inputs and deliberately does not extend the extraction prompt to OCR them (unreliable; every new prompt field costs fresh [§0a](#0a-prompt-injection-hardening-highest-priority) output-validation work). If typing them every capture turns out to be annoying, add best-effort `suggested_book` / `suggested_page` to the prompt with allow-list-style validation. Same standing as any other not-yet-needed feature — no reserved phase. See [Recipe Capture](#recipe-capture--ai-extraction). |
+| MyFitnessPal recipe export | Post-MVP / unscheduled | Secondary user wants recipes in MFP for macro tracking. Design done: app generates a clean recipe for MFP's built-in Recipe Importer; no push API, no macros held in the app. See [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export). Do not build speculatively; re-verify the MFP-API status when picked up. |
+| Nutrition read-back into the app (per-recipe macros) | Post-MVP / unscheduled | Recipe→MFP export (row above) is the in-scope design. Reading macros *back* has no API path — only MFP scraping — so it's parked with the fragility/ToS trade-off to weigh, and needs a derisking spike if adopted. Independent in-app estimation (USDA FoodData Central / Claude / manual `ingredient_nutrition` table) set aside 2026-09-06: the ask is specifically MFP, and a non-matching estimate is a second source of truth; unit conversion (tsp/tbsp/cup/"each" → grams) is the hard part. See [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export). |
 
 ### Decision Dialogues
 
@@ -2097,6 +2171,26 @@ of what was asked.
 **Context:** The list is provisional (seeded in Phase 1, `app/seed_data.py`). It's a dropdown vocabulary for the Phase 6 store-setup UI, so it should match actual store layouts before that UI is built. Not a big change, but easier to do now than to rework later.
 
 **Expected outcome:** Confirmed/updated `SECTION_VOCABULARY` in `app/seed_data.py` before Phase 6 store-setup UI is built.
+
+---
+
+#### Nutrition read-back into the app (Post-MVP — if raised again)
+
+**Q:** Recipe→MFP export is settled. Should the app additionally hold per-recipe macros so it can show a nutrition summary (e.g. per planning session)?
+
+**A options:**
+1. **No — export only.** MFP holds nutrition; the app never mirrors it. Current position (2026-09-06).
+2. **Manual write-back.** A per-serving kcal/protein/carbs/fat field on the recipe the user fills in once from MFP's computed figures. MFP stays source of truth; ~4 numbers per recipe. No integration, no new dependency.
+3. **Scrape MFP.** Unofficial library reads MFP's computed recipe nutrition. Real automation, but AnyList-class fragility + a stricter ToS; needs a derisking spike.
+4. **Independent estimate.** App computes its own macros from USDA FoodData Central / Claude / a manual `ingredient_nutrition` table. Always present, no MFP dependency, but won't match MFP's numbers — two sources of truth. Also carries the hard unit-conversion problem (tsp/tbsp/cup/"each" → grams).
+
+**A sub-questions (if not option 1):**
+- Where do macros surface — recipe detail, planning-session summary, or both?
+- If option 3 or 4: does this get its own phase, or fold into an existing one?
+
+**Context:** Raised 2026-09-06. The secondary user wants recipes in MFP for macro tracking; MFP has no API in either direction (see [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export)). Export covers the core ask cheaply. Read-back is a want, not a need, and every real option has a notable downside.
+
+**Expected outcome:** Decision documented in [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export); if option 2–4, a build plan plus any schema / further Decision Dialogue follow-ups.
 
 ---
 

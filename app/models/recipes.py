@@ -17,6 +17,17 @@ class Recipe(Base):
     source_url = Column(Text, nullable=True)
     source_image_path = Column(Text, nullable=True)
     base_servings = Column(Integer, nullable=False, default=4)
+
+    # --- source provenance (Chunk 3.7) ------------------------------------
+    # Where the recipe ORIGINALLY came from, in a human-meaningful form. Orthogonal to
+    # source_type (which records how the ingredients got INTO the app): a photographed or
+    # hand-typed recipe can still cite a book, and a URL recipe can too. Not mutually
+    # exclusive with source_url and not enforced as such. source_page is Text, not Integer,
+    # so "142-143", "142 & 145", "ch. 3" all work. See CLAUDE.md > Data Model > recipes and
+    # > Build Phases > Phase 3 > Chunk 3.7.
+    source_book = Column(Text, nullable=True)  # e.g. "Ottolenghi SIMPLE"
+    source_page = Column(Text, nullable=True)  # e.g. "142" or "142-143"
+
     notes = Column(Text, nullable=True)  # single freeform notes field (see CLAUDE.md > Data Model)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

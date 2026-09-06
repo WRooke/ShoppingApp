@@ -46,6 +46,17 @@ def _normalise_ingredient_name(name: str) -> str:
     return name.strip().lower()
 
 
+def _clean_optional_text(value: str | None) -> str | None:
+    """Trim; a blank/whitespace-only string means 'not set' (-> None). Used for the
+    optional free-text source-provenance fields on create — see CLAUDE.md > Data Model >
+    recipes source provenance. (update_recipe stores what it's given via its exclude_unset
+    loop; only the create paths normalise here.)"""
+    if value is None:
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
 # --- recipes ---------------------------------------------------------------
 
 
@@ -56,6 +67,8 @@ def create_recipe(db: Session, data: RecipeCreate) -> Recipe:
         source_url=data.source_url,
         source_image_path=data.source_image_path,
         base_servings=data.base_servings,
+        source_book=_clean_optional_text(data.source_book),
+        source_page=_clean_optional_text(data.source_page),
         notes=data.notes,
         cuisine=data.cuisine,
         protein=data.protein,
@@ -92,6 +105,8 @@ def create_recipe_from_capture(db: Session, data: CaptureConfirmRequest) -> Reci
         source_url=data.source_url,
         source_image_path=data.source_image_path,
         base_servings=data.base_servings,
+        source_book=_clean_optional_text(data.source_book),
+        source_page=_clean_optional_text(data.source_page),
         notes=data.notes,
         cuisine=data.cuisine,
         protein=data.protein,
