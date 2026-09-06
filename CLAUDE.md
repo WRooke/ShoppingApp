@@ -333,6 +333,31 @@ data. The same applies to anything else with an external dependency added later.
   use, every schema change ships as a migration — never a hand-edited table or a reliance on
   `create_all()` picking up the difference — so the schema's history stays reconstructable from
   the migration chain alone, independent of this document.
+- **Reality check (2026-09-06):** Alembic was never actually set up in Phase 2 — the app still
+  runs `Base.metadata.create_all()` on startup. This stayed invisible because every schema
+  change through Phase 3 Chunk 3.5 only *added whole tables*, which `create_all()` handles.
+  Adding `source_book`/`source_page` to the existing `recipes` table in Chunk 3.7 is the first
+  change that genuinely needs a migration, so **Alembic is bootstrapped as the first step of
+  Chunk 3.7** (its own commit: scaffold, wire `env.py` to `app.database.Base` and the config
+  URL, a baseline revision representing the current schema, `alembic stamp head` on the
+  existing dev DB). `create_all()` stays as the fresh-empty-DB fast path; schema *changes*
+  from Chunk 3.7 onward go through Alembic. The Phase 4 `product_units` UNIQUE-constraint
+  change (see [`product_units`](#product_units)) then rides on an Alembic that already exists.
+- **3.7a done (2026-09-06):** `alembic==1.19.2` pinned in `requirements.txt`; `alembic/` +
+  `alembic.ini` scaffolded; `alembic/env.py` takes `target_metadata` from
+  `app.database.Base.metadata` (it imports `app.models` to register every table) and derives
+  the DB URL from `app.config.settings.database_path` — nothing hardcoded in `alembic.ini`,
+  so `alembic` and the running app can't point at different databases. `render_as_batch=True`
+  for SQLite ALTERs. Baseline revision `bf3919bfcbd9` reproduces the `create_all()` schema;
+  the existing dev DB was `alembic stamp head`ed, not upgraded. Verified: `alembic upgrade
+  head` on a fresh empty DB is semantically identical (columns / PKs / FKs + `on_delete` /
+  indexes / uniqueness) to `Base.metadata.create_all()` — codified as
+  `tests/test_migrations.py`, which every future migration must keep green.
+- **Applying migrations (from Chunk 3.7b onward):** dev PC — run `alembic upgrade head` after
+  pulling a migration (startup `create_all()` does NOT add a column to an existing table).
+  NUC — `scripts/update.py` runs `alembic upgrade head` between `pip install` and the
+  restart, and aborts the restart (leaving the old version running) if it fails; wired up in
+  Chunk 3.7b alongside the first real migration.
 
 ### Keep this document and the code pointing at each other
 - Keep doing what Phase 1 already does: a docstring or comment that names the relevant CLAUDE.md
@@ -348,8 +373,10 @@ data. The same applies to anything else with an external dependency added later.
 
 ## Data Model
 
-All tables use SQLite via SQLAlchemy. Use Alembic for migrations from Phase 2 onward — Phase 1
-uses `Base.metadata.create_all()` directly since the schema is still settling.
+All tables use SQLite via SQLAlchemy. Alembic for migrations — intended from Phase 2 onward,
+actually bootstrapped at Phase 3 Chunk 3.7 (the first change to an existing table); see
+[Code Architecture > Migrations](#migrations) for that history. `Base.metadata.create_all()`
+still runs on startup as the fresh-DB fast path.
 
 **Audit columns (Schema & Planning Addendum #5, build now):** `created_at` / `updated_at` are
 added to every *mutable* table below — trivial to add now, effectively impossible to backfill
@@ -362,10 +389,20 @@ timestamp (`pushed_at` /
 ```
 id              INTEGER PRIMARY KEY
 name            TEXT NOT NULL
-source_type     TEXT NOT NULL  -- 'url', 'photo', 'manual'
+source_type     TEXT NOT NULL  -- 'url', 'photo', 'manual' — how the ingredients got INTO the app
 source_url      TEXT           -- nullable
 source_image_path TEXT         -- nullable, path to stored image file
 base_servings   INTEGER NOT NULL DEFAULT 4
+
+-- Source provenance (added Phase 3 Chunk 3.7, 2026-09-06). Where the recipe ORIGINALLY
+-- came from, in a human-meaningful form — orthogonal to source_type (a photographed or
+-- hand-typed recipe can still cite a book; a URL recipe can too). Not mutually exclusive
+-- with source_url and not enforced as such. source_page is TEXT not INTEGER so "142-143",
+-- "142 & 145", "ch. 3" all work. Both nullable; shown on the recipe detail view, editable
+-- from edit mode and the capture review screen. See CLAUDE.md > Recipe Capture and
+-- > Build Phases > Phase 3 > Chunk 3.7.
+source_book     TEXT            -- nullable, e.g. "Ottolenghi SIMPLE"
+source_page     TEXT            -- nullable, e.g. "142" or "142-143"
 notes           TEXT           -- nullable, free text for the recipe overall (see note below)
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -438,6 +475,27 @@ notes           TEXT                  -- nullable
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
+
+### `ingredient_substitutions`
+```
+id              INTEGER PRIMARY KEY
+original_name   TEXT NOT NULL       -- normalised lowercase, matches recipe_ingredients.name
+substitute_name TEXT NOT NULL       -- normalised lowercase
+is_default      BOOLEAN NOT NULL DEFAULT 0  -- the substitute that auto-applies silently; at
+                                             -- most one TRUE per original_name — enforced in
+                                             -- services/, not a DB constraint (SQLite has no
+                                             -- clean partial-unique-index story via the ORM
+                                             -- here), same pattern as the duplicate-name 409s
+                                             -- already used in services/settings.py
+created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+UNIQUE(original_name, substitute_name)
+```
+Deliberately never pre-seeded, unlike `product_units`/`staples` — every row exists only because
+the user made and kept a real substitution. See
+[Ingredient Substitution](#ingredient-substitution) for the full design: what creates a row (the
+Phase 4 ad-hoc-swap-and-remember flow, nothing else), what resolves it (consolidation, before
+[Purchase unit resolution](#scaling-logic) runs), and where it's managed (Settings).
 
 ### `planning_sessions`
 ```
@@ -578,6 +636,10 @@ When a recipe is scaled from its base servings to requested servings:
   the scaled/rounded quantity and unit as-is. Flag for Phase 4 discussion.
 
 ### Consolidation across recipes
+Ingredient names are resolved through any applicable
+[substitution rule](#ingredient-substitution) *before* this step runs — so an ingredient
+substituted to match another recipe's ingredient consolidates into a single line, not two.
+
 When multiple recipes in a session use the same ingredient:
 - Sum quantities (after scaling each recipe individually)
 - Normalise units before summing (e.g. 500ml + 1L = 1500ml → display as 1.5L)
@@ -692,13 +754,30 @@ so if that list changes, update this prompt text too). The review UI (Chunk 3.4)
 field as editable — `suggested_section` per ingredient, `cuisine`/`protein` per recipe — and on
 confirm writes `product_sections` rows with `source='ai_suggested'` for any newly-tagged
 ingredient. No substitution/alternatives suggestion mechanism is part of this review step
-(resolved 2026-09-05 — see the Decision Dialogue linked above).
+(resolved 2026-09-05 — see the Decision Dialogue linked above) — still correct as of 2026-09-06:
+ingredient substitution is real and in scope, but lives in Phase 4's planning flow, not here.
+See [Ingredient Substitution](#ingredient-substitution).
 
 ### After extraction
 - Display extracted ingredients in an editable review UI (inline edit of name, qty, unit)
 - User confirms or edits, then saves
 - On save: normalise ingredient names to lowercase, store in `recipe_ingredients`
 - Log: recipe id, call type, token counts, cost to `api_usage`
+
+### Source provenance on the review screen (Phase 3 Chunk 3.7, 2026-09-06)
+The review screen also carries two optional freetext inputs — **cookbook name** and **page** —
+that the user fills in by hand while reviewing (same treatment as the existing `cuisine` /
+`protein` inputs). They write `recipes.source_book` / `recipes.source_page` on confirm. Most
+relevant for a photographed cookbook page; a URL capture already carries `source_url` through
+without any new input.
+
+**The extraction prompt is deliberately NOT extended to read the book title/page out of a
+photo.** Reasons: OCR of a running-header book title / page number is unreliable; every new
+prompt field costs a fresh round of [§0a](#0a-prompt-injection-hardening-highest-priority)
+output-validation work on a prompt that was only just built and stabilised in Chunk 3.1; and
+the manual inputs fully cover the need. Best-effort AI pre-fill of these two fields is parked
+as a [Deferred Decision](#deferred-decisions) — revisit only if typing them every capture
+turns out to be a real annoyance.
 
 ---
 
@@ -712,6 +791,96 @@ Ingredient names must be consistent across recipes for consolidation to work. Ru
 - The user can edit names in the recipe editing UI
 - **Do not implement automatic synonym matching in early phases** — the user reviews and
   confirms all extractions, which provides sufficient normalisation for now. Flag for future.
+
+---
+
+## Ingredient Substitution
+
+**Status: in scope, Phase 4.** Resolved 2026-09-06, superseding the 2026-09-05 "substitution
+flagging" resolution (see [Deferred Decisions](#deferred-decisions) and the Decision Dialogue
+below) — that resolution was correct on its own narrow question (no such feature existed, and
+Phase 3's Chunk 3.4 correctly shipped without one), but a follow-up conversation surfaced that a
+related, genuinely-wanted feature had gotten lost along the way. This section is that feature,
+designed properly.
+
+Distinct from [Ingredient Normalisation](#ingredient-normalisation) above: normalisation
+recognises two names as *the same thing* ("green onion" = "spring onion") so consolidation sums
+them correctly. Substitution deliberately treats two *different* products as interchangeable for
+shopping purposes, because one is obscure or hard to find and the other isn't — e.g. a recipe
+calling for "bulgarian feta", which is close enough to regular feta that there's no reason to
+hunt down the specific product.
+
+### Two situations, not one
+- **Genuinely one-off** — "I'm out of basil this week, using oregano instead." Applies to this
+  session's shopping list only. Never remembered, never affects the recipe or any future session.
+- **Worth remembering** — once a substitute is confirmed to work, the user shouldn't have to
+  re-confirm it every time that ingredient comes up in a future planning session.
+
+### Scope decisions (confirmed 2026-09-06)
+- **Not the same as recipe editing.** If a recipe's ingredient text is simply wrong (a typo, a
+  bad AI extraction), that's fixed via the existing recipe editor
+  ([Chunk 2.4](#phase-2--recipe-library), already built) — a correction, not a substitution.
+  Substitution is for ingredients that are correctly captured but undesirable to actually buy.
+- **No proactive tagging UI.** A rule is never created speculatively — same reasoning already
+  applied to [Staples](#staples-starter-list) and the [`product_units`](#product_units)
+  multi-pack-size note: don't pre-guess, wait for a real gap to show up in use. The *only* way an
+  `ingredient_substitutions` row gets created is reactively, from an actual ad-hoc swap during
+  planning (see below). There is no standalone "tag this ingredient as substitutable" screen.
+- **Rules apply by ingredient name, not by recipe.** A rule for "bulgarian feta" applies to
+  every recipe using that name, not only the recipe it was first created from. This is what
+  makes a rule better than editing recipes individually once the same obscure ingredient turns
+  up in more than one recipe — handled for free, no extra design needed.
+- **One ingredient can have more than one known substitute**, e.g. "bulgarian feta" → both
+  "regular feta" and "goat cheese" might be acceptable. Only one is the default (auto-applied);
+  the rest are offered as quick-pick alternatives rather than retyped from scratch each time.
+- **No repeated confirmation.** The core decision everything else follows from: a remembered
+  substitution auto-applies silently at consolidation time, every time, with no "are you sure?"
+  interruption. The cost of a substitution the user no longer wants is paid for by reversibility
+  (below), not by asking up front every session.
+- **Easily reversible, by construction.** A substitution is a separate record layered on top of
+  a recipe, not an edit to the recipe itself — switching back to the original ingredient is
+  disabling or deleting the rule in Settings. The recipe's own stored data is never touched, so
+  there's nothing to retype from memory.
+- **No recipe-level opt-out/kill switch.** Considered and dropped: once nothing interrupts the
+  user uninvited, there's nothing left for a kill switch to protect against.
+
+### Where this lives in the app (Phase 4)
+- **Creation.** During planning session ingredient review — exact screen/placement is a Phase 4
+  kickoff detail, but conceptually this happens after recipes are added to a session and before
+  the consolidated list is finalised. The user can swap any ingredient for another, freely,
+  whether or not a rule already exists for it. After a swap, the app asks *"Remember this
+  substitution?"*:
+  - **Yes** — creates or updates an `ingredient_substitutions` row. If this is the first
+    substitute recorded for that ingredient, it becomes the default. If substitutes already
+    exist for that ingredient, the new one is added as a non-default option unless explicitly
+    marked as the new default.
+  - **No** — applies to this session's shopping list only; nothing is written to the database.
+  - If known substitutes already exist for the ingredient being swapped, they're offered as
+    quick-pick options rather than requiring the user to retype a previously-used substitute.
+- **Application.** Resolved during Phase 4, **before consolidation runs** — not at checklist
+  time (Phase 5). This is what lets an accepted substitute merge correctly with any other line
+  in the session needing the same resolved ingredient: if one recipe needs "bulgarian feta"
+  (substituted to "regular feta") and another recipe separately needs "regular feta", they
+  consolidate into one shopping-list line, not two. For each ingredient pulled from the
+  session's recipes: look up `ingredient_substitutions` for a matching `original_name`; if a
+  default exists, resolve to the substitute's name for consolidation purposes; otherwise use the
+  ingredient's name as-is. **The recipe's own stored ingredient name is never modified** by this
+  process — only the resolved name used for that session's consolidation and shopping list. See
+  [Scaling Logic > Consolidation across recipes](#scaling-logic), which this step feeds into.
+- **Management.** Settings ([Chunk 2.5](#phase-2--recipe-library), already built) gains a
+  section listing existing substitution rules — view, change which substitute is the default,
+  add/remove substitute options for an ingredient, delete a rule entirely. This is the only
+  place a rule can be edited or reversed after creation; there is no separate creation path here
+  (see "No proactive tagging UI" above).
+
+### Open item
+Handled for free by rules applying at the ingredient-name level: the same obscure ingredient
+showing up in more than one recipe needs no extra design, since one rule already covers every
+recipe using that name. What's *not* covered: if the same ingredient needs correcting in the
+recipe data itself (a genuine fix, not a substitution) across several recipes at once, there's
+no bulk rename/merge utility — each recipe is edited individually via the existing editor. Real
+enough to flag, not real enough to build speculatively — see
+[Deferred Decisions](#deferred-decisions).
 
 ---
 
@@ -1205,8 +1374,80 @@ already used from the start.
       standing "yes" is not enough, ask each time), run one real extraction (the staged
       scratchpad script, or through the actual UI) and confirm: a sane ingredient list comes
       back, a matching `api_usage` row is logged with a plausible cost, and
-      `/diagnostics` reflects it. Blocked today on both the placeholder key and not yet having
-      asked for that go-ahead — do not run this chunk speculatively alongside 3.2-3.5.
+      `/diagnostics` reflects it.
+      **BLOCKED 2026-09-06 — account has no API credit. Not done, not skipped; box stays
+      unticked.** With the maintainer's explicit in-conversation go-ahead, one real call was
+      attempted via a throwaway scratchpad script (one `claude_client.extract_ingredients()`
+      on a generic pancake recipe, `call_type='recipe_url'` — ~10 lines, trivially rebuilt or
+      run through the capture UI instead). Two server-side `400`s in sequence, **both before
+      any billing — zero spend, zero `api_usage` rows written:**
+      1. `"This API key is not scoped to a workspace"` — the key was an org-level key.
+         Resolved: maintainer swapped in a key scoped to the (default) workspace.
+      2. `"Your credit balance is too low to access the Anthropic API"` (`request_id`
+         `req_011CemegQYZUuXMWEoHNEqcL`) — the account's prepaid balance is empty and the
+         maintainer can't top it up right now (bank issue). This is the prepaid-balance
+         ceiling the Non-Negotiable Operating Rules banner describes, hit at zero — there is
+         no in-app mechanism to work around it and none should be added.
+      **Verified up to the billing gate:** config gates read correctly
+      (`claude_api_enabled=True`, `fake_mode=False`, key + workspace detected); the request is
+      built and accepted by the SDK (model id `claude-haiku-4-5`, `max_tokens`, system prompt,
+      content blocks all clear client-side validation and reach the server's auth/billing
+      stage); the `APIStatusError → ClaudeExtractionError` path logs correctly and writes no
+      `api_usage` row on failure, exactly as designed.
+      **Still unverified — the actual residual risk:** that a real Haiku 4.5 response parses
+      against `_parse_extraction()` (bare JSON, our exact object shape, numeric `quantity`,
+      in-vocabulary `suggested_section`). Haiku is the weakest current model for strict JSON
+      and the fixtures are hand-written to our own spec, so this is the one genuine unknown.
+      If it's wrong the failure is contained and visible, never silent: parse error →
+      structured error envelope + raw response logged at ERROR, `log_api_usage()` has already
+      run so the call is still recorded, and nothing reaches the DB (the Chunk 3.4 review step
+      gates every save). Likely fix: a small parser tweak (code-fence strip / string→number
+      coercion), not an architectural change. Confidence it works once credit exists: ~80-85%.
+      **To close:** once the account has any credit (the one call costs ≈⅓ of a US cent),
+      re-run the check and confirm a sane ingredient list, one matching `api_usage` row, and
+      `/diagnostics` green with `last_success` + spend populated. Needs a **fresh**
+      in-conversation go-ahead per §0c — a standing "yes" does not carry.
+      **Does not block:** Chunk 3.7 (no API involvement anywhere in it), the Phase 3 review
+      (records this as a carried-forward open item), or Phase 4 build/verify work (all offline
+      against manual + fake-mode recipes).
+- [ ] **Chunk 3.7 — Recipe source provenance (URL + cookbook reference).** Added 2026-09-06
+      from a planning session — `recipes` records where a recipe came from only partially today
+      (`source_url` is stored on URL capture but never displayed or editable; a hand-typed
+      recipe can't record a URL at all; a cookbook name + page has no home anywhere). No real
+      API involvement, so independent of Chunk 3.6 — can land before it. (Confirmed 2026-09-06:
+      Chunk 3.6 is now BLOCKED on account API credit; 3.7 is entirely unaffected — no Claude
+      call anywhere in 3.7a/b/c — and is the next Phase 3 work to pick up. The Phase 3 review
+      runs after 3.7 and carries 3.6 forward as a noted open item.)
+      - **3.7a — Bootstrap Alembic** (its own commit, first). `alembic` added to
+        `requirements.txt` (exact pin); `alembic init`; `env.py` wired to `app.database.Base`
+        and the config `sqlite:///` URL (nothing hardcoded in `alembic.ini`); a baseline
+        revision representing the current schema; `alembic stamp head` on the existing dev DB
+        so nothing is recreated. `create_all()` stays as the fresh-empty-DB fast path. Verify:
+        `alembic upgrade head` on a throwaway empty DB yields a schema identical to
+        `create_all()`. See [Code Architecture > Migrations](#migrations).
+        **Done 2026-09-06** — `alembic==1.19.2`; baseline `bf3919bfcbd9`; dev DB stamped;
+        empty-DB `upgrade head` verified semantically identical to `create_all()` and codified
+        as `tests/test_migrations.py` (suite 130 pass). Dev + NUC migration-apply wiring
+        (`scripts/update.py`) is noted in [Migrations](#migrations) and lands with 3.7b.
+      - **3.7b — Schema + service + API.** Alembic `add_column` migration for
+        `recipes.source_book` / `recipes.source_page` (both `TEXT NULL`); the two columns on
+        `models/recipes.py` with the orthogonality comment; `source_book` (max 200) /
+        `source_page` (max 50) on `schemas/recipes.py` (`RecipeBase` → `RecipeCreate`,
+        `RecipeUpdate`, `RecipeRead`) and `schemas/capture.py` (`CaptureConfirmRequest`);
+        explicit passthrough in `services/recipes.py` `create_recipe` +
+        `create_recipe_from_capture` (whitespace-trim, empty → `None`; `update_recipe` is
+        already automatic via its `exclude_unset` loop). Service unit tests + router smoke
+        tests, no network.
+      - **3.7c — Frontend (three files).** `recipes.js` detail view gets a "Source" line —
+        URL rendered as `<a target="_blank" rel="noopener noreferrer">` **only** if it parses
+        as `http:`/`https:` (never `javascript:`/`data:`), else plain text; book as
+        "From {book}, p.{page}" (page optional); both → both; neither → nothing.
+        `recipe-edit.js` gets three optional recipe-level fields (Recipe URL, Cookbook name,
+        Page). `recipe-form.js` (manual entry) gets the same three. `capture-review.js` gets
+        two optional inputs (Cookbook name, Page) near the cuisine/protein fields. Manual
+        verification: headless-Edge/CDP against the dev server (same approach as Chunks
+        2.4/3.4), cross-checked against `GET /api/v1/recipes/{id}`,
+        `/diagnostics/recent-errors` clean.
 - [ ] **Phase 3 review** — re-check against [Recipe Capture](#recipe-capture--ai-extraction),
       [Scaling Logic](#scaling-logic) (n/a until Phase 4, confirm nothing here needs it yet),
       [Code Architecture](#code-architecture--maintainability), and
@@ -1225,13 +1466,18 @@ ingredients, edit if needed, and save to the library.
   `slot_type` flag (`'recipe'`|`'leftovers'`) is added; a leftovers slot pulls no ingredients
   into consolidation for that day
 - Scaling engine (apply scaled_servings, rounding rules)
-- Consolidation engine (sum quantities across recipes, normalise units)
+- Ingredient substitution (see [Ingredient Substitution](#ingredient-substitution)): ad-hoc swap
+  UI during session ingredient review, "remember this?" persistence to
+  `ingredient_substitutions`, resolution against that table before consolidation runs, and a
+  management view in Settings. Resolved 2026-09-06, no longer speculative — build for real.
+- Consolidation engine (sum quantities across recipes, normalise units, substitution-resolved
+  names as input)
 - Purchase unit resolution (look up product_units, calculate display_qty)
 - Session summary UI: shows consolidated ingredient list before checklist
 - Weekly planner view (optional calendar layout for slotting recipes into days)
 
-**Deliverable:** User can create a session, add recipes, scale them, and see a
-consolidated shopping list with purchase units resolved.
+**Deliverable:** User can create a session, add recipes, scale them, substitute an ingredient
+they don't want to buy, and see a consolidated shopping list with purchase units resolved.
 
 ### Phase 5 — Checklist & AnyList Integration
 *(Not yet chunked — break this into checkbox chunks at kickoff, following
@@ -1366,6 +1612,10 @@ ShoppingApp/
 │   │   └── anylist_client.py
 │   ├── seed_data.py           ← staples + product_units + section vocabulary starter data
 │   └── log_config.py          ← logging setup, in-memory ring buffer
+├── alembic/                    ← DB migrations (bootstrapped Phase 3 Chunk 3.7 — see CLAUDE.md > Migrations)
+│   ├── env.py                  ← wired to app.database.Base + the config sqlite:/// URL
+│   └── versions/               ← one file per schema change from Chunk 3.7 onward
+├── alembic.ini                 ← Alembic config (no hardcoded URL — env.py pulls it from app.config)
 ├── scripts/                    ← maintenance scripts, run as `python -m scripts.<name>`
 │   ├── backup.py               ← weekly DB + JSON dump, trims old backups, commits/pushes if git is set up
 │   ├── restore.py              ← lists / dry-runs / restores a backup, with a pre-restore safety copy
@@ -1645,7 +1895,8 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | AnyList credential storage: `keyring` vs `.env` | Phase 5 kickoff | Preferred: Windows Credential Manager via `keyring`. `.env` acceptable fallback if awkward with deployment scripts. See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |
 | "Suggest something" — recency/variety suggestion logic + UI | Phase TBD | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet. |
-| "Substitution flagging" review step | ~~Needs clarification before Phase 3 prompt work~~ **Resolved 2026-09-05 — option 2 (doesn't exist; not built)** | The Shop Layout addendum's reference was a mistaken cross-reference — no such feature exists elsewhere in this document. Phase 3's review UI (Chunk 3.4) is a fresh ingredient + section review: editable name/qty/unit/preparation plus `suggested_section`/`cuisine`/`protein`, no "can't find X, try Y" suggestion mechanism. Revisit only if a real gap shows up in use — same standing as any other not-yet-needed feature, no dedicated future-phase slot reserved for it. |
+| "Substitution flagging" review step / Ingredient substitution | ~~Resolved 2026-09-05 — option 2 (doesn't exist; not built)~~ **Superseded 2026-09-06 — real feature, in scope for Phase 4** | The 2026-09-05 resolution was correct on its own narrow question (the Shop Layout addendum's reference genuinely was a mistaken cross-reference, and Phase 3's Chunk 3.4 correctly shipped with no suggestion mechanism). A follow-up conversation surfaced that a related, genuinely-wanted feature had been lost in that resolution: letting the user substitute an obscure/hard-to-find ingredient (e.g. "bulgarian feta" → "regular feta") for shopping purposes — ad-hoc per-session, or remembered without repeated prompting, easily reversible. Fully designed — see [Ingredient Substitution](#ingredient-substitution) and the [`ingredient_substitutions`](#ingredient_substitutions) table. Not yet implemented — lands when Phase 4 is chunked and built. |
+| Bulk ingredient rename/merge across recipes | Possible future follow-up, not scheduled | Raised alongside [Ingredient Substitution](#ingredient-substitution): if a recipe's ingredient text needs a genuine *correction* (not a substitution) and the same wrong text appears in several recipes, there's no bulk find-and-replace — each recipe is edited individually via the existing editor ([Chunk 2.4](#phase-2--recipe-library)). Confirmed 2026-09-06 that per-recipe editing is good enough for now; flagged here in case it becomes a real friction point. |
 | Store deletion/merge | Post-MVP / low priority | Not designed — add if it comes up. See [Shopping List Store Layout](#shopping-list-store-layout). |
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
@@ -1654,6 +1905,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Settings list re-render loses scroll position on Save/Delete | Bug — fix opportunistically, no later than Phase 6 | `static/js/settings.js`'s `load()` rebuilds the whole staples/product-units row list (`innerHTML = ""` + re-append) after every Save/Delete, which resets scroll to the top of the page — noticeable and frustrating once a list has more than a few rows. Fix should update/remove the affected row in place rather than a full-list re-render, or otherwise preserve scroll position across the rebuild. Flagged 2026-09-05 via user testing (Chunk 2.5), not yet fixed. |
 | Git branching strategy: `production` / `develop` branches | ~~Phase 2 review~~ **Resolved 2026-09-05 — option 2 (`develop` + `production`)** | `deploy.bat`/`scripts/deploy.py` (dev PC, ships from `develop`, fast-forwards `production`) and `update.bat`/`scripts/update.py` (NUC, pulls `production` only) updated and verified against a sandbox origin+dev+NUC repo trio, including the diverged-`production`-from-a-backup-commit failure/recovery path. `backup.py` needed no logic change (already branch-agnostic via `HEAD`). Local `main` renamed to `develop`, `production` branched off it — **pushing both to origin and updating GitHub's default branch is still a manual step for the maintainer** (Claude Code creates commits but never pushes, see [Commits](#commits)); see `DEPLOY.md > One-time setup` for the exact commands. Full workflow in `DEPLOY.md`. |
 | "The usuals" — recurring non-recipe household items checklist | Phase 5 kickoff | e.g. laundry powder, dishwashing liquid — bought periodically regardless of what's being cooked. Distinct from `staples` (recipe ingredients assumed on hand, surfaced only when a recipe needs them this session). Needs its own storage decision, a cadence decision (every session vs. periodic), and a decision on whether it's part of the existing checklist UI or a separate step. See [Checklist Screen Logic](#checklist-screen-logic). |
+| AI pre-fill of cookbook name / page from a photo | Revisit if hand-entry proves tedious | Phase 3 Chunk 3.7 collects `source_book` / `source_page` via manual review-screen inputs and deliberately does not extend the extraction prompt to OCR them (unreliable; every new prompt field costs fresh [§0a](#0a-prompt-injection-hardening-highest-priority) output-validation work). If typing them every capture turns out to be annoying, add best-effort `suggested_book` / `suggested_page` to the prompt with allow-list-style validation. Same standing as any other not-yet-needed feature — no reserved phase. See [Recipe Capture](#recipe-capture--ai-extraction). |
 
 ### Decision Dialogues
 
@@ -1733,6 +1985,17 @@ below for the record of what was asked and why.
 ---
 
 #### "Substitution flagging" review step (Before Phase 3 AI extraction)
+
+**Superseded 2026-09-06 — see [Ingredient Substitution](#ingredient-substitution).** The
+resolution below answered the question as originally asked (was there a pre-existing feature
+Phase 3 should reuse?) correctly — there wasn't. But a follow-up conversation surfaced that a
+related, genuinely-wanted feature had been lost in the process of resolving that narrower
+question: not a Phase 3 extraction-review concern, but a Phase 4 planning-time one — letting the
+user substitute an obscure/hard-to-find ingredient for shopping purposes without repeated
+prompting, and easily reverse it. See [Ingredient Substitution](#ingredient-substitution) for the
+real design and the [Deferred Decisions](#deferred-decisions) table for the current status. The
+2026-09-05 resolution below is kept as-is for the historical record of what was actually asked
+and answered at the time.
 
 **Resolved 2026-09-05 — option 2 (doesn't exist; not built).** No prior substitution-suggestion
 feature exists anywhere in this document — the Shop Layout addendum's reference was a mistaken

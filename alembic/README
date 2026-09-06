@@ -1,0 +1,13 @@
+Alembic migrations for ShoppingApp.
+
+Bootstrapped Phase 3 Chunk 3.7a. See CLAUDE.md > Code Architecture & Maintainability >
+Migrations for the why and the apply workflow (dev PC: `alembic upgrade head` after pulling a
+migration; NUC: run automatically by scripts/update.py).
+
+- The DB URL is NOT in alembic.ini — env.py derives it from app.config.settings.database_path
+  so alembic and the app always target the same database.
+- `Base.metadata.create_all()` still runs on startup as the fresh-empty-DB fast path; schema
+  *changes* go through a migration here. tests/test_migrations.py guards that the two agree.
+
+New migration:  alembic revision --autogenerate -m "short description"
+Apply:          alembic upgrade head

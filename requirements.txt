@@ -10,6 +10,7 @@
 fastapi==0.141.1
 uvicorn==0.52.4
 SQLAlchemy==2.0.52
+alembic==1.19.2  # DB migrations — bootstrapped Phase 3 Chunk 3.7a (see CLAUDE.md > Migrations)
 python-dotenv==1.2.3
 
 # Dev/test — see CLAUDE.md > Code Architecture & Maintainability. Added ahead of Phase 2
