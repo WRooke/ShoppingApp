@@ -632,8 +632,11 @@ When a recipe is scaled from its base servings to requested servings:
   - Values < 100g/ml: round to nearest 5
   - tbsp/tsp: allow halves (0.5), round to nearest 0.5
   - "pinch", "to taste": do not scale, pass through as-is
-- **Australian pack size rounding is a DEFERRED DECISION** — do not implement. For now, output
-  the scaled/rounded quantity and unit as-is. Flag for Phase 4 discussion.
+- **Australian pack size rounding — resolved 2026-09-06 at Phase 4 kickoff: calculate exactly
+  (option 2).** Scaling keeps the true required quantity (340g stays 340g). Whole-pack
+  rounding and the resulting overage ("1 × 400g pack, 60g over") happen only in purchase-unit
+  resolution below, never in `scaling.py`, which holds no pack-size reference data. See the
+  Decision Dialogue > Australian pack size rounding.
 
 ### Consolidation across recipes
 Ingredient names are resolved through any applicable
@@ -1354,8 +1357,8 @@ Phase 5. Flag the outcome before continuing to Phase 2.
       Flag carried from Chunk 2.1: `times_made`/`last_made_at` ("mark cooked") were NOT built
       here — the Data Model text says Phase 2 onward, but this chunk's own bullet list only
       names `rating`/`notes`/`cuisine`/`protein`, and there's no natural "cooked" event before
-      Phase 4 sessions exist. Still open — needs a decision on which phase it actually belongs
-      to (see Deferred Decisions).
+      Phase 4 sessions exist. **Resolved 2026-09-06 at Phase 4 kickoff — deferred to Phase 6**
+      (a real "cooked" event is post-push, Phase 5+; see [Deferred Decisions](#deferred-decisions)).
       Verified 2026-09-05 by scripting a real headless-Chromium session over the DevTools
       Protocol (no chromium-cli/Playwright/node in this environment — wrote a small
       scratch-only CDP driver, not part of the app) against the real dev server: filled and
@@ -1633,29 +1636,100 @@ already used from the start.
 ingredients, edit if needed, and save to the library.
 
 ### Phase 4 — Planning Engine
-*(Not yet chunked — break this into checkbox chunks at kickoff, following
-[Phase workflow & progress tracking](#phase-workflow--progress-tracking).)*
-- Planning session CRUD
-- Session recipe management (add recipe, set day, set servings)
-- Leftovers slot type (Addendum #1): `session_recipes.recipe_id` becomes nullable, a
-  `slot_type` flag (`'recipe'`|`'leftovers'`) is added; a leftovers slot pulls no ingredients
-  into consolidation for that day
-- Scaling engine (apply scaled_servings, rounding rules)
-- Ingredient substitution (see [Ingredient Substitution](#ingredient-substitution)): ad-hoc swap
-  UI during session ingredient review, "remember this?" persistence to
-  `ingredient_substitutions`, resolution against that table before consolidation runs, and a
-  management view in Settings. Resolved 2026-09-06, no longer speculative — build for real.
-- Consolidation engine (sum quantities across recipes, normalise units, substitution-resolved
-  names as input)
-- Duplicate recipe prevention (see [Duplicate Recipe Prevention](#duplicate-recipe-prevention)):
-  `find_possible_duplicates()` in `services/recipes.py`, `allow_duplicate` override on both
-  create paths, `POSSIBLE_DUPLICATE_RECIPE` 409, URL-capture short-circuit before the Claude
-  call, archived-recipe restore, warning UI on the capture-review and manual-entry screens.
-  Signals: `source_url` / name exact / `source_book`+`source_page` / conservative fuzzy name —
-  ingredient-set matching stays deferred. Designed 2026-09-06, build for real.
-- Purchase unit resolution (look up product_units, calculate display_qty)
-- Session summary UI: shows consolidated ingredient list before checklist
-- Weekly planner view (optional calendar layout for slotting recipes into days)
+
+**Chunked 2026-09-06** (during Phase 3 Chunk 3.7 / the Phase 3 review — Phase 3 is not yet
+closed; this list is planning-ahead, no Phase 4 chunk starts until the Phase 3 review is
+signed off), per
+[Phase workflow & progress tracking](#phase-workflow--progress-tracking), the way Phases 2
+and 3 were. Four deferred decisions were resolved at planning time and folded into the
+relevant sections rather than left for kickoff:
+- **Australian pack-size rounding → calculate exactly** (option 2). Scaling keeps the true
+  quantity; whole-pack rounding + overage display happen only in purchase-unit resolution.
+  See [Scaling Logic](#scaling-logic) and its Decision Dialogue.
+- **Weekly planner calendar view → moved to Phase 6.** Phase 4 sets `day_of_week` via a plain
+  dropdown; the drag-into-a-7-day-grid layout is a Phase 6 polish item.
+- **"Mark cooked" (`times_made` / `last_made_at`) → moved to Phase 6.** Closes the flag
+  carried from Chunk 2.1/2.4. A real "cooked" event is post-push (Phase 5+), so it lands in
+  the Phase 6 pass, not here.
+- **"Suggest something" → stays deferred, no phase.** Not on the Phase 4 deliverable path and
+  the signal algorithm is still undesigned. See its Decision Dialogue.
+
+The [ingredient substitution](#ingredient-substitution) and
+[duplicate recipe prevention](#duplicate-recipe-prevention) designs are already written up in
+full — the chunks below build them, they are not re-opened here.
+
+- [ ] **Chunk 4.1 — Migrations + schema groundwork (no behaviour change).** Rides on the
+      Alembic bootstrapped in Chunk 3.7a. Migrations + model updates only, nothing wired to
+      logic yet: `session_recipes.recipe_id` → nullable and add
+      `slot_type TEXT NOT NULL DEFAULT 'recipe'` (`'recipe'`|`'leftovers'`, see
+      [`session_recipes`](#session_recipes) Phase 4 note); `product_units` drop
+      `UNIQUE(ingredient_name)` → `UNIQUE(ingredient_name, purchase_label)` (SQLite
+      batch/table-rebuild, see [`product_units`](#product_units) Phase 4 note); new
+      `ingredient_substitutions` table + model (schema already in [Data Model](#data-model)) +
+      `models/__init__.py` registration. Verify migrate-up on a throwaway empty DB matches
+      `create_all()`; existing suite stays green.
+- [ ] **Chunk 4.2 — Duplicate recipe prevention.** Slotted early — independent of the session
+      engine, touches only `services/recipes.py` + both recipe create paths + the
+      capture-review / manual-entry UI. `find_possible_duplicates()` (DB-read only, pure,
+      unit-testable); `PossibleDuplicateRecipeError` → `409 POSSIBLE_DUPLICATE_RECIPE`
+      translated in `main.py` (same raise-in-service / translate-in-`main.py` pattern as
+      `DuplicateStapleNameError`); `allow_duplicate=true` override re-submit; URL-capture
+      short-circuits before the Claude call on an exact `source_url` match; archived recipes
+      are included in the check with a Restore action (`unarchive_recipe()` +
+      `POST /recipes/{id}/restore`). Signals and scope per
+      [Duplicate Recipe Prevention](#duplicate-recipe-prevention) — ingredient-set overlap
+      stays out. Kickoff open items: fuzzy method + threshold; live `check-duplicate` endpoint
+      vs submit-time 409 only.
+- [ ] **Chunk 4.3 — Scaling engine (pure service).** `services/scaling.py`, plain data in /
+      plain data out, no DB or network — one of the three highest bug-risk modules per
+      [Code Architecture](#code-architecture--maintainability), so heavy unit tests.
+      [Scaling Logic](#scaling-logic) rounding rules: discrete → round up; ≥100 g/ml → nearest
+      25; <100 → nearest 5; tbsp/tsp → nearest 0.5; "pinch" / "to taste" pass through
+      unscaled. Pack-size rounding is deliberately NOT here (resolved to calculate-exactly —
+      it lives in `purchase_units.py`, Chunk 4.6).
+- [ ] **Chunk 4.4 — Session CRUD + session-recipe management.** `schemas/sessions.py`,
+      `services/sessions.py`, flesh out `routers/sessions.py`. Session CRUD (create / list /
+      get / update label+status / archive) with `?limit`/`?offset`; add / update / remove /
+      reorder session recipes with `scaled_servings`, `day_of_week` (plain dropdown — calendar
+      is Phase 6), `sort_order`. Leftovers slot as its own small service function, not an
+      `if slot_type == ...` pile ([Code Architecture](#file-size-and-scope-discipline)).
+      Service unit tests + router smoke tests.
+- [ ] **Chunk 4.5 — Ingredient substitution: persistence + Settings management.**
+      `schemas/substitutions.py`, `services/substitutions.py` (CRUD; at-most-one-default per
+      `original_name` enforced in the service via the 409 pattern, see
+      [`ingredient_substitutions`](#ingredient_substitutions)); management section in Settings
+      (`routers/settings.py` + `static/js/settings.js`). Also re-check the Settings
+      `product_units` view still renders sensibly now an ingredient can have several pack-size
+      rows ([`product_units`](#product_units) note). The ad-hoc swap + "remember this?" flow
+      is Chunk 4.7 — this chunk is the persistence + management half only.
+- [ ] **Chunk 4.6 — Consolidation + purchase-unit resolution + summary endpoint.**
+      `services/consolidation.py` and `services/purchase_units.py` — both pure, both in the
+      high bug-risk trio, both heavily unit-tested. Consolidation: resolve substitution rules
+      first (default only, silent), sum scaled quantities across the session's recipes
+      (leftovers slots contribute nothing), normalise units (ml/L, g/kg), mark irreconcilable
+      unit pairs as a flag on the output (the review UI for those is Phase 5). Purchase units:
+      the zero / one / several `product_units` rows algorithm from
+      [Scaling Logic](#scaling-logic) (brute-force small pack combos, minimise overage then
+      pack count), producing `purchase_label` / `purchase_qty` / `display_qty` and surfacing
+      any overage. `POST /api/v1/sessions/{id}/consolidate` writes/refreshes
+      `session_checklist_items` and returns the consolidated list.
+- [ ] **Chunk 4.7 — Session UI.** `static/js/sessions.js` on `#/plan` (nav already has
+      "Plan"), split by sub-feature if it passes ~350 lines. Create / resume a session, add
+      recipes from the library, set servings + day, add a leftovers slot; ingredient review
+      step with ad-hoc ingredient swap, "Remember this substitution?" prompt (yes → Chunk 4.5
+      API; no → session-only override held client-side and passed into the consolidate call),
+      quick-pick of existing substitutes; consolidated summary view with resolved purchase
+      units, shown before the checklist. **Open item for this chunk's kickoff:** confirm the
+      session-only-override transport — leaning toward a client-held list in the
+      `consolidate` request payload, matching the "No → writes nothing to the DB" design.
+- [ ] **Phase 4 review** — re-check against [Data Model](#data-model) (`planning_sessions`,
+      `session_recipes`, `session_checklist_items`, `ingredient_substitutions`,
+      `product_units`), [Scaling Logic](#scaling-logic),
+      [Ingredient Substitution](#ingredient-substitution),
+      [Duplicate Recipe Prevention](#duplicate-recipe-prevention),
+      [Code Architecture](#code-architecture--maintainability), and
+      [API Conventions](#api-conventions), per
+      [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
 
 **Deliverable:** User can create a session, add recipes, scale them, substitute an ingredient
 they don't want to buy, and see a consolidated shopping list with purchase units resolved.
@@ -1685,6 +1759,11 @@ push the result to AnyList.
 - Store setup UI + store-sorted list rendering (see
   [Shopping List Store Layout](#shopping-list-store-layout) — this reverses the earlier descope
   of both shop-layout sorting and multi-store support)
+- Weekly planner calendar view — drag recipes into a 7-day grid (moved here from Phase 4 at
+  the 2026-09-06 Phase 4 kickoff; `day_of_week` is already set via a plain dropdown in Phase 4
+  Chunk 4.4, this is the visual layer only)
+- "Mark cooked" action — increment `recipes.times_made` / set `last_made_at` (moved here at
+  the 2026-09-06 Phase 4 kickoff; closes the flag carried from Chunk 2.1/2.4)
 - Session history log page
 - Error states and empty states throughout UI
 - Comprehensive diagnostics page (all indicators wired up)
@@ -2068,14 +2147,16 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 
 | Item | Deferred to | Notes |
 |---|---|---|
-| Australian pack size rounding for weight/volume | Phase 4 discussion | e.g. "needs 340g → buy 400g can". Requires a reference data set of common pack sizes. |
+| Australian pack size rounding for weight/volume | ~~Phase 4 discussion~~ **Resolved 2026-09-06 — option 2 (calculate exactly, show overage)** | e.g. "needs 340g → buy 400g can, 60g over". Scaling keeps the true quantity; whole-pack rounding + overage live only in purchase-unit resolution. No pack-size reference data set needed. See [Scaling Logic](#scaling-logic) and the Decision Dialogue; builds in Phase 4 Chunks 4.3 / 4.6. |
 | Partial quantities UX | Phase 5 | Implement binary have/don't have for now. Revisit if needed. |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
 | Ingredient synonym normalisation (automatic) | Phase 6 or later | e.g. "green onion" vs "spring onion". For now, user review at capture time provides sufficient normalisation. |
 | Multi-user login / separate accounts | Post-MVP | Shared access, no auth. |
 | AnyList credential storage: `keyring` vs `.env` | Phase 5 kickoff | Preferred: Windows Credential Manager via `keyring`. `.env` acceptable fallback if awkward with deployment scripts. See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |
-| "Suggest something" — recency/variety suggestion logic + UI | Phase TBD | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet. |
+| "Suggest something" — recency/variety suggestion logic + UI | Phase TBD (confirmed still deferred at Phase 4 kickoff, 2026-09-06 — not brought into Phase 4) | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet — revisit once sessions + "mark cooked" exist to feed it real data. |
+| "Mark cooked" — `times_made` / `last_made_at` increment | ~~Phase 2 onward / phase TBD~~ **Resolved 2026-09-06 at Phase 4 kickoff — Phase 6** | Flag carried from Chunk 2.1/2.4: the columns exist since Phase 1 but nothing writes them. A real "cooked" event is post-push (Phase 5+), so the small "mark cooked" action lands in the Phase 6 polish pass, not Phase 4. Feeds "Suggest something" (row above) when that is picked up. |
+| Weekly planner calendar view (drag recipes into a 7-day grid) | ~~Phase 4~~ **Resolved 2026-09-06 at Phase 4 kickoff — Phase 6** | `day_of_week` is set in Phase 4 via a plain dropdown (Chunk 4.4). The visual calendar layout is a Phase 6 polish item — the engine does not need it. |
 | "Substitution flagging" review step / Ingredient substitution | ~~Resolved 2026-09-05 — option 2 (doesn't exist; not built)~~ **Superseded 2026-09-06 — real feature, in scope for Phase 4** | The 2026-09-05 resolution was correct on its own narrow question (the Shop Layout addendum's reference genuinely was a mistaken cross-reference, and Phase 3's Chunk 3.4 correctly shipped with no suggestion mechanism). A follow-up conversation surfaced that a related, genuinely-wanted feature had been lost in that resolution: letting the user substitute an obscure/hard-to-find ingredient (e.g. "bulgarian feta" → "regular feta") for shopping purposes — ad-hoc per-session, or remembered without repeated prompting, easily reversible. Fully designed — see [Ingredient Substitution](#ingredient-substitution) and the [`ingredient_substitutions`](#ingredient_substitutions) table. Not yet implemented — lands when Phase 4 is chunked and built. |
 | Bulk ingredient rename/merge across recipes | Possible future follow-up, not scheduled | Raised alongside [Ingredient Substitution](#ingredient-substitution): if a recipe's ingredient text needs a genuine *correction* (not a substitution) and the same wrong text appears in several recipes, there's no bulk find-and-replace — each recipe is edited individually via the existing editor ([Chunk 2.4](#phase-2--recipe-library)). Confirmed 2026-09-06 that per-recipe editing is good enough for now; flagged here in case it becomes a real friction point. |
 | Duplicate recipe prevention | **Designed 2026-09-06 — build in Phase 4** | Warn-with-override (never a hard block) when a save looks like a recipe the library already has. Signals: `source_url` exact, name exact, `source_book`+`source_page` overlap, conservative stdlib fuzzy name. Full design in [Duplicate Recipe Prevention](#duplicate-recipe-prevention); becomes a Phase 4 chunk at kickoff. Residual deferred piece: the **ingredient-set overlap** signal is *not* in the Phase 4 build — revisit only if near-dupes still get through afterwards. Fuzzy threshold and whether to build the live `check-duplicate` endpoint are Phase 4 kickoff details. |
@@ -2111,6 +2192,13 @@ decision gets documented in this file once made.
 **Context:** This is a real-world impact — Australian grocery pack sizes aren't designed around metric halvings. The user will notice if the planner is suggesting weird quantities. Requires either a reference data set of common pack sizes or an algorithm to prefer whole packs and understock avoidance.
 
 **Expected outcome:** Decision + implementation approach documented in [Scaling Logic](#scaling-logic).
+
+**Resolved 2026-09-06 (Phase 4 kickoff) — option 2 (calculate exactly, show overage).**
+Keeps `scaling.py` pure and free of pack-size reference data; the multi-pack resolution
+algorithm in [Scaling Logic > Purchase unit resolution](#scaling-logic) already does the
+whole-pack cover job. Option 1 would double-round and distort consolidation inputs; option 3
+was unnecessary since the algorithm shape was already settled. Folded into
+[Scaling Logic](#scaling-logic) and Phase 4 Chunks 4.3 / 4.6.
 
 ---
 
@@ -2267,6 +2355,11 @@ of what was asked.
 **Context:** Schema prep is done (Phase 1: `cuisine`/`protein`/`rating`/`times_made`/`last_made_at` on `recipes`). The feature logic isn't designed yet. If brought forward, it's a small service function + one UI button.
 
 **Expected outcome:** Decision on phase + signal algorithm (recency, variety, rating, user preference input, etc.). Implement accordingly when that phase arrives.
+
+**Reviewed 2026-09-06 at Phase 4 kickoff — not brought forward; stays deferred with no
+reserved phase** (option 2/3 territory). It is not on the Phase 4 deliverable path and the
+signal algorithm is still undesigned. Best revisited once planning sessions and "mark cooked"
+(Phase 6) exist to give it real recency/variety data to work from.
 
 ---
 
