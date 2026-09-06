@@ -57,6 +57,22 @@
     proteinInput.value = r.protein || "";
     card.appendChild(labeledField("Protein", proteinInput));
 
+    // Source provenance (Chunk 3.7) — all optional. Recipe URL, cookbook name, page.
+    var sourceUrlInput = el("input");
+    sourceUrlInput.type = "text";
+    sourceUrlInput.value = r.source_url || "";
+    card.appendChild(labeledField("Recipe URL", sourceUrlInput));
+
+    var sourceBookInput = el("input");
+    sourceBookInput.type = "text";
+    sourceBookInput.value = r.source_book || "";
+    card.appendChild(labeledField("Cookbook name", sourceBookInput));
+
+    var sourcePageInput = el("input");
+    sourcePageInput.type = "text";
+    sourcePageInput.value = r.source_page || "";
+    card.appendChild(labeledField("Page", sourcePageInput));
+
     var ratingSelect = el("select");
     [
       { value: "", label: "Unrated" },
@@ -96,6 +112,9 @@
         base_servings: parseInt(servingsInput.value, 10) || 1,
         cuisine: cuisineInput.value.trim() || null,
         protein: proteinInput.value.trim() || null,
+        source_url: sourceUrlInput.value.trim() || null,
+        source_book: sourceBookInput.value.trim() || null,
+        source_page: sourcePageInput.value.trim() || null,
         rating: ratingSelect.value || null,
         notes: notesInput.value.trim() || null,
       };

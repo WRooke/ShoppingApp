@@ -76,6 +76,18 @@
     proteinInput.value = captureResult.protein || "";
     card.appendChild(labeledField("Protein (optional)", proteinInput));
 
+    // Source provenance (Chunk 3.7). A URL capture already carries source_url through
+    // captureResult, so only the by-hand cookbook name/page are collected here — most
+    // relevant for a photographed cookbook page. See CLAUDE.md > Recipe Capture >
+    // Source provenance on the review screen.
+    var sourceBookInput = el("input");
+    sourceBookInput.type = "text";
+    card.appendChild(labeledField("Cookbook name (optional)", sourceBookInput));
+
+    var sourcePageInput = el("input");
+    sourcePageInput.type = "text";
+    card.appendChild(labeledField("Page (optional)", sourcePageInput));
+
     var notesInput = el("textarea");
     notesInput.rows = 3;
     card.appendChild(labeledField("Notes (optional)", notesInput));
@@ -218,6 +230,8 @@
           base_servings: parseInt(servingsInput.value, 10) || 1,
           cuisine: cuisineInput.value.trim() || null,
           protein: proteinInput.value.trim() || null,
+          source_book: sourceBookInput.value.trim() || null,
+          source_page: sourcePageInput.value.trim() || null,
           notes: notesInput.value.trim() || null,
           ingredients: ingredients,
         })

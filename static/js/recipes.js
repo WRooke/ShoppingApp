@@ -29,6 +29,52 @@
     return null;
   }
 
+  // Only render a stored source_url as a link if it actually parses as http(s) —
+  // never javascript:/data:/etc. (see CLAUDE.md > Build Phases > Phase 3 > Chunk 3.7c).
+  // Anything else falls back to plain text.
+  function safeHttpUrl(raw) {
+    if (!raw) return null;
+    try {
+      var u = new global.URL(raw);
+      if (u.protocol === "http:" || u.protocol === "https:") return u.href;
+    } catch (e) {
+      /* not a parseable URL — treat as plain text */
+    }
+    return null;
+  }
+
+  // "Source" block on the detail view — a source_url line (linked if safe, else plain),
+  // a "From {book}, p.{page}" line (page optional), both, or nothing.
+  function renderSource(card, r) {
+    if (!r.source_url && !r.source_book) return;
+    var wrap = el("div", "recipe-source");
+    wrap.style.marginTop = "8px";
+
+    if (r.source_url) {
+      var urlLine = el("div", "muted");
+      urlLine.appendChild(document.createTextNode("Source: "));
+      var safe = safeHttpUrl(r.source_url);
+      if (safe) {
+        var a = el("a", null, r.source_url);
+        a.href = safe;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        urlLine.appendChild(a);
+      } else {
+        urlLine.appendChild(document.createTextNode(r.source_url));
+      }
+      wrap.appendChild(urlLine);
+    }
+
+    if (r.source_book) {
+      var bookText = "From " + r.source_book;
+      if (r.source_page) bookText += ", p." + r.source_page;
+      wrap.appendChild(el("div", "muted", bookText));
+    }
+
+    card.appendChild(wrap);
+  }
+
   // --- list view -----------------------------------------------------
 
   function renderList(root) {
@@ -182,6 +228,8 @@
     if (r.archived_at) {
       card.appendChild(el("div", "muted", "Archived"));
     }
+
+    renderSource(card, r);
 
     var ingHeading = el("h2", null, "Ingredients");
     ingHeading.style.marginTop = "16px";

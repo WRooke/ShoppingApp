@@ -884,6 +884,96 @@ enough to flag, not real enough to build speculatively — see
 
 ---
 
+## Duplicate Recipe Prevention
+
+**Status: in scope, Phase 4.** Designed 2026-09-06. The recipe library must not silently
+accumulate multiple copies of the same recipe — whether re-added because the user forgot it
+was already there, or captured a second time under a slightly different name. None of the
+three entry paths (`create_recipe`, `create_recipe_from_capture`, and the URL/photo/manual
+capture flows — see [Recipe Capture](#recipe-capture--ai-extraction)) check for an existing
+recipe today.
+
+Distinct from [Ingredient Normalisation](#ingredient-normalisation) and
+[Ingredient Substitution](#ingredient-substitution) above — those operate on *ingredient*
+names within/across recipes. This operates on whole *recipes*, at save time.
+
+### Why Phase 4, not Phase 3
+Placed with the planning-engine work at Phase 4 kickoff (confirmed 2026-09-06), even though
+capture (the main duplicate vector) is a Phase 3 feature. Reasons: it depends on the
+`recipes.source_book` / `recipes.source_page` columns from
+[Chunk 3.7b](#phase-3--recipe-capture-ai) for one of its match signals, so it can't land
+before those; Phase 3's remaining scope is deliberately kept tight (one blocked live-API
+chunk plus provenance); and "library hygiene at save time" sits naturally next to
+consolidation and substitution. The cost is that duplicates added during Phase 3
+verification / early use won't be caught until Phase 4 — accepted. When Phase 4 is chunked,
+this becomes one of its checkbox chunks.
+
+### Behaviour: warn-with-override, never a hard block (confirmed 2026-09-06)
+Matches the "user reviews and confirms everything" philosophy used throughout this document.
+A hard block on save would produce infuriating false positives (two different recipes can
+legitimately share a name — "pancakes"). So every match *warns* and offers a way through:
+
+- On save, the service runs a duplicate check. If it finds one or more candidate matches and
+  the request did not carry `allow_duplicate=true`, it raises `PossibleDuplicateRecipeError`,
+  translated centrally in `app/main.py` to a **409** with error code
+  `POSSIBLE_DUPLICATE_RECIPE` and a structured `detail` listing each match (recipe id, name,
+  source summary, which signal matched, and whether it is archived). Same
+  raise-in-service / translate-in-main.py pattern as the existing `DuplicateStapleNameError`
+  → 409, with a richer body and an override flag.
+- The frontend catches the 409 and shows "You might already have this:" with each match as a
+  link, plus **Open existing** and **Save anyway**. "Save anyway" re-submits the identical
+  payload with `allow_duplicate=true`, which suppresses the check for that request only.
+- **URL capture short-circuit.** On `POST /recipes/capture/url`, the `source_url` match is
+  checked *before* calling Claude. An exact hit returns immediately with the existing
+  recipe's id and no extraction call — this also avoids a needless real API call, consistent
+  with [Security §0c](#0c-api-enable-switch--offline-development-highest-priority)'s
+  minimise-real-calls intent. The UI offers "Open recipe #N" or "Capture again anyway".
+- **Archived recipes are included in the check.** A match against a recipe the user
+  previously archived is among the most useful catches. It is shown with **Restore existing**
+  (clears `archived_at` via a small `unarchive_recipe()` + `POST /recipes/{id}/restore`)
+  instead of "Open".
+
+### Match signals (strongest / cheapest first)
+1. **`source_url` exact, normalised** — lowercase host, drop fragment, strip a trailing
+   slash, strip `utm_*` query params. Strong signal; checkable before extraction.
+2. **`source_book` + `source_page` overlap** — same cookbook and an overlapping page
+   reference. Depends on the Chunk 3.7b columns.
+3. **Normalised `name` exact** — `strip().lower()` with internal whitespace collapsed.
+4. **Fuzzy `name`** — conservative, stdlib only (`difflib` ratio and/or token-set Jaccard on
+   lowercased word sets minus a tiny stopword list), high threshold. This is the signal that
+   catches "same recipe, different name". Threshold is tuned during Phase 4 verification —
+   start strict, loosen only if real near-dupes slip through. **No new dependency.**
+5. **Ingredient-set overlap** — deliberately *not* in the Phase 4 build. Expensive (loads
+   every recipe's ingredients) and the four signals above should cover the real cases.
+   Parked as a [Deferred Decision](#deferred-decisions) — revisit only if near-dupes are
+   still getting through after Phase 4.
+
+### Layering (per [Code Architecture](#code-architecture--maintainability))
+- **`services/recipes.py`** — `find_possible_duplicates(db, *, name, source_url=None,
+  source_book=None, source_page=None, exclude_id=None) -> list[DuplicateMatch]`: DB reads
+  only, no network, unit-testable, returns matches ranked by signal strength.
+  `PossibleDuplicateRecipeError(matches)`. `allow_duplicate: bool = False` parameter on both
+  `create_recipe` and `create_recipe_from_capture`. `unarchive_recipe(db, recipe_id)`.
+- **`schemas/`** — `DuplicateMatch` response model; `allow_duplicate` field on `RecipeCreate`
+  (`schemas/recipes.py`) and `CaptureConfirmRequest` (`schemas/capture.py`).
+- **`routers/recipes.py`** — URL pre-check branch; `POST /recipes/{id}/restore`; optional
+  `GET /api/v1/recipes/check-duplicate?name=…&source_url=…` so the review and manual-entry
+  screens can warn live (on name-field blur) rather than only on a submit-and-bounce.
+- **`app/main.py`** — `PossibleDuplicateRecipeError` → 409 / `POSSIBLE_DUPLICATE_RECIPE`.
+- **Frontend** — `capture-review.js`, `recipe-form.js`, `api.js`: the warning panel, the
+  Open / Restore / Save-anyway actions, and (if built) the live check on name blur.
+
+### Open items for Phase 4 kickoff
+- Final fuzzy-match threshold and whether token-set, `difflib` ratio, or both.
+- Whether the live `check-duplicate` endpoint is worth building or the submit-time 409 is
+  enough on its own.
+- Ingredient-set overlap signal — still deferred (above).
+- Relationship to the deferred **bulk ingredient rename/merge** item: a "these two really are
+  the same recipe, merge them" action is a natural follow-on but is not part of this design —
+  the flow here stops at "open / restore the existing one instead".
+
+---
+
 ## Checklist Screen Logic
 
 At checklist screen load:
@@ -1473,7 +1563,7 @@ already used from the start.
       **Does not block:** Chunk 3.7 (no API involvement anywhere in it), the Phase 3 review
       (records this as a carried-forward open item), or Phase 4 build/verify work (all offline
       against manual + fake-mode recipes).
-- [ ] **Chunk 3.7 — Recipe source provenance (URL + cookbook reference).** Added 2026-09-06
+- [x] **Chunk 3.7 — Recipe source provenance (URL + cookbook reference).** Added 2026-09-06
       from a planning session — `recipes` records where a recipe came from only partially today
       (`source_url` is stored on URL capture but never displayed or editable; a hand-typed
       recipe can't record a URL at all; a cookbook name + page has no home anywhere). No real
@@ -1520,6 +1610,19 @@ already used from the start.
         verification: headless-Edge/CDP against the dev server (same approach as Chunks
         2.4/3.4), cross-checked against `GET /api/v1/recipes/{id}`,
         `/diagnostics/recent-errors` clean.
+        **Done 2026-09-06** — all four files as specified; `safeHttpUrl()` in `recipes.js`
+        gates the link via `new URL()` + `http:`/`https:` check. Verified against a throwaway
+        dev server (scratch DB, fake mode) with real headless Edge: dump-DOM confirmed the
+        detail view renders a linked source for `https://…` and **plain text with no anchor
+        for `javascript:alert(1)`**, plus the "From {book}, p.{page}" line; a CDP drive of
+        edit mode filled the three fields, saved, and round-tripped through
+        `GET /api/v1/recipes/{id}`; a CDP drive of the capture→review flow saved
+        `source_book`/`source_page` via `/capture/confirm`. Backend also curl-checked
+        (manual create, `javascript:` URL stored raw, PATCH `source_page`, capture confirm).
+        `/diagnostics/recent-errors` clean apart from deliberate bogus-URL 404s. Suite 138
+        pass (frontend-only chunk, no new Python tests).
+      **Chunk 3.7 complete 2026-09-06** — commits `4536f09` (3.7a), `1d27e6d` (3.7b), 3.7c
+      this commit.
 - [ ] **Phase 3 review** — re-check against [Recipe Capture](#recipe-capture--ai-extraction),
       [Scaling Logic](#scaling-logic) (n/a until Phase 4, confirm nothing here needs it yet),
       [Code Architecture](#code-architecture--maintainability), and
@@ -1544,6 +1647,12 @@ ingredients, edit if needed, and save to the library.
   management view in Settings. Resolved 2026-09-06, no longer speculative — build for real.
 - Consolidation engine (sum quantities across recipes, normalise units, substitution-resolved
   names as input)
+- Duplicate recipe prevention (see [Duplicate Recipe Prevention](#duplicate-recipe-prevention)):
+  `find_possible_duplicates()` in `services/recipes.py`, `allow_duplicate` override on both
+  create paths, `POSSIBLE_DUPLICATE_RECIPE` 409, URL-capture short-circuit before the Claude
+  call, archived-recipe restore, warning UI on the capture-review and manual-entry screens.
+  Signals: `source_url` / name exact / `source_book`+`source_page` / conservative fuzzy name —
+  ingredient-set matching stays deferred. Designed 2026-09-06, build for real.
 - Purchase unit resolution (look up product_units, calculate display_qty)
 - Session summary UI: shows consolidated ingredient list before checklist
 - Weekly planner view (optional calendar layout for slotting recipes into days)
@@ -1969,6 +2078,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | "Suggest something" — recency/variety suggestion logic + UI | Phase TBD | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet. |
 | "Substitution flagging" review step / Ingredient substitution | ~~Resolved 2026-09-05 — option 2 (doesn't exist; not built)~~ **Superseded 2026-09-06 — real feature, in scope for Phase 4** | The 2026-09-05 resolution was correct on its own narrow question (the Shop Layout addendum's reference genuinely was a mistaken cross-reference, and Phase 3's Chunk 3.4 correctly shipped with no suggestion mechanism). A follow-up conversation surfaced that a related, genuinely-wanted feature had been lost in that resolution: letting the user substitute an obscure/hard-to-find ingredient (e.g. "bulgarian feta" → "regular feta") for shopping purposes — ad-hoc per-session, or remembered without repeated prompting, easily reversible. Fully designed — see [Ingredient Substitution](#ingredient-substitution) and the [`ingredient_substitutions`](#ingredient_substitutions) table. Not yet implemented — lands when Phase 4 is chunked and built. |
 | Bulk ingredient rename/merge across recipes | Possible future follow-up, not scheduled | Raised alongside [Ingredient Substitution](#ingredient-substitution): if a recipe's ingredient text needs a genuine *correction* (not a substitution) and the same wrong text appears in several recipes, there's no bulk find-and-replace — each recipe is edited individually via the existing editor ([Chunk 2.4](#phase-2--recipe-library)). Confirmed 2026-09-06 that per-recipe editing is good enough for now; flagged here in case it becomes a real friction point. |
+| Duplicate recipe prevention | **Designed 2026-09-06 — build in Phase 4** | Warn-with-override (never a hard block) when a save looks like a recipe the library already has. Signals: `source_url` exact, name exact, `source_book`+`source_page` overlap, conservative stdlib fuzzy name. Full design in [Duplicate Recipe Prevention](#duplicate-recipe-prevention); becomes a Phase 4 chunk at kickoff. Residual deferred piece: the **ingredient-set overlap** signal is *not* in the Phase 4 build — revisit only if near-dupes still get through afterwards. Fuzzy threshold and whether to build the live `check-duplicate` endpoint are Phase 4 kickoff details. |
 | Store deletion/merge | Post-MVP / low priority | Not designed — add if it comes up. See [Shopping List Store Layout](#shopping-list-store-layout). |
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
@@ -2191,6 +2301,31 @@ of what was asked.
 **Context:** Raised 2026-09-06. The secondary user wants recipes in MFP for macro tracking; MFP has no API in either direction (see [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export)). Export covers the core ask cheaply. Read-back is a want, not a need, and every real option has a notable downside.
 
 **Expected outcome:** Decision documented in [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export); if option 2–4, a build plan plus any schema / further Decision Dialogue follow-ups.
+
+---
+
+#### Duplicate recipe prevention — fuzzy threshold & live check (Phase 4 kickoff)
+
+**Q:** The design ([Duplicate Recipe Prevention](#duplicate-recipe-prevention)) is settled —
+warn-with-override on save, signals `source_url` / name exact / `source_book`+`source_page` /
+conservative fuzzy name. Two build details to lock at kickoff:
+
+**A sub-questions:**
+1. **Fuzzy match method + threshold.** `difflib` ratio, token-set Jaccard, or both; and how
+   strict. Start strict (few false positives, may miss some), loosen during verification only
+   if real near-dupes get through.
+2. **Live `GET /recipes/check-duplicate` endpoint?** Warn on name-field blur in the
+   capture-review / manual-entry screens, or rely solely on the submit-time 409 +
+   "Save anyway". Live check is nicer UX and cheap; the 409 alone is less code.
+3. **Ingredient-set overlap signal** — still deferred. Only pull it in if signals 1–4 prove
+   insufficient in real use.
+
+**Context:** Raised 2026-09-06. Needs the `recipes.source_book` / `source_page` columns from
+Chunk 3.7b, hence Phase 4 not Phase 3. No new dependency — fuzzy matching is stdlib only.
+
+**Expected outcome:** Method/threshold and the live-endpoint call recorded in
+[Duplicate Recipe Prevention](#duplicate-recipe-prevention); implementation lands as a Phase 4
+chunk.
 
 ---
 
