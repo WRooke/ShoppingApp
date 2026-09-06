@@ -1980,7 +1980,7 @@ full — the chunks below build them, they are not re-opened here.
       units, shown before the checklist. **Open item for this chunk's kickoff:** confirm the
       session-only-override transport — leaning toward a client-held list in the
       `consolidate` request payload, matching the "No → writes nothing to the DB" design.
-      Done 2026-09-06 (commit `<pending>`). **Transport decision locked: client-held
+      Done 2026-09-06 (commit `d00e2ae`). **Transport decision locked: client-held
       `overrides` list in the `POST /consolidate` payload** (nothing written on "no"). Split
       into two files per the size guideline: `static/js/sessions.js` (session list + the
       workspace — inline-editable label, per-slot servings 1–12 / day dropdowns, ↑/↓
