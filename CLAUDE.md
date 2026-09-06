@@ -1907,9 +1907,21 @@ is folded into this phase's M-review.
       `test_ai_extraction.py` (20 tests, `genai.Client` mocked); capture / diagnostics /
       recipe-capture test refs renamed. Full suite **257 pass**, still fully offline
       (fake mode + mocks, no key).
-- [ ] **M2 — Split into 3 per-task calls.** `extract_recipe()` / `flag_substitutions()` /
-      `suggest_sections()` — section suggestion leaves the extraction prompt. Each own prompt +
-      schema + fixture. `capture_url` / `capture_photo` orchestrate.
+- [x] **M2 — Split into 3 per-task calls.** Done 2026-09-06. `services/ai_extraction.py`:
+      `extract_recipe()` (call 1 — ingredients + cuisine/protein, **no** section suggestion),
+      `flag_substitutions()` (call 2 — per-recipe substitution candidates), `suggest_sections()`
+      (call 3 — per-ingredient section, allow-list validated), and `capture_recipe()` — the
+      orchestrator that runs all three and merges sections + flags into `ExtractionResult`.
+      Call 1 failure propagates; **calls 2 & 3 are enrichment** — an `AiExtractionError` from
+      either is logged and swallowed (recipe still usable; M3 turns a swallowed *quota*
+      failure into a queued retry). Each call: own system prompt (section suggestion left the
+      extraction prompt), own `response_schema`, own fake fixture path
+      (`_FAKE_SUBSTITUTION_FLAGS`, `_FAKE_SECTION_MAP`); shared `_call_gemini()` does
+      client + config + error-wrap + usage-log. `schemas/capture.py`: `CaptureResult` gains
+      `substitution_flags: list[SubstitutionFlagOut]` (review UI ignores it until M4).
+      `capture_url` / `capture_photo` call `capture_recipe()`.
+      `tests/services/test_ai_extraction.py` rewritten (23 tests). Full suite **260 pass**,
+      offline; fake-mode 3-call orchestration verified against a scratch server.
 - [ ] **M3 — Fallback chain + `capture_queue`.** Flash → Flash-Lite → queue on `429`;
       non-quota errors fail normally. `capture_queue` table + migration. Hourly retry poller
       (lifespan background task).
