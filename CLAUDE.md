@@ -44,6 +44,14 @@ document, any convenience, any feature request, and any deadline.** Full detail 
 [Security](#security) (§0a, §0b, §0c below); this banner exists so none of them can be missed
 by skimming straight to a phase's chunk list.
 
+> **Provider note (2026-09-06):** the AI extraction provider is migrating Anthropic Claude →
+> Google Gemini (see
+> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini)). Rules 1
+> (prompt-injection hardening) and 2 (explicit enable switch, fake mode, ask-before-real-call,
+> no agent flips the switch) are **provider-agnostic and unchanged**. §0b's *dollar-spend*
+> observability becomes *quota* observability (Gemini free tier, no per-call cost). The
+> `CLAUDE_API_ENABLED` / `CLAUDE_API_FAKE_MODE` names will become provider-neutral.
+
 1. **Prompt injection hardening.** Any content this app sends to an LLM that originated
    from outside the household's own direct input — a scraped webpage, a photographed
    cookbook page, or any future untrusted source — must be treated as data, never as
@@ -116,7 +124,7 @@ consolidated shopping list to AnyList, a shared grocery list app they both use.
 | Backend | Python 3.11+, FastAPI | FastAPI is async, modern, serves static files, has auto-docs |
 | Database | SQLite via SQLAlchemy (ORM) | Zero config, single file, sufficient for household scale |
 | Frontend | Vanilla HTML5 / CSS3 / JS | No build step, no framework complexity, easy to debug, runs in any browser |
-| AI (recipe extraction) | Anthropic Claude API — Haiku 4.5 | Handles both vision (photo OCR) and text (URL content) in one API; cheapest model; ~$0.005 per recipe capture |
+| AI (recipe extraction) | ~~Anthropic Claude API — Haiku 4.5~~ **⚠️ SUPERSEDED → Google Gemini API (`gemini-2.5-flash`, fallback `gemini-2.5-flash-lite`, then queue)** — see [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini) | Was: one API for vision + text, cheapest model. Now: Anthropic account can't add credit; Gemini free tier. Code still on Anthropic until the migration is built. |
 | URL scraping | httpx + BeautifulSoup4 | Fetch recipe page content for Claude to parse |
 | AnyList | See Phase 5 note | Unofficial reverse-engineered API — implementation approach TBD at Phase 5 |
 | Deployment | Python venv, batch scripts, Windows Task Scheduler | No Docker; simple start/stop scripts |
@@ -242,13 +250,15 @@ A `/diagnostics` page in the web app (accessible from the main nav) must show:
 - **Live log tail**: last 200 log entries, auto-refreshing every 5 seconds, filterable by level
 - **Component status panel**: green/amber/red indicators for:
   - Database connection
-  - Claude API (last successful call timestamp + estimated spend to date)
+  - AI extraction service (last successful call timestamp) — ⚠️ was "Claude API + estimated
+    spend"; under the [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini)
+    this becomes Gemini, and "spend" becomes a **daily quota usage indicator** + a **recent
+    capture attempt log** (which model handled each task, or queued). Not built yet.
   - AnyList connection (last successful auth timestamp)
-- **API spend tracker**: running total of Claude API input/output tokens used, converted to
-  estimated USD cost. Reset button (with confirmation) — clears the *displayed* running total
-  via a reset marker, without deleting the underlying `api_usage` log (see
-  [Security §0b](#0b-api-usage-observability-no-hard-cap); this is observability only, not a
-  spend cap — that was tried and removed, see the Non-Negotiable Operating Rules banner).
+- **⚠️ SUPERSEDED — API spend tracker**: was a running USD-cost total of Claude tokens with a
+  reset button. The Gemini free tier has no dollar cost, so this is replaced by the quota
+  indicator + attempt log above — see the [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).
+  Still Claude-based in code until the migration is built.
 - **Recent errors**: last 10 ERROR-level entries highlighted prominently at the top
 
 The diagnostics page must be built as a skeleton in Phase 1 and populated progressively as
@@ -438,6 +448,10 @@ sort_order      INTEGER NOT NULL DEFAULT 0
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
+> **⚠️ Pending — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini):**
+> capture-time substitution flagging adds `original_ingredient`, `resolved_ingredient` (null
+> until the user confirms the swap on that recipe), `substitution_note` (freetext) here — the
+> replacement for the now-removed global `ingredient_substitutions` table. Not built yet.
 
 ### `product_units`
 ```
@@ -477,6 +491,19 @@ updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
 ### `ingredient_substitutions`
+
+> **⚠️ SUPERSEDED — to be REMOVED. See
+> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).** This
+> table of global, name-scoped, auto-applying, cross-session substitution rules was built in
+> Phase 4 (Chunks 4.1/4.5) and is explicitly out of scope under the 2026-09-06 addendum:
+> substitution is now **capture-time, per-recipe, per-ingredient, confirmation-required**,
+> with no global rules and nothing in the consolidation path. The replacement is three
+> columns on [`recipe_ingredients`](#recipe_ingredients). The migration to drop this table
+> (and delete `services/substitutions.py`, `schemas/substitutions.py`,
+> `static/js/settings-substitutions.js`, the Settings substitution endpoints, and the
+> `consolidation.py` / `consolidate_session()` resolution step) is part of that addendum's
+> build. **Still present in code until then.** Original schema kept below for reference:
+
 ```
 id              INTEGER PRIMARY KEY
 original_name   TEXT NOT NULL       -- normalised lowercase, matches recipe_ingredients.name
@@ -491,11 +518,6 @@ created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 UNIQUE(original_name, substitute_name)
 ```
-Deliberately never pre-seeded, unlike `product_units`/`staples` — every row exists only because
-the user made and kept a real substitution. See
-[Ingredient Substitution](#ingredient-substitution) for the full design: what creates a row (the
-Phase 4 ad-hoc-swap-and-remember flow, nothing else), what resolves it (consolidation, before
-[Purchase unit resolution](#scaling-logic) runs), and where it's managed (Settings).
 
 ### `planning_sessions`
 ```
@@ -558,6 +580,14 @@ anylist_response_json TEXT          -- nullable, raw AnyList response for diagno
 ```
 
 ### `api_usage`
+
+> **⚠️ Pending rework — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).**
+> Gemini's free tier has no dollar cost, so `cost_usd_cents` and `calculate_cost_usd_cents()`
+> lose their purpose and the diagnostics USD "spend tracker" is replaced by a daily quota
+> indicator + a recent-capture-attempt log. Open decision (Migration Notes item 3): repurpose
+> this table (drop `cost_usd_cents`, add per-task status / model-used / queued fields) or
+> replace it (and `api_usage_resets`) with a new table. Unchanged in code until then.
+
 ```
 id              INTEGER PRIMARY KEY
 timestamp       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -689,6 +719,13 @@ and not in `NO_SCALE_UNITS` is treated as **discrete** — scaled, then ceil-to-
 [Deferred Decisions](#deferred-decisions)) — it's the pragmatic default, not a confident one.
 
 ### Consolidation across recipes
+> **⚠️ Change pending — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).**
+> Phase 4 built consolidation to resolve global `ingredient_substitutions` rules *before*
+> summing (both `consolidation.consolidate()` and `consolidate_session()` do this today). The
+> 2026-09-06 addendum removes substitution from the planning/consolidation path entirely —
+> consolidation will consume already-resolved `recipe_ingredients.resolved_ingredient` only.
+> The paragraph below describes current (to-be-removed) behaviour.
+
 Ingredient names are resolved through any applicable
 [substitution rule](#ingredient-substitution) *before* consolidation runs — so an ingredient
 substituted to match another recipe's ingredient consolidates into a single line, not two.
@@ -757,6 +794,16 @@ discards checklist progress.
 ---
 
 ## Recipe Capture — AI Extraction
+
+> **⚠️ SUPERSEDED provider — see
+> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).** Under
+> that 2026-06 addendum this moves to Google Gemini (`gemini-2.5-flash` →
+> `gemini-2.5-flash-lite` → queue), splits into **three separate calls per capture**
+> (extraction / substitution flagging / section suggestion) instead of the one combined call
+> below, adds a `capture_queue` retry table and a "Pending AI processing" badge, and uses
+> Gemini structured-output mode. The extraction *prompt* and JSON *shape* below are otherwise
+> preserved. **Code is still on Claude Haiku / the `anthropic` SDK until the migration is
+> built.** The rest of this section describes current behaviour.
 
 Use Claude Haiku 4.5 via the official Anthropic Python SDK (`anthropic`).
 
@@ -868,7 +915,22 @@ Ingredient names must be consistent across recipes for consolidation to work. Ru
 
 ## Ingredient Substitution
 
-**Status: in scope, Phase 4.** Resolved 2026-09-06, superseding the 2026-09-05 "substitution
+> **⚠️ SUPERSEDED 2026-09-06 by the
+> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini) addendum
+> — the design in this section is being TORN OUT.** The addendum's substitution-flagging spec
+> replaces it: **capture-time, per-recipe, per-ingredient, confirmation-required**, stored as
+> `original_ingredient` / `resolved_ingredient` / `substitution_note` on
+> [`recipe_ingredients`](#recipe_ingredients) — **no** global rules, **no** silent auto-apply,
+> **no** cross-session memory, **nothing** in meal planning / consolidation. To be removed:
+> the `ingredient_substitutions` table, `services/substitutions.py`,
+> `schemas/substitutions.py`, `static/js/settings-substitutions.js`, the Settings
+> substitution endpoints, `get_default_substitution_map()`, and the substitution-resolution
+> step in `consolidation.consolidate()` / `consolidate_session()` — all built in Phase 4
+> Chunks 4.1 / 4.5 / 4.6 / 4.7 and all still present in code. The section below is the
+> now-defunct Phase 4 design, kept for history until the migration is built.
+
+**Status: ~~in scope, Phase 4~~ SUPERSEDED — see banner above.** Resolved 2026-09-06,
+superseding the 2026-09-05 "substitution
 flagging" resolution (see [Deferred Decisions](#deferred-decisions) and the Decision Dialogue
 below) — that resolution was correct on its own narrow question (no such feature existed, and
 Phase 3's Chunk 3.4 correctly shipped without one), but a follow-up conversation surfaced that a
@@ -2008,6 +2070,14 @@ full — the chunks below build them, they are not re-opened here.
       [Code Architecture](#code-architecture--maintainability), and
       [API Conventions](#api-conventions), per
       [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
+      **⚠️ Blocked / rescoped 2026-09-06 by the
+      [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini)
+      addendum:** Chunks 4.5 / 4.6 / 4.7 built the now-superseded global
+      `ingredient_substitutions` design, which that addendum tears out. Chunks 4.1–4.4 and the
+      duplicate-recipe-prevention (4.2), scaling (4.3), session-CRUD (4.4), consolidation +
+      purchase-units (4.6 minus the substitution step) work stand. The review should run
+      *after* the migration is planned/sequenced, so it isn't signing off code that's about to
+      be removed. See the addendum's Migration Notes decision list.
 
 **Deliverable:** User can create a session, add recipes, scale them, substitute an ingredient
 they don't want to buy, and see a consolidated shopping list with purchase units resolved.
@@ -2236,6 +2306,15 @@ exploited.
 
 ### 0b. API Usage Observability (no hard cap)
 
+> **⚠️ Provider change pending — [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini).**
+> Gemini's free tier has no per-call dollar cost, so USD-spend observability
+> (`calculate_cost_usd_cents`, `cost_usd_cents`, the diagnostics "spend tracker" + its reset
+> button) is replaced by a **daily quota usage indicator** (observed request count per model,
+> best-effort) plus a **recent capture-attempt log** (which model handled each task, or
+> queued). The §0a prompt-injection hardening and the §0c enable-switch / fake-mode /
+> ask-before-real-call discipline are **provider-agnostic and carry over unchanged**. Code is
+> still Claude-based until the migration is built; the text below describes current behaviour.
+
 **Set 2026-09-05, revised 2026-09-06.** This section originally documented a hard AU$0.50
 lifetime spend cap enforced in code (`enforce_spend_cap()`, `MAX_API_SPEND_AUD_CENTS`,
 `SpendCapExceededError`). **That cap has been removed** — it was based on a mistaken
@@ -2453,6 +2532,9 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | AI pre-fill of cookbook name / page from a photo | Revisit if hand-entry proves tedious | Phase 3 Chunk 3.7 collects `source_book` / `source_page` via manual review-screen inputs and deliberately does not extend the extraction prompt to OCR them (unreliable; every new prompt field costs fresh [§0a](#0a-prompt-injection-hardening-highest-priority) output-validation work). If typing them every capture turns out to be annoying, add best-effort `suggested_book` / `suggested_page` to the prompt with allow-list-style validation. Same standing as any other not-yet-needed feature — no reserved phase. See [Recipe Capture](#recipe-capture--ai-extraction). |
 | MyFitnessPal recipe export | Post-MVP / unscheduled | Secondary user wants recipes in MFP for macro tracking. Design done: app generates a clean recipe for MFP's built-in Recipe Importer; no push API, no macros held in the app. See [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export). Do not build speculatively; re-verify the MFP-API status when picked up. |
 | Nutrition read-back into the app (per-recipe macros) | Post-MVP / unscheduled | Recipe→MFP export (row above) is the in-scope design. Reading macros *back* has no API path — only MFP scraping — so it's parked with the fragility/ToS trade-off to weigh, and needs a derisking spike if adopted. Independent in-app estimation (USDA FoodData Central / Claude / manual `ingredient_nutrition` table) set aside 2026-09-06: the ask is specifically MFP, and a non-matching estimate is a second source of truth; unit conversion (tsp/tbsp/cup/"each" → grams) is the hard part. See [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export). |
+| Local LLM (Ollama) fallback for AI extraction | Future phase, not scheduled | Placeholder direction if the Gemini dependency ever must go entirely (cost/privacy/availability). Ollama native on the NUC (Windows, no Docker); candidates `llama3.2-vision` / `qwen2-VL` / `moondream2`. Trade-offs to check against real NUC hardware then: weaker messy-handwriting OCR, latency depends on GPU vs CPU-only. **No Ollama deps or code paths now.** See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini). |
+| Gemini free-tier data usage | Unresolved — revisit before the AI-extraction feature is signed off | On Gemini's free tier, recipe photos/text may be used by Google to improve their products; enabling Cloud Billing (even at $0 under free quota) stops this. Decision: is adding a Google Cloud payment method viable (unlike Anthropic), and worth it purely for the privacy improvement? See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini). |
+| Combine the 3 per-task Gemini calls into 1 | Revisit only if daily quota pressure is real | The [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini) deliberately keeps extraction / substitution-flagging / section-suggestion as **separate** Gemini calls (independent prompts, schemas, failure handling — diagnostics-first). Uses more quota; do **not** pre-optimise. |
 
 ### Decision Dialogues
 
@@ -2746,6 +2828,196 @@ chunk.
 
 ---
 
+## AI Provider Migration — Anthropic Claude → Google Gemini
+
+**Status: SPEC ONLY — added 2026-09-06, NOTHING BELOW IS BUILT YET.** This is the
+authoritative spec for the AI extraction provider going forward. It **supersedes** every
+prior reference to "Claude API" / "Anthropic API" / "Claude Haiku" in the AI-extraction
+context — [Tech Stack](#tech-stack) (AI row), [Recipe Capture](#recipe-capture--ai-extraction),
+[Ingredient Substitution](#ingredient-substitution), [Diagnostics & Logging](#diagnostics--logging)
+(spend tracker), [Security §0b](#0b-api-usage-observability-no-hard-cap),
+[Data Model](#data-model) (`api_usage`, `ingredient_substitutions`, `recipe_ingredients`),
+and the [Environment Variables](#environment-variables-env) block. Those sections carry a
+`⚠️ SUPERSEDED` pointer back here; they have **not** been rewritten in place yet because the
+code still matches the old text — the fold-in happens as the migration is built, per the
+Document history norm. Non-AI uses of the name "Claude" (Claude Code as this project's dev
+tool; git commit `Co-Authored-By` lines) are unaffected.
+
+**Why:** the Anthropic account used for recipe extraction is permanently unable to add
+billing credit (see [Phase 3 Chunk 3.6](#phase-3--recipe-capture-ai), BLOCKED). Gemini's
+free tier replaces it.
+
+### ⚠️ This reverses Phase 4 Chunks 4.5 / 4.6 / 4.7 substitution work
+
+The [Ingredient Substitution](#ingredient-substitution) design that Phase 4 built —
+`ingredient_substitutions` table of **global, name-scoped rules**, an `is_default` that
+**auto-applies silently at consolidation time**, **cross-session memory**, resolution inside
+`consolidation.py` / `consolidate_session()`, and a Settings management screen — is
+**explicitly out of scope under this addendum** and must be removed. See "Ingredient
+Substitution Flagging" below for the replacement (capture-time, per-recipe, per-ingredient,
+confirmation-required, no global rules, nothing in the planning/consolidation path). This is
+a genuine teardown of code committed 2026-09-06, not a tweak — it needs its own chunked plan
+before execution (see [Migration Notes](#migration-notes--open-decisions) at the end of this
+section).
+
+### Provider & model selection
+
+- **Primary:** `gemini-2.5-flash` — closest quality match to Haiku, especially for messy
+  handwritten photo OCR.
+- **Fallback (primary's daily quota exhausted):** `gemini-2.5-flash-lite` — for volume, not
+  the default; photo-capture accuracy is the priority.
+- **Queue (both exhausted):** the capture is queued and retried later (see Queueing).
+
+**Do not hardcode Gemini rate limits.** Free-tier RPM/TPM/RPD have changed repeatedly in
+2026 and third-party numbers conflict. Instead: read quota state from `429`
+`RESOURCE_EXHAUSTED` at runtime; link the Google AI Studio dashboard from diagnostics rather
+than printing a hardcoded "X of Y"; track observed daily request counts and reset the quota
+bar on *detected* recovery (poll hourly with a light test call or by re-attempting the
+oldest queued item), not an assumed fixed reset time.
+
+### Call structure — separate calls per task
+
+Each capture issues **separate Gemini calls**, not one combined call:
+1. **Recipe extraction** — ingredients, steps, metadata (from URL text or photo).
+2. **Ingredient substitution flagging** — per-recipe, confirmation required (see below).
+3. **Store section suggestion** — per ingredient, confirmation required (unchanged in intent
+   from the prior addendum; today it rides inside the single extraction call).
+
+Uses more daily quota than a combined call, but keeps each task's prompt, schema and
+failure handling independent and debuggable — consistent with the diagnostics-first
+philosophy. **Do not pre-optimise by combining** — revisit only if quota pressure becomes a
+real problem. Every call uses Gemini structured-output / JSON-schema mode to preserve the
+schema parity from prior addenda.
+
+### ⚠️ Ingredient Substitution Flagging — full & complete spec
+
+This feature has drifted from spec before. **If existing code disagrees with the rules
+below, the code is wrong.**
+
+**What it IS:**
+- At capture time, the AI flags ingredients *in this specific recipe* that could be
+  substituted (e.g. "buttermilk" → "milk + lemon juice").
+- Each flag is surfaced for **per-recipe, per-ingredient confirmation** before anything is
+  stored as a confirmed substitution.
+- Only user-confirmed substitutions become part of *that recipe's* resolved ingredient data.
+
+**What it is NOT — do not implement:**
+- ❌ No global / app-wide substitution defaults or rules that auto-apply across recipes.
+- ❌ No auto-applying a substitution without explicit per-recipe user confirmation.
+- ❌ No learning / memory of past choices that changes future suggestions. Every recipe's
+  flags are independent.
+- ❌ No substitution logic anywhere outside the capture-time flow — **not** in meal planning,
+  shopping-list generation, or consolidation (those consume already-resolved ingredients only).
+
+**Data model:** each ingredient record carries `original_ingredient`, `resolved_ingredient`
+(null until the user confirms), `substitution_note` (freetext — why the swap works). Declining
+a flag sets `resolved_ingredient = original_ingredient` (dismissed, not deleted/hidden from
+history). *(The addendum cites a "prior addendum" for this data model that is not in this
+file — see [Migration Notes](#migration-notes--open-decisions).)*
+
+**Call behaviour:** its own Gemini call; same Flash → Flash-Lite → queue chain; if it
+fails/queues, extraction can still complete and be usable — flags are enrichment, not a
+blocker. The "Pending AI processing" badge names *which* sub-task (extraction / substitution
+/ section) is still outstanding.
+
+### Photo capture
+
+- One photo per capture for now.
+- Keep the image input a **list** structure (one element populated today) so multi-photo
+  (card front/back, multi-page printout) is not a breaking schema change later.
+
+### Fallback & retry
+
+1. Call `gemini-2.5-flash`.
+2. On `429` quota-exhausted → retry the same call on `gemini-2.5-flash-lite`.
+3. Flash-Lite also `429` → queue the capture.
+4. **Non-quota errors** (malformed response, network failure, …) do **not** fall through to
+   Flash-Lite or the queue — surface as a normal capture failure per existing error
+   conventions.
+
+### Queueing
+
+- New SQLite table (e.g. `capture_queue`): original input (URL/text/photo ref), task type,
+  queued-at timestamp, attempt count.
+- Retry ~hourly (not on an assumed fixed reset).
+- On success, the item processes through the normal capture pipeline and is removed.
+
+### Surfacing queued / pending state (both required)
+
+- **Recipe library badge:** "Pending AI processing" until all required AI tasks (extraction,
+  substitution flagging, section suggestion) complete.
+- **Diagnostics panel:** queued items visible in the live log tail / component status view.
+
+### Diagnostics — replacing "Claude API spend tracking"
+
+- **Daily quota usage indicator** — observed request count today per model (best-effort;
+  exact caps aren't reliably documented).
+- **Recent capture attempt log** — success/fail per capture task, which model handled it
+  (Flash / Flash-Lite / queued), and any error detail.
+
+Cost-in-dollars tracking goes away (Gemini free tier). `calculate_cost_usd_cents` and the
+`cost_usd_cents` column lose their purpose; `api_usage` is repurposed or replaced (see
+Migration Notes).
+
+### API key storage
+
+`.env`, plaintext — unchanged from the Anthropic key. `keyring` hardening stays deferred to
+Phase 5 with the AnyList credential work.
+
+### Open item — free-tier data usage
+
+On Gemini's free tier, prompt/response content (recipe photos and text) **may be used by
+Google to improve their products**. Enabling Cloud Billing on the project stops this, even at
+$0 spend under the free quota. **Unresolved — revisit before this feature is signed off.**
+Decision needed: is adding a Google Cloud payment method viable (unlike Anthropic), and is it
+worth doing purely to stop free-tier data usage.
+
+### Deferred — local LLM fallback (future phase, NOT now)
+
+Placeholder direction only, if the Gemini dependency ever must be removed entirely
+(cost/privacy/availability): Ollama native on the NUC (Windows, no Docker); candidate models
+`llama3.2-vision`, `qwen2-VL`, `moondream2`. Known trade-offs to check against real NUC
+hardware at that time: weaker messy-handwriting OCR; latency depends heavily on GPU vs
+CPU-only. **Do not add Ollama dependencies or code paths now.**
+
+### Migration Notes & open decisions
+
+Code touch-points (all still Anthropic today): `services/claude_client.py` (→ rename, e.g.
+`ai_extraction.py`; `google-genai` SDK; split into 3 per-task calls; Flash→Flash-Lite→queue
+chain; structured-output mode), `services/api_usage.py` (drop cost math; repurpose to
+quota/attempt logging), `models/diagnostics.py` (`ApiUsage` / `ApiUsageReset`),
+`routers/diagnostics.py` + `static/js/diagnostics.js` (quota indicator + attempt log),
+`app/config.py` + `.env.example` (`ANTHROPIC_API_KEY`→`GEMINI_API_KEY`, `CLAUDE_API_ENABLED`
+/ `CLAUDE_API_FAKE_MODE` → provider-neutral names), `requirements.txt` (`anthropic` out,
+`google-genai` in), `services/capture_url.py` / `capture_photo.py` (call sites),
+`services/consolidation.py` + `services/sessions.py` (**remove** substitution resolution),
+delete `services/substitutions.py` / `schemas/substitutions.py` /
+`static/js/settings-substitutions.js` + the Settings substitution endpoints, drop the
+`ingredient_substitutions` table (migration), add `original_ingredient` / `resolved_ingredient`
+/ `substitution_note` to `recipe_ingredients` (migration), add `capture_queue` (migration),
+add per-recipe AI-task status for the pending badge (migration), rework Chunk 4.7's
+Swap/"Remember this?" into per-recipe capture-time confirmation. Plus ~40 test files.
+Existing JSON schema *shapes* (recipe / substitution original-resolved-note / section) are
+unchanged — only the calling mechanism.
+
+**Decisions needed before build:**
+1. Sequence & scoping — this is ~Phase-3-sized plus a Phase-4 partial teardown. Its own
+   chunked mini-phase? Where does it sit relative to the pending Phase 4 review?
+2. The "prior addendum" defining `original_ingredient` / `resolved_ingredient` /
+   `substitution_note` isn't in this file. Provide it, or treat the three-field description
+   above as complete?
+3. `api_usage` — repurpose the table (rename columns, drop `cost_usd_cents`) or new table +
+   drop `api_usage` / `api_usage_resets`?
+4. Env var names — keep `CLAUDE_API_*` (jarring), or rename to `GEMINI_API_*` /
+   `AI_EXTRACTION_*` (touches config + tests + docs + the NUC's real `.env`).
+5. Is a Gemini API key available now, or does this build offline against fake mode + mocks
+   like Phase 3 did (real call deferred, needs explicit go-ahead per §0c)?
+6. §0c enable-switch / fake-mode / ask-before-real-call discipline: confirm it carries over
+   verbatim to Gemini (the addendum implies yes but doesn't restate it).
+7. Phase renumbering — the addendum repeatedly says "Phase 1"; capture is Phase 3 here.
+
+---
+
 ## Explicitly Out of Scope
 
 Confirmed during planning, not revisited unless raised again:
@@ -2760,12 +3032,20 @@ Confirmed during planning, not revisited unless raised again:
 
 ## Environment Variables (.env)
 
+> **⚠️ AI keys change under the
+> [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini):**
+> `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`, and `CLAUDE_API_ENABLED` / `CLAUDE_API_FAKE_MODE`
+> get provider-neutral names (final names are Migration Notes open decision #4). The §0c
+> semantics — off by default, explicit maintainer opt-in, fake mode bypasses everything, no
+> agent flips the switch — are unchanged. Code + `.env.example` still use the `CLAUDE_API_*`
+> names until the migration is built.
+
 ```
 PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
-ANTHROPIC_API_KEY=sk-ant-...
-CLAUDE_API_ENABLED=false
-CLAUDE_API_FAKE_MODE=false
+ANTHROPIC_API_KEY=sk-ant-...           # ⚠️ → GEMINI_API_KEY (AI Provider Migration)
+CLAUDE_API_ENABLED=false               # ⚠️ → provider-neutral name (AI Provider Migration)
+CLAUDE_API_FAKE_MODE=false             # ⚠️ → provider-neutral name (AI Provider Migration)
 ANYLIST_EMAIL=...
 ANYLIST_PASSWORD=...
 LOG_LEVEL=INFO
