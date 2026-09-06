@@ -122,11 +122,24 @@ def test_create_product_unit_normalises_name_and_defaults_not_preseeded(db):
     assert unit.is_preseeded is False
 
 
-def test_create_product_unit_duplicate_ingredient_name_raises(db):
+def test_create_product_unit_duplicate_ingredient_and_label_raises(db):
+    # Phase 4 (Chunk 4.1): uniqueness is (ingredient_name, purchase_label), so it's the
+    # exact pack that must be unique — see CLAUDE.md > Data Model > product_units.
     settings_service.create_product_unit(db, _make_product_unit())
 
     with pytest.raises(settings_service.DuplicateProductUnitNameError):
-        settings_service.create_product_unit(db, _make_product_unit(purchase_label="half-dozen"))
+        settings_service.create_product_unit(db, _make_product_unit())
+
+
+def test_create_product_unit_allows_second_pack_size_for_same_ingredient(db):
+    # The whole point of the Phase 4 constraint change: one ingredient, several pack sizes.
+    first = settings_service.create_product_unit(db, _make_product_unit(purchase_label="dozen"))
+    second = settings_service.create_product_unit(
+        db, _make_product_unit(purchase_label="half-dozen", purchase_qty=6)
+    )
+
+    assert first.id != second.id
+    assert first.ingredient_name == second.ingredient_name == "eggs"
 
 
 def test_list_product_units_ordered_by_ingredient_name(db):

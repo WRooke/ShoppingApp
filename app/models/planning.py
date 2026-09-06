@@ -38,7 +38,11 @@ class SessionRecipe(Base):
     session_id = Column(
         Integer, ForeignKey("planning_sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
+    # Phase 4 (Chunk 4.1): a slot can be a real recipe or a non-recipe "leftovers" marker
+    # that pulls nothing into consolidation, so recipe_id is nullable and slot_type flags
+    # which it is. See CLAUDE.md > Data Model > session_recipes (Phase 4 note).
+    recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=True)
+    slot_type = Column(Text, nullable=False, default="recipe")  # 'recipe' | 'leftovers'
     day_of_week = Column(Integer, nullable=True)  # 1=Monday .. 7=Sunday
     scaled_servings = Column(Integer, nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
