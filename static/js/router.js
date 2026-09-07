@@ -42,6 +42,15 @@
         global.SessionsView.unmount();
       },
     },
+    checklist: {
+      title: "Checklist",
+      mount: function (root, param) {
+        global.ChecklistView.mount(root, param);
+      },
+      unmount: function () {
+        if (global.ChecklistView.unmount) global.ChecklistView.unmount();
+      },
+    },
     settings: {
       title: "Settings",
       mount: function (root) {

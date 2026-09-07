@@ -384,3 +384,11 @@ select, input[type="text"] {
   background: #fff8ef;
 }
 .ai-attempt-log { margin: 4px 0 6px; }
+
+/* --- checklist screen (Phase 5 Chunk 5.5) --- */
+.have-toggle { min-width: 84px; }
+.have-toggle.have-unknown { background: #fff; color: var(--text-dim); }
+.have-toggle.have-yes { background: #e8f3ec; color: var(--green); border-color: var(--green); }
+.have-toggle.have-no { background: #fdecec; color: var(--red); border-color: var(--red); }
+.settings-row.on-anylist { opacity: 0.72; }
+.settings-row.on-anylist .recipe-row-name::after { content: " ✓"; color: var(--green); }

@@ -85,6 +85,13 @@
         list.appendChild(renderItemRow(item));
       });
       body.appendChild(list);
+
+      // Phase 5 — proceed to the checklist ("do you have this?" + push to AnyList).
+      var next = el("a", "btn primary", "Next: checklist →");
+      next.href = "#/checklist/" + sessionId;
+      next.style.marginTop = "12px";
+      next.style.display = "inline-block";
+      body.appendChild(next);
     }
 
     function renderItemRow(item) {
