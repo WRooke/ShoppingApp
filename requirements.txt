@@ -1,5 +1,5 @@
 # ShoppingApp — dependencies
-# Kept deliberately minimal. AnyList deps arrive in Phase 5.
+# Kept deliberately minimal.
 #
 # Pinned to exact versions (not just floors) so a fresh `pip install` on the NUC — which
 # start.bat and scripts/update.py both do unattended — can't silently pick up a newer
@@ -28,3 +28,9 @@ brotli==1.2.0  # httpx's brotli decoder for URL capture — see services/capture
                 # it, some bot-protected recipe sites (e.g. tasty.co) 406 the request outright
                 # (their WAF treats a Chrome UA with no brotli support as non-browser), and if
                 # they ever did serve br-encoded content anyway it would decode to mojibake
+
+# Phase 5 — AnyList integration. The connector itself is native (httpx + a hand-rolled
+# protobuf codec, see services/anylist_client.py, adapted from spike/). `keyring` is only
+# for reading the AnyList credentials out of Windows Credential Manager when they're stored
+# there rather than in .env — see CLAUDE.md > Security §2 (hybrid credential storage).
+keyring==25.7.0

@@ -40,6 +40,13 @@ mentions config. **Known pending rename — Phase 3.9 M1:** `ANTHROPIC_API_KEY` 
 Phase 3 capture, so its `.env` still carries the old placeholder names — update them the
 next time the NUC is touched, before recipe capture is used there for real.
 
+**Phase 5 adds** `ANYLIST_ENABLED` / `ANYLIST_FAKE_MODE` / `ANYLIST_TARGET_LIST_NAME` (all
+safe defaults: gate off, fake off, target `TestList`). The AnyList email/password are read
+from Windows Credential Manager first (`keyring set shoppingapp anylist_email` /
+`... anylist_password` on the NUC) and only fall back to `ANYLIST_EMAIL` / `ANYLIST_PASSWORD`
+in `.env` with a startup WARNING — see `SETUP.md` step 3. `pip install` picks up the new
+`keyring` dependency automatically on the next `update.bat`.
+
 ---
 
 ## One-time setup

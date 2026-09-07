@@ -75,6 +75,14 @@ async def lifespan(app: FastAPI):
     logger.info(
         "=== ShoppingApp starting (port %s, log level %s) ===", settings.port, settings.log_level
     )
+    # Phase 5 — nudge toward keyring storage for the AnyList credentials (CLAUDE.md > Security
+    # §2). Logged here, not in config.py, because logging isn't configured at config import.
+    if settings.anylist_secret_source in ("env", "mixed"):
+        logger.warning(
+            "AnyList credentials loaded from .env (plaintext). Prefer Windows Credential "
+            "Manager: `keyring set shoppingapp anylist_email` / `... anylist_password`. "
+            "See CLAUDE.md > Security §2."
+        )
     try:
         init_db()
     except Exception:

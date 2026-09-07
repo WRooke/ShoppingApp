@@ -97,6 +97,17 @@ git config core.safecrlf false
    ```
    Leave `GEMINI_API_KEY` and the `ANYLIST_*` values as placeholders — they are not used
    until Phase 3 and Phase 5 respectively.
+3. **AnyList credentials (Phase 5).** The app reads Windows Credential Manager first and only
+   falls back to `ANYLIST_EMAIL` / `ANYLIST_PASSWORD` in `.env` (logging a warning) if the
+   keyring entries aren't set. To keep the password out of the plaintext file, from the
+   project folder with the venv active run once:
+   ```
+   .venv\Scripts\python -m keyring set shoppingapp anylist_email
+   .venv\Scripts\python -m keyring set shoppingapp anylist_password
+   ```
+   and leave the two `.env` values as `REPLACE_ME`. `ANYLIST_ENABLED` stays `false` until
+   you're ready to push for real; `ANYLIST_TARGET_LIST_NAME` should stay a dedicated test
+   list, not the household's real one, during any development or verification.
 
 ---
 
