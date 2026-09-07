@@ -36,6 +36,11 @@ from app.routers import settings as settings_router
 from app.services.capture_photo import InvalidImageError
 from app.services.capture_url import RecipeFetchError
 from app.services.ai_extraction import AiExtractionDisabledError, AiExtractionError
+from app.services.anylist_client import (
+    AnyListAuthError,
+    AnyListDisabledError,
+    AnyListError,
+)
 from app.services.recipes import (
     IngredientNotFoundError,
     PossibleDuplicateRecipeError,
@@ -436,6 +441,46 @@ async def invalid_image_error_handler(request: Request, exc: InvalidImageError):
     return JSONResponse(
         status_code=422,
         content=_error_body("INVALID_IMAGE", exc.reason, None),
+    )
+
+
+@app.exception_handler(AnyListDisabledError)
+async def anylist_disabled_handler(request: Request, exc: AnyListDisabledError):
+    # The §2 gate working as designed, not a failure — same treatment as AI_EXTRACTION_DISABLED.
+    logger.warning("AnyList call refused (disabled): %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=503,
+        content=_error_body(
+            "ANYLIST_DISABLED",
+            "AnyList sync is currently switched off. Ask the maintainer to enable it.",
+            None,
+        ),
+    )
+
+
+@app.exception_handler(AnyListAuthError)
+async def anylist_auth_error_handler(request: Request, exc: AnyListAuthError):
+    logger.warning("AnyList auth failed: %s %s (%s)", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=502,
+        content=_error_body(
+            "ANYLIST_AUTH_FAILED",
+            "Couldn't sign in to AnyList. Check the credentials (see Security §2).",
+            str(exc),
+        ),
+    )
+
+
+@app.exception_handler(AnyListError)
+async def anylist_error_handler(request: Request, exc: AnyListError):
+    logger.warning("AnyList call failed: %s %s (%s)", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=502,
+        content=_error_body(
+            "ANYLIST_FAILED",
+            "Couldn't reach AnyList — check your connection and try again.",
+            str(exc),
+        ),
     )
 
 
