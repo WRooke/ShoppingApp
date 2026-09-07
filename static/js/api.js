@@ -214,6 +214,23 @@
           });
         },
       },
+      usuals: {
+        list: function () {
+          return api.get("/api/v1/settings/usuals?limit=200");
+        },
+        create: function (data) {
+          return jsonBody("POST", "/api/v1/settings/usuals", data);
+        },
+        update: function (id, data) {
+          return jsonBody("PATCH", "/api/v1/settings/usuals/" + encodeURIComponent(id), data);
+        },
+        delete: function (id) {
+          return request("/api/v1/settings/usuals/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          });
+        },
+      },
     },
     sessions: {
       list: function () {

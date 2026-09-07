@@ -271,3 +271,46 @@ def test_create_substitution_half_equivalence_pair_returns_422(client):
         client, "ZZ-Half-Pair", "ZZ-Half-Sub", original_qty=2, original_unit="cob"
     )
     assert resp.status_code == 422
+
+
+# --- "the usuals" (Phase 5 Chunk 5.4) --------------------------------------------------
+
+
+def test_usuals_crud_roundtrip(client):
+    created = client.post(
+        "/api/v1/settings/usuals",
+        json={"name": "ZZ Laundry Powder", "cadence_days": 21, "notes": "big box"},
+    )
+    assert created.status_code == 201
+    body = created.json()["data"]
+    assert body["name"] == "zz laundry powder"
+    assert body["cadence_days"] == 21
+    assert body["is_due"] is True  # never added
+
+    uid = body["id"]
+    patched = client.patch(f"/api/v1/settings/usuals/{uid}", json={"cadence_days": 30})
+    assert patched.status_code == 200 and patched.json()["data"]["cadence_days"] == 30
+
+    listed = client.get("/api/v1/settings/usuals").json()["data"]["items"]
+    assert any(i["id"] == uid for i in listed)
+
+    deleted = client.delete(f"/api/v1/settings/usuals/{uid}")
+    assert deleted.status_code == 200 and deleted.json()["data"]["deleted"] is True
+
+
+def test_usuals_duplicate_name_is_409(client):
+    client.post("/api/v1/settings/usuals", json={"name": "ZZ Dish Soap", "cadence_days": 10})
+    dup = client.post("/api/v1/settings/usuals", json={"name": "zz dish soap", "cadence_days": 5})
+    assert dup.status_code == 409
+    assert dup.json()["error"]["code"] == "DUPLICATE_USUAL_ITEM_NAME"
+
+
+def test_usuals_reject_zero_cadence(client):
+    resp = client.post("/api/v1/settings/usuals", json={"name": "ZZ Bad", "cadence_days": 0})
+    assert resp.status_code == 422
+
+
+def test_usuals_update_missing_is_404(client):
+    resp = client.patch("/api/v1/settings/usuals/999999", json={"cadence_days": 7})
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "USUAL_ITEM_NOT_FOUND"

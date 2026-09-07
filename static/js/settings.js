@@ -328,6 +328,7 @@
     renderStaplesCard(root);
     renderProductUnitsCard(root);
     global.SettingsSubstitutionsView.renderCard(root); // Phase 4, see settings-substitutions.js
+    global.SettingsUsualsView.renderCard(root); // Phase 5, see settings-usuals.js
   }
 
   function unmount() {

@@ -41,6 +41,27 @@ class Staple(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class UsualItem(Base):
+    """"The usuals" (Phase 5 Chunk 5.4) — recurring non-recipe household items bought on a
+    day-based schedule, independent of meal planning. Distinct from ``Staple`` (recipe
+    ingredients assumed on-hand). Surfaced on the checklist as its own group only when *due*:
+    ``last_added_at IS NULL`` or ``last_added_at + cadence_days`` has passed. Cadence is in
+    days, not sessions — an ad-hoc single-recipe session is an unreliable clock. Managed in
+    Settings, seeded empty. See CLAUDE.md > Checklist Screen Logic > "The usuals" and >
+    Data Model > usual_items.
+    """
+
+    __tablename__ = "usual_items"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(Text, nullable=False, unique=True)  # normalised lowercase
+    notes = Column(Text, nullable=True)
+    cadence_days = Column(Integer, nullable=False)  # "buy roughly every N days"
+    last_added_at = Column(DateTime, nullable=True)  # stamped when actually pushed to AnyList
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class RememberedSubstitution(Base):
     """A quick-pick library entry (Phase 3.9 M4 — was ``IngredientSubstitution`` with an
     ``is_default`` that auto-applied; that's gone). It NEVER applies a swap on its own — it

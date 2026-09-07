@@ -42,6 +42,7 @@ from app.services.anylist_client import (
     AnyListError,
 )
 from app.services.checklist import ChecklistItemNotFoundError, ChecklistNotReadyError
+from app.services.usuals import DuplicateUsualItemNameError, UsualItemNotFoundError
 from app.services.recipes import (
     IngredientNotFoundError,
     PossibleDuplicateRecipeError,
@@ -224,6 +225,26 @@ async def duplicate_staple_name_handler(request: Request, exc: DuplicateStapleNa
         status_code=409,
         content=_error_body(
             "DUPLICATE_STAPLE_NAME", f'"{exc.name}" is already on the staples list.', None
+        ),
+    )
+
+
+@app.exception_handler(UsualItemNotFoundError)
+async def usual_item_not_found_handler(request: Request, exc: UsualItemNotFoundError):
+    logger.info("Usual item not found: id=%s", exc.usual_id)
+    return JSONResponse(
+        status_code=404,
+        content=_error_body("USUAL_ITEM_NOT_FOUND", f"Usual item {exc.usual_id} not found.", None),
+    )
+
+
+@app.exception_handler(DuplicateUsualItemNameError)
+async def duplicate_usual_item_name_handler(request: Request, exc: DuplicateUsualItemNameError):
+    logger.info("Duplicate usual item name: %r", exc.name)
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "DUPLICATE_USUAL_ITEM_NAME", f'"{exc.name}" is already in the usuals list.', None
         ),
     )
 

@@ -26,6 +26,7 @@ from app.schemas.settings import (
     StapleRead,
     StapleUpdate,
 )
+from app.schemas.usuals import UsualItemCreate, UsualItemUpdate
 from app.schemas.substitutions import (
     RememberedSubstitutionCreate,
     RememberedSubstitutionRead,
@@ -33,6 +34,7 @@ from app.schemas.substitutions import (
 )
 from app.services import settings as settings_service
 from app.services import substitutions as substitutions_service
+from app.services import usuals as usuals_service
 
 logger = logging.getLogger(__name__)
 
@@ -184,3 +186,42 @@ def update_substitution(
 def delete_substitution(substitution_id: int, db: Session = Depends(get_db)) -> dict:
     substitutions_service.delete_substitution(db, substitution_id)
     return {"ok": True, "data": {"id": substitution_id, "deleted": True}}
+
+
+# --- "the usuals" (Phase 5 Chunk 5.4) --------------------------------------
+
+
+@router.post("/usuals", status_code=201)
+def create_usual(data: UsualItemCreate, db: Session = Depends(get_db)) -> dict:
+    item = usuals_service.create_usual(db, data)
+    return {"ok": True, "data": usuals_service.to_read(item)}
+
+
+@router.get("/usuals")
+def list_usuals(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> dict:
+    items, total = usuals_service.list_usuals(db, limit=limit, offset=offset)
+    return {
+        "ok": True,
+        "data": {
+            "items": [usuals_service.to_read(i) for i in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
+
+
+@router.patch("/usuals/{usual_id}")
+def update_usual(usual_id: int, data: UsualItemUpdate, db: Session = Depends(get_db)) -> dict:
+    item = usuals_service.update_usual(db, usual_id, data)
+    return {"ok": True, "data": usuals_service.to_read(item)}
+
+
+@router.delete("/usuals/{usual_id}")
+def delete_usual(usual_id: int, db: Session = Depends(get_db)) -> dict:
+    usuals_service.delete_usual(db, usual_id)
+    return {"ok": True, "data": {"id": usual_id, "deleted": True}}
