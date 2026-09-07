@@ -9,9 +9,9 @@ recipe, per CLAUDE.md > Code Architecture & Maintainability.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from app.schemas.recipes import SourceType
+from app.schemas.recipes import SourceType, _validate_resolved_transform
 
 
 class CaptureUrlRequest(BaseModel):
@@ -73,6 +73,17 @@ class CaptureIngredientConfirm(BaseModel):
     # Phase 3.9 M4 — a substitution the user confirmed on the review screen. None = no swap.
     resolved_ingredient: str | None = None
     substitution_note: str | None = None
+    # Phase 3.9 M8 — the swap's absolute amount when it differs ("2 cob" -> "2 can"). Both-or-
+    # neither; only valid with resolved_ingredient set.
+    resolved_quantity: float | None = None
+    resolved_unit: str | None = None
+
+    @model_validator(mode="after")
+    def _check_transform(self) -> "CaptureIngredientConfirm":
+        _validate_resolved_transform(
+            self.resolved_ingredient, self.resolved_quantity, self.resolved_unit
+        )
+        return self
 
 
 class CaptureConfirmRequest(BaseModel):

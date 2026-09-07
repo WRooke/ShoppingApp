@@ -61,6 +61,15 @@ def _clean_note(note: str | None) -> str | None:
     return trimmed or None
 
 
+def _clean_unit(unit: str | None) -> str | None:
+    """Unit strings are matched case-insensitively downstream (consolidate_session), so store
+    them normalised the same way an ingredient name is — trim + lowercase, blank -> None."""
+    if unit is None:
+        return None
+    trimmed = " ".join(unit.strip().lower().split())
+    return trimmed or None
+
+
 def create_substitution(
     db: Session, data: RememberedSubstitutionCreate
 ) -> RememberedSubstitution:
@@ -73,11 +82,17 @@ def create_substitution(
     if original == substitute:
         raise InvalidSubstitutionError("An ingredient can't be substituted with itself.")
 
+    # M8 equivalence pair — the schema already enforced all-or-none + positive quantities;
+    # here we just normalise the unit strings the same way names are normalised.
     row = RememberedSubstitution(
         original_name=original,
         substitute_name=substitute,
         note=_clean_note(data.note),
         last_used_at=utcnow(),
+        original_qty=data.original_qty,
+        original_unit=_clean_unit(data.original_unit),
+        substitute_qty=data.substitute_qty,
+        substitute_unit=_clean_unit(data.substitute_unit),
     )
     db.add(row)
     try:
@@ -144,6 +159,16 @@ def update_substitution(
         row.substitute_name = new_sub
     if "note" in changes:
         row.note = _clean_note(changes["note"])
+    # M8 equivalence pair — the schema validator already enforced all-or-none across the
+    # fields actually sent; sending them all as null clears the pair.
+    if "original_qty" in changes:
+        row.original_qty = changes["original_qty"]
+    if "original_unit" in changes:
+        row.original_unit = _clean_unit(changes["original_unit"])
+    if "substitute_qty" in changes:
+        row.substitute_qty = changes["substitute_qty"]
+    if "substitute_unit" in changes:
+        row.substitute_unit = _clean_unit(changes["substitute_unit"])
 
     try:
         db.commit()

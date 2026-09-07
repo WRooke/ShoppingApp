@@ -167,6 +167,59 @@ def test_update_ingredient_partial_update(db):
     assert updated.unit == "g"  # untouched
 
 
+def test_create_recipe_stores_m8_resolved_transform(db):
+    recipe = recipes_service.create_recipe(
+        db,
+        _make_recipe(
+            ingredients=[
+                RecipeIngredientCreate(
+                    name="corn cobs", quantity=2, unit="cob",
+                    resolved_ingredient="Canned Corn",
+                    resolved_quantity=2, resolved_unit=" Can ",
+                )
+            ]
+        ),
+    )
+    ing = recipe.ingredients[0]
+    assert ing.resolved_ingredient == "canned corn"
+    assert (ing.resolved_quantity, ing.resolved_unit) == (2, "can")
+
+
+def test_create_recipe_drops_transform_without_a_name_swap(db):
+    # schema rejects qty/unit with no resolved_ingredient
+    with pytest.raises(ValueError):
+        _make_recipe(
+            ingredients=[
+                RecipeIngredientCreate(
+                    name="corn", quantity=2, unit="cob",
+                    resolved_quantity=2, resolved_unit="can",
+                )
+            ]
+        )
+
+
+def test_update_ingredient_clearing_swap_also_clears_the_transform(db):
+    recipe = recipes_service.create_recipe(
+        db,
+        _make_recipe(
+            ingredients=[
+                RecipeIngredientCreate(
+                    name="corn cobs", quantity=2, unit="cob",
+                    resolved_ingredient="canned corn",
+                    resolved_quantity=2, resolved_unit="can",
+                )
+            ]
+        ),
+    )
+    ing_id = recipe.ingredients[0].id
+
+    reverted = recipes_service.update_ingredient(
+        db, recipe.id, ing_id, RecipeIngredientUpdate(resolved_ingredient=None)
+    )
+    assert reverted.resolved_ingredient is None
+    assert reverted.resolved_quantity is None and reverted.resolved_unit is None
+
+
 def test_update_ingredient_raises_when_ingredient_belongs_to_different_recipe(db):
     recipe1 = recipes_service.create_recipe(db, _make_recipe(name="Alpha Dish"))
     recipe2 = recipes_service.create_recipe(db, _make_recipe(name="Bravo Dish"))

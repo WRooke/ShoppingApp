@@ -5,7 +5,11 @@
 
    Session-only overrides are held here client-side and passed into the
    /consolidate call (the "No, don't remember" path writes nothing to the DB).
-   "Yes, remember" POSTs a real ingredient_substitutions rule. */
+   "Yes, remember" POSTs a remembered_substitutions row.
+
+   Phase 3.9 M8: a swap can also carry a quantity/unit equivalence pair
+   ("2 cob ≈ 1 can") — optional inputs on the swap form, threaded into the override
+   and into the "remember" POST. */
 
 (function (global) {
   "use strict";
@@ -27,8 +31,8 @@
 
   function mount(root, sessionId) {
     root.innerHTML = "";
-    var overrides = []; // [{ original_name, substitute_name }] — session-only
-    var knownSubs = {}; // original_name -> [substitute_name, ...]
+    var overrides = []; // [{ original_name, substitute_name, ...equivalence pair }] — session-only
+    var knownSubs = {}; // original_name -> [full saved-swap row, ...]
 
     var back = el("a", "btn", "← Back to session");
     back.href = "#/plan/" + sessionId;
@@ -52,7 +56,7 @@
       .list()
       .then(function (data) {
         (data.items || []).forEach(function (r) {
-          (knownSubs[r.original_name] = knownSubs[r.original_name] || []).push(r.substitute_name);
+          (knownSubs[r.original_name] = knownSubs[r.original_name] || []).push(r);
         });
       })
       .catch(function () {})
@@ -135,15 +139,50 @@
       input.className = "settings-name-input";
       wrap.appendChild(input);
 
+      // M8 — optional "N unit ≈ M unit" so a swap can change the amount as well as the name.
+      // Left blank => a straight rename. The "from" unit defaults to this line's unit.
+      wrap.appendChild(el("span", "muted", " amount (optional): "));
+      var oQty = el("input");
+      oQty.type = "number";
+      oQty.step = "any";
+      oQty.placeholder = "amt";
+      oQty.className = "ingredient-qty-input";
+      var oUnit = el("input");
+      oUnit.type = "text";
+      oUnit.placeholder = "unit";
+      oUnit.className = "ingredient-unit-input";
+      oUnit.value = item.total_unit || "";
+      var sQty = el("input");
+      sQty.type = "number";
+      sQty.step = "any";
+      sQty.placeholder = "amt";
+      sQty.className = "ingredient-qty-input";
+      var sUnit = el("input");
+      sUnit.type = "text";
+      sUnit.placeholder = "unit";
+      sUnit.className = "ingredient-unit-input";
+      [oQty, oUnit, el("span", "muted", "≈"), sQty, sUnit].forEach(function (n) {
+        wrap.appendChild(n);
+      });
+
       var applyBtn = el("button", "primary", "Apply");
       wrap.appendChild(applyBtn);
       var errSpan = el("span", "form-error");
       wrap.appendChild(errSpan);
 
-      (knownSubs[item.ingredient_name] || []).forEach(function (sub) {
-        var pick = el("button", null, sub);
+      (knownSubs[item.ingredient_name] || []).forEach(function (row) {
+        var label = row.substitute_name;
+        if (row.original_qty && row.substitute_qty != null) {
+          label += " (" + row.original_qty + " " + (row.original_unit || "") + " ≈ " +
+            row.substitute_qty + " " + (row.substitute_unit || "") + ")";
+        }
+        var pick = el("button", null, label);
         pick.addEventListener("click", function () {
-          input.value = sub;
+          input.value = row.substitute_name;
+          oQty.value = row.original_qty != null ? row.original_qty : "";
+          oUnit.value = row.original_unit || item.total_unit || "";
+          sQty.value = row.substitute_qty != null ? row.substitute_qty : "";
+          sUnit.value = row.substitute_unit || "";
         });
         wrap.appendChild(pick);
       });
@@ -156,36 +195,55 @@
           errSpan.textContent = "Type a replacement first.";
           return;
         }
+        var oq = parseFloat(oQty.value);
+        var sq = parseFloat(sQty.value);
+        var hasPair =
+          !isNaN(oq) && oq > 0 && !isNaN(sq) && sq > 0 && oUnit.value.trim() && sUnit.value.trim();
+        var ov = { original_name: item.ingredient_name, substitute_name: sub };
+        if (hasPair) {
+          ov.original_qty = oq;
+          ov.original_unit = oUnit.value.trim();
+          ov.substitute_qty = sq;
+          ov.substitute_unit = sUnit.value.trim();
+        }
         // record/replace the session-only override, then re-consolidate
         overrides = overrides.filter(function (o) {
           return o.original_name !== item.ingredient_name;
         });
-        overrides.push({ original_name: item.ingredient_name, substitute_name: sub });
+        overrides.push(ov);
         runConsolidate();
-        askRemember(item.ingredient_name, sub);
+        askRemember(ov);
       });
     }
 
-    function askRemember(originalName, substituteName) {
+    function askRemember(ov) {
       if (
         global.confirm(
           'Save "' +
-            originalName +
+            ov.original_name +
             '" → "' +
-            substituteName +
+            ov.substitute_name +
             '" as a quick pick? It won\'t apply on its own — you\'ll just be offered it when reviewing a recipe that uses "' +
-            originalName +
+            ov.original_name +
             '".'
         )
       ) {
-        api.settings.substitutions
-          .create({ original_name: originalName, substitute_name: substituteName })
-          .catch(function (err) {
-            // a duplicate saved swap is fine — it already exists
-            if (err.code !== "DUPLICATE_SUBSTITUTION") {
-              global.alert("Couldn't save the swap: " + err.message);
-            }
-          });
+        var payload = {
+          original_name: ov.original_name,
+          substitute_name: ov.substitute_name,
+        };
+        if (ov.original_qty != null) {
+          payload.original_qty = ov.original_qty;
+          payload.original_unit = ov.original_unit;
+          payload.substitute_qty = ov.substitute_qty;
+          payload.substitute_unit = ov.substitute_unit;
+        }
+        api.settings.substitutions.create(payload).catch(function (err) {
+          // a duplicate saved swap is fine — it already exists
+          if (err.code !== "DUPLICATE_SUBSTITUTION") {
+            global.alert("Couldn't save the swap: " + err.message);
+          }
+        });
       }
     }
   }

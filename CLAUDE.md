@@ -2130,11 +2130,40 @@ is folded into this phase's M-review.
       still covered only by unit tests (`test_ai_extraction.py` fallback-chain tests) — the
       live call did not hit quota. Free-tier-data-usage deferred decision still open — carry
       to the M-review.
-- [ ] **M8 — Substitution quantity/unit transform.** Added 2026-09-07 from a planning
+- [x] **M8 — Substitution quantity/unit transform.** Added 2026-09-07 from a planning
       session — a substitution can change the *amount and unit*, not just the name
       ("2 whole corn cobs" → "2 cans of corn", "500 g fresh spinach" → "250 g frozen"). No
       real API involvement — build/verify entirely offline; runs before the M-review so the
-      review signs off the finished shape. Full design folded into
+      review signs off the finished shape.
+      **Done 2026-09-07 (commit — this).** Migration `c199ab55bf1e` (batch `add_column`, all
+      six columns nullable / no server default — `tests/test_migrations.py` parity held).
+      `RecipeIngredient` += `resolved_quantity`/`resolved_unit`; `RememberedSubstitution` +=
+      the four pair columns. Schemas: a shared `_validate_resolved_transform`
+      (`schemas/recipes.py`) enforces both-or-neither + `resolved_ingredient`-required +
+      positive on the recipe-level pair; a shared `validate_equivalence_pair`
+      (`schemas/substitutions.py`, imported by `schemas/sessions.py`) enforces all-four-or-none
+      + positive on the library / `SessionOverride` pair. `services/substitutions.py` carries
+      + unit-normalises the pair (create + update, incl. clear). `services/recipes.py`
+      `_resolved_transform` gates the pair on a name swap on both create paths + `add_ingredient`,
+      and `update_ingredient` drops it when the swap is cleared. `services/sessions.py`:
+      `_effective_source` feeds `(resolved_quantity, resolved_unit)` to `scaling.py` when set;
+      `_apply_session_override` renames always, applies the ratio to the *scaled* quantity
+      only when `original_unit` matches the line's unit and the line isn't "to taste";
+      `override_map` is now name→`SessionOverride`. `consolidation.consolidate()` unchanged
+      (docstring only — it receives finished lines). Frontend: `ingredient-swap.js`
+      (amount+unit inputs, live preview, quick-pick ratio pre-fill), `capture-review.js`
+      (threads the pair through + saves it as an equivalence pair when "save this swap" is
+      ticked and the line has a unit), `recipe-edit.js` (swap amount/unit inputs),
+      `settings-substitutions.js` (`pairInputs()` — the "N unit ≈ M unit" row, add + edit +
+      clear), `session-review.js` (ratio inputs on the ad-hoc swap form, override + "remember"
+      carry the pair, `knownSubs` holds full rows), `recipes.js` detail ("→ using 2 can
+      canned corn"). `api.js` unchanged — the extra fields pass through opaquely. +16 tests
+      (`test_substitutions.py`, `test_sessions.py` orchestrator: recipe-level transform,
+      scales up/down + ceils, merges with a plain same-name line, session-override ratio,
+      unit-mismatch → name-only, "to taste" skip; `test_recipes.py` clear-on-revert;
+      `test_settings.py` router). Full suite **293 pass**; migration parity green;
+      headless-Edge + curl verified end-to-end offline (fake mode, no live call).
+      Full design folded into
       [Data Model](#recipe_ingredients) (`recipe_ingredients`, `remembered_substitutions`),
       [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec),
       [Ingredient Substitution](#ingredient-substitution), and
@@ -3257,9 +3286,9 @@ when does it get built?
 
 ## AI Provider Migration — Anthropic Claude → Google Gemini (Phase 3.9)
 
-**Status: IN PROGRESS — added 2026-09-06, chunked as Phase 3.9 (chunks M0–M8 below; M0–M7
-done, M8 added 2026-09-07), decisions resolved 2026-09-06 (M8's 2026-09-07).** This is the
-authoritative spec for the AI extraction
+**Status: IN PROGRESS — added 2026-09-06, chunked as Phase 3.9 (chunks M0–M8 below; M0–M8
+all built and verified, only the M-review outstanding), decisions resolved 2026-09-06 (M8's
+2026-09-07).** This is the authoritative spec for the AI extraction
 provider and for ingredient substitution going forward. It **supersedes** the earlier
 "Claude API" / "Anthropic API" / "Claude Haiku" references in the AI-extraction context and
 the Phase 4 [Ingredient Substitution](#ingredient-substitution) design. As each chunk lands,
@@ -3566,12 +3595,12 @@ CPU-only. **Do not add Ollama dependencies or code paths now.**
   aliases. See the M7 chunk entry above and
   [Provider & model selection](#provider--model-selection). Free-tier-data-usage decision
   still open → M-review.
-- **M8 — Substitution quantity/unit transform.** Added 2026-09-07. A swap can change the
+- **M8 — Substitution quantity/unit transform.** ✅ Done 2026-09-07. A swap can change the
   amount + unit, not just the name ("2 corn cobs" → "2 cans"). Recipe-level absolute
   (`recipe_ingredients.resolved_quantity` / `resolved_unit`), library-level equivalence pair
   that pre-fills it, session-override pair. Resolved in `consolidate_session()`; pure
-  `consolidate()` unchanged; AI flag call not extended. Offline build, before the M-review.
-  Full detail in the Phase 3.9 chunk list above and
+  `consolidate()` unchanged; AI flag call not extended. Migration `c199ab55bf1e`; suite 293
+  pass; headless + curl verified offline. Full detail in the Phase 3.9 chunk list above and
   [Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec).
 - **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together.
 

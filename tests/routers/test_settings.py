@@ -253,3 +253,21 @@ def test_update_substitution_not_found_returns_structured_404(client):
     )
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "SUBSTITUTION_NOT_FOUND"
+
+
+def test_create_substitution_with_m8_equivalence_pair(client):
+    resp = _create_sub(
+        client, "ZZ-Corn-Cobs", "ZZ-Canned-Corn",
+        original_qty=2, original_unit="Cob", substitute_qty=2, substitute_unit="CAN",
+    )
+    assert resp.status_code == 201
+    body = resp.json()["data"]
+    assert body["original_qty"] == 2 and body["original_unit"] == "cob"
+    assert body["substitute_qty"] == 2 and body["substitute_unit"] == "can"
+
+
+def test_create_substitution_half_equivalence_pair_returns_422(client):
+    resp = _create_sub(
+        client, "ZZ-Half-Pair", "ZZ-Half-Sub", original_qty=2, original_unit="cob"
+    )
+    assert resp.status_code == 422

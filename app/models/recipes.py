@@ -88,6 +88,16 @@ class RecipeIngredient(Base):
     # Clearing it reverts. Consolidation reads resolved_ingredient (fallback `name`).
     resolved_ingredient = Column(Text, nullable=True)
     substitution_note = Column(Text, nullable=True)
+    # Substitution quantity/unit transform (Phase 3.9 M8 — see CLAUDE.md > AI Provider
+    # Migration > Ingredient Substitution Flagging, and > Scaling Logic > Consolidation across
+    # recipes). The ABSOLUTE amount this recipe's swap actually buys, e.g. "2 whole corn cobs"
+    # -> resolved "canned corn" at 2 / "can". Only meaningful alongside resolved_ingredient;
+    # both NULL => name-only swap, keep this row's own quantity/unit. When set, consolidation
+    # scales (resolved_quantity, resolved_unit) instead of (quantity, unit). Clearing
+    # resolved_ingredient clears these too. No cross-unit conversion is attempted — the number
+    # the user entered IS the equivalence.
+    resolved_quantity = Column(Float, nullable=True)
+    resolved_unit = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 

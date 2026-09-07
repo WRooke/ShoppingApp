@@ -217,12 +217,31 @@
     subNoteInput.placeholder = "swap note";
     subNoteInput.className = "settings-notes-input";
 
+    // Substitution quantity/unit transform (Phase 3.9 M8) — the swap's absolute amount when
+    // it isn't 1:1 in this recipe's unit ("2 cob" -> "2 can"). Blank = keep this row's own
+    // quantity/unit. Only meaningful with a resolved ingredient set.
+    var subQtyInput = el("input");
+    subQtyInput.type = "number";
+    subQtyInput.step = "any";
+    subQtyInput.value = ing.resolved_quantity != null ? ing.resolved_quantity : "";
+    subQtyInput.placeholder = "swap amount";
+    subQtyInput.className = "ingredient-qty-input";
+
+    var subUnitInput = el("input");
+    subUnitInput.type = "text";
+    subUnitInput.value = ing.resolved_unit || "";
+    subUnitInput.placeholder = "swap unit";
+    subUnitInput.className = "ingredient-unit-input";
+
     var saveBtn = el("button", null, "Save");
     var deleteBtn = el("button", null, "Delete");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
       rowErr.textContent = "";
+      var swapQty = parseFloat(subQtyInput.value);
+      var swapUnit = subUnitInput.value.trim();
+      var hasTransform = !isNaN(swapQty) && swapQty > 0 && !!swapUnit;
       api.recipes
         .updateIngredient(recipeId, ing.id, {
           name: nameInput.value.trim(),
@@ -231,6 +250,8 @@
           preparation: prepInput.value.trim() || null,
           resolved_ingredient: resolvedInput.value.trim() || null,
           substitution_note: subNoteInput.value.trim() || null,
+          resolved_quantity: hasTransform ? swapQty : null,
+          resolved_unit: hasTransform ? swapUnit : null,
         })
         .then(function () {
           reload();
@@ -252,7 +273,7 @@
         });
     });
 
-    [nameInput, qtyInput, unitInput, prepInput, resolvedInput, subNoteInput, saveBtn, deleteBtn, rowErr].forEach(
+    [nameInput, qtyInput, unitInput, prepInput, resolvedInput, subNoteInput, subQtyInput, subUnitInput, saveBtn, deleteBtn, rowErr].forEach(
       function (n) {
         row.appendChild(n);
       }

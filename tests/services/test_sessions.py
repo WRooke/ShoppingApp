@@ -349,3 +349,119 @@ def test_consolidate_to_taste_item_note(db):
     items = sessions_service.consolidate_session(db, s.id)
     assert items[0].total_quantity is None
     assert items[0].note == "to taste"
+
+
+# --- M8: substitution quantity/unit transform -----------------------------
+
+
+def test_consolidate_recipe_level_transform_changes_amount_and_unit(db):
+    # "2 whole corn cobs" the recipe calls for -> buy "2 cans of corn"
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(
+        db,
+        "Chowder",
+        [{"name": "corn cobs", "quantity": 2, "unit": "cob",
+          "resolved_ingredient": "canned corn",
+          "resolved_quantity": 2, "resolved_unit": "can"}],
+    )
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["canned corn"]
+    assert (items[0].total_quantity, items[0].total_unit) == (2, "can")
+
+
+def test_consolidate_recipe_level_transform_scales_with_servings(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(
+        db,
+        "Chowder",
+        [{"name": "corn cobs", "quantity": 2, "unit": "cob",
+          "resolved_ingredient": "canned corn",
+          "resolved_quantity": 2, "resolved_unit": "can"}],
+        base_servings=4,
+    )
+    # x2 servings -> the swap's absolute (2 can) scales to 4 can
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=8))
+    items = sessions_service.consolidate_session(db, s.id)
+    assert (items[0].total_quantity, items[0].total_unit) == (4, "can")
+
+
+def test_consolidate_recipe_level_transform_scales_down_and_ceils(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(
+        db,
+        "Chowder",
+        [{"name": "corn cobs", "quantity": 1, "unit": "cob",
+          "resolved_ingredient": "canned corn",
+          "resolved_quantity": 1, "resolved_unit": "can"}],
+        base_servings=4,
+    )
+    # x0.5 -> 0.5 can, but a free-text unit ceils to a whole -> 1 can (never short)
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=2))
+    items = sessions_service.consolidate_session(db, s.id)
+    assert (items[0].total_quantity, items[0].total_unit) == (1, "can")
+
+
+def test_consolidate_transformed_line_merges_with_a_plain_line_of_the_same_name(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r1 = _recipe_with(
+        db,
+        "Chowder",
+        [{"name": "corn cobs", "quantity": 2, "unit": "cob",
+          "resolved_ingredient": "canned corn",
+          "resolved_quantity": 2, "resolved_unit": "can"}],
+    )
+    r2 = _recipe_with(db, "Salsa", [{"name": "canned corn", "quantity": 1, "unit": "can"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["canned corn"]
+    assert (items[0].total_quantity, items[0].total_unit) == (3, "can")
+
+
+def test_consolidate_session_override_carries_an_equivalence_pair(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Chowder", [{"name": "corn", "quantity": 4, "unit": "cob"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(
+        db, s.id,
+        overrides=[SessionOverride(
+            original_name="corn", substitute_name="canned corn",
+            original_qty=2, original_unit="cob", substitute_qty=1, substitute_unit="can",
+        )],
+    )
+    # 4 cob / 2 * 1 = 2 can
+    assert [i.ingredient_name for i in items] == ["canned corn"]
+    assert (items[0].total_quantity, items[0].total_unit) == (2, "can")
+
+
+def test_consolidate_session_override_pair_falls_back_to_name_only_on_unit_mismatch(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Chowder", [{"name": "corn", "quantity": 500, "unit": "g"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(
+        db, s.id,
+        overrides=[SessionOverride(
+            original_name="corn", substitute_name="canned corn",
+            original_qty=2, original_unit="cob", substitute_qty=1, substitute_unit="can",
+        )],
+    )
+    # override unit "cob" != line unit "g" -> rename only, quantity/unit unchanged
+    assert [i.ingredient_name for i in items] == ["canned corn"]
+    assert (items[0].total_quantity, items[0].total_unit) == (500, "g")
+
+
+def test_consolidate_session_override_pair_skipped_for_to_taste_line(db):
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Season", [{"name": "saffron", "quantity": 1, "unit": "pinch"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=8))
+    items = sessions_service.consolidate_session(
+        db, s.id,
+        overrides=[SessionOverride(
+            original_name="saffron", substitute_name="saffron threads",
+            original_qty=1, original_unit="pinch", substitute_qty=2, substitute_unit="g",
+        )],
+    )
+    # renamed, but still a "to taste" line — no number, no ratio applied
+    assert [i.ingredient_name for i in items] == ["saffron threads"]
+    assert items[0].total_quantity is None and items[0].note == "to taste"

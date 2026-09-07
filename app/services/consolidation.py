@@ -146,10 +146,13 @@ def _normalise_name(name: str) -> str:
 def consolidate(lines: list[IngredientLine]) -> list[ConsolidatedItem]:
     """Group by ingredient name and apply the rounding/unit rules. Result sorted by name.
 
-    **Pure — no substitution logic** (Phase 3.9 M4). Each ``IngredientLine.name`` is already
-    the *effective* name: the caller (``sessions.consolidate_session``) resolves
-    ``recipe_ingredients.resolved_ingredient`` and any session-only override before building
-    the lines. See CLAUDE.md > Scaling Logic > Consolidation across recipes."""
+    **Pure — no substitution logic** (Phase 3.9 M4/M8). Each ``IngredientLine`` arrives
+    finished: the caller (``sessions.consolidate_session`` / ``_scaled_lines``) has already
+    resolved ``recipe_ingredients.resolved_ingredient``, applied the M8 quantity/unit
+    transform (``resolved_quantity`` / ``resolved_unit`` or a session-override equivalence
+    pair), and scaled. A line that came back as ``6 can`` from a "corn cobs" -> "canned corn"
+    swap just buckets here as a free-text-unit discrete count. See CLAUDE.md > Scaling Logic
+    > Consolidation across recipes."""
     grouped: dict[str, list[IngredientLine]] = {}
     for ln in lines:
         grouped.setdefault(_normalise_name(ln.name), []).append(ln)

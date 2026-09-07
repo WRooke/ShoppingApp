@@ -55,6 +55,21 @@ def _norm_resolved(value: str | None) -> str | None:
     return trimmed or None
 
 
+def _resolved_transform(
+    resolved_ingredient: str | None,
+    resolved_quantity: float | None,
+    resolved_unit: str | None,
+) -> tuple[float | None, str | None]:
+    """The M8 (resolved_quantity, resolved_unit) pair, normalised and gated: they only mean
+    anything alongside a name swap, so if `resolved_ingredient` normalises away to None the
+    transform is dropped too (CLAUDE.md > AI Provider Migration > Ingredient Substitution
+    Flagging > Quantity/unit transform). Unit lowercased/trimmed to match consolidation."""
+    if not resolved_ingredient or resolved_quantity is None:
+        return None, None
+    unit = _norm_resolved(resolved_unit)
+    return resolved_quantity, unit
+
+
 def _normalise_ingredient_name(name: str) -> str:
     """Lowercase + strip whitespace — see CLAUDE.md > Ingredient Normalisation.
     Automatic synonym matching ("green onion" vs "spring onion") is explicitly
@@ -310,6 +325,8 @@ def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = Fa
         protein=data.protein,
     )
     for i, ing in enumerate(data.ingredients):
+        resolved = _norm_resolved(ing.resolved_ingredient)
+        rq, ru = _resolved_transform(resolved, ing.resolved_quantity, ing.resolved_unit)
         recipe.ingredients.append(
             RecipeIngredient(
                 name=_normalise_ingredient_name(ing.name),
@@ -317,8 +334,10 @@ def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = Fa
                 unit=ing.unit,
                 preparation=ing.preparation,
                 sort_order=ing.sort_order or i,
-                resolved_ingredient=_norm_resolved(ing.resolved_ingredient),
+                resolved_ingredient=resolved,
                 substitution_note=_clean_optional_text(ing.substitution_note),
+                resolved_quantity=rq,
+                resolved_unit=ru,
             )
         )
     db.add(recipe)
@@ -358,6 +377,7 @@ def create_recipe_from_capture(
     for i, ing in enumerate(data.ingredients):
         normalised_name = _normalise_ingredient_name(ing.name)
         resolved = _norm_resolved(ing.resolved_ingredient)
+        rq, ru = _resolved_transform(resolved, ing.resolved_quantity, ing.resolved_unit)
         recipe.ingredients.append(
             RecipeIngredient(
                 name=normalised_name,
@@ -367,6 +387,8 @@ def create_recipe_from_capture(
                 sort_order=i,
                 resolved_ingredient=resolved,
                 substitution_note=_clean_optional_text(ing.substitution_note),
+                resolved_quantity=rq,
+                resolved_unit=ru,
             )
         )
         if ing.suggested_section:
@@ -471,6 +493,8 @@ def add_ingredient(db: Session, recipe_id: int, data: RecipeIngredientCreate) ->
     `resolved_ingredient` / `substitution_note` pass through normalised (Phase 3.9 M4).
     Raises RecipeNotFoundError if the recipe is gone."""
     recipe = get_recipe(db, recipe_id)
+    resolved = _norm_resolved(data.resolved_ingredient)
+    rq, ru = _resolved_transform(resolved, data.resolved_quantity, data.resolved_unit)
     ingredient = RecipeIngredient(
         recipe_id=recipe.id,
         name=_normalise_ingredient_name(data.name),
@@ -478,8 +502,10 @@ def add_ingredient(db: Session, recipe_id: int, data: RecipeIngredientCreate) ->
         unit=data.unit,
         preparation=data.preparation,
         sort_order=data.sort_order,
-        resolved_ingredient=_norm_resolved(data.resolved_ingredient),
+        resolved_ingredient=resolved,
         substitution_note=_clean_optional_text(data.substitution_note),
+        resolved_quantity=rq,
+        resolved_unit=ru,
     )
     db.add(ingredient)
     db.commit()
@@ -514,8 +540,16 @@ def update_ingredient(
         changes["resolved_ingredient"] = _norm_resolved(changes["resolved_ingredient"])
     if "substitution_note" in changes:
         changes["substitution_note"] = _clean_optional_text(changes["substitution_note"])
+    if "resolved_unit" in changes:
+        changes["resolved_unit"] = _norm_resolved(changes["resolved_unit"])
     for field, value in changes.items():
         setattr(ingredient, field, value)
+    # M8 invariant on the merged row: the quantity/unit transform only means anything
+    # alongside a name swap, and is both-or-neither. Clearing resolved_ingredient (or leaving
+    # a half-pair) drops the transform rather than erroring — reverting is always safe.
+    if not ingredient.resolved_ingredient or ingredient.resolved_quantity is None:
+        ingredient.resolved_quantity = None
+        ingredient.resolved_unit = None
     db.commit()
     db.refresh(ingredient)
     logger.info(

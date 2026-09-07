@@ -11,10 +11,38 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SourceType = Literal["url", "photo", "manual"]
 Rating = Literal["up", "down"]
+
+
+def _validate_resolved_transform(
+    resolved_ingredient: str | None,
+    resolved_quantity: float | None,
+    resolved_unit: str | None,
+) -> None:
+    """Shared rule for the recipe-level M8 quantity/unit transform (CLAUDE.md > AI Provider
+    Migration > Ingredient Substitution Flagging > Quantity/unit transform):
+
+      * ``resolved_quantity`` and ``resolved_unit`` are both-or-neither — a bare amount with
+        no unit, or a unit with no amount, is not a transform.
+      * a transform is only valid alongside a name swap (``resolved_ingredient`` set) — "buy
+        this in a different unit without changing the item" is a ``product_units`` concern.
+      * ``resolved_quantity`` must be positive.
+    """
+    has_qty = resolved_quantity is not None
+    has_unit = resolved_unit is not None and resolved_unit.strip() != ""
+    if has_qty != has_unit:
+        raise ValueError(
+            "resolved_quantity and resolved_unit must be set together (or both left empty)"
+        )
+    if has_qty and resolved_quantity <= 0:
+        raise ValueError("resolved_quantity must be greater than 0")
+    if has_qty and not (resolved_ingredient and resolved_ingredient.strip()):
+        raise ValueError(
+            "resolved_quantity/resolved_unit are only valid with a resolved_ingredient set"
+        )
 
 
 # --- recipe_ingredients ------------------------------------------------
@@ -30,6 +58,17 @@ class RecipeIngredientBase(BaseModel):
     # confirmation. None = use `name`. See CLAUDE.md > AI Provider Migration.
     resolved_ingredient: str | None = None
     substitution_note: str | None = None
+    # Substitution quantity/unit transform (Phase 3.9 M8) — the swap's absolute amount when it
+    # differs ("2 cob" -> "2 can"). Both-or-neither; only valid with resolved_ingredient set.
+    resolved_quantity: float | None = None
+    resolved_unit: str | None = None
+
+    @model_validator(mode="after")
+    def _check_transform(self) -> "RecipeIngredientBase":
+        _validate_resolved_transform(
+            self.resolved_ingredient, self.resolved_quantity, self.resolved_unit
+        )
+        return self
 
 
 class RecipeIngredientCreate(RecipeIngredientBase):
@@ -47,6 +86,25 @@ class RecipeIngredientUpdate(BaseModel):
     sort_order: int | None = None
     resolved_ingredient: str | None = None
     substitution_note: str | None = None
+    resolved_quantity: float | None = None
+    resolved_unit: str | None = None
+
+    @model_validator(mode="after")
+    def _check_transform(self) -> "RecipeIngredientUpdate":
+        # Partial update: only validate the pair when at least one half was actually sent.
+        # The "must have a resolved_ingredient" linkage is enforced in services/recipes.py,
+        # which can see the resulting row state after the partial merge.
+        sent = self.model_fields_set
+        if "resolved_quantity" in sent or "resolved_unit" in sent:
+            has_qty = self.resolved_quantity is not None
+            has_unit = self.resolved_unit is not None and self.resolved_unit.strip() != ""
+            if has_qty != has_unit:
+                raise ValueError(
+                    "resolved_quantity and resolved_unit must be set together"
+                )
+            if has_qty and self.resolved_quantity <= 0:
+                raise ValueError("resolved_quantity must be greater than 0")
+        return self
 
 
 class RecipeIngredientRead(RecipeIngredientBase):

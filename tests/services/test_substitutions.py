@@ -6,6 +6,7 @@ per-recipe confirm UI.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -114,3 +115,58 @@ def test_quick_picks_for(db):
 
 def test_touch_is_silent_noop_for_unknown_pair(db):
     subs.touch(db, original_name="ghost", substitute_name="phantom")  # no row, no error
+
+
+# --- M8: quantity/unit equivalence pair -------------------------------------
+
+
+def _cp(original, substitute, oq, ou, sq, su):
+    return RememberedSubstitutionCreate(
+        original_name=original,
+        substitute_name=substitute,
+        original_qty=oq,
+        original_unit=ou,
+        substitute_qty=sq,
+        substitute_unit=su,
+    )
+
+
+def test_create_with_equivalence_pair_stores_normalised_units(db):
+    row = subs.create_substitution(
+        db, _cp("corn cobs", "canned corn", 2, "  Cob ", 2, "CAN")
+    )
+    assert (row.original_qty, row.original_unit) == (2, "cob")
+    assert (row.substitute_qty, row.substitute_unit) == (2, "can")
+
+
+def test_create_rejects_half_a_pair(db):
+    with pytest.raises(ValidationError):
+        _cp("corn cobs", "canned corn", 2, "cob", None, None)
+
+
+def test_create_rejects_zero_original_qty(db):
+    with pytest.raises(ValidationError):
+        _cp("corn cobs", "canned corn", 0, "cob", 2, "can")
+
+
+def test_update_can_set_and_clear_the_pair(db):
+    row = subs.create_substitution(db, _c("corn cobs", "canned corn"))
+    assert row.original_qty is None
+
+    subs.update_substitution(
+        db,
+        row.id,
+        RememberedSubstitutionUpdate(
+            original_qty=1, original_unit="cob", substitute_qty=1, substitute_unit="can"
+        ),
+    )
+    assert (row.original_qty, row.substitute_unit) == (1, "can")
+
+    subs.update_substitution(
+        db,
+        row.id,
+        RememberedSubstitutionUpdate(
+            original_qty=None, original_unit=None, substitute_qty=None, substitute_unit=None
+        ),
+    )
+    assert row.original_qty is None and row.substitute_unit is None

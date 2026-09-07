@@ -59,5 +59,16 @@ class RememberedSubstitution(Base):
     substitute_name = Column(Text, nullable=False)  # normalised lowercase (freetext; 1:many stored verbatim)
     note = Column(Text, nullable=True)  # pre-fills recipe_ingredients.substitution_note
     last_used_at = Column(DateTime, nullable=True)  # quick-pick ordering, most-recent first
+    # Quantity/unit equivalence (Phase 3.9 M8 — see CLAUDE.md > AI Provider Migration >
+    # Ingredient Substitution Flagging, and > Data Model > remembered_substitutions).
+    # "original_qty original_unit ~= substitute_qty substitute_unit", e.g. 2 "cob" ~= 2 "can".
+    # A ratio the quick-pick uses to PRE-FILL recipe_ingredients' resolved_quantity /
+    # resolved_unit for whatever amount that recipe calls for; the user still confirms. All
+    # four NULL = a name-only quick-pick (unchanged from M4). Never auto-applied. original_qty
+    # must be > 0 when set.
+    original_qty = Column(Float, nullable=True)
+    original_unit = Column(Text, nullable=True)
+    substitute_qty = Column(Float, nullable=True)
+    substitute_unit = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

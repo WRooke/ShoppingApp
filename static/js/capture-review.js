@@ -186,7 +186,9 @@
           var removeBtn = el("button", null, "Remove");
           var swap = global.IngredientSwap.create(
             flagsByName[lname] || null,
-            picksByName[lname] || []
+            picksByName[lname] || [],
+            ing.quantity != null ? ing.quantity : null,
+            ing.unit || null
           );
 
           var rowEl = el("div", "ingredient-edit-row");
@@ -254,21 +256,33 @@
           return null;
         }
         var sw = r.swap.getState();
+        var lineUnit = r.unitInput.value.trim() || null;
         if (sw.remember && sw.resolved_ingredient) {
-          swapsToRemember.push({
+          var remembered = {
             original_name: ingName,
             substitute_name: sw.resolved_ingredient,
             note: sw.substitution_note,
-          });
+          };
+          // M8 — save the equivalence pair too when the swap changed the amount/unit.
+          // Needs a unit on the original line for the ratio to be meaningful.
+          if (sw.resolved_quantity != null && sw.resolved_unit && lineUnit) {
+            remembered.original_qty = qty;
+            remembered.original_unit = lineUnit;
+            remembered.substitute_qty = sw.resolved_quantity;
+            remembered.substitute_unit = sw.resolved_unit;
+          }
+          swapsToRemember.push(remembered);
         }
         ingredients.push({
           name: ingName,
           quantity: qty,
-          unit: r.unitInput.value.trim() || null,
+          unit: lineUnit,
           preparation: r.prepInput.value.trim() || null,
           suggested_section: r.sectionSelect.value || null,
           resolved_ingredient: sw.resolved_ingredient,
           substitution_note: sw.substitution_note,
+          resolved_quantity: sw.resolved_quantity,
+          resolved_unit: sw.resolved_unit,
         });
       }
       return {

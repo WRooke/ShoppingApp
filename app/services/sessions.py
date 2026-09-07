@@ -255,12 +255,45 @@ def _norm(name: str) -> str:
     return " ".join(name.strip().lower().split())
 
 
+def _effective_source(ing) -> tuple[float, str | None]:
+    """The (quantity, unit) to scale for one recipe ingredient. Normally the recipe's own
+    values; but when an M8 swap changes the *amount* (`resolved_ingredient` set AND
+    `resolved_quantity` not NULL) the swap's absolute amount is scaled instead — so it grows
+    with servings like any other quantity. See CLAUDE.md > Scaling Logic > Consolidation
+    across recipes > Substitution quantity/unit transform."""
+    if ing.resolved_ingredient and ing.resolved_quantity is not None:
+        return ing.resolved_quantity, ing.resolved_unit
+    return ing.quantity, ing.unit
+
+
+def _apply_session_override(
+    name: str, qty: float, unit: str | None, scaled: bool, ov: SessionOverride
+) -> tuple[str, float, str | None]:
+    """Fold a session-only override into an already-scaled line. Always renames; also
+    transforms the amount when the override carries an equivalence pair AND its
+    `original_unit` matches this line's unit (case-insensitive) AND the line is a real
+    scalable quantity (not "to taste"). Otherwise it's a name-only swap for this line.
+    The pair math is `qty / original_qty * substitute_qty`; `original_qty` is schema-checked
+    > 0 but guarded here too."""
+    new_name = _norm(ov.substitute_name)
+    if (
+        scaled
+        and ov.original_qty
+        and ov.original_qty > 0
+        and ov.substitute_qty is not None
+        and _norm(ov.original_unit or "") == _norm(unit or "")
+    ):
+        return new_name, qty / ov.original_qty * ov.substitute_qty, ov.substitute_unit
+    return new_name, qty, unit
+
+
 def _scaled_lines(
-    session: PlanningSession, override_map: dict[str, str]
+    session: PlanningSession, override_map: dict[str, SessionOverride]
 ) -> list[consolidation.IngredientLine]:
-    """Scaled ingredient lines with the *effective* name already resolved (Phase 3.9 M4):
-    per-recipe `resolved_ingredient` (fallback `name`), then a session-only override keyed
-    off that resolved name. `consolidation.consolidate()` itself does no substitution."""
+    """Scaled ingredient lines with the *effective* name (and, for M8, amount/unit) already
+    resolved: per-recipe `resolved_ingredient` / `resolved_quantity` (fallback `name` /
+    `quantity`), then a session-only override keyed off that resolved name.
+    `consolidation.consolidate()` itself does no substitution (Phase 3.9 M4/M8)."""
     lines: list[consolidation.IngredientLine] = []
     for slot in session.recipes:
         if slot.slot_type != "recipe" or slot.recipe is None:
@@ -268,11 +301,17 @@ def _scaled_lines(
         factor = scaling.scaling_factor(slot.recipe.base_servings, slot.scaled_servings)
         for ing in slot.recipe.ingredients:
             base = ing.resolved_ingredient or ing.name
-            effective = override_map.get(_norm(base), base)
-            sq = scaling.scale_quantity(ing.quantity, ing.unit, factor)
+            src_qty, src_unit = _effective_source(ing)
+            sq = scaling.scale_quantity(src_qty, src_unit, factor)
+            name, qty, unit = base, sq.quantity, sq.unit
+            ov = override_map.get(_norm(base))
+            if ov is not None:
+                name, qty, unit = _apply_session_override(
+                    name, qty, unit, sq.scaled, ov
+                )
             lines.append(
                 consolidation.IngredientLine(
-                    name=effective, quantity=sq.quantity, unit=sq.unit, is_no_scale=not sq.scaled
+                    name=name, quantity=qty, unit=unit, is_no_scale=not sq.scaled
                 )
             )
     return lines
@@ -344,11 +383,11 @@ def consolidate_session(
     lines that persist (CLAUDE.md > Scaling Logic > re-running consolidation)."""
     session = get_session(db, session_id)
 
-    # Session-only overrides — client-held, not written anywhere (Phase 3.9 M4). Per-recipe
-    # `resolved_ingredient` is applied inside _scaled_lines; there is no global rule map.
-    override_map = {
-        _norm(ov.original_name): _norm(ov.substitute_name) for ov in (overrides or [])
-    }
+    # Session-only overrides — client-held, not written anywhere (Phase 3.9 M4/M8). Per-recipe
+    # `resolved_ingredient` / `resolved_quantity` is applied inside _scaled_lines; there is no
+    # global rule map. Keyed by normalised original name; the whole override (incl. any M8
+    # equivalence pair) is carried through.
+    override_map = {_norm(ov.original_name): ov for ov in (overrides or [])}
     items = consolidation.consolidate(_scaled_lines(session, override_map))
 
     staple_names = {s.name for s in db.query(Staple).all()}

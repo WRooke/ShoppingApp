@@ -264,10 +264,16 @@
         if (ing.preparation) parts.push("(" + ing.preparation + ")");
         var li = el("li", null, parts.join(" "));
         if (ing.resolved_ingredient) {
+          // M8 — show the swapped amount/unit when the swap isn't 1:1 ("2 can canned corn")
+          var swapAmt =
+            ing.resolved_quantity != null
+              ? ing.resolved_quantity + (ing.resolved_unit ? " " + ing.resolved_unit : "") + " "
+              : "";
           var swapLine = el(
             "div",
             "ingredient-resolved",
             "→ using " +
+              swapAmt +
               ing.resolved_ingredient +
               (ing.substitution_note ? " (" + ing.substitution_note + ")" : "")
           );

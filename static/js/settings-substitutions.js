@@ -14,6 +14,49 @@
     return node;
   }
 
+  /* M8 — the optional "N unit ≈ M unit" equivalence pair on a saved swap (CLAUDE.md > AI
+     Provider Migration > Ingredient Substitution Flagging > Quantity/unit transform). Four
+     small inputs; values() returns all four as numbers/strings-or-null (blank -> null), so a
+     row can be cleared by emptying them and saving. The server enforces all-or-none. */
+  function pairInputs(row) {
+    row = row || {};
+    function num(v) {
+      var n = el("input");
+      n.type = "number";
+      n.step = "any";
+      n.className = "ingredient-qty-input";
+      n.value = v != null ? v : "";
+      return n;
+    }
+    function txt(v, ph) {
+      var t = el("input");
+      t.type = "text";
+      t.className = "ingredient-unit-input";
+      t.placeholder = ph;
+      t.value = v || "";
+      return t;
+    }
+    var oqty = num(row.original_qty);
+    oqty.placeholder = "amt";
+    var ounit = txt(row.original_unit, "unit");
+    var sqty = num(row.substitute_qty);
+    sqty.placeholder = "amt";
+    var sunit = txt(row.substitute_unit, "unit");
+    return {
+      nodes: [oqty, ounit, el("span", "muted", "≈"), sqty, sunit],
+      values: function () {
+        var oq = parseFloat(oqty.value);
+        var sq = parseFloat(sqty.value);
+        return {
+          original_qty: isNaN(oq) ? null : oq,
+          original_unit: ounit.value.trim() || null,
+          substitute_qty: isNaN(sq) ? null : sq,
+          substitute_unit: sunit.value.trim() || null,
+        };
+      },
+    };
+  }
+
   function groupByOriginal(items) {
     var groups = {};
     var order = [];
@@ -43,17 +86,25 @@
     noteInput.placeholder = "note (why / how)";
     noteInput.className = "settings-notes-input";
 
+    var pair = pairInputs(row);
+
     var saveBtn = el("button", null, "Save");
     var deleteBtn = el("button", null, "Delete");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
       rowErr.textContent = "";
+      var payload = {
+        substitute_name: subInput.value.trim(),
+        note: noteInput.value.trim() || null,
+      };
+      var p = pair.values();
+      payload.original_qty = p.original_qty;
+      payload.original_unit = p.original_unit;
+      payload.substitute_qty = p.substitute_qty;
+      payload.substitute_unit = p.substitute_unit;
       api.settings.substitutions
-        .update(row.id, {
-          substitute_name: subInput.value.trim(),
-          note: noteInput.value.trim() || null,
-        })
+        .update(row.id, payload)
         .then(onChanged)
         .catch(function (err) {
           rowErr.textContent = err.message;
@@ -73,7 +124,7 @@
     });
 
     wrap.appendChild(el("span", "muted", "→"));
-    [subInput, noteInput, saveBtn, deleteBtn, rowErr].forEach(function (n) {
+    [subInput, noteInput].concat(pair.nodes).concat([saveBtn, deleteBtn, rowErr]).forEach(function (n) {
       wrap.appendChild(n);
     });
     return wrap;
@@ -97,6 +148,7 @@
     noteInput.placeholder = "note (optional)";
     noteInput.className = "settings-notes-input";
 
+    var pair = pairInputs();
     var addBtn = el("button", "primary", "Save swap");
     var rowErr = el("span", "form-error");
 
@@ -108,11 +160,16 @@
         rowErr.textContent = "Both ingredient names are required.";
         return;
       }
+      var p = pair.values();
       api.settings.substitutions
         .create({
           original_name: original,
           substitute_name: substitute,
           note: noteInput.value.trim() || null,
+          original_qty: p.original_qty,
+          original_unit: p.original_unit,
+          substitute_qty: p.substitute_qty,
+          substitute_unit: p.substitute_unit,
         })
         .then(function () {
           origInput.value = "";
@@ -125,9 +182,12 @@
         });
     });
 
-    [origInput, el("span", "muted", "→"), subInput, noteInput, addBtn, rowErr].forEach(function (n) {
-      wrap.appendChild(n);
-    });
+    [origInput, el("span", "muted", "→"), subInput, noteInput]
+      .concat(pair.nodes)
+      .concat([addBtn, rowErr])
+      .forEach(function (n) {
+        wrap.appendChild(n);
+      });
     return wrap;
   }
 
