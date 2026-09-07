@@ -50,6 +50,8 @@ pass for the Phase 4 review.
    possible duplicate (difflib ratio / token-set). "Chicken Curry" vs "Beef Curry" → **not**
    flagged.
 
+   TESTED - PASS
+
 ## 2. Session CRUD + slots (4.4)
 
 1. **Plan** tab → **New session**. Edit its label inline (e.g. "Week of testing") → persists.
@@ -63,6 +65,8 @@ pass for the Phase 4 review.
    `GET /api/v1/sessions/999999` → `{"ok": false, "error": {"code": "SESSION_NOT_FOUND"}}`;
    a bad slot-order list → `422 SLOT_ORDER_MISMATCH`.
 
+   TESTED - PASS
+
 ## 3. Scaling (4.3)
 
 Checked via consolidation output:
@@ -72,6 +76,8 @@ Checked via consolidation output:
 2. Same recipe in a slot set to **2** → quantities halved, and discrete items round **up**
    (a recipe with `3 eggs` ÷2 = 1.5 → shows **2 eggs**, never 1).
 3. A `pinch` / `to taste` ingredient is unaffected by scaling (see §4).
+
+   TESTED - PASS
 
 ## 4. Consolidation + unit rules + purchase units (4.6) — core
 
@@ -99,6 +105,8 @@ Review screen) and check the consolidated list:
    `have_it` / `add_to_list`, its quantity is recomputed, newly-added lines default to
    `unknown`, and any line no longer needed is dropped.
 
+   TESTED - PASS
+
 ## 5. Ingredient substitution (4.5 + 4.7, M4 behaviour)
 
 1. **Settings → Saved ingredient swaps:** add `bulgarian feta` → `regular feta` with a note.
@@ -118,6 +126,8 @@ Review screen) and check the consolidated list:
 5. Clearing a swap in the **recipe editor** (`recipe-edit.js`) reverts the ingredient to its
    original `name` — the original is never lost.
 
+   TESTED - PASS
+
 ## 6. End-to-end deliverable
 
 One clean run, no shortcuts:
@@ -128,6 +138,8 @@ One clean run, no shortcuts:
    breakdown, staple flags, overage notes where > half a pack, and any needs-review lines.
 4. No browser console errors; `/diagnostics` recent-errors still empty; every API response
    is the `{"ok": ...}` envelope with SCREAMING_SNAKE_CASE error codes.
+
+   TESTED - PASS
 
 ---
 
