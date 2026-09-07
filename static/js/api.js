@@ -272,6 +272,39 @@
         );
       },
     },
+    checklist: {
+      load: function (sessionId) {
+        return api.get("/api/v1/checklist/" + encodeURIComponent(sessionId));
+      },
+      updateItem: function (sessionId, itemId, data) {
+        return jsonBody(
+          "PATCH",
+          "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/items/" + encodeURIComponent(itemId),
+          data
+        );
+      },
+      resolveItem: function (sessionId, itemId, data) {
+        return jsonBody(
+          "POST",
+          "/api/v1/checklist/" +
+            encodeURIComponent(sessionId) +
+            "/items/" +
+            encodeURIComponent(itemId) +
+            "/resolve",
+          data
+        );
+      },
+      push: function (sessionId, force) {
+        return jsonBody(
+          "POST",
+          "/api/v1/checklist/" +
+            encodeURIComponent(sessionId) +
+            "/push" +
+            (force ? "?force=true" : ""),
+          {}
+        );
+      },
+    },
     diagnostics: {
       logs: function (limit, level) {
         let q = "?limit=" + (limit || 200);

@@ -41,6 +41,7 @@ from app.services.anylist_client import (
     AnyListDisabledError,
     AnyListError,
 )
+from app.services.checklist import ChecklistItemNotFoundError, ChecklistNotReadyError
 from app.services.recipes import (
     IngredientNotFoundError,
     PossibleDuplicateRecipeError,
@@ -441,6 +442,31 @@ async def invalid_image_error_handler(request: Request, exc: InvalidImageError):
     return JSONResponse(
         status_code=422,
         content=_error_body("INVALID_IMAGE", exc.reason, None),
+    )
+
+
+@app.exception_handler(ChecklistNotReadyError)
+async def checklist_not_ready_handler(request: Request, exc: ChecklistNotReadyError):
+    logger.info("Checklist requested before consolidation: session %s", exc.session_id)
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "CHECKLIST_NOT_CONSOLIDATED",
+            "This session has no shopping list yet — review and consolidate it first.",
+            None,
+        ),
+    )
+
+
+@app.exception_handler(ChecklistItemNotFoundError)
+async def checklist_item_not_found_handler(request: Request, exc: ChecklistItemNotFoundError):
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "CHECKLIST_ITEM_NOT_FOUND",
+            f"Checklist item {exc.item_id} not found on session {exc.session_id}.",
+            None,
+        ),
     )
 
 
