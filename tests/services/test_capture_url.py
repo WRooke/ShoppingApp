@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from app.services.capture_url import RecipeFetchError, _extract_text, fetch_and_extract
+from app.services.capture_url import RecipeFetchError, _extract_text, _extract_title, fetch_and_extract
 
 
 def _mock_response(html: str, status_code: int = 200):
@@ -65,17 +65,52 @@ def test_extract_text_strips_script_and_style():
 
 
 def test_fetch_and_extract_calls_ai_with_extracted_text():
-    html = "<html><body><article>500g beef mince</article></body></html>"
+    html = "<html><head><title>Tacos Page</title></head><body><article>500g beef mince</article></body></html>"
+    fake_result = MagicMock(title="AI Title")
     with patch("app.services.capture_url.httpx.get", return_value=_mock_response(html)):
         with patch("app.services.capture_url.ai_extraction.capture_recipe") as mock_extract:
-            mock_extract.return_value = "dummy-result"
+            mock_extract.return_value = fake_result
             result = fetch_and_extract("fake-db", "https://example.com/tacos")
 
-    assert result == "dummy-result"
+    assert result is fake_result
     _, kwargs = mock_extract.call_args
     assert kwargs["call_type"] == "recipe_url"
     assert kwargs["context_id"] == "https://example.com/tacos"
     assert "500g beef mince" in kwargs["text"]
+    # The AI already returned a title — the HTML fallback must not override it.
+    assert result.title == "AI Title"
+
+
+def test_fetch_and_extract_falls_back_to_html_title_when_ai_title_is_null():
+    # Capture-Fixes-Staged.md issue 1/2 belt-and-braces fallback: no AI call cost, just
+    # parses the page's own <title>/og:title/<h1>.
+    html = "<html><head><title>Best Tacos Ever | SomeSite</title></head><body></body></html>"
+    fake_result = MagicMock(title=None)
+    with patch("app.services.capture_url.httpx.get", return_value=_mock_response(html)):
+        with patch("app.services.capture_url.ai_extraction.capture_recipe", return_value=fake_result):
+            result = fetch_and_extract("fake-db", "https://example.com/tacos")
+    assert result.title == "Best Tacos Ever | SomeSite"
+
+
+# --- _extract_title -----------------------------------------------------------
+
+
+def test_extract_title_prefers_og_title():
+    html = (
+        '<html><head><title>Fallback</title>'
+        '<meta property="og:title" content="Hearty Roasted Veggie Salad"></head>'
+        "<body><h1>Different heading</h1></body></html>"
+    )
+    assert _extract_title(html) == "Hearty Roasted Veggie Salad"
+
+
+def test_extract_title_falls_back_to_h1_then_title_tag():
+    assert _extract_title("<html><body><h1>  Tacos  </h1></body></html>") == "Tacos"
+    assert _extract_title("<html><head><title>Just A Title</title></head></html>") == "Just A Title"
+
+
+def test_extract_title_none_when_nothing_present():
+    assert _extract_title("<html><body><p>no heading here</p></body></html>") is None
 
 
 def test_fetch_and_extract_raises_on_timeout():

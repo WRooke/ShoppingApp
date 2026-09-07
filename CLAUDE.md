@@ -905,11 +905,28 @@ extraction service".
 
 ### URL capture flow
 1. User pastes URL
-2. Backend fetches page with `httpx` (follow redirects, 10s timeout, desktop user-agent)
+2. Backend fetches page with `httpx` (follow redirects, 10s timeout, desktop user-agent +
+   full browser Accept/Accept-Language/Accept-Encoding headers — see the tasty.co note below)
 3. Parse HTML with BeautifulSoup4, extract text content (strip nav, footer, ads — prefer
    `<article>`, `<main>`, `[class*="recipe"]`, `[class*="ingredient"]` elements)
 4. Send extracted text to Claude with the extraction prompt (see below)
 5. Return structured ingredient list to frontend for user review
+
+**Triaged 2026-09-07 — a real-world 406 from tasty.co.** `httpx.get(url, headers={"User-Agent":
+...})` alone got a flat `406` with no body from `https://tasty.co/recipe/...`, regardless of
+which realistic Chrome UA string was used. Root cause, confirmed by comparison against `curl`
+(which succeeded with no special headers at all): the site's edge WAF treats a Chrome UA
+whose `Accept-Encoding` doesn't include `br` (brotli) as non-browser traffic and blocks it
+outright — httpx only advertises `gzip, deflate` unless the optional `brotli` package happens
+to be installed, which it wasn't. Fix, in `services/capture_url.py`: an explicit
+`ACCEPT_HEADERS` dict (`Accept` / `Accept-Language` / `Accept-Encoding: gzip, deflate, br`)
+merged with the UA on every request, made explicit rather than relying on httpx's silent
+auto-detection of the `brotli` package (easy to lose track of, and it was in fact missing).
+`brotli==1.2.0` is now pinned in `requirements.txt` — without it, a br-encoded response
+would still 200 but decode to mojibake instead of real HTML, which is arguably worse than the
+406 (a silent bad capture instead of a loud one). A `403`/`406`/`429` that still gets through
+this (a different site's bot-protection) now gets a plain-language "the site blocked this
+request" message via `RecipeFetchError` instead of a bare "HTTP 406".
 
 ### Photo capture flow
 1. User uploads image (JPEG or PNG, from camera or gallery)
@@ -931,9 +948,11 @@ again a few chunks later would be pure churn. The response shape is a single JSO
 
 ```
 You are a recipe extraction assistant. Given recipe text or an image of a recipe, extract
-the ingredients list plus a few recipe-level fields. Return a single JSON object with this
-exact structure:
+the recipe's title and servings, the ingredients list, plus a couple of recipe-level fields.
+Return a single JSON object with this exact structure:
 {
+  "title": "the dish name as written" or null,
+  "servings": 4 or null,
   "cuisine": "italian" or null,
   "protein": "chicken" or null,
   "ingredients": [
@@ -949,18 +968,45 @@ exact structure:
 }
 
 Rules:
+- title is the dish/recipe name as written; null if it isn't clear
+- servings is the integer number of servings/portions the recipe yields; if given as a range
+  (e.g. "serves 4-6"), use the lower bound; null if not stated
 - quantity must be a number (convert fractions: 1/2 → 0.5)
 - unit must be one of: g, kg, ml, L, tsp, tbsp, cup, or null
 - Convert any non-standard units to the closest standard unit
 - If a quantity is a range (e.g. "1-2 cloves"), use the lower bound
 - Separate compound ingredients (e.g. "for the sauce:") into individual items
-- Do not include method instructions or serving suggestions
+- Do not include method / cooking-step instructions
+- DO include accompaniments listed "to serve" when they are concrete things to buy (e.g.
+  rice, naan, yoghurt, lime wedges) — set their preparation to "to serve". Exclude vague
+  suggestions with no specific ingredient (e.g. "serve with a crisp green salad")
+- Normalise ingredient names to a canonical form so the same item reads identically across
+  recipes: all plain salts (table salt, cooking salt, kosher salt, sea salt) → "salt" (but
+  keep a distinct name when a recipe calls for flaky/finishing salt as an ingredient in its
+  own right, e.g. "flaky sea salt to finish"); "minced beef" → "beef mince"; "green onion" /
+  "scallion" → "spring onion". Do NOT merge names that describe a different product form —
+  keep "coriander" separate from "ground coriander" or "coriander seeds", "ginger" from
+  "ground ginger", "garlic" from "garlic powder", fresh chilli from "dried chilli" / "chilli
+  flakes", and so on. When unsure, leave the name as written.
 - suggested_section must be one of: produce, dairy, meat & seafood, bakery, frozen, pantry,
   household, deli, drinks, other — or null if you are not reasonably confident
 - cuisine and protein are freetext (lowercase, one or two words, e.g. "italian", "beef mince")
   — use null if not reasonably inferrable from the recipe
 - Return ONLY valid JSON. No markdown, no explanation, no preamble.
 ```
+
+> **Note (2026-09-07):** `suggested_section` is shown above as documentation of the original
+> combined-call shape; Phase 3.9 M2 actually moved section suggestion into its own call
+> (`suggest_sections()`) — the live `EXTRACTION_SYSTEM_PROMPT` in `app/services/ai_extraction.py`
+> no longer asks for it. `title`/`servings`/the "to serve" rule/the canonicalisation rule were
+> added the same session, folding in the 5 hand-testing issues staged in
+> `Capture-Fixes-Staged.md` (title/servings never extracted, "cooking salt" vs "kosher salt"
+> consolidation misses, verbose substitution notes, dropped "to serve" ingredients — issue 3's
+> full fix, a Settings-managed alias table, stays a
+> [Deferred Decision](#deferred-decisions); the note-length backstop for issue 4 lives in
+> [Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec)).
+> `app/services/ai_extraction.py` is the source of truth for the exact wording in force at any
+> given time — this block is kept in sync opportunistically, not on every prompt tweak.
 
 The `suggested_section` enum in the prompt text is kept in sync with
 `SECTION_VOCABULARY` in `app/seed_data.py` by hand (see
@@ -975,9 +1021,16 @@ See [Ingredient Substitution](#ingredient-substitution).
 
 ### After extraction
 - Display extracted ingredients in an editable review UI (inline edit of name, qty, unit)
+- Recipe name and base servings are AI-prefilled from `title`/`servings` when the model
+  returned them (2026-09-07 — Capture-Fixes-Staged.md issues 1 & 2); a URL capture also
+  falls back to the page's own `<title>`/`og:title`/first `<h1>` (no extra AI call) when the
+  AI didn't return a title — see `services/capture_url.py > _extract_title()`. Both fields
+  stay fully editable, same as everything else on this screen.
 - User confirms or edits, then saves
 - On save: normalise ingredient names to lowercase, store in `recipe_ingredients`
-- Log: recipe id, call type, token counts, cost to `api_usage`
+- Log: recipe id, call type, model, token counts, outcome to `ai_call_log` (see
+  [`ai_call_log`](#ai_call_log) — replaced `api_usage` at Phase 3.9 M5; no cost column,
+  Gemini's free tier has none)
 
 ### Source provenance on the review screen (Phase 3 Chunk 3.7, 2026-09-06)
 The review screen also carries two optional freetext inputs — **cookbook name** and **page** —
@@ -2834,7 +2887,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | Revisit after real use | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." See [Scaling Logic](#scaling-logic). |
 | Default target servings as a Settings field | Not scheduled | 2026-09-06: `DEFAULT_TARGET_SERVINGS = 4` is a constant (form pre-fill, always overridable per recipe). If the household size changes often enough to matter, promote it to an editable Settings value. Needs a general app-settings store (Settings today is only staples + product_units CRUD). See [Scaling Logic](#scaling-logic). |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
-| Ingredient synonym normalisation (automatic) | Phase 6 or later | e.g. "green onion" vs "spring onion". For now, user review at capture time provides sufficient normalisation. |
+| Ingredient synonym normalisation (automatic) | Phase 6 or later — **candidate for a Phase 5/6 bring-forward, 2026-09-07** | e.g. "green onion" vs "spring onion". A conservative version now rides in the extraction prompt itself (`EXTRACTION_SYSTEM_PROMPT` — salt group, "minced beef"→"beef mince", "green onion"/"scallion"→"spring onion", explicitly NOT merging different product forms like fresh vs ground/dried — Capture-Fixes-Staged.md issue 3, folded into CLAUDE.md > Recipe Capture > extraction prompt 2026-09-07). That only covers AI-captured recipes and is a hint, not enforcement — a manually-typed "cooking salt" still won't match the `salt` staple or another recipe's "kosher salt" for consolidation/staple-matching purposes. The real fix is still this row's original scope: a small **Settings-managed alias table** (user-editable, seeded with the salt group, same dried/fresh caution baked in) applied post-extraction in `create_recipe_from_capture` and in `consolidate_session()`'s effective-name step — recommended as a Phase 5/6 bring-forward rather than staying open-ended "later", but not built yet. |
 | Multi-user login / separate accounts | Post-MVP | Shared access, no auth. |
 | AnyList credential storage: `keyring` vs `.env` | Phase 5 kickoff | Preferred: Windows Credential Manager via `keyring`. `.env` acceptable fallback if awkward with deployment scripts. See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |
@@ -3298,8 +3351,16 @@ disagrees with the rules below, the code is wrong** (this feature has drifted be
 
 **What it IS:**
 - At capture time, a dedicated Gemini call flags ingredients *in this specific recipe* that
-  could be substituted, each with a suggested substitute + a short note (e.g. `buttermilk` →
-  `"milk + lemon juice"`, note "acidulate the milk and rest 10 min").
+  could be substituted, each with a suggested substitute + an optional short note (e.g.
+  `buttermilk` → `"milk + lemon juice"`, note "acidulate the milk and rest 10 min").
+  **Tightened 2026-09-07** (Capture-Fixes-Staged.md issue 4 — hand-testing found the model
+  volunteering "why this works" rationale the maintainer didn't want, e.g. *"Regular butter
+  contains milk solids that brown and burn faster than ghee, so watch the heat"*): the note
+  is null on a straight 1:1 swap and, when present, is capped at ~10 words / a real
+  method-or-quantity change only — never an explanation of why the two items are similar.
+  `SUBSTITUTIONS_SYSTEM_PROMPT` carries the exact wording; `flag_substitutions()` also drops
+  (not truncates) any note over 120 chars server-side as a backstop against the model
+  ignoring the prompt.
 - Each flag is surfaced for **per-recipe, per-ingredient confirm/decline** before anything is
   stored. Confirm → `recipe_ingredients.resolved_ingredient` + `substitution_note` set on
   *that* recipe. Decline → `resolved_ingredient` left NULL (falls back to `name`); the flag

@@ -50,6 +50,11 @@ class CaptureResult(BaseModel):
     source_type: SourceType
     source_url: str | None = None
     source_image_path: str | None = None
+    # AI-prefilled title/servings (Capture-Fixes-Staged.md issues 1 & 2, 2026-09-07) — both
+    # editable on the review screen, never trusted as final until confirm-save, same as every
+    # other extracted field. See CLAUDE.md > Recipe Capture > After extraction.
+    title: str | None = None
+    servings: int | None = None
     cuisine: str | None = None
     protein: str | None = None
     ingredients: list[CapturedIngredient]

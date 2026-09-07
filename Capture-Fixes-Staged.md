@@ -1,8 +1,17 @@
-# Capture fixes — staged bundle (not yet implemented)
+# Capture fixes — staged bundle
 
 Source: `Capture-Notes.txt` (hand-testing notes on the Phase 3.9 Gemini capture flow).
-Status: **staged for later** — fold the spec changes into the Phase 3.9 **M-review** (the
-combined M-review + deferred Phase 4 review), implement the code alongside.
+**Status: Implemented 2026-09-07** (all 5 issues) — ahead of the M-review, at the
+maintainer's request, rather than waiting. Prompt/schema/frontend changes as specced below,
+built as-is with no changes to the plan. CLAUDE.md's extraction-prompt block, "After
+extraction", the "Ingredient Substitution Flagging" merged spec (issue 4's note tightening),
+and the "Ingredient synonym normalisation (automatic)" Deferred Decisions row (issue 3's
+bring-forward recommendation) were all updated in place. Fake fixtures + offline tests
+updated (`tests/services/test_ai_extraction.py`, `tests/services/test_capture_url.py`) —
+suite stays green, no real Gemini call made. **Still open, per the original plan:**
+re-verify title/servings/canonicalisation/note-length/"to serve" against a real Gemini
+response, only under a fresh §0c go-ahead — piggyback on the M-review's live check rather
+than spending a call solely for this.
 
 Issues 1, 2, 4, 5 are essentially one edit to `app/services/ai_extraction.py` (prompt +
 schema + parsing) plus plumbing for two new fields. Issue 3's minimal form rides in the same

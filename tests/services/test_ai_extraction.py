@@ -208,6 +208,38 @@ def test_extract_recipe_fake_mode_deterministic(db, fake_mode):
     assert [i.name for i in a.ingredients] == [i.name for i in b.ingredients]
 
 
+def test_extract_recipe_fake_mode_includes_title_and_servings(db, fake_mode):
+    # Capture-Fixes-Staged.md issue 1/2 — every fake fixture carries a title + servings.
+    result = extract_recipe(db, call_type="recipe_url", text="anything")
+    assert result.title and result.servings == 4
+
+
+# --- extract_recipe: title / servings (Capture-Fixes-Staged.md issues 1 & 2) --------
+
+
+def test_extract_recipe_parses_title_and_servings(db, api_enabled):
+    payload = {**_EXTRACTION_PAYLOAD, "title": "  Weeknight Beef Tacos  ", "servings": 6}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        result = extract_recipe(db, call_type="recipe_url", text="x")
+    assert result.title == "Weeknight Beef Tacos"  # whitespace trimmed
+    assert result.servings == 6
+
+
+def test_extract_recipe_title_servings_null_when_absent(db, api_enabled):
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(_EXTRACTION_PAYLOAD))):
+        result = extract_recipe(db, call_type="recipe_url", text="x")
+    assert result.title is None and result.servings is None
+
+
+def test_extract_recipe_servings_dropped_when_invalid(db, api_enabled):
+    # A blank title and a non-positive/garbage servings value must not surface as data —
+    # the review screen falls back to its own defaults instead.
+    payload = {**_EXTRACTION_PAYLOAD, "title": "   ", "servings": 0}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        result = extract_recipe(db, call_type="recipe_url", text="x")
+    assert result.title is None and result.servings is None
+
+
 # --- suggest_sections (call 3) -------------------------------------------------
 
 
@@ -255,6 +287,27 @@ def test_flag_substitutions_fake_mode_returns_canned_for_known_names(db, fake_mo
 
 def test_flag_substitutions_empty_when_no_known_names(db, fake_mode):
     assert flag_substitutions(db, context_id=None, ingredient_names=["pasta", "onion"]) == []
+
+
+def test_flag_substitutions_drops_overlong_note(db, api_enabled):
+    # Capture-Fixes-Staged.md issue 4 — a verbose "why this works" rationale (the kind the
+    # maintainer explicitly doesn't want) is dropped rather than shown, even if the model
+    # ignores the prompt's "~10 words max" rule.
+    verbose = (
+        "Regular butter contains milk solids that brown and burn faster than ghee, "
+        "so keep an eye on the heat and stir a little more often than usual."
+    )
+    payload = {"flags": [{"original": "ghee", "suggested_substitute": "butter", "note": verbose}]}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        flags = flag_substitutions(db, context_id=None, ingredient_names=["ghee"])
+    assert flags[0].note is None
+
+
+def test_flag_substitutions_keeps_short_note(db, api_enabled):
+    payload = {"flags": [{"original": "ghee", "suggested_substitute": "butter", "note": "use 20% less"}]}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        flags = flag_substitutions(db, context_id=None, ingredient_names=["ghee"])
+    assert flags[0].note == "use 20% less"
 
 
 # --- capture_recipe (orchestrator) ---------------------------------------

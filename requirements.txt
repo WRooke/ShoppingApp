@@ -24,3 +24,7 @@ httpx==0.28.1  # required by fastapi.testclient.TestClient; also used directly i
 google-genai==2.22.0
 beautifulsoup4==4.15.0  # HTML parsing for URL capture (services/capture_url.py)
 python-multipart==0.0.32  # required by FastAPI to parse the photo-upload multipart form
+brotli==1.2.0  # httpx's brotli decoder for URL capture — see services/capture_url.py; without
+                # it, some bot-protected recipe sites (e.g. tasty.co) 406 the request outright
+                # (their WAF treats a Chrome UA with no brotli support as non-browser), and if
+                # they ever did serve br-encoded content anyway it would decode to mojibake

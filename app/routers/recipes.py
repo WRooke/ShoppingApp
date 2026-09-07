@@ -61,6 +61,8 @@ def _capture_result(
         source_type=source_type,
         source_url=source_url,
         source_image_path=source_image_path,
+        title=result.title,
+        servings=result.servings,
         cuisine=result.cuisine,
         protein=result.protein,
         ingredients=[

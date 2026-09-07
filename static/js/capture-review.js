@@ -1,5 +1,5 @@
 /* Recipe capture — review + confirm screen. Takes capture.js's CaptureResult
-   (cuisine/protein/ingredients + per-ingredient suggested_section + recipe-level
+   (title/servings/cuisine/protein/ingredients + per-ingredient suggested_section + recipe-level
    substitution_flags) and renders one fully editable form. Each ingredient row carries a
    per-ingredient swap control (ingredient-swap.js): the AI's flagged substitution and any
    saved swaps are offered, the user confirms per ingredient, and on confirm the chosen
@@ -58,6 +58,9 @@
     var nameInput = el("input");
     nameInput.type = "text";
     nameInput.placeholder = "e.g. Weeknight Beef Tacos";
+    // AI-prefilled title (Capture-Fixes-Staged.md issue 1, 2026-09-07) — still fully
+    // editable, same "review before saving" treatment as every other extracted field.
+    nameInput.value = captureResult.title || "";
     card.appendChild(labeledField("Recipe name", nameInput));
 
     // Live "you might already have this" hint (Phase 4) — best-effort, on name blur.
@@ -67,7 +70,9 @@
     var servingsInput = el("input");
     servingsInput.type = "number";
     servingsInput.min = "1";
-    servingsInput.value = "4";
+    // AI-prefilled servings (Capture-Fixes-Staged.md issue 2) — falls back to the same "4"
+    // default as before when the AI didn't return one.
+    servingsInput.value = captureResult.servings || 4;
     card.appendChild(labeledField("Base servings", servingsInput));
 
     var cuisineInput = el("input");
