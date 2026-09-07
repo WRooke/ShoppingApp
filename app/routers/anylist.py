@@ -1,7 +1,11 @@
-"""AnyList integration API. Implemented in Phase 5.
+"""AnyList router — intentionally empty.
 
-NOTE for Phase 5: the native-Python vs Node-microservice decision must be
-flagged for discussion before implementation (see CLAUDE.md > Tech Stack > AnyList).
+Phase 5's AnyList work is exposed through the checklist flow
+(``routers/checklist.py`` → ``services/checklist.py`` → ``services/anylist_client.py``) and
+the diagnostics ``anylist`` block / ``POST /diagnostics/anylist-check``, not through
+dedicated ``/api/v1/anylist/*`` endpoints. The native-vs-Node decision was settled by the
+Phase 1.5 spike (Python-native — see CLAUDE.md > Tech Stack > AnyList integration). This
+prefix is kept registered in case a direct AnyList admin endpoint is wanted later.
 """
 
 from __future__ import annotations

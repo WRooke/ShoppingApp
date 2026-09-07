@@ -140,14 +140,15 @@ consolidated shopping list to AnyList, a shared grocery list app they both use.
 
 ### AnyList integration — Phase 5 decision
 The AnyList API is unofficial and reverse-engineered. The reference implementation is the
-Node.js package `codetheweb/anylist` on GitHub. When Phase 5 begins:
-1. First attempt: implement the AnyList HTTP/WebSocket/protobuf calls natively in Python using
-   `httpx`, `websockets`, and `protobuf` libraries, using the Node package as a reference.
-2. Fallback: run a thin Node.js Express microservice (localhost only) that wraps the npm
-   package, called by the Python backend over HTTP. This adds Node.js as a runtime dependency
-   but isolates the complexity. **If this fallback is used, it must bind to `127.0.0.1` only —
-   never `0.0.0.0`** (see [Security](#security) §2).
-Flag this choice for discussion at the start of Phase 5.
+Node.js package `codetheweb/anylist` on GitHub.
+
+**Resolved by the Phase 1.5 spike (2026-09-05) — Python-native, no Node microservice.**
+`httpx` + a hand-rolled ~150-line protobuf codec (no `protobuf`/`websockets` package) worked
+cleanly in ~2 hours. `spike/anylist_spike.py` + `spike/FINDINGS.md` are the reference the
+Phase 5 Chunk 5.2 connector (`services/anylist_client.py`) was adapted from. The Node.js
+Express microservice fallback was **not** taken; if it ever were, it must bind to
+`127.0.0.1` only — never `0.0.0.0` (see [Security](#security) §2). The websocket
+live-refresh listener was out of spike scope and is not used — the app fetches on demand.
 
 ### AnyList — derisking spike (bring forward)
 AnyList has been flagged as a high-risk, low-confidence part of the stack, so the core
@@ -1357,16 +1358,32 @@ Built in [Phase 5 Chunks 5.4 / 5.5 / 5.6](#phase-5--checklist--anylist-integrati
 
 ## AnyList Push Logic
 
+Built in [Phase 5 Chunk 5.6](#phase-5--checklist--anylist-integration) —
+`services/checklist.py > push_to_anylist()`.
+
 On push:
-1. For each `session_checklist_items` where `add_to_list = True`:
-   - If `already_on_anylist = True` AND `anylist_item_id` is set: increment quantity on
-     existing item rather than adding duplicate
-   - Otherwise: add as new item
-2. Item name: use `ingredient_name` (capitalised for display)
-3. Item quantity: use `display_qty` string (e.g. "2 × 500g packs", "1 dozen", "400g")
-4. On completion: set `planning_sessions.status = 'pushed'`, set `pushed_at`, write to
-   `shopping_history`
-5. Log full response from AnyList to `shopping_history.anylist_response_json`
+1. Collect `session_checklist_items` where `add_to_list = True` **OR** `have_it = 'no'`
+   (the checklist tap sets `add_to_list` when you tap to "need it", so in practice these
+   coincide), plus any ticked **due "usuals"**.
+   - If `already_on_anylist = True` AND `anylist_item_id` is set: **update the existing item
+     in place** (`set-list-item-quantity` to our `display_qty`) rather than adding a
+     duplicate. Note "increment" from the original plan can't be literal — AnyList's quantity
+     field holds a freetext display string ("2 × 500g packs"), not a number, so our computed
+     quantity replaces it. The household may also edit that item by hand between pushes; this
+     is accepted (our list is the derived shopping quantity).
+   - Otherwise: add as a new item (client-generated UUID identifier, per the spike).
+2. Item name: `ingredient_name` `.title()`-cased; a usual uses its own name.
+3. Item quantity: `display_qty` if set, else `total_quantity total_unit`, else nothing
+   (to-taste / unitless).
+4. One batched `POST /data/shopping-lists/update`, then **re-fetch + diff** to confirm (an
+   HTTP 200 alone is not proof — spike finding #3). `confirmed` / `discrepancies` are
+   recorded and returned.
+5. On completion: set `planning_sessions.status = 'pushed'` + `pushed_at`, stamp
+   `usual_items.last_added_at` for any pushed usuals, and write one `shopping_history` row
+   (`items_json` snapshot + `anylist_response_json` = the raw response summary +
+   discrepancies). The session is marked `pushed` **even if the diff wasn't fully confirmed**
+   — otherwise a retry would re-add the items that *did* land as duplicates. A re-push of an
+   already-`pushed` session is refused (`409 SESSION_ALREADY_PUSHED`) unless `?force=true`.
 
 ---
 
@@ -2606,7 +2623,7 @@ household shopping list is never read or written without a fresh, explicit, per-
 go-ahead from the maintainer** — a standing "yes" does not carry, same rule as §0c. No agent
 session flips `ANYLIST_ENABLED`.
 
-- [ ] **Chunk 5.1 — Config: credential resolution + AnyList gates.** `keyring` pinned in
+- [x] **Chunk 5.1 — Config: credential resolution + AnyList gates.** `keyring` pinned in
       `requirements.txt`. `config.py`: `anylist_email` / `anylist_password` resolved
       keyring-first (`keyring.get_password("shoppingapp", "anylist_email"|"anylist_password")`)
       then `.env` with a one-time WARNING when the fallback is used; `anylist_enabled` /
@@ -2614,7 +2631,12 @@ session flips `ANYLIST_ENABLED`.
       `anylist_target_list_name`. `.env.example` + `settings.summary` + `SETUP.md` /
       `DEPLOY.md` (the NUC needs `keyring set` **or** `.env`). No connector yet. Unit tests
       for the resolver (keyring mocked).
-- [ ] **Chunk 5.2 — AnyList connector (`services/anylist_client.py`).** Adapt the spike behind
+      **Done 2026-09-07 (commit `0d1cbc7`).** `_from_keyring()` swallows any keyring failure
+      (missing pkg / locked / absent backend) and degrades to `.env`; `anylist_secret_source`
+      ("keyring"|"env"|"mixed"|"missing") drives the plaintext-fallback WARNING (emitted in
+      `app.main` lifespan, not config import, since logging isn't up yet). 8 tests in
+      `tests/test_config.py`; suite 301 pass.
+- [x] **Chunk 5.2 — AnyList connector (`services/anylist_client.py`).** Adapt the spike behind
       a small stable interface (CLAUDE.md > External integrations): `get_items(list_name) ->
       list[AnyListItem]`, `add_or_increment_items(list_name, items)` (one batched
       `post_operations`), plus `check_auth()` for diagnostics. Protobuf codec + types lifted
@@ -2625,7 +2647,12 @@ session flips `ANYLIST_ENABLED`.
       `AnyListDisabledError`; `ANYLIST_FAKE_MODE` → deterministic in-memory `_FakeAnyList`.
       `AnyListError` / `AnyListAuthError` → envelope in `main.py`. No `fastapi` import. Unit
       tests: fake mode + a mocked `httpx` transport, no network.
-- [ ] **Chunk 5.3 — Checklist load: service + API.** `schemas/checklist.py`;
+      **Done 2026-09-07 (commit `cb9d00f`).** 401 handling is a fresh full re-login + one
+      retry (no refresh-token endpoint needed). `main.py`: `ANYLIST_DISABLED` (503),
+      `ANYLIST_AUTH_FAILED` / `ANYLIST_FAILED` (502). `_FakeAnyList` seeds milk/eggs/butter on
+      the target list. 13 tests (`tests/services/test_anylist_client.py`) incl. httpx
+      MockTransport for the real path + the silent-noop diff; suite 314 pass.
+- [x] **Chunk 5.3 — Checklist load: service + API.** `schemas/checklist.py`;
       `services/checklist.py` `load_checklist(db, session_id)` — reads
       `session_checklist_items` (must already be consolidated), fetches AnyList items,
       fuzzy-matches names (normalised lowercase, singular/plural tolerant) to set
@@ -2636,7 +2663,14 @@ session flips `ANYLIST_ENABLED`.
       `POST /checklist/{session_id}/items/{item_id}/resolve` (Chunk 4.6 `needs_review` lines —
       pick the mass or volume total, or enter a manual quantity/unit; clears `needs_review`).
       Service unit tests (AnyList mocked) + router smoke tests.
-- [ ] **Chunk 5.4 — "The usuals": `usual_items` table + service + Settings.** Alembic
+      **Done 2026-09-07 (commit `b3035f9`).** Key refinement: `already_on_anylist` /
+      `anylist_item_id` are recomputed **only when the AnyList fetch succeeds** — a transient
+      failure leaves the previous match state intact rather than wiping it; the load response
+      carries `anylist_ok` / `anylist_detail`. `ChecklistNotReadyError` → 409
+      `CHECKLIST_NOT_CONSOLIDATED`; `ChecklistItemNotFoundError` → 404. `_singularise` is
+      conservative (tomatoes/potatoes/boxes/dishes; leaves ambiguous words alone). 14 service
+      + 6 router tests; suite 334 pass.
+- [x] **Chunk 5.4 — "The usuals": `usual_items` table + service + Settings.** Alembic
       migration: `usual_items` (`id`, `name` UNIQUE normalised, `notes`, `cadence_days`
       INTEGER NOT NULL — "buy roughly every N days"; `last_added_at` DATETIME nullable;
       audit columns). Cadence is **days**, not sessions (a session isn't a reliable clock —
@@ -2645,7 +2679,12 @@ session flips `ANYLIST_ENABLED`.
       `mark_added(db, ids)`. Seeded empty (no pre-guessing — same call as staples).
       `schemas/usuals.py`, endpoints under `/api/v1/settings/usuals`, `main.py` translations,
       `static/js/settings-usuals.js` card (split per file-size rule). Service + router tests.
-- [ ] **Chunk 5.5 — Checklist UI + usuals + unit-conflict resolve.** `static/js/checklist.js`
+      **Done 2026-09-07 (commit `47fe761`).** Migration `d68cf188aaa4`; `UsualItem` in
+      `catalog.py`. `is_due()` / `due_items()` / `mark_added()` (ignores unknown ids) /
+      `due_as_checklist_rows()` / `to_read()` (computes `is_due`, not a stored column). 404
+      `USUAL_ITEM_NOT_FOUND` / 409 `DUPLICATE_USUAL_ITEM_NAME`. 4th Settings card. 12 service
+      + 4 router tests; migration parity green; suite 349 pass.
+- [x] **Chunk 5.5 — Checklist UI + usuals + unit-conflict resolve.** `static/js/checklist.js`
       on `#/checklist/<session_id>` (nav gets a step from the session review screen).
       Per-item tap cycles **binary** `unknown → yes → no` (no `partial` — see
       [Deferred Decisions](#deferred-decisions)); items already on AnyList pre-ticked in a
@@ -2655,7 +2694,14 @@ session flips `ANYLIST_ENABLED`.
       marked `no` or with `add_to_list` true are what Chunk 5.6 pushes. `api.js` surface.
       Split by sub-feature if it passes ~350 lines. Headless-Edge/CDP verification
       (`HEADLESS_VERIFY.md`), fake mode.
-- [ ] **Chunk 5.6 — Push to AnyList + `shopping_history` + diagnostics.**
+      **Done 2026-09-07 (commit `897b149`).** `#/checklist/<id>` route; reached from a
+      "Next: checklist →" button on the session review screen. Tap cycle
+      `unknown → yes → no → unknown`; to `no` also sets `add_to_list`, back clears it.
+      On-list items get `.on-anylist` styling + a "✓". Needs-review `note` is parsed into
+      quick "use 100 g" buttons + a manual amount/unit entry. Usuals selection is client-held
+      (`pushUsualIds`). Frontend-only chunk; suite 349 pass; headless verified all 4 groups +
+      the tap cycle + resolve, no console errors.
+- [x] **Chunk 5.6 — Push to AnyList + `shopping_history` + diagnostics.**
       `services/checklist.py` `push_to_anylist(db, session_id)`: collect `add_to_list` lines,
       `add_or_increment_items()` in one batch (increment when `already_on_anylist` +
       `anylist_item_id`, else add; item name Capitalised, quantity = `display_qty`), re-fetch
@@ -2665,6 +2711,15 @@ session flips `ANYLIST_ENABLED`.
       already-`pushed` session unless `?force=true`. Diagnostics `anylist` block: last
       successful `check_auth()` timestamp, target list name, enabled/fake state, last push
       summary. Service tests (fake + mocked) + router smoke + a diagnostics test.
+      **Done 2026-09-07 (commit `5367cdc`).** Push collects `add_to_list OR have_it == 'no'`
+      lines + ticked due usuals; "increment" against AnyList's freetext display-string
+      quantities = `set-list-item-quantity` to our `display_qty` (a display string can't be
+      numerically added). Session is marked `pushed` **even if the diff wasn't fully
+      confirmed** — discrepancies are recorded + returned; not marking would re-add the
+      confirmed items as duplicates on retry. `SESSION_ALREADY_PUSHED` (409) unless
+      `?force=true`. `anylist_client.last_success_at()` feeds diagnostics without a live
+      round-trip; `POST /diagnostics/anylist-check` does an on-demand one. +8 tests; suite
+      356 pass; headless E2E (review → checklist → push → history + diagnostics) clean.
 - [ ] **Chunk 5.7 — Live AnyList verification (TestList, explicit go-ahead required).** The
       one point that needs a real AnyList call. With real creds (keyring or `.env`),
       `ANYLIST_ENABLED=true`, `ANYLIST_TARGET_LIST_NAME=TestList`, and the maintainer's
