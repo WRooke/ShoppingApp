@@ -1,0 +1,5 @@
+-Doesn't fetch recipe title successfully
+-Doesn't fetch number of servings
+-Cooking salt vs kosher salt vs table salt (for example, likely not the only ingredient) may cause consolidation issues
+-AI substitution suggestions give a whole bunch of unnecessary data e.g. "Regular butter contains milk solids that brown and burn faster than ghee, so watch the heat." - I don't care about this
+-Doesn't fetch "to serve" ingredients, important to have lest we end up eating a curry with no rice
