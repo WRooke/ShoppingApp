@@ -18,19 +18,27 @@ click-through pass for the Phase 5 review.
 
 ## Setup (sections 1–7)
 
-- Dev server on a scratch DB, fake modes on:
+- **Seed the disposable fixture DB** (does not touch `data/mealplanner.db`):
   ```
-  DATABASE_PATH=<scratch>/t.db LOGS_PATH=<scratch>/logs IMAGES_PATH=<scratch>/img \
-    PORT=8099 AI_EXTRACTION_FAKE_MODE=true ANYLIST_FAKE_MODE=true \
-    ALLOWED_ORIGINS=http://127.0.0.1:8099 .venv/Scripts/python.exe -m app.main
+  .venv\Scripts\python -m scripts.seed_phase5_fixtures --reset
   ```
-- The fake AnyList list (`TestList`) is seeded with **milk**, **eggs**, **butter**.
+  This creates `data/phase5-test.db` with the schema, the app's reference data (staples incl.
+  **olive oil**; product_units incl. the **beef mince** 500 g pack + the eggs/milk/yoghurt
+  multi-packs), and three manual recipes:
+  - **P5 — Milk & Passata** — `milk` 1 L (matches the fake AnyList list) + `passata` 400 g
+  - **P5 — Beef & Oil** — `beef mince` 500 g (seeded pack) + `olive oil` 2 tbsp (a staple)
+  - **P5 — Cream Conflict** — `cream` 100 g + `cream` 200 ml in one recipe → a Chunk 4.6
+    `needs_review` line at consolidation
+  It creates no sessions and no usuals — those are test-plan steps.
+- **Start the server against it**, fake modes on:
+  ```
+  DATABASE_PATH=data/phase5-test.db AI_EXTRACTION_FAKE_MODE=true ANYLIST_FAKE_MODE=true \
+    PORT=8099 ALLOWED_ORIGINS=http://127.0.0.1:8099 .venv/Scripts/python -m app.main
+  ```
+- The fake AnyList list (`TestList`) is auto-seeded with **milk**, **eggs**, **butter** on
+  first call.
 - Keep `/#/diagnostics` open in a second tab — recent-errors must stay clean throughout
   (the one expected `WARNING` at startup is the keyring/plaintext nudge; that's fine).
-- Library: a few manual recipes. Include one that uses **milk** (matches the fake list) and
-  **passata** (doesn't), one with **beef mince** (has a seeded `product_units` pack) and
-  **olive oil** (a staple), and one with **100 g cream** + **200 ml cream** in the *same*
-  recipe (forces a Chunk 4.6 `needs_review` line).
 - Frontend drive: a phone browser, or `scripts/cdp.py` per `HEADLESS_VERIFY.md`.
 
 ---

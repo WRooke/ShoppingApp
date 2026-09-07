@@ -2876,6 +2876,7 @@ ShoppingApp/
 ├── alembic.ini                 ← Alembic config (no hardcoded URL — env.py pulls it from app.config)
 ├── scripts/                    ← maintenance scripts, run as `python -m scripts.<name>`
 │   ├── cdp.py                  ← stdlib-only headless-Edge CDP driver for frontend verification (see HEADLESS_VERIFY.md)
+│   ├── seed_phase5_fixtures.py ← builds data/phase5-test.db with the recipes the Phase 5 hand test plan needs
 │   ├── backup.py               ← weekly DB + JSON dump, trims old backups, commits/pushes if git is set up
 │   ├── restore.py              ← lists / dry-runs / restores a backup, with a pre-restore safety copy
 │   ├── deploy.py                ← dev PC: tag + push a release (see DEPLOY.md)
