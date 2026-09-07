@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -16,6 +16,7 @@ from app.schemas.checklist import (
     ChecklistItemResolve,
     ChecklistItemUpdate,
     ChecklistLoadResponse,
+    ChecklistPushRequest,
 )
 from app.schemas.sessions import ChecklistItemRead
 from app.services import checklist as checklist_service
@@ -66,3 +67,16 @@ def resolve_item(
         db, session_id, item_id, total_quantity=data.total_quantity, total_unit=data.total_unit
     )
     return {"ok": True, "data": _item(row)}
+
+
+@router.post("/{session_id}/push")
+def push(
+    session_id: int,
+    data: ChecklistPushRequest | None = None,
+    force: bool = Query(False),
+    db: Session = Depends(get_db),
+) -> dict:
+    result = checklist_service.push_to_anylist(
+        db, session_id, usual_ids=(data.usual_ids if data else None), force=force
+    )
+    return {"ok": True, "data": result}

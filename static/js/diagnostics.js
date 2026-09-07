@@ -108,8 +108,48 @@
           body.appendChild(log);
         }
       }
-      if (r.key === "anylist" && d.last_success) {
-        body.appendChild(el("div", "status-msg", "Last auth: " + fmtTime(d.last_success)));
+      if (r.key === "anylist") {
+        body.appendChild(
+          el(
+            "div",
+            "status-msg",
+            "enabled: " + (d.enabled ? "yes" : "no") +
+              "  ·  fake mode: " + (d.fake_mode ? "yes" : "no") +
+              "  ·  list: " + (d.target_list || "?") +
+              "  ·  creds: " + (d.credentials_configured ? d.secret_source || "yes" : "none")
+          )
+        );
+        if (d.last_success)
+          body.appendChild(el("div", "status-msg", "Last success: " + fmtTime(d.last_success)));
+        if (d.last_push)
+          body.appendChild(
+            el(
+              "div",
+              "status-msg",
+              "Last push: session " + d.last_push.session_id + " at " + fmtTime(d.last_push.pushed_at) +
+                (d.last_push.confirmed ? " (confirmed)" : " — NOT confirmed")
+            )
+          );
+        var checkBtn = el("button", null, "Check AnyList now");
+        var checkOut = el("span", "status-msg");
+        checkBtn.addEventListener("click", function () {
+          checkBtn.disabled = true;
+          checkOut.textContent = " checking…";
+          api.diagnostics
+            .anylistCheck()
+            .then(function (res) {
+              checkOut.textContent = " " + (res.ok ? "OK" : "FAILED") + " — " + res.detail;
+              checkBtn.disabled = false;
+            })
+            .catch(function (err) {
+              checkOut.textContent = " error: " + err.message;
+              checkBtn.disabled = false;
+            });
+        });
+        var checkWrap = el("div", "status-msg");
+        checkWrap.appendChild(checkBtn);
+        checkWrap.appendChild(checkOut);
+        body.appendChild(checkWrap);
       }
 
       body.appendChild(el("div", "state-label", "state: " + (d.state || "grey")));

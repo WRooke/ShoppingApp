@@ -40,6 +40,13 @@ class ChecklistItemUpdate(BaseModel):
     add_to_list: bool | None = None
 
 
+class ChecklistPushRequest(BaseModel):
+    """POST /checklist/{id}/push body — the due "usuals" the user ticked to include. The
+    ingredient lines to push are read from the DB (add_to_list / have_it == 'no')."""
+
+    usual_ids: list[int] = Field(default_factory=list)
+
+
 class ChecklistItemResolve(BaseModel):
     """Resolve a Chunk 4.6 irreconcilable-units line: commit a single total the user picked
     (one of the shown parts, or a manual figure). Clears ``needs_review``."""

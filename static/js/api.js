@@ -311,14 +311,15 @@
           data
         );
       },
-      push: function (sessionId, force) {
+      push: function (sessionId, opts) {
+        opts = opts || {};
         return jsonBody(
           "POST",
           "/api/v1/checklist/" +
             encodeURIComponent(sessionId) +
             "/push" +
-            (force ? "?force=true" : ""),
-          {}
+            (opts.force ? "?force=true" : ""),
+          { usual_ids: opts.usualIds || [] }
         );
       },
     },
@@ -333,6 +334,9 @@
       },
       status: function () {
         return api.get("/api/v1/diagnostics/status");
+      },
+      anylistCheck: function () {
+        return jsonBody("POST", "/api/v1/diagnostics/anylist-check", {});
       },
     },
   };

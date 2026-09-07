@@ -8,15 +8,19 @@ centrally in app/main.py. See CLAUDE.md > Checklist Screen Logic and > AnyList P
 
 from __future__ import annotations
 
+import json
 import logging
 
 from sqlalchemy.orm import Session
 
+from app.database import utcnow
 from app.models.catalog import Staple
-from app.models.planning import SessionChecklistItem
+from app.models.history import ShoppingHistory
 from app.services import anylist_client
+from app.models.planning import SessionChecklistItem
 from app.services import sessions as sessions_service
-from app.services.anylist_client import AnyListError
+from app.services import usuals as usuals_service
+from app.services.anylist_client import AnyListError, PushItem
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,15 @@ class ChecklistItemNotFoundError(Exception):
         self.session_id = session_id
         self.item_id = item_id
         super().__init__(f"Checklist item {item_id} not found on session {session_id}")
+
+
+class SessionAlreadyPushedError(Exception):
+    """The session was already pushed to AnyList; re-push needs ?force=true.
+    409 SESSION_ALREADY_PUSHED."""
+
+    def __init__(self, session_id: int) -> None:
+        self.session_id = session_id
+        super().__init__(f"Session {session_id} has already been pushed to AnyList")
 
 
 # --- name matching --------------------------------------------------------------------
@@ -184,3 +197,99 @@ def resolve_item(
         session_id, item_id, total_quantity, total_unit,
     )
     return row
+
+
+# --- push (Chunk 5.6) ---------------------------------------------------------------
+
+
+def _display_quantity(item: SessionChecklistItem) -> str | None:
+    """The string to put in AnyList's quantity field (CLAUDE.md > AnyList Push Logic step 3):
+    the resolved pack breakdown, else the plain total, else nothing (to-taste / unitless)."""
+    if item.display_qty:
+        return item.display_qty
+    if item.total_quantity is not None:
+        n = item.total_quantity
+        n = str(int(n)) if n == int(n) else f"{n:g}"
+        return f"{n} {item.total_unit}".strip() if item.total_unit else n
+    return None
+
+
+def push_to_anylist(
+    db: Session,
+    session_id: int,
+    *,
+    usual_ids: list[int] | None = None,
+    force: bool = False,
+) -> dict:
+    """Push the checklist to AnyList: every line the user needs (``add_to_list`` or
+    ``have_it == 'no'``), plus any ticked due "usuals". Existing items are updated in place
+    (no duplicates); new items are added. One batched call, then re-fetch + diff to confirm
+    (CLAUDE.md > AnyList Push Logic and > AnyList spike findings). On completion the session
+    is marked ``pushed`` and a ``shopping_history`` row is written — even if the diff wasn't
+    fully confirmed (the discrepancies are recorded and returned; a not-marked-pushed session
+    would re-push the confirmed items as duplicates on retry)."""
+    session = sessions_service.get_session(db, session_id)
+    if session.status == "pushed" and not force:
+        raise SessionAlreadyPushedError(session_id)
+
+    to_push = [
+        ci for ci in session.checklist_items if ci.add_to_list or ci.have_it == "no"
+    ]
+    push_items = [
+        PushItem(
+            name=ci.ingredient_name.title(),
+            quantity=_display_quantity(ci),
+            existing_id=ci.anylist_item_id if ci.already_on_anylist else None,
+        )
+        for ci in to_push
+    ]
+
+    wanted_usual_ids = set(usual_ids or [])
+    due_usuals = [u for u in usuals_service.due_items(db) if u.id in wanted_usual_ids]
+    usual_names = {u.name.title() for u in due_usuals}
+    push_items += [PushItem(name=u.name.title(), quantity=None) for u in due_usuals]
+
+    result = anylist_client.add_or_increment_items(push_items)  # AnyListError -> 502
+    # Partition the connector's added/updated into ingredient lines vs usuals so the caller
+    # doesn't double-count a usual (it also appears in `usuals_added`).
+    added_ingredients = [n for n in result.added if n not in usual_names]
+    updated_ingredients = [n for n in result.updated if n not in usual_names]
+
+    session.status = "pushed"
+    session.pushed_at = utcnow()
+    if due_usuals:
+        usuals_service.mark_added(db, [u.id for u in due_usuals], when=session.pushed_at)
+
+    snapshot = {
+        "ingredients": [
+            {"name": p.name, "quantity": p.quantity, "existing": p.existing_id is not None}
+            for p in push_items
+        ],
+        "confirmed": result.confirmed,
+        "discrepancies": result.discrepancies,
+    }
+    history = ShoppingHistory(
+        session_id=session_id,
+        pushed_at=session.pushed_at,
+        items_json=json.dumps(snapshot),
+        anylist_response_json=json.dumps(
+            {"raw": result.raw_response, "discrepancies": result.discrepancies}
+        ),
+    )
+    db.add(history)
+    db.commit()
+    db.refresh(history)
+
+    logger.info(
+        "Checklist pushed: session_id=%s added=%d updated=%d usuals=%d confirmed=%s",
+        session_id, len(added_ingredients), len(updated_ingredients), len(due_usuals), result.confirmed,
+    )
+    return {
+        "session_id": session_id,
+        "added": added_ingredients,
+        "updated": updated_ingredients,
+        "usuals_added": [u.name for u in due_usuals],
+        "confirmed": result.confirmed,
+        "discrepancies": result.discrepancies,
+        "history_id": history.id,
+    }

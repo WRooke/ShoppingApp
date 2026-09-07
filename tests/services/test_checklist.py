@@ -165,3 +165,70 @@ def test_resolve_item_commits_a_total_and_clears_the_flag(db):
     assert row.needs_review is False
     assert row.total_quantity == 300 and row.total_unit == "ml"
     assert row.note is None
+
+
+# --- push (Chunk 5.6) ---------------------------------------------------------
+
+
+def test_push_adds_needed_items_marks_session_and_writes_history(db):
+    from app.models.history import ShoppingHistory
+
+    s = _session_with_items(
+        db, [{"name": "milk", "quantity": 1, "unit": "L"},       # on the fake list -> update
+             {"name": "passata", "quantity": 400, "unit": "g"},  # not -> add
+             {"name": "carrot", "quantity": 3, "unit": None}]    # user has it -> not pushed
+    )
+    checklist_service.load_checklist(db, s.id)  # sets already_on_anylist for milk
+    by_name = {c.ingredient_name: c for c in s.checklist_items}
+    checklist_service.update_item(db, s.id, by_name["milk"].id, have_it="no")     # need it
+    checklist_service.update_item(db, s.id, by_name["passata"].id, have_it="no")  # need it
+    checklist_service.update_item(db, s.id, by_name["carrot"].id, have_it="yes")  # have it
+
+    result = checklist_service.push_to_anylist(db, s.id)
+    assert set(result["added"] + result["updated"]) == {"Milk", "Passata"}
+    assert "Milk" in result["updated"]  # was already on the (fake) list -> updated in place
+    assert result["confirmed"] is True
+
+    db.refresh(s)
+    assert s.status == "pushed" and s.pushed_at is not None
+    hist = db.query(ShoppingHistory).filter_by(session_id=s.id).one()
+    assert hist.id == result["history_id"]
+    assert '"Passata"' in hist.items_json
+
+    now_on_list = {i.name for i in anylist_client.get_items()}
+    assert "Passata" in now_on_list
+
+
+def test_push_refuses_a_second_push_without_force(db):
+    s = _session_with_items(db, [{"name": "passata", "quantity": 400, "unit": "g"}])
+    checklist_service.update_item(db, s.id, s.checklist_items[0].id, have_it="no")
+    checklist_service.push_to_anylist(db, s.id)
+    with pytest.raises(checklist_service.SessionAlreadyPushedError):
+        checklist_service.push_to_anylist(db, s.id)
+    # force overrides
+    again = checklist_service.push_to_anylist(db, s.id, force=True)
+    assert again["session_id"] == s.id
+
+
+def test_push_includes_and_stamps_selected_usuals(db):
+    from app.schemas.usuals import UsualItemCreate
+    from app.services import usuals as usuals_service
+
+    soap = usuals_service.create_usual(db, UsualItemCreate(name="dish soap", cadence_days=14))
+    s = _session_with_items(db, [{"name": "passata", "quantity": 400, "unit": "g"}])
+    checklist_service.update_item(db, s.id, s.checklist_items[0].id, have_it="no")
+
+    result = checklist_service.push_to_anylist(db, s.id, usual_ids=[soap.id])
+    assert "dish soap" in result["usuals_added"]
+    assert "Dish Soap" in {i.name for i in anylist_client.get_items()}
+    db.refresh(soap)
+    assert soap.last_added_at is not None  # no longer due
+
+
+def test_display_quantity_prefers_pack_then_total_then_none(db):
+    from app.models.planning import SessionChecklistItem as CI
+
+    assert checklist_service._display_quantity(CI(display_qty="2 × 500g pack", total_quantity=1000, total_unit="g")) == "2 × 500g pack"
+    assert checklist_service._display_quantity(CI(total_quantity=400, total_unit="g")) == "400 g"
+    assert checklist_service._display_quantity(CI(total_quantity=3, total_unit=None)) == "3"
+    assert checklist_service._display_quantity(CI(total_quantity=None, total_unit=None)) is None

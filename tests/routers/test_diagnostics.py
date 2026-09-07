@@ -58,7 +58,31 @@ def test_status_reports_ok_envelope_and_component_shapes(client):
     assert "last_success" in ai
     assert ai["dashboard_url"].startswith("https://")
 
-    assert data["anylist"]["state"] in ("grey", "amber")
+    anylist = data["anylist"]
+    assert anylist["state"] in ("grey", "amber", "green", "red")
+    assert set(["enabled", "fake_mode", "target_list", "credentials_configured", "secret_source"]) <= set(anylist)
+    assert isinstance(anylist["enabled"], bool)
+
+
+def test_anylist_check_endpoint_fake_mode(client, monkeypatch):
+    from app.services import anylist_client
+
+    monkeypatch.setattr(anylist_client.settings, "anylist_fake_mode", True, raising=False)
+    anylist_client.reset_client()
+    resp = client.post("/api/v1/diagnostics/anylist-check")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["ok"] is True and "checked_at" in data
+    anylist_client.reset_client()
+
+
+def test_status_anylist_fake_mode_is_amber(client, monkeypatch):
+    from app.services import anylist_client
+
+    monkeypatch.setattr(anylist_client.settings, "anylist_fake_mode", True, raising=False)
+    resp = client.get("/api/v1/diagnostics/status")
+    assert resp.json()["data"]["anylist"]["state"] == "amber"
+    assert resp.json()["data"]["anylist"]["fake_mode"] is True
 
 
 def test_status_quota_indicator_counts_todays_calls_by_model(client):

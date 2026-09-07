@@ -83,6 +83,27 @@ def test_patch_item_rejects_bad_have_it_value(client, fake_anylist):
     assert resp.status_code == 422
 
 
+def test_push_marks_session_pushed_and_refuses_re_push(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-push-passata", "quantity": 400, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
+
+    pushed = client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []})
+    assert pushed.status_code == 200
+    body = pushed.json()["data"]
+    assert "Zz-Push-Passata" in body["added"] and body["confirmed"] is True
+
+    session = client.get(f"/api/v1/sessions/{sid}").json()["data"]
+    assert session["status"] == "pushed" and session["pushed_at"] is not None
+
+    again = client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []})
+    assert again.status_code == 409
+    assert again.json()["error"]["code"] == "SESSION_ALREADY_PUSHED"
+
+    forced = client.post(f"/api/v1/checklist/{sid}/push?force=true", json={"usual_ids": []})
+    assert forced.status_code == 200
+
+
 def test_resolve_needs_review_item(client, fake_anylist):
     sid = _session_with_checklist(
         client, [{"name": "zz-router-cream", "quantity": 100, "unit": "g"},

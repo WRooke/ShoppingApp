@@ -459,6 +459,18 @@ class _FakeAnyList:
 
 _lock = threading.Lock()
 _instance: _RealAnyList | _FakeAnyList | None = None
+_last_ok_at: datetime | None = None
+
+
+def _mark_ok() -> None:
+    global _last_ok_at
+    _last_ok_at = utcnow()
+
+
+def last_success_at() -> datetime | None:
+    """When a real (or fake) AnyList call last succeeded this process. Diagnostics reads this
+    rather than doing a live round-trip on every auto-poll."""
+    return _last_ok_at
 
 
 def _get_client() -> _RealAnyList | _FakeAnyList:
@@ -491,7 +503,9 @@ def reset_client() -> None:
 def get_items(list_name: str | None = None) -> list[AnyListItem]:
     """Current items on the target list (defaults to settings.anylist_target_list_name)."""
     name = list_name or settings.anylist_target_list_name
-    return _get_client().get_items(name)
+    result = _get_client().get_items(name)
+    _mark_ok()
+    return result
 
 
 def add_or_increment_items(
@@ -500,14 +514,19 @@ def add_or_increment_items(
     """Push a batch: add new items, set the quantity on ones already present (no duplicates),
     then re-fetch + diff to confirm. See CLAUDE.md > AnyList Push Logic."""
     name = list_name or settings.anylist_target_list_name
-    return _get_client().add_or_increment_items(name, items)
+    result = _get_client().add_or_increment_items(name, items)
+    _mark_ok()
+    return result
 
 
 def check_auth() -> AuthStatus:
     """For the diagnostics panel — does a real (or fake) auth round-trip and returns a
     timestamped status. Never raises."""
     try:
-        return _get_client().check_auth()
+        status = _get_client().check_auth()
+        if status.ok:
+            _mark_ok()
+        return status
     except AnyListDisabledError as exc:
         return AuthStatus(False, str(exc), utcnow())
     except AnyListError as exc:

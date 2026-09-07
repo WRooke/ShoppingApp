@@ -229,23 +229,33 @@
       );
       var pushBtn = el("button", "primary", "Push to AnyList");
       pushBtn.addEventListener("click", function () {
-        pushBtn.disabled = true;
-        api.checklist
-          .push(sessionId, false)
-          .then(function (res) {
-            global.alert(
-              "Pushed. Added " + (res.added || []).length + ", updated " + (res.updated || []).length +
-                (res.confirmed ? "" : " — NOT fully confirmed, check AnyList") + "."
-            );
-            load();
-          })
-          .catch(function (err) {
-            pushBtn.disabled = false;
-            global.alert("Push failed: " + err.message);
-          });
+        doPush(false, pushBtn);
       });
       wrap.appendChild(pushBtn);
       return wrap;
+    }
+
+    function doPush(force, pushBtn) {
+      pushBtn.disabled = true;
+      api.checklist
+        .push(sessionId, { force: force, usualIds: Object.keys(pushUsualIds).map(Number) })
+        .then(function (res) {
+          var msg =
+            "Pushed. Added " + (res.added || []).length + ", updated " + (res.updated || []).length +
+            (res.usuals_added && res.usuals_added.length ? ", + " + res.usuals_added.length + " usual(s)" : "") +
+            (res.confirmed ? "." : " — NOT fully confirmed: " + (res.discrepancies || []).join("; "));
+          global.alert(msg);
+          load();
+        })
+        .catch(function (err) {
+          pushBtn.disabled = false;
+          if (err.code === "SESSION_ALREADY_PUSHED") {
+            if (global.confirm("This session was already pushed. Push again anyway? It will re-add items."))
+              doPush(true, pushBtn);
+          } else {
+            global.alert("Push failed: " + err.message);
+          }
+        });
     }
   }
 

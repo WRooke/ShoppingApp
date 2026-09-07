@@ -41,7 +41,11 @@ from app.services.anylist_client import (
     AnyListDisabledError,
     AnyListError,
 )
-from app.services.checklist import ChecklistItemNotFoundError, ChecklistNotReadyError
+from app.services.checklist import (
+    ChecklistItemNotFoundError,
+    ChecklistNotReadyError,
+    SessionAlreadyPushedError,
+)
 from app.services.usuals import DuplicateUsualItemNameError, UsualItemNotFoundError
 from app.services.recipes import (
     IngredientNotFoundError,
@@ -486,6 +490,20 @@ async def checklist_item_not_found_handler(request: Request, exc: ChecklistItemN
         content=_error_body(
             "CHECKLIST_ITEM_NOT_FOUND",
             f"Checklist item {exc.item_id} not found on session {exc.session_id}.",
+            None,
+        ),
+    )
+
+
+@app.exception_handler(SessionAlreadyPushedError)
+async def session_already_pushed_handler(request: Request, exc: SessionAlreadyPushedError):
+    logger.info("Re-push refused (already pushed): session %s", exc.session_id)
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "SESSION_ALREADY_PUSHED",
+            "This session was already pushed to AnyList. Push again only if you're sure "
+            "(it will re-add items).",
             None,
         ),
     )

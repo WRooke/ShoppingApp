@@ -12,6 +12,7 @@ per-call cost).
 
 from __future__ import annotations
 
+import json as _json
 import logging
 
 from fastapi import APIRouter, Depends, Query
@@ -21,8 +22,10 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.log_config import get_log_entries
+from app.models.history import ShoppingHistory
 from app.models.queue import CaptureQueueItem
 from app.services import ai_call_log
+from app.services import anylist_client
 
 logger = logging.getLogger(__name__)
 
@@ -130,16 +133,52 @@ def status(db: Session = Depends(get_db)) -> dict:
     except Exception:  # noqa: BLE001
         logger.error("Diagnostics: ai_call_log query failed", exc_info=True)
 
-    # --- AnyList (stub until Phase 5) --------------------------------
+    # --- AnyList (Phase 5) -----------------------------------------
+    # No live round-trip here (it would re-login on every auto-poll). Reports config state +
+    # the last in-process success + the most recent push; POST /diagnostics/anylist-check
+    # does an explicit auth round-trip on demand.
     anylist = {
-        "state": "grey" if not settings.anylist_configured else "amber",
-        "message": (
-            "Not wired up yet - Phase 5"
-            if not settings.anylist_configured
-            else "Credentials configured, connector not built yet - Phase 5"
-        ),
+        "enabled": settings.anylist_enabled,
+        "fake_mode": settings.anylist_fake_mode,
+        "target_list": settings.anylist_target_list_name,
+        "credentials_configured": settings.anylist_configured,
+        "secret_source": settings.anylist_secret_source,
         "last_success": None,
+        "last_push": None,
+        "state": "grey",
+        "message": "",
     }
+    try:
+        anylist_last_ok = anylist_client.last_success_at()
+        anylist["last_success"] = str(anylist_last_ok) if anylist_last_ok else None
+        last_push_row = (
+            db.query(ShoppingHistory).order_by(ShoppingHistory.pushed_at.desc()).first()
+        )
+        if last_push_row is not None:
+            try:
+                resp = _json.loads(last_push_row.anylist_response_json or "{}")
+            except ValueError:
+                resp = {}
+            anylist["last_push"] = {
+                "session_id": last_push_row.session_id,
+                "pushed_at": str(last_push_row.pushed_at),
+                "confirmed": not resp.get("discrepancies"),
+            }
+        if not settings.anylist_enabled and not settings.anylist_fake_mode:
+            anylist["state"], anylist["message"] = "grey", "AnyList sync is switched off (ANYLIST_ENABLED=false)"
+        elif settings.anylist_fake_mode:
+            anylist["state"], anylist["message"] = "amber", "FAKE MODE — in-memory list, no real AnyList calls"
+        elif not settings.anylist_configured:
+            anylist["state"], anylist["message"] = "red", "Enabled but no credentials (see Security §2)"
+        elif anylist["last_push"] and not anylist["last_push"]["confirmed"]:
+            anylist["state"], anylist["message"] = "red", "Last push was not fully confirmed — check AnyList"
+        elif anylist_last_ok:
+            anylist["state"], anylist["message"] = "green", f"Last success {anylist_last_ok}"
+        else:
+            anylist["state"], anylist["message"] = "amber", "Enabled and configured; no call made yet"
+    except Exception:  # noqa: BLE001
+        logger.error("Diagnostics: anylist status build failed", exc_info=True)
+        anylist["state"], anylist["message"] = "red", "status query failed"
 
     return {
         "ok": True,
@@ -148,4 +187,15 @@ def status(db: Session = Depends(get_db)) -> dict:
             "ai_extraction": ai,
             "anylist": anylist,
         },
+    }
+
+
+@router.post("/anylist-check")
+def anylist_check() -> dict:
+    """On-demand AnyList auth round-trip (fake or real) — the /diagnostics page's
+    "Check AnyList now" button. Never raises; returns a timestamped status."""
+    status = anylist_client.check_auth()
+    return {
+        "ok": True,
+        "data": {"ok": status.ok, "detail": status.detail, "checked_at": str(status.checked_at)},
     }
