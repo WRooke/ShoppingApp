@@ -25,9 +25,16 @@ Two highest-priority standing rules (CLAUDE.md > Security §0a/§0c):
 §0b: every attempt is logged to ``ai_call_log`` (task / model / outcome / tokens).
 """
 
-# NOTE (file size): ~630 lines -- over the 300-400 guideline. Cohesive (the 3 Gemini
-# calls + their prompts/fixtures/schemas + orchestrator) but flagged to split into an
-# `ai_extraction/` package at the Phase 3.9 M-review. See CLAUDE.md > File size and scope.
+# NOTE (file size): ~715 lines -- over the 300-400 guideline. Cohesive (the 3 Gemini calls +
+# their prompts/fixtures/schemas + orchestrator), and ~1/3 of it is prompt-string and fixture
+# constants rather than logic. Splitting into an `ai_extraction/` package was scoped to the
+# Phase 3.9 M-review; DEFERRED there (2026-09-07) because this file had just been substantially
+# rewritten by the capture-fixes work and a third structural refactor in the same pass, right
+# on the Phase 5 boundary, was judged the riskier option. `services/recipes.py` and
+# `services/sessions.py` were split at the M-review as planned (-> `recipe_duplicates.py`,
+# `session_consolidation.py`). This split stays a tracked open item -- see CLAUDE.md >
+# Deferred Decisions and the M-review line. Do it as pure moves + an `__init__` re-export
+# (prompts / schemas / types / fixtures / client / calls) when picked up.
 
 from __future__ import annotations
 
