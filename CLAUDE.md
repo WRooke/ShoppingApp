@@ -490,6 +490,16 @@ sort_order      INTEGER NOT NULL DEFAULT 0
 -- to the original. Consolidation reads resolved_ingredient (fallback `name`) as plain data.
 resolved_ingredient TEXT           -- nullable
 substitution_note   TEXT           -- nullable, freetext — why the swap works
+-- Substitution quantity/unit transform (Phase 3.9 M8 — see AI Provider Migration >
+-- Ingredient Substitution Flagging, and Scaling Logic > Consolidation across recipes). The
+-- ABSOLUTE amount this recipe's swap actually buys, e.g. "2 whole corn cobs" -> resolved
+-- "canned corn" at 2 / "can". Only meaningful alongside resolved_ingredient; both NULL =
+-- name-only swap, keep this row's own quantity/unit. When set, consolidation scales
+-- (resolved_quantity, resolved_unit) instead of (quantity, unit). Clearing
+-- resolved_ingredient clears these too. No cross-unit conversion is attempted — the number
+-- the user entered IS the equivalence.
+resolved_quantity   REAL           -- nullable
+resolved_unit       TEXT           -- nullable
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
@@ -548,6 +558,16 @@ substitute_name TEXT NOT NULL       -- normalised lowercase (a single freetext s
                                      -- like "milk + lemon juice" is stored verbatim — see
                                      -- Deferred Decisions)
 note            TEXT               -- nullable, freetext — pre-fills recipe_ingredients.substitution_note
+-- Quantity/unit equivalence (Phase 3.9 M8 — see AI Provider Migration > Ingredient
+-- Substitution Flagging). "original_qty original_unit ≈ substitute_qty substitute_unit",
+-- e.g. 2 "cob" ≈ 2 "can". A ratio the quick-pick uses to PRE-FILL recipe_ingredients'
+-- resolved_quantity/resolved_unit for whatever amount that recipe calls for; the user
+-- still confirms. All four NULL = a name-only quick-pick (unchanged from M4). Never
+-- auto-applied. original_qty must be > 0 when set.
+original_qty     REAL              -- nullable
+original_unit    TEXT              -- nullable
+substitute_qty   REAL              -- nullable
+substitute_unit  TEXT              -- nullable
 last_used_at    DATETIME           -- nullable, for quick-pick ordering (most-recent first)
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -556,7 +576,8 @@ UNIQUE(original_name, substitute_name)
 Multiple substitutes per `original_name` are allowed; **none is a "default"** — they are all
 just quick-picks, ordered by `last_used_at`. Never pre-seeded. Deleting a row never touches
 any recipe's `resolved_ingredient` or any past session (reversibility is recipe-level).
-Managed in Settings (`settings-substitutions.js`, reframed at M4).
+Managed in Settings (`settings-substitutions.js`, reframed at M4). The equivalence pair is
+shown/edited per row from M8 (e.g. "2 cob ≈ 2 can").
 
 ### `planning_sessions`
 ```
@@ -778,7 +799,22 @@ it is handed already-resolved names as plain data. A **session-only** planning s
 Chunk 4.7 ad-hoc swap) is applied one layer up, in the `consolidate_session()` orchestrator,
 which computes each ingredient's effective name (resolved_ingredient → session override)
 before feeding `consolidate()`. The per-ingredient sum → normalise → round → flag pipeline
-is the "Rounding & unit rules" list above. A consolidated line always carries the **required quantity** (the rounded sum);
+is the "Rounding & unit rules" list above.
+
+**Substitution quantity/unit transform (Phase 3.9 M8).** A substitution may also change the
+*amount and unit*, not just the name — "2 whole corn cobs" → "2 cans of corn", "500 g fresh
+spinach" → "250 g frozen". This resolves in the same `consolidate_session()` /
+`_scaled_lines()` layer, never in the pure `consolidate()`. Per ingredient: if
+`resolved_ingredient` is set **and** `resolved_quantity` is not NULL, `scaling.py` is fed
+`(resolved_quantity, resolved_unit)` in place of `(quantity, unit)` — so the swap's amount
+scales with servings like any other. A session-only override may carry the equivalence-pair
+ratio instead (it spans every recipe using that name); it's applied to the *scaled* quantity,
+and only when the override's `original_unit` matches the line's unit (else that line falls
+back to name-only). The transform is skipped when the effective source unit is a
+`NO_SCALE_UNITS` ("to taste") value. `consolidate()` still just receives a finished line
+(`6 can canned corn`) and groups it — a free-text unit like `can` buckets as a discrete
+count and ceils to whole, exactly as today. No cross-unit conversion table exists; the
+number the user entered is the equivalence. A consolidated line always carries the **required quantity** (the rounded sum);
 purchase-unit resolution below may *add* a pack breakdown next to it but never replaces it —
 so a no-pack-size ingredient still shows an amount (`passata — 1.05 kg`), and a pack-size
 ingredient shows both (`passata — 2 × 750 g jars · need ~1.05 kg`).
@@ -991,8 +1027,10 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
 - **Proposed** by a dedicated Gemini call at capture time (per recipe), *and* editable later
   in the recipe editor, *and* swappable session-only during planning.
 - **Stored** on the ingredient record: `recipe_ingredients.resolved_ingredient` (nullable —
-  the swap this recipe uses) + `substitution_note`. `name` stays the original. Clearing
-  `resolved_ingredient` reverts.
+  the swap this recipe uses) + `substitution_note`, and (Phase 3.9 M8) optional
+  `resolved_quantity` / `resolved_unit` when the swap also changes the amount/unit ("2 corn
+  cobs" → "2 cans"). `name` stays the original. Clearing `resolved_ingredient` clears all of
+  it and reverts.
 - **Confirmed per recipe, always.** No silent auto-apply, no `is_default`.
 - **Remembered** in [`remembered_substitutions`](#remembered_substitutions) *only* as a
   quick-pick accelerator — it pre-fills / top-ranks the suggestion in the per-recipe confirm
@@ -1002,7 +1040,13 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
   substitution logic in the pure `consolidate()`. A session-only planning swap resolves in
   the `consolidate_session()` orchestrator.
 - **1:many** ("buttermilk" → "milk + lemon juice") is a single freetext string for now — see
-  [Deferred Decisions](#deferred-decisions).
+  [Deferred Decisions](#deferred-decisions). Distinct from the M8 quantity/unit transform,
+  which is one substitute at a different amount.
+- **Quantity/unit transform (M8)** — recipe-level absolute (`resolved_quantity` /
+  `resolved_unit`, scaled with servings); library-level equivalence pair that pre-fills it;
+  session override carries the pair too. Resolved in `consolidate_session()`, never in pure
+  `consolidate()`. No conversion table — the entered ratio is the equivalence. Full spec in
+  [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec).
 
 ### History (superseded designs, kept for the record)
 
@@ -2033,12 +2077,56 @@ is folded into this phase's M-review.
       still covered only by unit tests (`test_ai_extraction.py` fallback-chain tests) — the
       live call did not hit quota. Free-tier-data-usage deferred decision still open — carry
       to the M-review.
+- [ ] **M8 — Substitution quantity/unit transform.** Added 2026-09-07 from a planning
+      session — a substitution can change the *amount and unit*, not just the name
+      ("2 whole corn cobs" → "2 cans of corn", "500 g fresh spinach" → "250 g frozen"). No
+      real API involvement — build/verify entirely offline; runs before the M-review so the
+      review signs off the finished shape. Full design folded into
+      [Data Model](#recipe_ingredients) (`recipe_ingredients`, `remembered_substitutions`),
+      [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec),
+      [Ingredient Substitution](#ingredient-substitution), and
+      [Scaling Logic > Consolidation across recipes](#consolidation-across-recipes). Decided
+      at planning: **(a)** recipe-level stores the *absolute* (`resolved_quantity` /
+      `resolved_unit`), library stores an *equivalence pair* (`original_qty`/`original_unit`/
+      `substitute_qty`/`substitute_unit`) that pre-fills it; **(b)** the AI `flag_substitutions`
+      call is *not* extended — user types the ratio; **(c)** its own chunk, before M-review.
+      - **Migration** — `recipe_ingredients` += `resolved_quantity REAL NULL` /
+        `resolved_unit TEXT NULL`; `remembered_substitutions` += the four pair columns
+        (all `NULL`). SQLite batch; `tests/test_migrations.py` parity held.
+      - **Models / schemas** — new fields on `RecipeIngredient*`, `RememberedSubstitution*`,
+        `CaptureIngredientConfirm`, `SessionOverride`. Validators: both-or-neither on each
+        pair; recipe-level qty/unit only valid with `resolved_ingredient` set;
+        `original_qty` / `original_unit` require a positive qty.
+      - **`services/sessions.py`** (`_scaled_lines`) — when `resolved_ingredient` set **and**
+        `resolved_quantity` not NULL, feed `(resolved_quantity, resolved_unit)` to
+        `scaling.py` instead of `(quantity, unit)`. Session-override pair applied to the
+        *scaled* quantity, only where `original_unit` matches the line's unit (else
+        name-only for that line). Transform skipped when the effective source unit is a
+        `NO_SCALE_UNITS` value. `override_map` becomes name → small object, not name → name.
+      - **`services/consolidation.py`** — no logic change (it receives finished lines);
+        comment only.
+      - **`services/substitutions.py`** — carry + validate the pair; guard divide-by-zero.
+      - **`services/recipes.py`** — passthrough on both create paths + ingredient add/update;
+        clearing `resolved_ingredient` nulls `resolved_quantity`/`resolved_unit`.
+      - **`services/ai_extraction.py`** — untouched (decision (b)).
+      - **Frontend** — `ingredient-swap.js` gets amount + unit inputs and a live preview
+        ("4 cob → ~4 can"); quick-pick fills the ratio and computes the pre-fill.
+        `capture-review.js` / `recipe-edit.js` / `settings-substitutions.js` (show/edit
+        "2 cob ≈ 2 can" per row) / `session-review.js` / `api.js` thread it through.
+      - **Known limitation (documented, not solved):** a line resolved to a new free-text
+        unit ("6 can") gets no `product_units` pack breakdown unless a matching-unit pack row
+        is seeded — no cross-unit pack matching.
+      - **Tests** — `test_substitutions.py`, `test_sessions.py` (orchestrator: cob→can
+        transform, scaled up/down, "to taste" skip, session-override ratio, unit mismatch
+        fallback), `test_recipes.py` (clear-on-revert), router smoke tests, migration parity.
+      - **Verify:** headless + curl end-to-end, offline (fake mode). No live call.
 - [ ] **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together,
       per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
 
 **Deliverable:** recipe capture works end-to-end on Gemini with the Flash→Flash-Lite→queue
 chain; substitution is capture-time per-recipe flagging with a quick-pick memory, no silent
-auto-apply, nothing in consolidation; diagnostics shows Gemini quota + attempt log.
+auto-apply, nothing in consolidation, and can change an ingredient's amount + unit as well
+as its name (M8); diagnostics shows Gemini quota + attempt log.
 
 ### Phase 4 — Planning Engine
 
@@ -2770,7 +2858,9 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Local LLM (Ollama) fallback for AI extraction | Future phase, not scheduled | Placeholder direction if the Gemini dependency ever must go entirely (cost/privacy/availability). Ollama native on the NUC (Windows, no Docker); candidates `llama3.2-vision` / `qwen2-VL` / `moondream2`. Trade-offs to check against real NUC hardware then: weaker messy-handwriting OCR, latency depends on GPU vs CPU-only. **No Ollama deps or code paths now.** See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini). |
 | Gemini free-tier data usage | Unresolved — revisit before the AI-extraction feature is signed off | On Gemini's free tier, recipe photos/text may be used by Google to improve their products; enabling Cloud Billing (even at $0 under free quota) stops this. Decision: is adding a Google Cloud payment method viable (unlike Anthropic), and worth it purely for the privacy improvement? See [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini). |
 | Combine the 3 per-task Gemini calls into 1 | Revisit only if daily quota pressure is real | The [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini--phase-39) deliberately keeps extraction / substitution-flagging / section-suggestion as **separate** Gemini calls (independent prompts, schemas, failure handling — diagnostics-first). Uses more quota; do **not** pre-optimise. |
-| 1-to-many ingredient substitutions as structured data | Not scheduled | Merge decision #5 (2026-09-06): `remembered_substitutions.substitute_name` and `recipe_ingredients.resolved_ingredient` are a single freetext string; `buttermilk → "milk + lemon juice"` is stored verbatim and the user splits it by hand if they want. Making a resolved ingredient a real *list* ripples into scaling / consolidation / pack-resolution counting — revisit only if the freetext approach proves annoying in practice. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
+| 1-to-many ingredient substitutions as structured data | Not scheduled | Merge decision #5 (2026-09-06): `remembered_substitutions.substitute_name` and `recipe_ingredients.resolved_ingredient` are a single freetext string; `buttermilk → "milk + lemon juice"` is stored verbatim and the user splits it by hand if they want. Making a resolved ingredient a real *list* ripples into scaling / consolidation / pack-resolution counting — revisit only if the freetext approach proves annoying in practice. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). **Distinct from the Phase 3.9 M8 quantity/unit transform** (one substitute at a different amount, e.g. corn cobs → cans), which *is* being built. |
+| AI-suggested quantity/unit for a flagged substitution | Revisit if hand-entry proves tedious | Phase 3.9 M8 adds a quantity/unit transform to substitutions but deliberately does **not** extend the `flag_substitutions` Gemini call to suggest the numbers — that would be fresh [§0a](#0a-prompt-injection-hardening-highest-priority) number/unit-validation surface for values the user must sanity-check anyway. Add best-effort `suggested_*_qty` / `suggested_*_unit` to the flag schema (allow-list validated) only if typing the equivalence every time turns out to be a real annoyance. Same standing as any other not-yet-needed feature — no reserved phase. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
+| Cross-unit pack resolution after a substitution unit change | Not scheduled | Phase 3.9 M8: a line resolved to a new free-text unit ("6 can" from "corn cobs") gets no `product_units` pack breakdown unless a matching-unit pack row is seeded — the resolver drops rows whose unit doesn't match the line's dimension. Acceptable for now (line still shows "6 can"). Revisit only if it's a real friction point; a fix would mean teaching `_pack_options_for` a per-ingredient unit-bridge, which is close to the conversion table M8 explicitly avoids. |
 
 ### Decision Dialogues
 
@@ -3070,10 +3160,53 @@ chunk.
 
 ---
 
+#### Substitution quantity/unit transform (Phase 3.9 M8 — record of intent)
+
+**Resolved 2026-09-07 in a planning session. Folded into
+[AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec),
+[Data Model](#recipe_ingredients), [Ingredient Substitution](#ingredient-substitution) and
+[Scaling Logic](#consolidation-across-recipes); this is the record of what was asked.**
+
+**Q:** A substitution today swaps only the ingredient *name* — `resolved_ingredient` overrides
+`name`, but `quantity`/`unit` carry through. That's wrong for swaps like "2 whole corn cobs" →
+"2 cans of corn" or "500 g fresh spinach" → "250 g frozen". Substitutions need an optional
+quantity + unit transform. How should it be stored, should the AI suggest the numbers, and
+when does it get built?
+
+**Decisions:**
+1. **Storage shape** — recipe-level stores the *absolute* (`recipe_ingredients.resolved_quantity`
+   / `resolved_unit`); the library (`remembered_substitutions`) stores an *equivalence pair*
+   (`original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`) that the quick-pick uses
+   to pre-fill the recipe-level absolute for whatever amount that recipe calls for. Mirrors the
+   existing `resolved_ingredient` (absolute) vs `substitute_name` (library) split. Rejected:
+   equivalence-pair everywhere (assumes linearity, more machinery, and the pair isn't reliably
+   linear anyway — "2 cob ≈ 2 can" doesn't guarantee "3 cob ≈ 3 can"); single-ratio everywhere
+   (least readable, awkward for non-1:1).
+2. **The AI does not suggest the numbers** — `flag_substitutions` stays name + note only.
+   Extending its structured output is fresh [§0a](#0a-prompt-injection-hardening-highest-priority)
+   number/unit-validation work for guesses the user must check anyway. Parked as a
+   [Deferred Decision](#deferred-decisions), revisit if hand-entry is tedious.
+3. **Its own chunk, M8, before the M-review** — it's substitution work (M4's domain), and
+   building it first means the combined Phase 3.9 / Phase 4 review signs off the finished
+   shape rather than noting a gap.
+4. **Only valid alongside a name change.** "Buy this in a different unit without changing the
+   item" is a `product_units` concern. Clearing `resolved_ingredient` clears the qty/unit.
+   Schema enforces both-or-neither on each pair.
+5. **Resolved in `consolidate_session()` / `_scaled_lines()`, never in pure `consolidate()`** —
+   the pure function keeps receiving finished lines. Transform skipped for `NO_SCALE_UNITS`
+   ("to taste"); session-override ratio applied only where `original_unit` matches the line's
+   unit. No cross-unit conversion table — the entered number is the equivalence.
+6. **Known limitation accepted** — no pack breakdown when a line is resolved to a new
+   free-text unit ("6 can") without a matching-unit `product_units` row. Documented, not
+   solved; [Deferred Decision](#deferred-decisions).
+
+---
+
 ## AI Provider Migration — Anthropic Claude → Google Gemini (Phase 3.9)
 
-**Status: IN PROGRESS — added 2026-09-06, chunked as Phase 3.9 (chunks M0–M7 below), all
-decisions resolved 2026-09-06.** This is the authoritative spec for the AI extraction
+**Status: IN PROGRESS — added 2026-09-06, chunked as Phase 3.9 (chunks M0–M8 below; M0–M7
+done, M8 added 2026-09-07), decisions resolved 2026-09-06 (M8's 2026-09-07).** This is the
+authoritative spec for the AI extraction
 provider and for ingredient substitution going forward. It **supersedes** the earlier
 "Claude API" / "Anthropic API" / "Claude Haiku" references in the AI-extraction context and
 the Phase 4 [Ingredient Substitution](#ingredient-substitution) design. As each chunk lands,
@@ -3098,12 +3231,13 @@ and the addendum's capture-time flagging idea are **merged** (decisions confirme
 | Axis | Merged behaviour |
 |---|---|
 | **Who proposes a swap** | Both: a dedicated Gemini call flags candidates per recipe at capture; the user can also swap later in the recipe editor, or session-only during planning. |
-| **Source of truth** | The **ingredient record**. `recipe_ingredients` gains `resolved_ingredient` (nullable — the swap this recipe actually uses) and `substitution_note` (freetext why). `name` stays the *original* (merge decision #2 — reuse `name`, no separate `original_ingredient` column). |
+| **Source of truth** | The **ingredient record**. `recipe_ingredients` gains `resolved_ingredient` (nullable — the swap this recipe actually uses) and `substitution_note` (freetext why). `name` stays the *original* (merge decision #2 — reuse `name`, no separate `original_ingredient` column). **M8:** also `resolved_quantity` / `resolved_unit` — the swap's *absolute* amount when it differs ("2 cob" → "2 can"). Only meaningful with `resolved_ingredient` set; both NULL = name-only. |
+| **Quantity/unit transform (M8)** | A swap can change the amount and unit, not just the name. Recipe-level: absolute `resolved_quantity`/`resolved_unit`, scaled by servings at consolidation. Library-level: an equivalence pair (`original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`) the quick-pick uses to pre-fill the recipe-level absolute — user still confirms. Session override: the same pair, applied to the scaled quantity. Resolved in `consolidate_session()` / `_scaled_lines()`, never in pure `consolidate()`. No cross-unit conversion table — the entered number is the equivalence. See [Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
 | **Auto-apply** | **Never silent.** `is_default` and `get_default_substitution_map()` are removed. Every swap is confirmed per recipe. |
 | **Memory** | A remembered swap is a **suggestion accelerator, not an action** (merge decision #1). `ingredient_substitutions` → `remembered_substitutions` (drop `is_default`; add `note`, `last_used_at`). When an ingredient is confirmed and a remembered swap exists for its name, that swap is **pre-selected / top-ranked** in the confirm UI under a visible "from your saved swaps" label — the user still clicks confirm. The AI *flagging* call is never told about past choices; only the UI pre-fill uses memory. |
 | **Reversibility** | Recipe-level: clear `resolved_ingredient` in the editor → back to `name`. The original is never lost. Deleting a `remembered_substitutions` entry never cascades to recipes or past sessions. |
 | **Consolidation** | `consolidation.consolidate()` becomes **pure again** — it reads `resolved_ingredient` (fallback `name`) as plain data, no substitution logic. Session-only planning swaps resolve in the `consolidate_session()` orchestrator *before* the pure function runs (merge decision #3 — the plumbing built in Chunk 4.7 stays, the resolution point moves). "Also remember" from a planning swap may add a `remembered_substitutions` row (merge decision #4). |
-| **1-to-many** | Out of scope for now (merge decision #5). `substitute_name` stays a single freetext string; `buttermilk → "milk + lemon juice"` is one string the user splits by hand if they want. 1:many is a [Deferred Decision](#deferred-decisions). |
+| **1-to-many** | Out of scope for now (merge decision #5). `substitute_name` stays a single freetext string; `buttermilk → "milk + lemon juice"` is one string the user splits by hand if they want. 1:many is a [Deferred Decision](#deferred-decisions). Note this is a *different* axis from the M8 quantity/unit transform — M8 is one substitute with a different amount, not several substitute ingredients. |
 
 **Kept from Phase 4:** the library table (as `remembered_substitutions`), multiple
 substitutes per ingredient, Settings management (reframed as a quick-pick library),
@@ -3174,6 +3308,31 @@ disagrees with the rules below, the code is wrong** (this feature has drifted be
   [`remembered_substitutions`](#remembered_substitutions) row (name → name + note). Unticked
   = one-off, this recipe only.
 
+**Quantity/unit transform (M8):**
+- The confirm control also takes an optional **amount + unit** for the substitute — for when
+  the swap isn't 1:1 in the recipe's own unit ("2 whole corn cobs" → "2 cans of corn",
+  "500 g fresh spinach" → "250 g frozen spinach"). Confirm with these set →
+  `recipe_ingredients.resolved_quantity` / `resolved_unit` (the absolute amount for *this*
+  recipe). Left blank → name-only swap, the recipe's own `quantity` / `unit` carry through
+  as before.
+- **Only valid alongside a name change.** "Buy this in a different unit without changing the
+  item" is a [`product_units`](#product_units) concern, not a substitution. Both fields are
+  cleared whenever `resolved_ingredient` is cleared. Schema enforces both-or-neither.
+- **The AI does not suggest the numbers** (decided M8) — `flag_substitutions` stays
+  name + note only; extending its structured output would be fresh
+  [§0a](#0a-prompt-injection-hardening-highest-priority) number/unit-validation surface for
+  values the user has to sanity-check anyway. Revisit if hand-entry proves tedious —
+  [Deferred Decisions](#deferred-decisions).
+- **Library rows** ([`remembered_substitutions`](#remembered_substitutions)) store it as an
+  *equivalence pair* (`original_qty original_unit ≈ substitute_qty substitute_unit`), not an
+  absolute — an absolute makes no sense across recipes. On quick-pick, the UI multiplies by
+  the current recipe line's quantity to pre-fill `resolved_quantity` (when `original_unit`
+  matches that line's unit; otherwise it pre-fills the name only and leaves the amount for
+  the user). "Save this swap" records the pair as "this recipe's amount ≈ what you entered".
+- **Consolidation** reads only the finished `resolved_quantity`/`resolved_unit` (scaled by
+  servings in `_scaled_lines()`); the pure `consolidate()` is unchanged. See
+  [Scaling Logic > Consolidation across recipes](#consolidation-across-recipes).
+
 **Memory — accelerator, never an action:**
 - If `remembered_substitutions` has entries for a flagged ingredient's `name`, they are
   **pre-selected / top-ranked** in the confirm UI beneath a visible "from your saved swaps"
@@ -3187,6 +3346,12 @@ disagrees with the rules below, the code is wrong** (this feature has drifted be
   `resolved_ingredient` (fallback `name`) as plain data. (A session-only planning swap
   resolves one layer up, in the `consolidate_session()` orchestrator — that's retained.)
 - ❌ No 1-to-many split as structured data yet (`substitute_name` is one freetext string).
+- ❌ No cross-unit conversion table (M8). The quantity/unit transform is a straight multiply
+  by the user-supplied ratio and a unit-label swap — the app never tries to compute
+  "cob → can" or "g → can" itself. It also does not do pack resolution across a unit change:
+  a line resolved to "6 can" with a `product_units` row seeded in grams gets no pack
+  breakdown (shows "6 can"). Known limitation — seed a `can`-unit `product_units` row if
+  pack resolution is wanted there.
 
 **Call behaviour:** its own Gemini call; same Flash → Flash-Lite → queue chain; if it
 fails/queues, extraction still completes and the recipe is usable — flags are enrichment,
@@ -3200,7 +3365,10 @@ substitution / section) is still outstanding.
   added / changed / cleared later. Clearing `resolved_ingredient` reverts to `name`.
 - **Planning session review** (`session-review.js`) — the existing ad-hoc swap, now a
   **session-only override** (client-held, passed in `ConsolidateRequest.overrides`, resolved
-  in `consolidate_session()` before `consolidate()`). Optional "also save this swap" →
+  in `consolidate_session()` before `consolidate()`). From M8 an override may also carry the
+  equivalence pair (`SessionOverride` gains `original_qty`/`original_unit`/`substitute_qty`/
+  `substitute_unit`), applied to the scaled quantity for every line using that name — only
+  where `original_unit` matches the line's unit. Optional "also save this swap" →
   `remembered_substitutions` row; never edits recipe data.
 - **Settings** (`settings-substitutions.js`) — reframed: view / edit note / delete
   `remembered_substitutions` entries. A pure quick-pick library. No default toggle. Deleting
@@ -3274,7 +3442,8 @@ CPU-only. **Do not add Ollama dependencies or code paths now.**
 
 ### Resolved decisions (2026-09-06)
 
-1. **Sequence & scoping** — its own chunked mini-phase, **Phase 3.9**, chunks M0–M7 (below).
+1. **Sequence & scoping** — its own chunked mini-phase, **Phase 3.9**, chunks M0–M8 (below;
+   M8 added 2026-09-07 for the substitution quantity/unit transform).
    The **Phase 4 review** is deferred until Phase 3.9's own review (M-review), which
    re-checks Phase 4 + 3.9 together — running it earlier would sign off substitution code
    that M4 removes. Phase 3.9 builds on top of the completed Phase 4 chunks 4.1–4.4/4.6.
@@ -3298,7 +3467,7 @@ CPU-only. **Do not add Ollama dependencies or code paths now.**
 7. **Phase numbering** — this is **Phase 3.9** in this document. The addendum's "Phase 1"
    references are wrong for this repo; capture is Phase 3.
 
-### Phase 3.9 chunks (M0–M7)
+### Phase 3.9 chunks (M0–M8)
 
 - **M0 — Decisions + CLAUDE.md fold-in** (this edit). Resolve the above, rewrite the
   superseded sections in place, drop the `⚠️` banners. No code.
@@ -3336,6 +3505,13 @@ CPU-only. **Do not add Ollama dependencies or code paths now.**
   aliases. See the M7 chunk entry above and
   [Provider & model selection](#provider--model-selection). Free-tier-data-usage decision
   still open → M-review.
+- **M8 — Substitution quantity/unit transform.** Added 2026-09-07. A swap can change the
+  amount + unit, not just the name ("2 corn cobs" → "2 cans"). Recipe-level absolute
+  (`recipe_ingredients.resolved_quantity` / `resolved_unit`), library-level equivalence pair
+  that pre-fills it, session-override pair. Resolved in `consolidate_session()`; pure
+  `consolidate()` unchanged; AI flag call not extended. Offline build, before the M-review.
+  Full detail in the Phase 3.9 chunk list above and
+  [Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec).
 - **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together.
 
 ---
