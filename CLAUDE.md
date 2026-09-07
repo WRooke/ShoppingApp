@@ -645,6 +645,26 @@ items_json      TEXT NOT NULL       -- JSON snapshot of what was pushed
 anylist_response_json TEXT          -- nullable, raw AnyList response for diagnostics
 ```
 
+### `usual_items`
+
+**Phase 5 Chunk 5.4** — "the usuals": recurring non-recipe household items (laundry powder,
+dish soap) bought on a schedule independent of meal planning. Distinct from
+[`staples`](#staples) (which are recipe ingredients assumed on-hand, surfaced only when a
+recipe in the session needs them). Managed in Settings; surfaced on the checklist as its own
+group only when *due*. Seeded empty. See
+[Checklist Screen Logic > "The usuals"](#the-usuals--household-recurring-items-new-flag-for-phase-5-design).
+```
+id              INTEGER PRIMARY KEY
+name            TEXT NOT NULL UNIQUE   -- normalised lowercase
+notes           TEXT                   -- nullable
+cadence_days    INTEGER NOT NULL       -- "buy roughly every N days"; days, not sessions —
+                                        -- an ad-hoc single-recipe session is an unreliable clock
+last_added_at   DATETIME               -- nullable; set when this item is pushed to AnyList.
+                                        -- due when NULL or last_added_at + cadence_days < now
+created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+```
+
 ### `ai_call_log`
 
 **Phase 3.9 M5** — replaces `api_usage` + `api_usage_resets` (both dropped in the same
@@ -1308,21 +1328,30 @@ At checklist screen load:
    applicable)
 5. Items marked 'no' or where `add_to_list` is True get pushed to AnyList
 
-### "The usuals" — household recurring items (new, flag for Phase 5 design)
-Raised 2026-09-05: alongside the recipe-driven checklist above, offer an optional pass over
-recurring non-recipe household items — laundry powder, dishwashing liquid, and similar things
-bought periodically regardless of what's being cooked that week. This is a distinct concept
-from [`staples`](#staples) — staples are recipe ingredients assumed to already be on hand and
-are only surfaced when a recipe in the session actually needs them; "the usuals" are non-recipe
-items with no ingredient/recipe link at all, offered on their own schedule rather than triggered
-by anything in the session. Not designed yet — open questions to resolve at Phase 5 kickoff:
-- New table (e.g. `usual_items`, name/notes, shaped like `staples`) vs. some other structure —
-  needs its own decision, not just reuse of `staples`.
-- Whether it's offered every session or on some longer cadence (a weekly household run vs. every
-  ad-hoc single-recipe session).
-- Whether it plugs into the existing checklist UI as another item group, or is a separate optional
-  step in the flow (e.g. before or after the ingredient checklist).
-See [Deferred Decisions](#deferred-decisions).
+### "The usuals" — household recurring items
+
+Raised 2026-09-05, **designed at the Phase 5 kickoff (2026-09-07)**: alongside the
+recipe-driven checklist above, a pass over recurring non-recipe household items — laundry
+powder, dishwashing liquid, and similar things bought periodically regardless of what's being
+cooked. Distinct from [`staples`](#staples) — staples are recipe ingredients assumed on-hand,
+surfaced only when a recipe in the session needs them; "the usuals" have no recipe link at
+all and are offered on their own schedule.
+
+**Resolved design** (Decision Dialogue → option 2, day-based cadence, checklist group):
+- **Own table** — [`usual_items`](#usual_items) (`name` / `notes` / `cadence_days` /
+  `last_added_at`), not a flag on `staples`.
+- **Day-based cadence.** Each item carries `cadence_days` ("buy roughly every N days"). It is
+  *due* when `last_added_at IS NULL` or `last_added_at + cadence_days` has passed. Days rather
+  than "every N sessions" because ad-hoc single-recipe sessions make a session an unreliable
+  clock. `last_added_at` is stamped when the item is actually pushed to AnyList (Chunk 5.6),
+  not merely offered.
+- **Checklist group, not a separate screen.** Due usuals render as the final group on the
+  existing checklist screen, each with a checkbox; ticked ones ride the same push as the
+  recipe items. Non-due items don't appear.
+- **Managed in Settings** (`settings-usuals.js`), same CRUD shape as staples/product-units.
+  Seeded empty — no pre-guessing, same call as the [Staples Starter List](#staples-starter-list).
+
+Built in [Phase 5 Chunks 5.4 / 5.5 / 5.6](#phase-5--checklist--anylist-integration).
 
 ---
 
@@ -2548,22 +2577,114 @@ full — the chunks below build them, they are not re-opened here.
 they don't want to buy, and see a consolidated shopping list with purchase units resolved.
 
 ### Phase 5 — Checklist & AnyList Integration
-*(Not yet chunked — break this into checkbox chunks at kickoff, following
-[Phase workflow & progress tracking](#phase-workflow--progress-tracking).)*
-- AnyList connector: investigate and implement (Python native or Node microservice — see
-  Tech Stack section; flag choice for discussion)
-- AnyList auth (email/password from .env) — see [Security](#security) §2 for credential storage
-- Fetch current AnyList items at checklist load
-- Checklist UI: per-item have/don't have taps, AnyList pre-ticking, staples integration
-- "The usuals" household recurring-items checklist — design at kickoff (see
-  [Checklist Screen Logic](#checklist-screen-logic) and [Deferred Decisions](#deferred-decisions))
-- Ingredient unit conflict review UI (for items that cannot be auto-consolidated)
-- Push to AnyList: increment existing or add new
-- Save session to shopping_history
-- Diagnostics: AnyList connection status populated
+
+**Chunked 2026-09-07 at kickoff**, per
+[Phase workflow & progress tracking](#phase-workflow--progress-tracking). Three deferred
+decisions were resolved at kickoff and are folded in below:
+
+- **AnyList native vs Node** — already settled by the Phase 1.5 spike: **Python-native**, no
+  Node microservice. `spike/anylist_spike.py` (~500 lines: a hand-rolled protobuf codec +
+  `login` / `get_lists` / `add_item` / `remove_item` / `post_operations` / `set_item_quantity`)
+  and `spike/FINDINGS.md` are the reference the Chunk 5.2 connector is adapted from. See
+  [Tech Stack > AnyList integration](#anylist-integration--phase-5-decision).
+- **Credential storage → hybrid `keyring` → `.env` fallback** (Decision Dialogue resolved).
+  `config.py` tries Windows Credential Manager (`keyring`) first, falls back to the
+  `ANYLIST_EMAIL` / `ANYLIST_PASSWORD` `.env` vars with a logged WARNING. `keyring` is a new
+  pinned dependency. See [Security §2](#security).
+- **"The usuals" → separate `usual_items` table + cadence** (Decision Dialogue resolved).
+  A non-recipe recurring-items list, each item carrying a "buy every N" interval, surfaced on
+  the checklist only when due. New table + service + Settings management + a checklist group.
+  See [Checklist Screen Logic](#the-usuals--household-recurring-items-new-flag-for-phase-5-design).
+
+**AnyList safety (kickoff, mirrors [Security §0c](#0c-api-enable-switch--offline-development-highest-priority)
+for the AI):** `ANYLIST_ENABLED` (`.env`, default `false`) gates every real call;
+`ANYLIST_FAKE_MODE` (default `false`) swaps in an in-memory fake list so the whole checklist
++ push flow builds and clicks through offline with no account, no network. Automated tests
+never hit the real API (mocked). Manual verification runs **only** against
+`ANYLIST_TARGET_LIST_NAME` (dev default `TestList`, already set aside for this). **The real
+household shopping list is never read or written without a fresh, explicit, per-occasion
+go-ahead from the maintainer** — a standing "yes" does not carry, same rule as §0c. No agent
+session flips `ANYLIST_ENABLED`.
+
+- [ ] **Chunk 5.1 — Config: credential resolution + AnyList gates.** `keyring` pinned in
+      `requirements.txt`. `config.py`: `anylist_email` / `anylist_password` resolved
+      keyring-first (`keyring.get_password("shoppingapp", "anylist_email"|"anylist_password")`)
+      then `.env` with a one-time WARNING when the fallback is used; `anylist_enabled` /
+      `anylist_fake_mode` bools (narrow-true parse, same as the AI switches);
+      `anylist_target_list_name`. `.env.example` + `settings.summary` + `SETUP.md` /
+      `DEPLOY.md` (the NUC needs `keyring set` **or** `.env`). No connector yet. Unit tests
+      for the resolver (keyring mocked).
+- [ ] **Chunk 5.2 — AnyList connector (`services/anylist_client.py`).** Adapt the spike behind
+      a small stable interface (CLAUDE.md > External integrations): `get_items(list_name) ->
+      list[AnyListItem]`, `add_or_increment_items(list_name, items)` (one batched
+      `post_operations`), plus `check_auth()` for diagnostics. Protobuf codec + types lifted
+      from the spike; **quantity read checks field 21 then field 18** (spike gotcha #1); **the
+      `operations` multipart part carries no filename** (gotcha #2); **push is verified by
+      re-fetch + diff, never trusted from the HTTP status** (gotcha #3); 401 → one token
+      refresh + retry (spike didn't cover this — Phase 5 does). `ANYLIST_ENABLED` gate →
+      `AnyListDisabledError`; `ANYLIST_FAKE_MODE` → deterministic in-memory `_FakeAnyList`.
+      `AnyListError` / `AnyListAuthError` → envelope in `main.py`. No `fastapi` import. Unit
+      tests: fake mode + a mocked `httpx` transport, no network.
+- [ ] **Chunk 5.3 — Checklist load: service + API.** `schemas/checklist.py`;
+      `services/checklist.py` `load_checklist(db, session_id)` — reads
+      `session_checklist_items` (must already be consolidated), fetches AnyList items,
+      fuzzy-matches names (normalised lowercase, singular/plural tolerant) to set
+      `already_on_anylist` / `anylist_item_id`, pre-ticks matched items (`have_it='yes'`),
+      re-confirms `is_staple`. Upsert semantics like `consolidate_session` — never clobbers a
+      `have_it` the user already set. `routers/checklist.py`: `GET /checklist/{session_id}`,
+      `PATCH /checklist/{session_id}/items/{item_id}` (`have_it` / `add_to_list`),
+      `POST /checklist/{session_id}/items/{item_id}/resolve` (Chunk 4.6 `needs_review` lines —
+      pick the mass or volume total, or enter a manual quantity/unit; clears `needs_review`).
+      Service unit tests (AnyList mocked) + router smoke tests.
+- [ ] **Chunk 5.4 — "The usuals": `usual_items` table + service + Settings.** Alembic
+      migration: `usual_items` (`id`, `name` UNIQUE normalised, `notes`, `cadence_days`
+      INTEGER NOT NULL — "buy roughly every N days"; `last_added_at` DATETIME nullable;
+      audit columns). Cadence is **days**, not sessions (a session isn't a reliable clock —
+      ad-hoc single-recipe sessions happen). `services/usuals.py`: CRUD + `due_items(db, *,
+      as_of=None)` (`last_added_at IS NULL OR last_added_at + cadence_days < now`) +
+      `mark_added(db, ids)`. Seeded empty (no pre-guessing — same call as staples).
+      `schemas/usuals.py`, endpoints under `/api/v1/settings/usuals`, `main.py` translations,
+      `static/js/settings-usuals.js` card (split per file-size rule). Service + router tests.
+- [ ] **Chunk 5.5 — Checklist UI + usuals + unit-conflict resolve.** `static/js/checklist.js`
+      on `#/checklist/<session_id>` (nav gets a step from the session review screen).
+      Per-item tap cycles **binary** `unknown → yes → no` (no `partial` — see
+      [Deferred Decisions](#deferred-decisions)); items already on AnyList pre-ticked in a
+      distinct style, untickable; staples shown as their own group with checkboxes; **"the
+      usuals" due items** as a final group the user ticks into the list;
+      `needs_review` lines get an inline resolve control (mass / volume / manual). Items
+      marked `no` or with `add_to_list` true are what Chunk 5.6 pushes. `api.js` surface.
+      Split by sub-feature if it passes ~350 lines. Headless-Edge/CDP verification
+      (`HEADLESS_VERIFY.md`), fake mode.
+- [ ] **Chunk 5.6 — Push to AnyList + `shopping_history` + diagnostics.**
+      `services/checklist.py` `push_to_anylist(db, session_id)`: collect `add_to_list` lines,
+      `add_or_increment_items()` in one batch (increment when `already_on_anylist` +
+      `anylist_item_id`, else add; item name Capitalised, quantity = `display_qty`), re-fetch
+      + diff to confirm, then set `planning_sessions.status='pushed'` + `pushed_at`, mark any
+      pushed usuals `last_added_at`, write one `shopping_history` row (`items_json` snapshot +
+      `anylist_response_json`). `POST /checklist/{session_id}/push` — refuses a re-push of an
+      already-`pushed` session unless `?force=true`. Diagnostics `anylist` block: last
+      successful `check_auth()` timestamp, target list name, enabled/fake state, last push
+      summary. Service tests (fake + mocked) + router smoke + a diagnostics test.
+- [ ] **Chunk 5.7 — Live AnyList verification (TestList, explicit go-ahead required).** The
+      one point that needs a real AnyList call. With real creds (keyring or `.env`),
+      `ANYLIST_ENABLED=true`, `ANYLIST_TARGET_LIST_NAME=TestList`, and the maintainer's
+      explicit in-conversation go-ahead **for that specific run** (a standing "yes" does not
+      carry): one real end-to-end — load a checklist against TestList, push a small list,
+      confirm via re-fetch + diff, then remove the test items again. **The real household
+      list is never touched.** This box is ticked when the Phase 5 test plan's live AnyList
+      section (run by the maintainer) passes. Does not block the Phase 5 review, which records
+      it as a carried-forward open item if still outstanding.
+- [ ] **Phase 5 review** — re-check against [Checklist Screen Logic](#checklist-screen-logic),
+      [AnyList Push Logic](#anylist-push-logic), [Data Model](#data-model)
+      (`session_checklist_items`, `shopping_history`, `usual_items`), [Security](#security)
+      §1/§2, [Code Architecture](#code-architecture--maintainability),
+      [API Conventions](#api-conventions), and [Diagnostics & Logging](#diagnostics--logging),
+      per [Phase workflow & progress tracking](#phase-workflow--progress-tracking). Also pick
+      up the deferred **ingredient synonym alias table** if it's being brought forward here
+      (M-review open item), and re-confirm the "The usuals" cadence model against real use.
 
 **Deliverable:** Full end-to-end flow works. User can complete a planning session and
-push the result to AnyList.
+push the result to AnyList (`TestList` in dev).
 
 ### Phase 6 — Polish
 *(Not yet chunked — break this into checkbox chunks at kickoff, following
@@ -2689,7 +2810,9 @@ ShoppingApp/
 │   │   ├── capture_photo.py
 │   │   ├── ai_extraction.py     ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1). Package split still pending — see Deferred Decisions
 │   │   ├── capture_queue.py     ← 429 retry queue + hourly poller (Phase 3.9 M3)
-│   │   └── anylist_client.py
+│   │   ├── checklist.py         ← checklist load + AnyList push orchestrator (Phase 5)
+│   │   ├── usuals.py            ← "the usuals" recurring-items CRUD + due calc (Phase 5)
+│   │   └── anylist_client.py    ← Python-native AnyList connector, small stable interface (Phase 5, from spike/)
 │   ├── seed_data.py           ← staples + product_units + section vocabulary starter data
 │   └── log_config.py          ← logging setup, in-memory ring buffer
 ├── alembic/                    ← DB migrations (bootstrapped Phase 3 Chunk 3.7 — see CLAUDE.md > Migrations)
@@ -2901,14 +3024,21 @@ that's live by accident because it was never obviously off.
   means someone can read and write the shared household list.
 - **Never commit credentials to source control.** `.env` is in `.gitignore` as of Phase 1 —
   done, ahead of Phase 5 introducing the real credential.
-- Preferred storage: Windows Credential Manager via the `keyring` Python package, rather than a
-  plaintext `.env` file. `.env` is acceptable as a fallback if `keyring` proves awkward with the
-  deployment scripts, but it should sit outside any directory that gets backed up/synced
-  unencrypted. **This choice is not yet made — decide at the start of Phase 5** (also
-  tracked in [Deferred Decisions](#deferred-decisions)).
-- If the Node.js microservice fallback (Tech Stack > AnyList) is used, it must bind to
-  `127.0.0.1` only — never `0.0.0.0`. It should only ever be called by the Python backend on
-  the same machine, never be reachable from the LAN.
+- **Storage — resolved 2026-09-07 at Phase 5 kickoff: hybrid, keyring-first.** `app/config.py`
+  reads Windows Credential Manager via the `keyring` package (service name `shoppingapp`, keys
+  `anylist_email` / `anylist_password`); if a value isn't there it falls back to the
+  `ANYLIST_EMAIL` / `ANYLIST_PASSWORD` `.env` vars and logs a one-time WARNING that a plaintext
+  fallback is in use. `keyring` is a pinned dependency. The NUC can use either — `keyring set`
+  once, or plain `.env` — documented in `SETUP.md` / `DEPLOY.md`. Built in
+  [Phase 5 Chunk 5.1](#phase-5--checklist--anylist-integration).
+- **`ANYLIST_ENABLED` gate + `ANYLIST_FAKE_MODE`** (Phase 5 kickoff, mirrors §0c for the AI):
+  every real AnyList call is refused unless `ANYLIST_ENABLED=true` (default `false`, no agent
+  flips it); `ANYLIST_FAKE_MODE=true` swaps an in-memory fake list in so the flow builds and
+  runs offline. Manual verification runs only against `ANYLIST_TARGET_LIST_NAME` (dev default
+  `TestList`); **the real household list is never touched without a fresh per-occasion
+  go-ahead.**
+- The Node.js microservice fallback was **not** taken (Phase 1.5 spike → Python-native). If it
+  ever were, it must bind to `127.0.0.1` only — never `0.0.0.0`.
 
 ### 3. Windows 10 host
 - Win10's end-of-support concerns are mainly about internet-facing exposure. Since this stays
@@ -2987,13 +3117,13 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Item | Deferred to | Notes |
 |---|---|---|
 | Australian pack size rounding for weight/volume | ~~Phase 4 discussion~~ **Resolved 2026-09-06 — option 2 (calculate exactly, show overage)** | e.g. "needs 340g → buy 400g can, 60g over". Scaling keeps the true quantity; whole-pack rounding + overage live only in purchase-unit resolution. No pack-size reference data set needed. See [Scaling Logic](#scaling-logic) and the Decision Dialogue; builds in Phase 4 Chunks 4.3 / 4.6. |
-| Partial quantities UX | Phase 5 | Implement binary have/don't have for now. Revisit if needed. |
+| Partial quantities UX | ~~Phase 5~~ **Resolved 2026-09-07 at Phase 5 kickoff — binary** | The checklist tap cycle is `unknown → yes → no` only; the `have_it` column keeps `'partial'` as an allowed value but nothing sets it. Revisit if a real need turns up. See [Phase 5 Chunk 5.5](#phase-5--checklist--anylist-integration). |
 | Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | Revisit after real use | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." See [Scaling Logic](#scaling-logic). |
 | Default target servings as a Settings field | Not scheduled | 2026-09-06: `DEFAULT_TARGET_SERVINGS = 4` is a constant (form pre-fill, always overridable per recipe). If the household size changes often enough to matter, promote it to an editable Settings value. Needs a general app-settings store (Settings today is only staples + product_units CRUD). See [Scaling Logic](#scaling-logic). |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
 | Ingredient synonym normalisation (automatic) | Phase 6 or later — **candidate for a Phase 5/6 bring-forward, 2026-09-07** | e.g. "green onion" vs "spring onion". A conservative version now rides in the extraction prompt itself (`EXTRACTION_SYSTEM_PROMPT` — salt group, "minced beef"→"beef mince", "green onion"/"scallion"→"spring onion", explicitly NOT merging different product forms like fresh vs ground/dried — Capture-Fixes-Staged.md issue 3, folded into CLAUDE.md > Recipe Capture > extraction prompt 2026-09-07). That only covers AI-captured recipes and is a hint, not enforcement — a manually-typed "cooking salt" still won't match the `salt` staple or another recipe's "kosher salt" for consolidation/staple-matching purposes. The real fix is still this row's original scope: a small **Settings-managed alias table** (user-editable, seeded with the salt group, same dried/fresh caution baked in) applied post-extraction in `create_recipe_from_capture` and in `consolidate_session()`'s effective-name step — recommended as a Phase 5/6 bring-forward rather than staying open-ended "later", but not built yet. |
 | Multi-user login / separate accounts | Post-MVP | Shared access, no auth. |
-| AnyList credential storage: `keyring` vs `.env` | Phase 5 kickoff | Preferred: Windows Credential Manager via `keyring`. `.env` acceptable fallback if awkward with deployment scripts. See [Security](#security) §2. |
+| AnyList credential storage: `keyring` vs `.env` | ~~Phase 5 kickoff~~ **Resolved 2026-09-07 — hybrid** | `config.py` reads Windows Credential Manager (`keyring`) first, falls back to `ANYLIST_EMAIL` / `ANYLIST_PASSWORD` in `.env` with a logged WARNING. `keyring` is a pinned dependency. Built in [Phase 5 Chunk 5.1](#phase-5--checklist--anylist-integration). See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |
 | "Suggest something" — recency/variety suggestion logic + UI | Phase TBD (confirmed still deferred at Phase 4 kickoff, 2026-09-06 — not brought into Phase 4) | Schema prep (`cuisine`/`protein` on recipes) is done (Phase 1). Signal is recency + variety, surfaced via an on-demand button, not a proactive nudge. Logic and UI not designed yet — revisit once sessions + "mark cooked" exist to feed it real data. |
 | "Mark cooked" — `times_made` / `last_made_at` increment | ~~Phase 2 onward / phase TBD~~ **Resolved 2026-09-06 at Phase 4 kickoff — Phase 6** | Flag carried from Chunk 2.1/2.4: the columns exist since Phase 1 but nothing writes them. A real "cooked" event is post-push (Phase 5+), so the small "mark cooked" action lands in the Phase 6 polish pass, not Phase 4. Feeds "Suggest something" (row above) when that is picked up. |
@@ -3008,7 +3138,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Home tab content | Needs a decision, no later than Phase 6 polish | Still the Phase 1 stub ("Phase 1 foundation is running..."). What it should actually show (recent sessions? quick actions? current shopping list status?) was never designed anywhere in this document — it's a nav placeholder, not a deliberately-deferred landing page. Flagged 2026-09-05 via user testing. |
 | Settings list re-render loses scroll position on Save/Delete | Bug — fix opportunistically, no later than Phase 6 | `static/js/settings.js`'s `load()` rebuilds the whole staples/product-units row list (`innerHTML = ""` + re-append) after every Save/Delete, which resets scroll to the top of the page — noticeable and frustrating once a list has more than a few rows. Fix should update/remove the affected row in place rather than a full-list re-render, or otherwise preserve scroll position across the rebuild. Flagged 2026-09-05 via user testing (Chunk 2.5), not yet fixed. |
 | Git branching strategy: `production` / `develop` branches | ~~Phase 2 review~~ **Resolved 2026-09-05 — option 2 (`develop` + `production`)** | `deploy.bat`/`scripts/deploy.py` (dev PC, ships from `develop`, fast-forwards `production`) and `update.bat`/`scripts/update.py` (NUC, pulls `production` only) updated and verified against a sandbox origin+dev+NUC repo trio, including the diverged-`production`-from-a-backup-commit failure/recovery path. `backup.py` needed no logic change (already branch-agnostic via `HEAD`). Local `main` renamed to `develop`, `production` branched off it — **pushing both to origin and updating GitHub's default branch is still a manual step for the maintainer** (Claude Code creates commits but never pushes, see [Commits](#commits)); see `DEPLOY.md > One-time setup` for the exact commands. Full workflow in `DEPLOY.md`. |
-| "The usuals" — recurring non-recipe household items checklist | Phase 5 kickoff | e.g. laundry powder, dishwashing liquid — bought periodically regardless of what's being cooked. Distinct from `staples` (recipe ingredients assumed on hand, surfaced only when a recipe needs them this session). Needs its own storage decision, a cadence decision (every session vs. periodic), and a decision on whether it's part of the existing checklist UI or a separate step. See [Checklist Screen Logic](#checklist-screen-logic). |
+| "The usuals" — recurring non-recipe household items checklist | ~~Phase 5 kickoff~~ **Resolved 2026-09-07 — separate table + day-based cadence** | New `usual_items` table (`name`, `notes`, `cadence_days`, `last_added_at`), independent of `staples`. `due_items()` surfaces an item when `last_added_at IS NULL` or `last_added_at + cadence_days` has passed. Shown as its own group at the end of the checklist (not a separate screen), managed in Settings. Cadence is in **days**, not sessions (ad-hoc single-recipe sessions make a session an unreliable clock). Built in [Phase 5 Chunks 5.4 / 5.5 / 5.6](#phase-5--checklist--anylist-integration). |
 | AI pre-fill of cookbook name / page from a photo | Revisit if hand-entry proves tedious | Phase 3 Chunk 3.7 collects `source_book` / `source_page` via manual review-screen inputs and deliberately does not extend the extraction prompt to OCR them (unreliable; every new prompt field costs fresh [§0a](#0a-prompt-injection-hardening-highest-priority) output-validation work). If typing them every capture turns out to be annoying, add best-effort `suggested_book` / `suggested_page` to the prompt with allow-list-style validation. Same standing as any other not-yet-needed feature — no reserved phase. See [Recipe Capture](#recipe-capture--ai-extraction). |
 | MyFitnessPal recipe export | Post-MVP / unscheduled | Secondary user wants recipes in MFP for macro tracking. Design done: app generates a clean recipe for MFP's built-in Recipe Importer; no push API, no macros held in the app. See [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export). Do not build speculatively; re-verify the MFP-API status when picked up. |
 | Nutrition read-back into the app (per-recipe macros) | Post-MVP / unscheduled | Recipe→MFP export (row above) is the in-scope design. Reading macros *back* has no API path — only MFP scraping — so it's parked with the fragility/ToS trade-off to weigh, and needs a derisking spike if adopted. Independent in-app estimation (USDA FoodData Central / Claude / manual `ingredient_nutrition` table) set aside 2026-09-06: the ask is specifically MFP, and a non-matching estimate is a second source of truth; unit conversion (tsp/tbsp/cup/"each" → grams) is the hard part. See [Nutrition & MyFitnessPal Export](#nutrition--myfitnesspal-export). |
@@ -3094,6 +3224,12 @@ worry that a bare `passata` line with no quantity would lead to buying the wrong
 
 #### AnyList credential storage: `keyring` vs `.env` (Phase 5 kickoff)
 
+**Resolved 2026-09-07 — option 3 (hybrid).** `config.py` reads `keyring` (Windows Credential
+Manager, service name `shoppingapp`) first, falls back to the `.env` vars with a logged
+WARNING when it does. `keyring` pinned in `requirements.txt`. NUC setup takes either
+`keyring set` or plain `.env` — documented in `SETUP.md` / `DEPLOY.md`. Built in
+[Phase 5 Chunk 5.1](#phase-5--checklist--anylist-integration). Kept below for the record.
+
 **Q:** Where should we store the AnyList email and password?
 
 **A options:**
@@ -3127,6 +3263,15 @@ below for the record of what was asked and why.
 ---
 
 #### "The usuals" — recurring household items (Phase 5 kickoff)
+
+**Resolved 2026-09-07 — option 2, day-based cadence, checklist group (not a separate
+screen).** New `usual_items` table (`name` / `notes` / `cadence_days` / `last_added_at` +
+audit cols), independent of `staples`. An item is "due" when `last_added_at IS NULL` or
+`last_added_at + cadence_days` has passed; due items appear as the final group on the
+checklist, managed in Settings. **Cadence is days, not sessions** — ad-hoc single-recipe
+sessions make "every N sessions" an unreliable clock. Built in
+[Phase 5 Chunks 5.4 / 5.5 / 5.6](#phase-5--checklist--anylist-integration). Kept below for
+the record.
 
 **Q:** How should we handle recurring non-recipe household items (laundry powder, dishwashing liquid, etc.) that are bought on a schedule independent of meal planning?
 
@@ -3707,16 +3852,20 @@ Confirmed during planning, not revisited unless raised again:
 ```
 PORT=8080
 ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
-ANTHROPIC_API_KEY=sk-ant-...           # M1 → GEMINI_API_KEY
-CLAUDE_API_ENABLED=false               # M1 → AI_EXTRACTION_ENABLED
-CLAUDE_API_FAKE_MODE=false             # M1 → AI_EXTRACTION_FAKE_MODE
-ANYLIST_EMAIL=...
-ANYLIST_PASSWORD=...
+GEMINI_API_KEY=...                     # was ANTHROPIC_API_KEY pre-M1
+AI_EXTRACTION_ENABLED=false            # was CLAUDE_API_ENABLED pre-M1
+AI_EXTRACTION_FAKE_MODE=false          # was CLAUDE_API_FAKE_MODE pre-M1
+ANYLIST_EMAIL=...                      # Phase 5 — keyring is tried first (see Security §2)
+ANYLIST_PASSWORD=...                   # Phase 5 — .env is the fallback, with a logged warning
+ANYLIST_ENABLED=false                  # Phase 5 — gate on real AnyList calls (Security §2)
+ANYLIST_FAKE_MODE=false                # Phase 5 — in-memory fake list, dev only
+ANYLIST_TARGET_LIST_NAME=TestList      # Phase 5 — never the real household list in dev
 LOG_LEVEL=INFO
 DATABASE_PATH=data/mealplanner.db
 IMAGES_PATH=images
 LOGS_PATH=logs
 ```
+`.env.example` in the repo is the source of truth for the exact current set.
 
 `CLAUDE_API_ENABLED`, `CLAUDE_API_FAKE_MODE` — see
 [Security §0c](#0c-api-enable-switch--offline-development-highest-priority), a
