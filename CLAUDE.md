@@ -340,12 +340,18 @@ data. The same applies to anything else with an external dependency added later.
   (see [`session_recipes`](#session_recipes)) should land as its own small piece of logic in
   `services/`, not as a growing pile of `if slot_type == ...` checks inside whatever else is
   already in `sessions.py`.
-- **Known oversized files to split at the Phase 3.9 M-review** (flagged 2026-09-06):
-  `services/ai_extraction.py` (~630 lines — the 3 Gemini calls + their prompts + fixtures +
-  schemas + orchestrator; split into an `ai_extraction/` package), `services/recipes.py`
-  (~525 — pull the Chunk 4.2 duplicate-detection block into `services/recipe_duplicates.py`),
-  and `services/sessions.py` (~410 — the `consolidate_session` orchestrator could move to its
-  own module). Each carries a `# NOTE:` marker at the top.
+- **Oversized files flagged 2026-09-06 to split at the Phase 3.9 M-review** — status after the
+  M-review (2026-09-07):
+  - ✅ `services/recipes.py` (571 → 366) — Chunk 4.2 duplicate-detection block moved to
+    `services/recipe_duplicates.py`; `recipes.py` re-exports the public names so call sites
+    are unchanged.
+  - ✅ `services/sessions.py` (448 → 244) — the `consolidate_session` orchestrator moved to
+    `services/session_consolidation.py`; `sessions.py` re-exports it.
+  - ⏸ `services/ai_extraction.py` (~715) — **split deferred** at the M-review (had just been
+    substantially rewritten by the capture-fixes work; a third structural refactor in the same
+    pass on the Phase 5 boundary was the riskier call). Still tracked — see
+    [Deferred Decisions](#deferred-decisions). Its `# NOTE:` carries the plan (prompts /
+    schemas / types / fixtures / client / calls + an `__init__` re-export).
 
 ### Documentation & comments — thorough and judicious (set 2026-09-06)
 Every file, function and non-obvious block must be documented well enough that a session
@@ -2202,8 +2208,73 @@ is folded into this phase's M-review.
         transform, scaled up/down, "to taste" skip, session-override ratio, unit mismatch
         fallback), `test_recipes.py` (clear-on-revert), router smoke tests, migration parity.
       - **Verify:** headless + curl end-to-end, offline (fake mode). No live call.
-- [ ] **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together,
+- [x] **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together,
       per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
+      **Done 2026-09-07.** Full suite **293 pass**; `alembic heads` == `alembic current` on the
+      dev DB (`c199ab55bf1e`); `/diagnostics/recent-errors` clean on a fresh dev-server start;
+      M8 headless + curl verified offline (fake mode, no live call). Manual Phase 4
+      click-through recorded separately — all 6 sections PASS (`Phase-4-Test-Plan.md`,
+      commit `9166468`).
+      **Checked and confirmed implemented:**
+      - **Data Model** — `planning_sessions` / `session_recipes` (`recipe_id` nullable +
+        `slot_type`) / `session_checklist_items` (incl. 4.6 `needs_review` / `note`) match the
+        spec field-for-field; `remembered_substitutions` has no `is_default`, carries `note` /
+        `last_used_at` + the M8 pair columns, `UNIQUE(original_name, substitute_name)`;
+        `product_units` is `UNIQUE(ingredient_name, purchase_label)`; audit columns on every
+        mutable table. `tests/test_migrations.py` green (`upgrade head` == `create_all()`).
+      - **Scaling Logic** — `scaling.py` only multiplies (`NO_SCALE_UNITS` pass through);
+        `consolidation.py` does AU normalisation (`tbsp`=20 ml), sums, ceil-25/ceil-5 upward,
+        cup-only → 2-dp un-rounded, mass+volume → `needs_review` with both parts, kg/L display
+        ≥ 1000; `purchase_units.py` is the 0 / 1 / several-pack algorithm (minimise overage
+        then pack count), overage shown only > ½ the largest chosen pack; re-consolidation is
+        an upsert preserving `have_it` / `add_to_list`. *Note:* the spec's "pure `tbsp`/`tsp`
+        → ceil 0.5" bullet is vestigial — the code always normalises `tbsp`/`tsp` to ml first,
+        so that branch never triggers; left as-is (self-consistent, the hedge case can't
+        arise).
+      - **Ingredient Substitution (M4 + M8)** — `consolidate()` is pure (no substitution
+        resolution); per-recipe `resolved_ingredient` and session-only overrides resolve in
+        `session_consolidation._scaled_lines`; `remembered_substitutions` is a quick-pick
+        library only; the capture-time `flag_substitutions()` Gemini call exists; M8 adds
+        `resolved_quantity` / `resolved_unit` (recipe-level absolute, scales with servings)
+        and the four-column equivalence pair (library + `SessionOverride`), resolved never in
+        `consolidate()`.
+      - **Duplicate Recipe Prevention** — `find_possible_duplicates` (4 signals, archived
+        included, strongest-first), `PossibleDuplicateRecipeError` → 409
+        `POSSIBLE_DUPLICATE_RECIPE`, `allow_duplicate` bypass, `GET /recipes/check-duplicate`,
+        `POST /recipes/{id}/restore`, URL-capture short-circuit before the AI call. Now in
+        `services/recipe_duplicates.py`.
+      - **Code Architecture** — zero `fastapi` imports in `app/services/`; routers use the
+        `{"ok": ...}` envelope and go through services; `schemas/` kept separate from
+        `models/`; `router.js` is the only hash-parser; `tests/` mirrors `app/`, AI + AnyList
+        mocked. Two of the three flagged oversized files split at this review
+        (`recipe_duplicates.py`, `session_consolidation.py`); `ai_extraction.py`'s package
+        split deferred with rationale — see [Deferred Decisions](#deferred-decisions).
+      - **API Conventions** — every Phase 4 / 3.9 endpoint uses the envelope;
+        `SESSION_NOT_FOUND` / `SESSION_SLOT_NOT_FOUND` / `SLOT_ORDER_MISMATCH` /
+        `POSSIBLE_DUPLICATE_RECIPE` / `SUBSTITUTION_*` / `AI_EXTRACTION_*` are all
+        SCREAMING_SNAKE_CASE, translated centrally in `app/main.py`; `?limit`/`?offset` on the
+        session + recipe list endpoints.
+      - **Recipe Capture / AI Provider Migration** — 3 separate Gemini calls, Flash →
+        Flash-Lite → `capture_queue` on 429, hourly lifespan poller, "Pending AI processing"
+        badge (M6), §0a hardening (delimiter / `MAX_INPUT_TEXT_CHARS` / `suggested_section`
+        allow-list) and §0c gates (`AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`, off by
+        default) carried over verbatim; M7 live call passed 2026-09-07 (recipe id 6, kept).
+      - **Diagnostics** — the `ai_extraction` block reports `today_by_model` / `recent_calls`
+        / `queue` / `last_success` / `dashboard_url` / `api_enabled` / `fake_mode`; the USD
+        spend tracker + reset button + `api_usage` / `api_usage_resets` are gone (M5).
+      - **Environment Variables** — `config.py` + `.env.example` on `GEMINI_API_KEY` /
+        `AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`; supporting docs/scripts caught up
+        this session (commit `4e6e3c2`); DEPLOY.md notes the NUC `.env` still needs the rename.
+      **Carried forward as open items** (logged, not silently dropped):
+      1. `services/ai_extraction.py` → `ai_extraction/` package split — deferred, see
+         [Deferred Decisions](#deferred-decisions).
+      2. Gemini free-tier data-usage decision — still open (add a Cloud Billing payment method
+         to stop free-tier training use?); see [Deferred Decisions](#deferred-decisions).
+      3. The 5 capture-flow fixes staged in `Capture-Fixes-Staged.md` were implemented
+         (commit `9d30414`) but **not re-verified against a live Gemini call** — do that under
+         a fresh §0c go-ahead when convenient (piggyback on any future live check).
+      4. Ingredient synonym normalisation (salt group etc.) is prompt-wording only today; the
+         robust Settings-managed alias table is flagged as a Phase 5/6 bring-forward.
 
 **Deliverable:** recipe capture works end-to-end on Gemini with the Flash→Flash-Lite→queue
 chain; substitution is capture-time per-recipe flagging with a quick-pick memory, no silent
@@ -2457,22 +2528,21 @@ full — the chunks below build them, they are not re-opened here.
       half dozen · need ~15`, `olive oil 80 ml (staple)` via the 20 ml tbsp) → swap
       `bulgarian feta` → `regular feta` re-consolidates and the line changes; zero console
       errors.
-- [ ] **Phase 4 review** — re-check against [Data Model](#data-model) (`planning_sessions`,
-      `session_recipes`, `session_checklist_items`, `ingredient_substitutions`,
+- [x] **Phase 4 review** — re-check against [Data Model](#data-model) (`planning_sessions`,
+      `session_recipes`, `session_checklist_items`, `remembered_substitutions`,
       `product_units`), [Scaling Logic](#scaling-logic),
       [Ingredient Substitution](#ingredient-substitution),
       [Duplicate Recipe Prevention](#duplicate-recipe-prevention),
       [Code Architecture](#code-architecture--maintainability), and
       [API Conventions](#api-conventions), per
       [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
-      **⚠️ Blocked / rescoped 2026-09-06 by the
-      [AI Provider Migration](#ai-provider-migration--anthropic-claude--google-gemini)
-      addendum:** Chunks 4.5 / 4.6 / 4.7 built the now-superseded global
-      `ingredient_substitutions` design, which that addendum tears out. Chunks 4.1–4.4 and the
-      duplicate-recipe-prevention (4.2), scaling (4.3), session-CRUD (4.4), consolidation +
-      purchase-units (4.6 minus the substitution step) work stand. The review should run
-      *after* the migration is planned/sequenced, so it isn't signing off code that's about to
-      be removed. See the addendum's Migration Notes decision list.
+      **Done 2026-09-07, folded into the Phase 3.9 M-review** as planned — it was deliberately
+      deferred so it wouldn't sign off the pre-M4 global `ingredient_substitutions` design
+      that M4 removed. The combined re-check (Data Model, Scaling Logic, Ingredient
+      Substitution, Duplicate Recipe Prevention, Code Architecture, API Conventions +
+      Phase 3.9's own sections), its findings, and the carried-forward open items are recorded
+      on the **M-review** line at the end of the Phase 3.9 chunk list above. Manual
+      click-through: all 6 sections PASS (`Phase-4-Test-Plan.md`).
 
 **Deliverable:** User can create a session, add recipes, scale them, substitute an ingredient
 they don't want to buy, and see a consolidated shopping list with purchase units resolved.
@@ -2608,11 +2678,16 @@ ShoppingApp/
 │   │   └── diagnostics.py
 │   ├── services/               ← business logic (no HTTP concerns)
 │   │   ├── scaling.py
-│   │   ├── consolidation.py
+│   │   ├── consolidation.py     ← pure consolidation rules (rounding/units/irreconcilable)
+│   │   ├── session_consolidation.py  ← consolidate_session orchestrator (DB plumbing); split from sessions.py at the M-review
 │   │   ├── purchase_units.py
+│   │   ├── recipes.py           ← recipe + ingredient CRUD; re-exports the duplicate-prevention API
+│   │   ├── recipe_duplicates.py ← duplicate-recipe detection (Chunk 4.2); split from recipes.py at the M-review
+│   │   ├── substitutions.py     ← remembered_substitutions quick-pick library (M4) + M8 equivalence pair
+│   │   ├── sessions.py
 │   │   ├── capture_url.py
 │   │   ├── capture_photo.py
-│   │   ├── ai_extraction.py     ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1)
+│   │   ├── ai_extraction.py     ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1). Package split still pending — see Deferred Decisions
 │   │   ├── capture_queue.py     ← 429 retry queue + hourly poller (Phase 3.9 M3)
 │   │   └── anylist_client.py
 │   ├── seed_data.py           ← staples + product_units + section vocabulary starter data
@@ -2943,6 +3018,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | 1-to-many ingredient substitutions as structured data | Not scheduled | Merge decision #5 (2026-09-06): `remembered_substitutions.substitute_name` and `recipe_ingredients.resolved_ingredient` are a single freetext string; `buttermilk → "milk + lemon juice"` is stored verbatim and the user splits it by hand if they want. Making a resolved ingredient a real *list* ripples into scaling / consolidation / pack-resolution counting — revisit only if the freetext approach proves annoying in practice. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). **Distinct from the Phase 3.9 M8 quantity/unit transform** (one substitute at a different amount, e.g. corn cobs → cans), which *is* being built. |
 | AI-suggested quantity/unit for a flagged substitution | Revisit if hand-entry proves tedious | Phase 3.9 M8 adds a quantity/unit transform to substitutions but deliberately does **not** extend the `flag_substitutions` Gemini call to suggest the numbers — that would be fresh [§0a](#0a-prompt-injection-hardening-highest-priority) number/unit-validation surface for values the user must sanity-check anyway. Add best-effort `suggested_*_qty` / `suggested_*_unit` to the flag schema (allow-list validated) only if typing the equivalence every time turns out to be a real annoyance. Same standing as any other not-yet-needed feature — no reserved phase. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
 | Cross-unit pack resolution after a substitution unit change | Not scheduled | Phase 3.9 M8: a line resolved to a new free-text unit ("6 can" from "corn cobs") gets no `product_units` pack breakdown unless a matching-unit pack row is seeded — the resolver drops rows whose unit doesn't match the line's dimension. Acceptable for now (line still shows "6 can"). Revisit only if it's a real friction point; a fix would mean teaching `_pack_options_for` a per-ingredient unit-bridge, which is close to the conversion table M8 explicitly avoids. |
+| Split `services/ai_extraction.py` into an `ai_extraction/` package | Deferred at the Phase 3.9 M-review (2026-09-07); do before or early in Phase 5 | The file (~715 lines) was scoped for a split at the M-review alongside `recipes.py`/`sessions.py` (both done). Deferred because the capture-fixes work had just rewritten large parts of it and a third structural refactor in the same pass, right on the Phase 5 boundary, was the riskier option. ~⅓ of the file is prompt-string / fixture constants, not logic. Plan (in its `# NOTE:`): pure moves into `prompts.py` / `schemas.py` / `types.py` / `fixtures.py` / `client.py` (`_call_gemini` + gates + cleaners) / `calls.py` (the 3 calls + `capture_recipe`), with `__init__.py` re-exporting the current public surface so no caller changes. |
 
 ### Decision Dialogues
 

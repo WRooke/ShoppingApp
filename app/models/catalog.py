@@ -1,5 +1,6 @@
-"""``product_units``, ``staples`` and ``ingredient_substitutions`` — the editable
-reference catalogue managed from the Settings page."""
+"""``product_units``, ``staples`` and ``remembered_substitutions`` — the editable
+reference catalogue managed from the Settings page. (``remembered_substitutions`` was
+``ingredient_substitutions`` with an auto-applying ``is_default`` until Phase 3.9 M4.)"""
 
 from __future__ import annotations
 
