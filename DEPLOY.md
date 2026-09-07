@@ -29,6 +29,17 @@ Because `.env`, `data/`, `images/`, `logs/`, and `.venv/` are all gitignored, a 
 never touches your credentials, database, uploaded photos, or logs — only the code changes.
 No manual "keep these folders" copying is needed the way an ad-hoc file copy would need.
 
+**The flip side:** a deploy also can't propagate a change to `.env` **keys**. If a release
+renames or adds an environment variable, the NUC's `.env` must be hand-edited to match after
+`update.bat` — nothing else will. The renamed key fails safe (an unset switch reads as
+`false`, an unset key reads as absent), so the symptom is a feature silently not working
+rather than a crash. Check `.env.example` against the NUC's `.env` whenever a release note
+mentions config. **Known pending rename — Phase 3.9 M1:** `ANTHROPIC_API_KEY` →
+`GEMINI_API_KEY`, `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE` →
+`AI_EXTRACTION_FAKE_MODE` (see CLAUDE.md > AI Provider Migration). The NUC has never run
+Phase 3 capture, so its `.env` still carries the old placeholder names — update them the
+next time the NUC is touched, before recipe capture is used there for real.
+
 ---
 
 ## One-time setup
@@ -159,6 +170,7 @@ then next `update.bat` will fast-forward from wherever `production` currently is
 | `update.bat` says "git pull --ff-only failed - diverged" | The NUC's `production` has commits `origin` doesn't (shouldn't normally happen — backups commit to the same branch but `backup.py` now rebases onto origin before pushing, precisely to avoid this) | Look at `git log --oneline --all --graph` on the NUC and resolve by hand; don't force-push over it without understanding why first |
 | `update.bat` says "pip install failed" | A new/changed dependency couldn't install (e.g. no internet on the NUC right then) | Fix connectivity or the dependency, re-run `update.bat` — the old server is still running until this step succeeds |
 | `update.bat` says "alembic upgrade head failed" | A schema migration in the pulled commit errored against the NUC's DB | Old server is still running. Read the alembic output; run `alembic current` / `alembic history` on the NUC. Fix the migration (or restore a backup), then re-run `update.bat` |
+| A feature works on the dev PC but silently does nothing on the NUC after a deploy | The release renamed/added an `.env` key and the NUC's `.env` wasn't updated (a deploy can't touch `.env`) | Diff `.env.example` against the NUC's `.env`; add/rename the keys, restart with `stop.bat` + `start.bat`. See the `.env` note near the top of this file |
 | Weekly backup push fails after a deploy | Backup ran before you deployed and its push raced with yours, or vice versa | Not fatal — the backup is still saved locally in `backups/`; `backup.py` will rebase and push cleanly next week. Check `logs/app.log` if it keeps happening |
 
 ---

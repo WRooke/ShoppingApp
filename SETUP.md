@@ -95,7 +95,7 @@ git config core.safecrlf false
    PORT=8080
    LOG_LEVEL=INFO
    ```
-   Leave `ANTHROPIC_API_KEY` and the `ANYLIST_*` values as placeholders — they are not used
+   Leave `GEMINI_API_KEY` and the `ANYLIST_*` values as placeholders — they are not used
    until Phase 3 and Phase 5 respectively.
 
 ---

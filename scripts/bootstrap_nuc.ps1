@@ -132,7 +132,7 @@ if (Test-Path ".env") {
 } else {
     Copy-Item ".env.example" ".env"
     Write-Host "  Created .env from .env.example. Opening it in Notepad -" -ForegroundColor Yellow
-    Write-Host "  fill in real values (PORT is fine as-is for Phase 1; leave ANTHROPIC_API_KEY /" -ForegroundColor Yellow
+    Write-Host "  fill in real values (PORT is fine as-is for Phase 1; leave GEMINI_API_KEY /" -ForegroundColor Yellow
     Write-Host "  ANYLIST_* as placeholders until Phase 3 / Phase 5). Save and close Notepad to continue." -ForegroundColor Yellow
     Start-Process notepad.exe -ArgumentList ".env" -Wait
     Write-Ok ".env configured."

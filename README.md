@@ -90,7 +90,8 @@ All configuration is in `.env` (gitignored). Copy `.env.example` and edit.
 | `DATABASE_PATH` | Phase 1 | Relative to project root. |
 | `IMAGES_PATH` | Phase 3 | Uploaded recipe photos. |
 | `LOGS_PATH` | Phase 1 | Rotating daily, 14 days kept. |
-| `ANTHROPIC_API_KEY` | Phase 3 | Recipe extraction. Placeholder is fine until then. |
+| `GEMINI_API_KEY` | Phase 3 | Recipe extraction (Google Gemini as of Phase 3.9). Placeholder is fine until then. |
+| `AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE` | Phase 3 | Off by default. Gate + offline fixture mode for recipe capture — see CLAUDE.md > Security §0c. |
 | `ANYLIST_EMAIL` / `ANYLIST_PASSWORD` | Phase 5 | AnyList sync. Placeholder is fine until then. |
 
 ---

@@ -18,7 +18,7 @@ try to install them. The tooling here is Edge (already installed) + `scripts/cdp
 SCRATCH="$(python -c 'import tempfile,os;print(tempfile.gettempdir())')/sa-verify"
 mkdir -p "$SCRATCH"
 DATABASE_PATH="$SCRATCH/t.db" LOGS_PATH="$SCRATCH/logs" IMAGES_PATH="$SCRATCH/img" \
-  PORT=8099 CLAUDE_API_FAKE_MODE=true ALLOWED_ORIGINS="http://127.0.0.1:8099" \
+  PORT=8099 AI_EXTRACTION_FAKE_MODE=true ALLOWED_ORIGINS="http://127.0.0.1:8099" \
   .venv/Scripts/python.exe -m app.main > "$SCRATCH/server.log" 2>&1 &
 sleep 5 && curl -s http://127.0.0.1:8099/api/v1/health   # expect {"ok":true,...}
 
@@ -45,8 +45,9 @@ dir, **never** in the repo. Nothing here gets committed except `scripts/cdp.py` 
   crash with `RuntimeError: <file> is an empty file`.
 - Always override `DATABASE_PATH`, `LOGS_PATH`, `IMAGES_PATH` to a scratch location. The
   default is the real `data/mealplanner.db`.
-- `CLAUDE_API_FAKE_MODE=true` — capture flows return canned fixtures, zero key, zero cost
-  (CLAUDE.md > Security §0c). Never set `CLAUDE_API_ENABLED`.
+- `AI_EXTRACTION_FAKE_MODE=true` — capture flows return canned fixtures, zero key, zero cost
+  (CLAUDE.md > Security §0c). Never set `AI_EXTRACTION_ENABLED`. (Both were renamed from
+  `CLAUDE_API_*` at Phase 3.9 M1 — see CLAUDE.md > AI Provider Migration.)
 - Pick a port Plex/other stuff won't have (8099 is fine). Set `ALLOWED_ORIGINS` to match.
 - `data/mealplanner.db` is the working dev DB — leave it alone. If a check needs seed
   recipes, create them through the API against the scratch server.
