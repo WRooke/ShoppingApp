@@ -19,6 +19,13 @@ findings are load-bearing here:
     HTTP 200 and silently does nothing.
   * **A batch POST returns 200 even if some ops were no-ops.** Push success can't be trusted
     from the status — always re-fetch and diff against intent.
+  * **A brand-new item's quantity must be set via ``set-list-item-quantity``, not just
+    embedded on add.** 2026-09-10 hand-testing: items added with a quantity nested in
+    ``add-shopping-list-item``'s item message (field 21) showed no quantity in the real
+    AnyList app. ``set-list-item-quantity`` (the app's own "edit quantity" mechanism, which
+    writes the legacy field 18 instead — see the two-field note above) is known-good, so
+    every add with a quantity chains an immediate follow-up ``set-list-item-quantity`` op
+    for the same new item, in the same batch.
 
 Safety (CLAUDE.md > Security §2, mirrors §0c for the AI): every real call is gated on
 ``settings.anylist_enabled`` (default off — no agent flips it). ``settings.anylist_fake_mode``
@@ -64,11 +71,15 @@ class AnyListItem:
 @dataclass(frozen=True)
 class PushItem:
     """One line the app wants on the list. ``existing_id`` set => update that item's quantity
-    in place (don't add a duplicate); ``None`` => add a new item."""
+    in place (don't add a duplicate); ``None`` => add a new item. ``note`` -> AnyList's
+    ``details`` field (protobuf field 5) — e.g. a purchase-unit overage hint or "to taste"
+    (2026-09-10 hand-testing: CLAUDE.md > Checklist Screen Logic asks for notes to reach the
+    real list, not just the app's own checklist screen)."""
 
     name: str
     quantity: str | None
     existing_id: str | None = None
+    note: str | None = None
 
 
 @dataclass
@@ -204,8 +215,16 @@ def _item_from_wire(raw: bytes) -> AnyListItem:
     )
 
 
-def _item_to_wire(*, identifier: str, list_id: str, name: str | None, quantity: str | None) -> bytes:
+def _item_to_wire(
+    *,
+    identifier: str,
+    list_id: str,
+    name: str | None,
+    quantity: str | None,
+    details: str | None = None,
+) -> bytes:
     out = _field_string(1, identifier) + _field_string(3, list_id) + _field_string(4, name)
+    out += _field_string(5, details)  # AnyList's free-text "details"/notes field on an item
     out += _field_bool(6, False)  # new items land unchecked
     if quantity:
         out += _field_message(21, _field_string(1, quantity))
@@ -376,10 +395,29 @@ class _RealAnyList:
                         list_item_id=new_id,
                         item_wire=_item_to_wire(
                             identifier=new_id, list_id=target.identifier,
-                            name=it.name, quantity=it.quantity,
+                            name=it.name, quantity=it.quantity, details=it.note,
                         ),
                     )
                 )
+                if it.quantity:
+                    # 2026-09-10 hand-testing: items pushed via add-shopping-list-item alone
+                    # (quantity only embedded in the item's nested quantityPb, field 21) came
+                    # back with NO quantity shown in the real AnyList app. set-list-item-
+                    # quantity (deprecatedQuantity, field 18) is the mechanism the app's own
+                    # "edit quantity" UI produces — known-good, since a human doing that by
+                    # hand is exactly what it's for. Chain it immediately after the add, in
+                    # the same batch (spike-confirmed: ops in one batch apply in submitted
+                    # order), so a freshly pushed item's quantity is guaranteed to render the
+                    # same way one typed in by hand does. Keeping the field-21 embed above too
+                    # is harmless belt-and-suspenders, not reliance on it.
+                    ops.append(
+                        _build_operation(
+                            handler_id="set-list-item-quantity",
+                            list_id=target.identifier,
+                            list_item_id=new_id,
+                            updated_value=it.quantity,
+                        )
+                    )
                 planned.append(("add", new_id, it.quantity))
                 result.added.append(it.name)
 
@@ -394,14 +432,16 @@ class _RealAnyList:
         result.raw_response = f"HTTP {resp.status_code}; {len(resp.content)} bytes"
 
         # Spike finding: a 200 doesn't mean every op landed. Re-fetch and diff against intent.
+        # Checked uniformly for add and update: an add now also chains a set-list-item-
+        # quantity op above, so its quantity is just as verifiable as an update's.
         after = {i.identifier: i for i in self._resolve_list(list_name).items}
         for kind, ident, expected_qty in planned:
             got = after.get(ident)
-            if kind == "add" and got is None:
-                result.discrepancies.append(f"add {ident} did not land")
-            elif kind == "update" and got is not None and expected_qty and got.quantity != expected_qty:
+            if got is None:
+                result.discrepancies.append(f"{kind} {ident} did not land")
+            elif expected_qty and got.quantity != expected_qty:
                 result.discrepancies.append(
-                    f"update {ident}: quantity is {got.quantity!r}, expected {expected_qty!r}"
+                    f"{kind} {ident}: quantity is {got.quantity!r}, expected {expected_qty!r}"
                 )
         result.confirmed = not result.discrepancies
         if not result.confirmed:

@@ -797,10 +797,19 @@ Applied to the **summed** quantity for each consolidated ingredient, in this ord
      `½ onion` → `1`)
    - g / ml, value ≥ 100 → **ceil to nearest 25**
    - g / ml, value < 100 → **ceil to nearest 5**
-   - `tbsp` / `tsp` → ceil to nearest 0.5 (only relevant if an ingredient is *purely*
-     tbsp/tsp across the whole session and so never got normalised to ml — in practice rare)
+   - `tbsp` / `tsp` → ceil to nearest 0.5 — applies whenever every volume contribution for
+     an ingredient is a spoon/cup measure and **none** is a literal `ml`/`L` (a literal
+     ml/L contribution signals a genuine liquid, where normal ml/L rounding is correct
+     instead). **Fixed 2026-09-10** (hand-testing: a bulky/leafy ingredient measured only in
+     spoons, e.g. "2 tbsp baby spinach", was showing as a nonsensical ml figure like
+     "175 ml baby spinach") — this bullet had been vestigial since Phase 3.9 (the code
+     unconditionally normalised every tbsp/tsp to ml before this branch could ever run,
+     per the M-review note that used to sit here); `consolidation.py` now actually reaches
+     it, choosing the largest spoon/cup unit that was used across the session's recipes.
    - `cup` → 2-decimal trim, **no** clean-rounding (a scaled cup value is almost always < 1,
-     where a "nearest 5" rule would destroy it)
+     where a "nearest 5" rule would destroy it) — same "no literal ml/L present" condition
+     as the tbsp/tsp case above; a cup contribution takes priority over tbsp/tsp when both
+     appear for the same ingredient (e.g. `1 cup + 2 tbsp` baby spinach → shown in cups).
    - `NO_SCALE_UNITS` ("to taste") → shown on the list **with no number** (e.g.
      `saffron — to taste`)
 4. **Irreconcilable** — mass + volume for the same ingredient (e.g. `100 g cream` +
@@ -3174,7 +3183,10 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 |---|---|---|
 | Australian pack size rounding for weight/volume | ~~Phase 4 discussion~~ **Resolved 2026-09-06 — option 2 (calculate exactly, show overage)** | e.g. "needs 340g → buy 400g can, 60g over". Scaling keeps the true quantity; whole-pack rounding + overage live only in purchase-unit resolution. No pack-size reference data set needed. See [Scaling Logic](#scaling-logic) and the Decision Dialogue; builds in Phase 4 Chunks 4.3 / 4.6. |
 | Partial quantities UX | ~~Phase 5~~ **Resolved 2026-09-07 at Phase 5 kickoff — binary** | The checklist tap cycle is `unknown → yes → no` only; the `have_it` column keeps `'partial'` as an allowed value but nothing sets it. Revisit if a real need turns up. See [Phase 5 Chunk 5.5](#phase-5--checklist--anylist-integration). |
-| Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | Revisit after real use | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." See [Scaling Logic](#scaling-logic). |
+| Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | ~~Revisit after real use~~ **Revisited 2026-09-10 — see the Decision Dialogue** | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." **It has bitten**: 2026-09-10 hand-testing surfaced real free-text-unit friction (oil variants not consolidating, lemon juice not resolving to a lemon, no metric-only unit picker). Direction floated by the maintainer: not a single flat allowed-unit list, but a per-ingredient "what units/pack forms make sense for this" concept (garlic: clove/head; spices: g or spoon measures; milk: ml/L) — explicitly **not** wanting to hand-populate this for every ingredient up front. See the Decision Dialogue below and [Scaling Logic](#scaling-logic). |
+| Ingredient-specific unit vocabulary (extends the row above) | Not scheduled — needs scoping at a future kickoff | 2026-09-10: `product_units` already carries a per-ingredient *purchase pack* shape (eggs: dozen; milk: 2L bottle), seeded lightly and grown opportunistically (CLAUDE.md > Pre-seeded Product Units). The proposal is a sibling concept for the *input* side — which units are sensible to type a *quantity* in for a given ingredient — built the same way: a small generic default (g/kg, ml/L, tsp/tbsp/cup, a bare count) covers most ingredients with **zero setup**, and a per-ingredient override list is added only reactively, the same "don't pre-guess, wait for a real gap" rule already used for staples/product_units/staples-vs-usuals. See the Decision Dialogue below. |
+| Ingredient-to-purchase-form mapping (lemon juice → buy a lemon; lime juice → a lime) | Not scheduled | 2026-09-10 hand-testing: "lemon juice should be put on the list as a lemon, same thing with limes. Orange juice may be difficult, depends on the recipe." A real feature, not a bug fix — needs a new mapping (something like "N tbsp of this juice ≈ 1 of this whole fruit"), which is closer in shape to the existing [Ingredient Substitution](#ingredient-substitution) equivalence-pair mechanism (`remembered_substitutions`' `original_qty`/`unit ≈ substitute_qty`/`unit`) than to a brand-new table — worth checking whether a substitution-style quick-pick already covers this ("lemon juice" → "lemon", 2 tbsp ≈ 1 lemon) before building anything new. Orange juice called out by the maintainer as genuinely ambiguous (sometimes a real ingredient in its own right, not always a fruit stand-in) — not a candidate for automatic handling either way. |
+| Automatic consolidation of near-synonym pantry items (canola vs vegetable vs olive oil; oil vs oil spray) | Not scheduled — needs a decision, not a build | 2026-09-10 hand-testing: "oil vs oil spray vs vegetable oil vs canola oil is stupid, needs to be consolidated." Deliberately **not** treated as a straightforward extraction-prompt fix like the existing salt-group canonicalisation ([Ingredient Normalisation](#ingredient-normalisation)) — salt varieties are functionally identical, but a household may genuinely want *both* olive oil (dressing) and a neutral oil (frying) on the list at once; auto-merging those into one line risks silently under-buying one of them. "Oil spray" vs "oil" (same product, different pack form) is a safer case for merging than "canola" vs "olive" (different products) — any fix needs to distinguish these, not treat "contains the word oil" as one bucket. Needs the maintainer's call on which specific pairs are actually meant to merge before touching the extraction prompt or normalisation logic. |
 | Default target servings as a Settings field | Not scheduled | 2026-09-06: `DEFAULT_TARGET_SERVINGS = 4` is a constant (form pre-fill, always overridable per recipe). If the household size changes often enough to matter, promote it to an editable Settings value. Needs a general app-settings store (Settings today is only staples + product_units CRUD). See [Scaling Logic](#scaling-logic). |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
 | Ingredient synonym normalisation (automatic) | Phase 6 or later — **candidate for a Phase 5/6 bring-forward, 2026-09-07** | e.g. "green onion" vs "spring onion". A conservative version now rides in the extraction prompt itself (`EXTRACTION_SYSTEM_PROMPT` — salt group, "minced beef"→"beef mince", "green onion"/"scallion"→"spring onion", explicitly NOT merging different product forms like fresh vs ground/dried — Capture-Fixes-Staged.md issue 3, folded into CLAUDE.md > Recipe Capture > extraction prompt 2026-09-07). That only covers AI-captured recipes and is a hint, not enforcement — a manually-typed "cooking salt" still won't match the `salt` staple or another recipe's "kosher salt" for consolidation/staple-matching purposes. The real fix is still this row's original scope: a small **Settings-managed alias table** (user-editable, seeded with the salt group, same dried/fresh caution baked in) applied post-extraction in `create_recipe_from_capture` and in `consolidate_session()`'s effective-name step — recommended as a Phase 5/6 bring-forward rather than staying open-ended "later", but not built yet. |
@@ -3558,6 +3570,53 @@ when does it get built?
 6. **Known limitation accepted** — no pack breakdown when a line is resolved to a new
    free-text unit ("6 can") without a matching-unit `product_units` row. Documented, not
    solved; [Deferred Decision](#deferred-decisions).
+
+---
+
+#### Ingredient-specific unit vocabulary (raised 2026-09-10 hand-testing — not yet scoped)
+
+**Q:** Free-text units are causing real friction (2026-09-10 hand-testing): recipe photos/URLs
+sometimes return non-metric or oddball units the app has no opinion on, and a flat
+"pick from {g, kg, ml, L, tsp, tbsp, cup}" list (the original framing of this question) doesn't
+fit every ingredient — garlic is naturally a clove or a head, not a weight; eggs are a count;
+spices are usually g or a spoon measure; milk is ml/L. How should the app constrain/guide which
+units get used, without turning into per-ingredient admin the maintainer explicitly doesn't
+want ("I don't want to start having to add individual ingredients to this system, that's adding
+admin where it's supposed to be removed")?
+
+**A options:**
+1. **Flat global list, no per-ingredient anything.** Every quantity picked from one fixed
+   metric vocabulary (g, kg, ml, L, tsp, tbsp, cup, "each"/count). Simplest, but doesn't fit
+   garlic-as-clove or similarly discrete, non-weight ingredients — the exact gap hand-testing
+   found.
+2. **Generic default + opportunistic per-ingredient override**, mirroring how `product_units`
+   already works (seeded lightly, grown only when a real gap shows up — CLAUDE.md >
+   Pre-seeded Product Units). Everything gets the flat list from option 1 for free, with zero
+   setup; a specific ingredient (garlic, eggs, ...) gets a small override — a short list of
+   "natural" units/labels for that ingredient — added via Settings only reactively, the same
+   way a second `product_units` pack size is added today. Needs: a new small table (e.g.
+   `ingredient_units`: `ingredient_name`, a short list of allowed unit labels, optionally
+   discrete-vs-continuous), a fallback to the option-1 default when no row exists, and
+   `EXTRACTION_SYSTEM_PROMPT` / the manual-entry and edit UIs consulting it. This is the
+   maintainer's floated direction (2026-09-10) — "I feel like this will need to be built over
+   time."
+3. **Full ingredient master-data table now** (garlic, milk, every common ingredient
+   pre-populated with its natural units and pack forms in one pass). Explicitly **rejected** by
+   the maintainer on the spot — this is exactly the up-front admin burden the app is designed
+   to avoid, and duplicates effort the existing staples/product_units seeding already treats as
+   an anti-pattern ("don't pre-guess, wait for a real gap to show up in use").
+
+**Context:** Distinct from the already-resolved [Purchase unit resolution](#scaling-logic)
+(pack sizes for *buying*, e.g. eggs come in a dozen) — this is about which units are sensible
+when *recording a recipe's quantity* in the first place, upstream of both scaling and purchase
+resolution. Also distinct from [Ingredient Normalisation](#ingredient-normalisation) (same
+ingredient, different name) and [Ingredient Substitution](#ingredient-substitution) (different
+ingredient, interchangeable for shopping) — this is neither; it's about the *unit*, not the
+*name*, of a correctly-identified ingredient.
+
+**Expected outcome:** A decision on option 2's shape (or a different one) at a proper kickoff —
+this needs its own scoping pass (schema, prompt changes, which existing screens consult it),
+not a snap decision buried in a bug-triage session. Do not build speculatively before then.
 
 ---
 

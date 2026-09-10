@@ -69,7 +69,14 @@ logger = logging.getLogger(__name__)
 MODEL_ID = "gemini-flash-latest"
 FALLBACK_MODEL_ID = "gemini-flash-lite-latest"
 _MODEL_CHAIN = (MODEL_ID, FALLBACK_MODEL_ID)
-MAX_OUTPUT_TOKENS = 4096
+# 2026-09-10 hand-testing: a real multi-part recipe (~20 ingredients across a main dish, a
+# sauce, and a quick pickle) exceeded the original 4096-token cap mid-ingredient-array,
+# producing a truncated, unparseable JSON body (a raw json.JSONDecodeError, logged and
+# surfaced as a generic "could not be parsed" error — not a crash, but not an actionable
+# message either). Raised to give genuinely large recipes real headroom; see also the
+# finish_reason check in _call_gemini below, which now gives a specific, actionable error
+# if a response is ever cut off again rather than a generic parse failure.
+MAX_OUTPUT_TOKENS = 8192
 
 # Defensive ceiling on input text length (§0a) — bounds any injected payload.
 MAX_INPUT_TEXT_CHARS = 20_000
@@ -457,13 +464,39 @@ def _call_gemini(
             raise AiExtractionError("Could not reach the Gemini API — check network/DNS.") from exc
 
         usage = response.usage_metadata
+        input_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+        output_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
+
+        # A response cut off at MAX_OUTPUT_TOKENS mid-JSON used to surface only as a bare
+        # json.JSONDecodeError from the caller's parse step — technically handled (logged,
+        # turned into AiExtractionError, no crash) but with no actionable message. Detect it
+        # here, defensively (SDK response shapes have moved before — see the model-ID note
+        # above), so the caller gets a specific reason instead of a generic parse failure.
+        candidates = getattr(response, "candidates", None) or []
+        finish_reason = str(getattr(candidates[0], "finish_reason", "") or "") if candidates else ""
+        if "MAX_TOKENS" in finish_reason.upper():
+            ai_call_log.log_ai_call(
+                db, call_type=call_type, model=model, outcome="error",
+                error_detail="response truncated at MAX_TOKENS", context_id=context_id,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+            )
+            logger.error(
+                "AI %s: %s response truncated at MAX_TOKENS (%d output tokens)",
+                call_type, model, output_tokens,
+            )
+            raise AiExtractionError(
+                "The recipe was too large for one extraction pass and the response got cut "
+                "off. Try splitting it into two recipes, or capture again with a shorter "
+                "excerpt of the page."
+            )
+
         ai_call_log.log_ai_call(
             db,
             call_type=call_type,
             model=model,
             outcome="success",
-            input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
-            output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             context_id=context_id,
         )
         if model != MODEL_ID:

@@ -182,6 +182,19 @@ def consolidate_session(
             db.add(row)
 
         row.is_staple = item.name in staple_names
+
+        # 2026-09-10 hand-testing ("doesn't remember amounts under review") — a needs_review
+        # conflict the user manually resolved (checklist.resolve_item(), which sets
+        # review_resolved_by_user) must not be clobbered by this recompute while the same
+        # ingredient STILL conflicts; otherwise every re-consolidate (adding a recipe,
+        # changing servings, re-opening the review screen) silently re-flagged and reset the
+        # user's choice. Once the conflict is actually gone, fall through to the normal
+        # recompute and clear the flag — a stale manual pick from an unrelated earlier
+        # conflict must not be reused for a fresh single-dimension total.
+        if row.review_resolved_by_user and item.needs_review:
+            continue
+        row.review_resolved_by_user = False
+
         # reset computed fields every run
         row.total_quantity = item.quantity
         row.total_unit = item.unit

@@ -184,12 +184,18 @@ def update_item(
 def resolve_item(
     db: Session, session_id: int, item_id: int, *, total_quantity: float, total_unit: str | None
 ) -> SessionChecklistItem:
-    """Commit a single total for a Chunk 4.6 irreconcilable-units line and clear the flag."""
+    """Commit a single total for a Chunk 4.6 irreconcilable-units line and clear the flag.
+
+    ``review_resolved_by_user`` is set so a later ``consolidate_session()`` re-run (e.g. after
+    adding another recipe) doesn't silently re-flag and reset this choice while the same
+    ingredient still conflicts — 2026-09-10 hand-testing ("doesn't remember amounts under
+    review"). See CLAUDE.md > Scaling Logic > re-running consolidation."""
     row = _get_item(db, session_id, item_id)
     row.total_quantity = total_quantity
     row.total_unit = total_unit
     row.needs_review = False
     row.note = None
+    row.review_resolved_by_user = True
     db.commit()
     db.refresh(row)
     logger.info(
@@ -240,6 +246,11 @@ def push_to_anylist(
             name=ci.ingredient_name.title(),
             quantity=_display_quantity(ci),
             existing_id=ci.anylist_item_id if ci.already_on_anylist else None,
+            # 2026-09-10 hand-testing: a checklist note ("to taste", an overage hint like
+            # "150 g spare", a needs_review breakdown) was silently dropped on push — it only
+            # ever showed up on the app's own checklist screen. Carried through to AnyList's
+            # details field so it's visible from the real list too.
+            note=ci.note,
         )
         for ci in to_push
     ]

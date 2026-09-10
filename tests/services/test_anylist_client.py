@@ -49,6 +49,14 @@ def test_item_wire_roundtrips_name_and_quantity():
     assert item.checked is False
 
 
+def test_item_wire_roundtrips_details():
+    raw = _item_to_wire(
+        identifier="abc123", list_id="L1", name="Passata", quantity="400g", details="to taste"
+    )
+    fields = _decode_message(raw)
+    assert fields[5][0].decode("utf-8") == "to taste"
+
+
 def test_item_from_wire_reads_legacy_deprecated_quantity_field_18():
     # An item whose quantity was updated via set-list-item-quantity carries field 18, not 21.
     raw = _field_string(1, "id1") + _field_string(4, "Milk") + _field_string(18, "2 x 2L")
@@ -158,6 +166,25 @@ def _added_items_from_multipart(body: bytes):
     return out
 
 
+def _operations_from_multipart(body: bytes):
+    """(handler_id, list_item_id) for every operation in a shopping-lists/update multipart
+    body, in submitted order — used to check op *sequencing* (e.g. add followed by a chained
+    set-list-item-quantity), unlike _added_items_from_multipart which only looks at adds."""
+    marker = b'name="operations"'
+    i = body.index(marker)
+    start = body.index(b"\r\n\r\n", i) + 4
+    end = body.index(b"\r\n--", start)
+    op_list = _decode_message(body[start:end])
+    out = []
+    for op in op_list.get(1, []):
+        fields = _decode_message(bytes(op))
+        metadata = _decode_message(bytes(fields[1][0]))
+        handler_id = metadata[2][0].decode("utf-8")
+        list_item_id = fields[3][0].decode("utf-8")
+        out.append((handler_id, list_item_id))
+    return out
+
+
 def _user_data_bytes(items):
     parts = b""
     for ident, name, qty in items:
@@ -240,6 +267,57 @@ def test_real_push_confirms_when_the_item_shows_up(monkeypatch):
     _real_client(monkeypatch, handler)
     res = ac.add_or_increment_items([PushItem(name="passata", quantity="400g")], list_name="TestList")
     assert res.confirmed is True and not res.discrepancies
+
+
+def test_real_add_with_quantity_chains_a_set_quantity_op(monkeypatch):
+    # 2026-09-10 hand-testing: a quantity embedded only via add-shopping-list-item's nested
+    # item message didn't render in the real app. An add carrying a quantity must chain an
+    # immediate set-list-item-quantity op (the mechanism the app's own "edit quantity" UI
+    # uses) for the same new item, in the same batch.
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            return httpx.Response(200, content=_user_data_bytes(captured.get("added", [])))
+        if request.url.path == "/data/shopping-lists/update":
+            ops = _operations_from_multipart(request.content)
+            captured["ops"] = ops
+            new_id = ops[0][1]
+            captured["added"] = [(new_id, "Passata", "400g")]  # reflect the add so it confirms
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    res = ac.add_or_increment_items([PushItem(name="Passata", quantity="400g")], list_name="TestList")
+
+    handler_ids = [h for h, _ in captured["ops"]]
+    assert handler_ids == ["add-shopping-list-item", "set-list-item-quantity"]
+    assert captured["ops"][0][1] == captured["ops"][1][1]  # same list-item id both times
+    assert res.confirmed is True
+
+
+def test_real_add_without_quantity_does_not_chain_a_set_quantity_op(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            return httpx.Response(200, content=_user_data_bytes(captured.get("added", [])))
+        if request.url.path == "/data/shopping-lists/update":
+            ops = _operations_from_multipart(request.content)
+            captured["ops"] = ops
+            captured["added"] = [(ops[0][1], "Saffron", None)]
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    res = ac.add_or_increment_items([PushItem(name="Saffron", quantity=None)], list_name="TestList")
+
+    assert [h for h, _ in captured["ops"]] == ["add-shopping-list-item"]
+    assert res.confirmed is True
 
 
 def test_real_get_items_unknown_list_raises(monkeypatch):

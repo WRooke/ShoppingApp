@@ -75,7 +75,11 @@
       if (q && u) {
         preview.textContent = left + " → " + q + " " + u + " " + sub;
       } else {
-        preview.textContent = left + " → " + left.replace(/^\S+\s?/, "") + sub + " (same amount)";
+        // Same-amount swap: keep showing the recipe's own quantity/unit, not just the unit
+        // with the number silently dropped (2026-09-10 hand-testing: this used to strip the
+        // leading number AND concatenate straight onto the substitute name with no space,
+        // rendering e.g. "1 tsp → tspsoy sauce (same amount)").
+        preview.textContent = left + " → " + left + " " + sub + " (same amount)";
       }
     }
     qtyInput.addEventListener("input", refreshPreview);

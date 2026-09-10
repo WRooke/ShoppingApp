@@ -54,6 +54,12 @@
   function mount(root, sessionId) {
     root.innerHTML = "";
     var pushUsualIds = {}; // id -> true, client-held until Chunk 5.6 push
+    // 2026-09-10 hand-testing ("0 items will go on the list" - was wrong): the summary line
+    // used to be computed once at render() time and never touched again, so it went stale
+    // the moment a tap/checkbox changed have_it, add_to_list, or a usual's selection without
+    // a full page reload. Reassigned by summary() below; every state-changing handler calls
+    // it so the count stays live. No-op until the first render.
+    var refreshSummary = function () {};
 
     var back = el("a", "btn", "← Back to session");
     back.href = "#/plan/" + sessionId;
@@ -86,6 +92,7 @@
         .updateItem(sessionId, item.id, changes)
         .then(function (updated) {
           Object.assign(item, updated);
+          refreshSummary();
           if (onDone) onDone();
         })
         .catch(function (err) {
@@ -107,7 +114,11 @@
       if (review.length) body.appendChild(reviewGroup(review));
       body.appendChild(itemsGroup(regular));
       if (staples.length) body.appendChild(staplesGroup(staples));
-      if ((data.usuals || []).length) body.appendChild(usualsGroup(data.usuals));
+      // 2026-09-10 hand-testing ("Where's the usuals?") — this group used to disappear
+      // entirely when nothing was currently due, which is indistinguishable from the feature
+      // not existing at all if you've never set any usuals up. Always show it, with a message
+      // explaining why it's empty either way, so the checklist is where you'd discover it.
+      body.appendChild(usualsGroup(data.usuals || []));
 
       body.appendChild(summary(items, data.usuals || []));
     }
@@ -201,6 +212,16 @@
     function usualsGroup(usuals) {
       var wrap = el("div");
       wrap.appendChild(el("div", "sub-group-heading", "The usuals — due now"));
+      if (!usuals.length) {
+        wrap.appendChild(
+          el(
+            "div",
+            "muted",
+            "Nothing due right now. Recurring items you add in Settings → The usuals show up here when they're due."
+          )
+        );
+        return wrap;
+      }
       usuals.forEach(function (u) {
         var row = el("div", "settings-row");
         var label = el("label", "ing-swap-remember");
@@ -208,6 +229,7 @@
         cb.addEventListener("change", function () {
           if (cb.checked) pushUsualIds[u.id] = true;
           else delete pushUsualIds[u.id];
+          refreshSummary(); // client-held state — no server round-trip, so patchItem won't do it
         });
         label.appendChild(cb);
         label.appendChild(
@@ -220,18 +242,27 @@
     }
 
     function summary(items, usuals) {
-      var toAdd = items.filter(function (i) { return i.add_to_list || i.have_it === "no"; }).length;
-      var usualCount = Object.keys(pushUsualIds).length;
       var wrap = el("div");
       wrap.style.marginTop = "12px";
-      wrap.appendChild(
-        el("div", "muted", toAdd + " ingredient(s)" + (usuals.length ? " + up to " + usuals.length + " usual(s)" : "") + " will go on the list.")
-      );
+      var line = el("div", "muted");
+      wrap.appendChild(line);
       var pushBtn = el("button", "primary", "Push to AnyList");
       pushBtn.addEventListener("click", function () {
         doPush(false, pushBtn);
       });
       wrap.appendChild(pushBtn);
+
+      function update() {
+        var toAdd = items.filter(function (i) { return i.add_to_list || i.have_it === "no"; }).length;
+        var usualCount = Object.keys(pushUsualIds).length;
+        line.textContent =
+          toAdd +
+          " ingredient(s)" +
+          (usuals.length ? " + " + usualCount + " of " + usuals.length + " usual(s) selected" : "") +
+          " will go on the list.";
+      }
+      refreshSummary = update; // reassigned each render(); every state change calls this
+      update();
       return wrap;
     }
 
@@ -250,7 +281,18 @@
         .catch(function (err) {
           pushBtn.disabled = false;
           if (err.code === "SESSION_ALREADY_PUSHED") {
-            if (global.confirm("This session was already pushed. Push again anyway? It will re-add items."))
+            // "It will re-add items" read as "this will duplicate everything" (2026-09-10
+            // hand-testing) — in the common case it won't: anything AnyList still recognises
+            // just gets its quantity updated in place. The real risk is narrower (an item
+            // AnyList can no longer match, e.g. renamed/removed by hand since the last push)
+            // and worth naming specifically instead of a blanket "re-add".
+            if (
+              global.confirm(
+                "This session was already pushed. Push again? Items AnyList still recognises " +
+                  "will just have their quantity updated — anything it can no longer match " +
+                  "will be added as a new line, which could be a duplicate."
+              )
+            )
               doPush(true, pushBtn);
           } else {
             global.alert("Push failed: " + err.message);

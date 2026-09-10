@@ -292,6 +292,46 @@ def test_consolidate_is_a_merge_preserving_have_it_and_add_to_list(db):
     assert by_name["garlic"].have_it == "unknown"  # new line, default
 
 
+def test_consolidate_preserves_a_manually_resolved_review_line(db):
+    # 2026-09-10 hand-testing ("doesn't remember amounts under review") — a mass+volume
+    # conflict the user resolved via checklist.resolve_item() must survive a later
+    # re-consolidate while the same ingredient still conflicts, instead of being silently
+    # re-flagged and reset. See CLAUDE.md > Scaling Logic > re-running consolidation.
+    from app.services import checklist as checklist_service
+
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r1 = _recipe_with(db, "A", [{"name": "cream", "quantity": 100, "unit": "g"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    r2 = _recipe_with(db, "B", [{"name": "cream", "quantity": 200, "unit": "ml"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(db, s.id)
+
+    cream = next(i for i in items if i.ingredient_name == "cream")
+    assert cream.needs_review is True
+
+    resolved = checklist_service.resolve_item(db, s.id, cream.id, total_quantity=300, total_unit="ml")
+    assert resolved.needs_review is False and resolved.total_quantity == 300
+
+    # add an unrelated third recipe and re-consolidate — cream still conflicts (same two
+    # recipes still contribute g + ml), so the user's choice must stick.
+    r3 = _recipe_with(db, "C", [{"name": "rice", "quantity": 200, "unit": "g"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r3.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(db, s.id)
+    cream = next(i for i in items if i.ingredient_name == "cream")
+    assert cream.needs_review is False
+    assert cream.total_quantity == 300 and cream.total_unit == "ml"
+
+    # once the conflict genuinely goes away, the stale manual pick is not reused —
+    # a fresh single-dimension total takes over normally.
+    sessions_service.remove_slot(
+        db, s.id, next(sl.id for sl in sessions_service.get_session(db, s.id).recipes if sl.recipe_id == r1.id)
+    )
+    items = sessions_service.consolidate_session(db, s.id)
+    cream = next(i for i in items if i.ingredient_name == "cream")
+    assert cream.needs_review is False
+    assert cream.total_quantity == 200 and cream.total_unit == "ml"  # recomputed from recipe B alone
+
+
 def test_consolidate_removes_lines_no_longer_needed(db):
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "A", [{"name": "onion", "quantity": 2, "unit": None}])

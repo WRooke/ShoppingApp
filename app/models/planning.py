@@ -78,6 +78,11 @@ class SessionChecklistItem(Base):
     # CLAUDE.md > Scaling Logic > Rounding & unit rules.
     needs_review = Column(Boolean, nullable=False, default=False)
     note = Column(Text, nullable=True)
+    # 2026-09-10 hand-testing — marks a needs_review conflict the user manually resolved
+    # (services/checklist.py > resolve_item()) so a later consolidate_session() recompute
+    # doesn't clobber it while the same ingredient still conflicts. Cleared once the conflict
+    # is gone. See CLAUDE.md > Scaling Logic > re-running consolidation.
+    review_resolved_by_user = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 

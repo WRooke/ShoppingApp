@@ -50,9 +50,17 @@ def test_tbsp_is_20ml_and_merges_with_ml():
     assert item.unit == "ml" and item.quantity == 150
 
 
-def test_tsp_is_5ml():
-    item = one([L("vanilla", 3, "tsp")])  # 15 ml -> ceil 5 -> 15
-    assert item.unit == "ml" and item.quantity == 15
+def test_tsp_only_stays_tsp_ceiled_to_nearest_half():
+    # Spoon-only (no cup, no literal ml/L) -> stays a spoon unit, never converted to ml
+    # (2026-09-10 hand-testing: "175 ml baby spinach" read as nonsense). 3 tsp -> already a
+    # clean 3.0, no ceiling needed.
+    item = one([L("vanilla", 3, "tsp")])
+    assert item.unit == "tsp" and item.quantity == 3
+
+
+def test_tsp_only_ceils_to_nearest_half_tsp():
+    item = one([L("vanilla", 3.2, "tsp")])  # ceil to nearest 0.5 -> 3.5
+    assert item.unit == "tsp" and item.quantity == 3.5
 
 
 def test_litre_promotion():
@@ -67,9 +75,25 @@ def test_pure_cup_ingredient_shown_back_in_cups_not_clean_rounded():
 
 
 def test_cup_mixed_with_ml_uses_ml_rule():
-    # 1 cup (250) + 30 ml = 280 -> ceil 25 -> 300 ml
+    # 1 cup (250) + 30 ml = 280 -> ceil 25 -> 300 ml. A literal ml contribution means a
+    # genuine liquid, so the spoon/cup exception doesn't apply here.
     item = one([L("milk", 1, "cup"), L("milk", 30, "ml")])
     assert item.unit == "ml" and item.quantity == 300
+
+
+def test_cup_and_tbsp_mix_shown_in_cups_not_ml():
+    # A bulky/leafy ingredient measured across recipes in a mix of cup and tbsp, never a
+    # literal ml/L -> stays in cups (the largest spoon/cup unit present), not converted to
+    # ml. 1 cup (250) + 2 tbsp (40) = 290 ml -> 1.16 cup.
+    item = one([L("baby spinach", 1, "cup"), L("baby spinach", 2, "tbsp")])
+    assert item.unit == "cup" and item.quantity == 1.16
+
+
+def test_tbsp_and_tsp_mix_shown_in_tbsp_not_ml():
+    # No cup, no literal ml/L -> the larger of the two spoon units present (tbsp), ceiled to
+    # the nearest 0.5. 3 tbsp (60) + 2 tsp (10) = 70 ml -> 3.5 tbsp.
+    item = one([L("cinnamon", 3, "tbsp"), L("cinnamon", 2, "tsp")])
+    assert item.unit == "tbsp" and item.quantity == 3.5
 
 
 # --- discrete / count / free-text -------------------------------------

@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from app.services.capture_url import RecipeFetchError, _extract_text, _extract_title, fetch_and_extract
+from app.services.capture_url import (
+    RecipeFetchError,
+    _extract_text,
+    _extract_title,
+    _looks_like_an_empty_js_shell,
+    fetch_and_extract,
+)
 
 
 def _mock_response(html: str, status_code: int = 200):
@@ -111,6 +117,39 @@ def test_extract_title_falls_back_to_h1_then_title_tag():
 
 def test_extract_title_none_when_nothing_present():
     assert _extract_title("<html><body><p>no heading here</p></body></html>") is None
+
+
+# --- SPA / JS-only page detection (2026-09-10 hand-testing) -------------------
+
+
+def test_looks_like_empty_js_shell_detects_a_bare_react_root():
+    html = '<html><body><div id="root"></div><div id="portal-root"></div></body></html>'
+    assert _looks_like_an_empty_js_shell(html, _extract_text(html)) is True
+
+
+def test_looks_like_empty_js_shell_false_for_real_content_even_with_a_root_div():
+    # A framework marker alone isn't enough — plenty of real, server-rendered pages also use
+    # id="root" somewhere. Only near-empty extraction + the marker together should trigger.
+    html = (
+        "<html><body><div id='root'>"
+        "<article><h1>Tacos</h1><p>" + ("500g beef mince, 1 onion, 2 cloves garlic. " * 10) + "</p></article>"
+        "</div></body></html>"
+    )
+    assert _looks_like_an_empty_js_shell(html, _extract_text(html)) is False
+
+
+def test_looks_like_empty_js_shell_false_for_short_page_without_a_spa_marker():
+    html = "<html><body><p>short</p></body></html>"
+    assert _looks_like_an_empty_js_shell(html, _extract_text(html)) is False
+
+
+def test_fetch_and_extract_raises_a_clear_error_for_a_js_only_page():
+    html = '<html><body><div id="root"></div></body></html>'
+    with patch("app.services.capture_url.httpx.get", return_value=_mock_response(html)):
+        with patch("app.services.capture_url.ai_extraction.capture_recipe") as mock_extract:
+            with pytest.raises(RecipeFetchError, match="JavaScript"):
+                fetch_and_extract("fake-db", "https://example.com/spa-recipe")
+    mock_extract.assert_not_called()  # no AI call spent on unusable content
 
 
 def test_fetch_and_extract_raises_on_timeout():

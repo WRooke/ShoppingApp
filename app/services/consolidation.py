@@ -9,8 +9,15 @@ see CLAUDE.md > Scaling Logic > Rounding & unit rules:
   * Australian volume conversions: tsp=5 ml, tbsp=20 ml, cup=250 ml; kg=1000 g, L=1000 ml.
     Volumes merge; mass never converts to volume (no density data).
   * Sum, then round the sum UPWARD to a clean step (ceil 25 for g/ml >=100, ceil 5 below,
-    ceil to whole for counts and free-text units). A purely-cup ingredient is shown back
-    in cups, 2-dp, un-clean-rounded (the earlier explicit call for cups).
+    ceil to whole for counts and free-text units).
+  * Spoon/cup exception (2026-09-10): if every volume contribution for an ingredient is a
+    spoon/cup measure (tsp/tbsp/cup) and NONE is a literal ml/L, it never converts to ml —
+    a bulky/leafy ingredient measured only in spoons ("2 tbsp baby spinach") doesn't read
+    naturally as a millilitre figure. Shown back in whichever of cup/tbsp/tsp was actually
+    used (cup wins if present): cup is 2-dp trimmed, un-clean-rounded (a scaled cup value is
+    usually <1, where clean-rounding would destroy it); tbsp/tsp ceils to the nearest 0.5.
+    A literal ml/L contribution anywhere signals a genuine liquid, so ALL of that
+    ingredient's volume (spoons included) then goes through normal ml/L clean-rounding.
   * mass + volume for one ingredient => irreconcilable: not merged, flagged, parts shown.
   * "to taste" style amounts (scaling.NO_SCALE_UNITS) => shown with no number.
 """
@@ -22,6 +29,7 @@ from dataclasses import dataclass, field
 
 _ML_PER = {"ml": 1.0, "l": 1000.0, "tsp": 5.0, "tbsp": 20.0, "cup": 250.0}
 _G_PER = {"g": 1.0, "kg": 1000.0}
+_SPOON_CUP_UNITS = {"tsp", "tbsp", "cup"}
 
 
 @dataclass(frozen=True)
@@ -93,15 +101,23 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
 
     # Bucket the real contributions by dimension, summing into a common base per bucket.
     buckets: dict[str, float] = {}
-    cup_only_volume = True  # track whether every volume contribution was originally 'cup'
+    # Track whether every volume contribution was a spoon/cup measure (never a literal ml/L)
+    # — see the spoon/cup display branch below.
+    spoon_cup_only = True
+    cup_used = False
+    tbsp_used = False
     for ln in real:
         dim = _dimension(ln.unit)
         if dim == "mass":
             buckets[dim] = buckets.get(dim, 0.0) + ln.quantity * _G_PER[ln.unit.strip().lower()]
         elif dim == "volume":
             u = ln.unit.strip().lower()
-            if u != "cup":
-                cup_only_volume = False
+            if u not in _SPOON_CUP_UNITS:
+                spoon_cup_only = False
+            elif u == "cup":
+                cup_used = True
+            elif u == "tbsp":
+                tbsp_used = True
             buckets[dim] = buckets.get(dim, 0.0) + ln.quantity * _ML_PER[u]
         else:  # count / free-text unit
             buckets[dim] = buckets.get(dim, 0.0) + ln.quantity
@@ -124,9 +140,26 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
             return ConsolidatedItem(name, round(rounded / 1000, 2), "kg", also_to_taste=has_to_taste)
         return ConsolidatedItem(name, rounded, "g", also_to_taste=has_to_taste)
     if dim == "volume":
-        if cup_only_volume:
-            # honour the explicit "don't clean-round cups" call — show back in cups, 2 dp
-            return ConsolidatedItem(name, round(total / 250.0, 2), "cup", also_to_taste=has_to_taste)
+        if spoon_cup_only:
+            if cup_used:
+                # Honour the explicit "don't clean-round cups" call — show back in cups, 2 dp.
+                # Extended (2026-09-10 hand-testing) from "every contribution was cup" to
+                # "cup appears at all, and nothing was a literal ml/L" so a cup+tbsp mix of
+                # the same ingredient still gets a sane display unit instead of falling
+                # through to the ml branch below.
+                return ConsolidatedItem(name, round(total / 250.0, 2), "cup", also_to_taste=has_to_taste)
+            # CLAUDE.md > Scaling Logic's "pure tbsp/tsp -> ceil to nearest 0.5" rule — long
+            # unreachable because this function unconditionally converted every tbsp/tsp
+            # contribution to ml. 2026-09-10 hand-testing: a bulky/leafy ingredient measured
+            # only in spoons (e.g. "baby spinach") doesn't read naturally as an ml figure
+            # ("175 ml baby spinach"). As long as nothing for this ingredient was a literal
+            # ml/L (which would mean a genuine liquid, where ml math is the right call —
+            # see the fall-through below), display in whichever of tbsp/tsp was actually
+            # used, ceiled to the nearest 0.5 rather than converted to ml.
+            unit = "tbsp" if tbsp_used else "tsp"
+            return ConsolidatedItem(
+                name, _ceil_step(total / _ML_PER[unit], 0.5), unit, also_to_taste=has_to_taste
+            )
         rounded = _round_mass_or_volume_g_ml(total)
         if rounded >= 1000:
             return ConsolidatedItem(name, round(rounded / 1000, 2), "L", also_to_taste=has_to_taste)

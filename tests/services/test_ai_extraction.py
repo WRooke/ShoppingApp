@@ -182,6 +182,22 @@ def test_extract_recipe_logs_usage_even_when_unparseable(db, api_enabled):
     assert row.input_tokens == 42 and row.model == MODEL_ID
 
 
+def test_extract_recipe_truncated_response_gives_a_specific_error(db, api_enabled):
+    # 2026-09-10 hand-testing: a response cut off at MAX_OUTPUT_TOKENS used to surface only
+    # as a generic "could not be parsed" json.JSONDecodeError. finish_reason == MAX_TOKENS
+    # should be caught before the parse step and given an actionable message instead.
+    truncated = SimpleNamespace(
+        text='{"ingredients": [{"name": "beef',  # cut off mid-object
+        usage_metadata=SimpleNamespace(prompt_token_count=5000, candidates_token_count=8192),
+        candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")],
+    )
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(truncated)):
+        with pytest.raises(AiExtractionError, match="too large"):
+            extract_recipe(db, call_type="recipe_url", text="x")
+    row = db.query(AiCallLog).one()
+    assert row.outcome == "error" and "MAX_TOKENS" in row.error_detail
+
+
 def test_extract_recipe_refuses_when_disabled(db, monkeypatch):
     monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_enabled", False)
     monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", False)

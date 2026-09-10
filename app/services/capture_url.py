@@ -51,6 +51,13 @@ PREFERRED_SELECTORS = ["article", "main", "[class*=recipe]", "[class*=ingredient
 # Stripped outright regardless of which selector matched — never genuinely recipe content.
 _NOISE_TAGS = ["script", "style", "nav", "footer", "header", "noscript"]
 
+# 2026-09-10 hand-testing: cuisinart.com.au/recipes/... "didn't work" — the fetched HTML was a
+# 6 KB React/SPA shell (`<div id="root">`, `<div id="portal-root">`, no other body content);
+# the actual recipe is injected client-side by JavaScript after load, which httpx +
+# BeautifulSoup can never see. See _looks_like_an_empty_js_shell() below.
+_SPA_SHELL_MARKERS = ('id="root"', "id='root'", 'id="app"', "id='app'", 'id="__next"', "data-reactroot")
+_MIN_EXTRACTED_TEXT_CHARS = 250
+
 
 class RecipeFetchError(Exception):
     """Raised when the page can't be fetched at all — timeout, connection failure, or a
@@ -85,6 +92,24 @@ def _extract_text(html: str) -> str:
     if parts:
         return "\n\n".join(parts)
     return soup.get_text(separator="\n", strip=True)
+
+
+def _looks_like_an_empty_js_shell(html: str, extracted_text: str) -> bool:
+    """Best-effort detection of a client-side-rendered (React/Vue/Next-style) page whose real
+    content is injected by JavaScript after the page loads — httpx + BeautifulSoup only ever
+    see the initial server-sent shell, so extraction silently comes back near-empty rather
+    than failing loudly. 2026-09-10 hand-testing:
+    https://cuisinart.com.au/recipes/classic-frozen-margarita "didn't work" — the fetched HTML
+    was a 6 KB shell containing only `<div id="root">`/`<div id="portal-root">` and no recipe
+    text anywhere, which _extract_text() faithfully reduces to a handful of words.
+
+    Two signals together, not either alone, to avoid misclassifying a genuinely short but
+    real page (e.g. a one-line recipe note): the extraction must be suspiciously short AND
+    the raw HTML must carry a recognised SPA root-element marker."""
+    if len(extracted_text.strip()) >= _MIN_EXTRACTED_TEXT_CHARS:
+        return False
+    lowered = html.lower()
+    return any(marker in lowered for marker in _SPA_SHELL_MARKERS)
 
 
 def _extract_title(html: str) -> str | None:
@@ -151,6 +176,13 @@ def fetch_and_extract(db: Session, url: str) -> ai_extraction.ExtractionResult:
     logger.info("Recipe URL fetch succeeded: %s (%d bytes)", url, len(response.content))
     html = response.text
     text = _extract_text(html)
+    if _looks_like_an_empty_js_shell(html, text):
+        logger.warning("Recipe URL looks like a JS-rendered page with no server-side content: %s", url)
+        raise RecipeFetchError(
+            url,
+            "this page's content is loaded by JavaScript after it opens, so it can't be read "
+            "automatically — try adding the recipe manually instead",
+        )
     result = ai_extraction.capture_recipe(db, call_type="recipe_url", context_id=url, text=text)
     if not result.title:
         result.title = _extract_title(html)

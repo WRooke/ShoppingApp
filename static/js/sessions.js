@@ -152,13 +152,36 @@
     card.appendChild(el("div", "muted", "Status: " + session.status));
 
     // --- slots ---
-    var slotsHeading = el("h2", null, "Recipes & days");
-    slotsHeading.style.marginTop = "16px";
-    card.appendChild(slotsHeading);
+    var slotsHeadingRow = el("div", "detail-head-row");
+    slotsHeadingRow.style.marginTop = "16px";
+    slotsHeadingRow.appendChild(el("h2", null, "Recipes & days"));
+    card.appendChild(slotsHeadingRow);
 
     var slots = session.recipes || [];
     if (slots.length === 0) {
       card.appendChild(el("div", "muted", "No recipes added yet."));
+    }
+    if (slots.length > 1) {
+      // Requested 2026-09-10 hand-testing: assigning a day (the dropdown per row, below)
+      // doesn't itself move a slot's position — a recipe added last but set to "Mon" still
+      // sits at the bottom until reordered by hand with the up/down arrows. This sorts the
+      // list to match the assigned days in one action, using the existing slot-order
+      // endpoint (no backend change). Undated slots keep their current relative order and
+      // sort after every dated one.
+      var reorgBtn = el("button", null, "Reorganise by day");
+      reorgBtn.addEventListener("click", function () {
+        var withIdx = slots.map(function (slot, idx) { return { slot: slot, idx: idx }; });
+        withIdx.sort(function (a, b) {
+          var da = a.slot.day_of_week || 8; // undated -> after every real day (1-7)
+          var db = b.slot.day_of_week || 8;
+          return da !== db ? da - db : a.idx - b.idx; // stable: ties keep current order
+        });
+        var ids = withIdx.map(function (w) { return w.slot.id; });
+        api.sessions.reorder(session.id, ids).then(reload).catch(function (err) {
+          global.alert("Couldn't reorganise: " + err.message);
+        });
+      });
+      slotsHeadingRow.appendChild(reorgBtn);
     }
     var slotList = el("div");
     card.appendChild(slotList);
