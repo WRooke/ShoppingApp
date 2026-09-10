@@ -586,6 +586,31 @@ any recipe's `resolved_ingredient` or any past session (reversibility is recipe-
 Managed in Settings (`settings-substitutions.js`, reframed at M4). The equivalence pair is
 shown/edited per row from M8 (e.g. "2 cob ≈ 2 can").
 
+### `ingredient_aliases`
+
+**Added 2026-09-10** — see [Ingredient Aliases](#ingredient-aliases) for the full design.
+A flat `alias_name -> canonical_name` map; any number of aliases may share one canonical
+target. **Not** the same concept as `remembered_substitutions` above — see that section for
+the distinction.
+```
+id              INTEGER PRIMARY KEY
+alias_name      TEXT NOT NULL UNIQUE   -- normalised lowercase, matches recipe_ingredients.name
+canonical_name  TEXT NOT NULL          -- normalised lowercase; not required to exist
+                                        -- anywhere else — a household can invent a bucket
+                                        -- label no recipe ever literally uses
+created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+```
+`canonical_name` is indexed (not unique — many aliases can point at it). Chains are flattened
+at write time (`services/ingredient_aliases.py`) — a row's `canonical_name` is always a final
+target, never itself an `alias_name` elsewhere in the table; the service re-points any row
+that *was* pointing at a name which has just become an alias, so the whole table stays flat,
+not just the newly-written row. Resolved dynamically at consolidation time
+(`services/session_consolidation.py`), never written into `recipe_ingredients.name` — a
+recipe's own stored ingredient name is never touched, and a newly-added group benefits every
+existing recipe immediately. Seeded with one starter group (`app/seed_data.py >
+INGREDIENT_ALIAS_SEEDS`) — see [Ingredient Aliases](#ingredient-aliases).
+
 ### `planning_sessions`
 ```
 id              INTEGER PRIMARY KEY
@@ -1228,6 +1253,94 @@ recipe data itself (a genuine fix, not a substitution) across several recipes at
 no bulk rename/merge utility — each recipe is edited individually via the existing editor. Real
 enough to flag, not real enough to build speculatively — see
 [Deferred Decisions](#deferred-decisions).
+
+---
+
+## Ingredient Aliases
+
+**Status: in scope, built 2026-09-10.** Generalised from hand-testing feedback about oil
+("oil vs oil spray vs vegetable oil vs canola oil is stupid, needs to be consolidated") into a
+plain, reusable, **not oil-specific** mechanism — see [Data Model >
+ingredient_aliases](#ingredient_aliases), `services/ingredient_aliases.py`,
+`routers/settings.py`, `static/js/settings-ingredient-aliases.js`.
+
+### Not the same feature as Ingredient Substitution — read this before touching either file
+This has bitten before (the substitution design itself went through two superseded drafts —
+see its History section) so it's spelled out explicitly:
+
+| | [Ingredient Substitution](#ingredient-substitution) | Ingredient Aliases (this section) |
+|---|---|---|
+| What it means | "I don't want to buy X, buy Y instead" — a genuinely *different* product | "X and Y are *the same thing* to my household" |
+| Confirmation | Required, every time, per recipe | Never — no per-instance decision to make |
+| Where it's recorded | On the specific `recipe_ingredients` row (`resolved_ingredient`) | Nowhere on the recipe — a recipe keeps showing exactly what it said |
+| Applies to | Just that recipe, unless separately confirmed elsewhere | Every recipe using that name, retroactively, the moment the group exists |
+| Reversibility | Clear the recipe's own `resolved_ingredient` | Delete the alias row — nothing else to undo |
+| Motivating example | "bulgarian feta" → "regular feta" (hard to find) | "canola oil" / "oil spray" → "vegetable oil" (same thing, different wording) |
+
+If a swap changes what's actually bought (a real product decision someone might want to
+reconsider), it's a substitution. If two names are just different ways of saying the same
+shopping-list item, it's an alias. When genuinely unsure, default to substitution — it asks
+for confirmation, which is the safer failure mode (asking once when it wasn't needed is a
+minor annoyance; auto-merging two things that weren't actually interchangeable means silently
+under-buying one of them).
+
+### Design
+
+- **Flat `alias_name -> canonical_name` map**, any number of aliases per canonical target
+  (a "group" is just every row sharing one canonical name — there's no separate groups
+  table). One privileged canonical label per group, chosen by whoever creates the alias, not
+  inferred (e.g. alphabetically or by recency) — asking "what should this be called on your
+  list" is clearer than the app guessing.
+- **Resolved dynamically, at consolidation time, not written into recipe data** (confirmed
+  2026-09-10 — the alternative, rewriting `recipe_ingredients.name` to the canonical form on
+  save, was considered and rejected): a recipe's own detail page always shows exactly what it
+  said ("canola oil" stays "canola oil"), and adding a new group benefits **every existing
+  recipe immediately** — no need to re-save anything, and no bulk-rename tool required
+  (closing part of the gap the [Duplicate Recipe Prevention](#duplicate-recipe-prevention)
+  "Open item" flags, for the aliasing case specifically). Resolution happens in
+  `services/session_consolidation.py > _scaled_lines()`, as the **last** normalisation step —
+  after a recipe's own `resolved_ingredient` (substitution) and any session-only override are
+  already applied — so an alias folds together names arrived at by any path uniformly. The
+  pure `services/consolidation.py` is untouched: it still just receives finished lines.
+- **Silent merge, no UI treatment** (confirmed 2026-09-10) — a merged line looks exactly like
+  any other consolidated line, the same as the existing salt-group prompt-based
+  canonicalisation already behaves. No "(includes canola oil, oil spray)" annotation.
+- **Downstream matching (staples, product_units, AnyList fuzzy-match) needs no separate
+  change** — because resolution happens before grouping, every consolidated
+  `session_checklist_items.ingredient_name` is already the canonical name by the time staple
+  membership or a `product_units` pack lookup checks it. A staple named "vegetable oil"
+  correctly catches a recipe that said "canola oil", with no extra code.
+- **Chains are flattened at write time, not followed at read time** — `create_alias` /
+  `update_alias` always resolve a new `canonical_name` to its final target before storing
+  (and re-point any existing row that was pointing at a name which just became an alias
+  itself), so `alias_map()`/consolidation only ever need a single dict lookup, never a
+  chain-walk.
+- **Complements, doesn't replace, the existing salt-group prompt-based canonicalisation**
+  ([Recipe Capture](#recipe-capture--ai-extraction) extraction prompt). That mechanism is for
+  well-known universal synonyms an LLM can recognise on its own ("kosher salt" → "salt") and
+  only ever fires on AI-extracted content. This is for household-specific groupings no
+  generic model could know are meant to merge (canola vs vegetable oil is genuinely
+  contextual — plenty of households would *not* want those grouped) and — because it's
+  applied at consolidation time, not extraction time — it also covers manually-typed
+  ingredients, which the prompt never touches. Building this also resolves the older
+  [Deferred Decisions](#deferred-decisions) "Ingredient synonym normalisation" item's
+  Settings-managed-alias-table half; feeding the alias table into the extraction prompt
+  itself (so the capture-review screen already shows the canonical name, not just the final
+  shopping list) is a small possible follow-on, not built now — see
+  [Deferred Decisions](#deferred-decisions).
+- **Seeded with one starter group** (`app/seed_data.py > INGREDIENT_ALIAS_SEEDS`): "canola
+  oil" and "oil spray" → "vegetable oil" (already a `STAPLE_SEED` — see [Staples Starter
+  List](#staples-starter-list)). "olive oil" (also already a staple) is deliberately **not**
+  included — a household commonly wants it kept distinct from a neutral oil (dressing vs
+  frying), and this is exactly the kind of pair that shouldn't be auto-merged without a
+  deliberate choice. Add more groups via Settings only as a real gap shows up — same
+  "don't pre-guess" rule as staples/product_units/usuals/substitutions.
+- **Managed in Settings** (`settings-ingredient-aliases.js`, card title "Ingredient groups") —
+  rows grouped by canonical name (same list-grouped-by-target trick as
+  `settings-substitutions.js`), add a new alias by typing both names, delete to ungroup.
+  `alias_name` isn't editable after creation (delete + recreate); `canonical_name` can be
+  changed (re-grouping), same convention as `RememberedSubstitution`'s immutable
+  `original_name`.
 
 ---
 
@@ -2869,6 +2982,7 @@ ShoppingApp/
 │   │   ├── recipes.py           ← recipe + ingredient CRUD; re-exports the duplicate-prevention API
 │   │   ├── recipe_duplicates.py ← duplicate-recipe detection (Chunk 4.2); split from recipes.py at the M-review
 │   │   ├── substitutions.py     ← remembered_substitutions quick-pick library (M4) + M8 equivalence pair
+│   │   ├── ingredient_aliases.py ← "same shopping item" grouping (2026-09-10); distinct from substitutions.py, see CLAUDE.md > Ingredient Aliases
 │   │   ├── sessions.py
 │   │   ├── capture_url.py
 │   │   ├── capture_photo.py
@@ -3186,10 +3300,10 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | ~~Revisit after real use~~ **Revisited 2026-09-10 — see the Decision Dialogue** | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." **It has bitten**: 2026-09-10 hand-testing surfaced real free-text-unit friction (oil variants not consolidating, lemon juice not resolving to a lemon, no metric-only unit picker). Direction floated by the maintainer: not a single flat allowed-unit list, but a per-ingredient "what units/pack forms make sense for this" concept (garlic: clove/head; spices: g or spoon measures; milk: ml/L) — explicitly **not** wanting to hand-populate this for every ingredient up front. See the Decision Dialogue below and [Scaling Logic](#scaling-logic). |
 | Ingredient-specific unit vocabulary (extends the row above) | Not scheduled — needs scoping at a future kickoff | 2026-09-10: `product_units` already carries a per-ingredient *purchase pack* shape (eggs: dozen; milk: 2L bottle), seeded lightly and grown opportunistically (CLAUDE.md > Pre-seeded Product Units). The proposal is a sibling concept for the *input* side — which units are sensible to type a *quantity* in for a given ingredient — built the same way: a small generic default (g/kg, ml/L, tsp/tbsp/cup, a bare count) covers most ingredients with **zero setup**, and a per-ingredient override list is added only reactively, the same "don't pre-guess, wait for a real gap" rule already used for staples/product_units/staples-vs-usuals. See the Decision Dialogue below. |
 | Ingredient-to-purchase-form mapping (lemon juice → buy a lemon; lime juice → a lime) | Not scheduled | 2026-09-10 hand-testing: "lemon juice should be put on the list as a lemon, same thing with limes. Orange juice may be difficult, depends on the recipe." A real feature, not a bug fix — needs a new mapping (something like "N tbsp of this juice ≈ 1 of this whole fruit"), which is closer in shape to the existing [Ingredient Substitution](#ingredient-substitution) equivalence-pair mechanism (`remembered_substitutions`' `original_qty`/`unit ≈ substitute_qty`/`unit`) than to a brand-new table — worth checking whether a substitution-style quick-pick already covers this ("lemon juice" → "lemon", 2 tbsp ≈ 1 lemon) before building anything new. Orange juice called out by the maintainer as genuinely ambiguous (sometimes a real ingredient in its own right, not always a fruit stand-in) — not a candidate for automatic handling either way. |
-| Automatic consolidation of near-synonym pantry items (canola vs vegetable vs olive oil; oil vs oil spray) | Not scheduled — needs a decision, not a build | 2026-09-10 hand-testing: "oil vs oil spray vs vegetable oil vs canola oil is stupid, needs to be consolidated." Deliberately **not** treated as a straightforward extraction-prompt fix like the existing salt-group canonicalisation ([Ingredient Normalisation](#ingredient-normalisation)) — salt varieties are functionally identical, but a household may genuinely want *both* olive oil (dressing) and a neutral oil (frying) on the list at once; auto-merging those into one line risks silently under-buying one of them. "Oil spray" vs "oil" (same product, different pack form) is a safer case for merging than "canola" vs "olive" (different products) — any fix needs to distinguish these, not treat "contains the word oil" as one bucket. Needs the maintainer's call on which specific pairs are actually meant to merge before touching the extraction prompt or normalisation logic. |
+| Automatic consolidation of near-synonym pantry items (canola vs vegetable vs olive oil; oil vs oil spray) | ~~Not scheduled — needs a decision, not a build~~ **Resolved 2026-09-10 — built as [Ingredient Aliases](#ingredient-aliases)** | Generalised into a reusable, not-oil-specific mechanism rather than an oil-only fix — see that section for the full design. The maintainer's call on which pairs actually merge: "canola oil"/"oil spray" → "vegetable oil" (seeded); "olive oil" deliberately left separate (dressing vs frying — a household may genuinely want both). More groups added via Settings ("Ingredient groups" card) only as a real gap shows up, same as every other reference list in this file. |
 | Default target servings as a Settings field | Not scheduled | 2026-09-06: `DEFAULT_TARGET_SERVINGS = 4` is a constant (form pre-fill, always overridable per recipe). If the household size changes often enough to matter, promote it to an editable Settings value. Needs a general app-settings store (Settings today is only staples + product_units CRUD). See [Scaling Logic](#scaling-logic). |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
-| Ingredient synonym normalisation (automatic) | Phase 6 or later — **candidate for a Phase 5/6 bring-forward, 2026-09-07** | e.g. "green onion" vs "spring onion". A conservative version now rides in the extraction prompt itself (`EXTRACTION_SYSTEM_PROMPT` — salt group, "minced beef"→"beef mince", "green onion"/"scallion"→"spring onion", explicitly NOT merging different product forms like fresh vs ground/dried — Capture-Fixes-Staged.md issue 3, folded into CLAUDE.md > Recipe Capture > extraction prompt 2026-09-07). That only covers AI-captured recipes and is a hint, not enforcement — a manually-typed "cooking salt" still won't match the `salt` staple or another recipe's "kosher salt" for consolidation/staple-matching purposes. The real fix is still this row's original scope: a small **Settings-managed alias table** (user-editable, seeded with the salt group, same dried/fresh caution baked in) applied post-extraction in `create_recipe_from_capture` and in `consolidate_session()`'s effective-name step — recommended as a Phase 5/6 bring-forward rather than staying open-ended "later", but not built yet. |
+| Ingredient synonym normalisation (automatic) | ~~Phase 6 or later~~ **The Settings-managed-alias-table half resolved 2026-09-10 — built as [Ingredient Aliases](#ingredient-aliases)** | e.g. "green onion" vs "spring onion". A conservative version rides in the extraction prompt itself (`EXTRACTION_SYSTEM_PROMPT` — salt group, "minced beef"→"beef mince", "green onion"/"scallion"→"spring onion", explicitly NOT merging different product forms like fresh vs ground/dried — Capture-Fixes-Staged.md issue 3) — that part is unchanged, only fires on AI-extracted content, and is a hint, not enforcement. This row's other ask — a user-editable alias table applied at consolidation time, so a manually-typed "cooking salt" also matches the `salt` staple / another recipe's "kosher salt" — is now built, generalised beyond salt into [Ingredient Aliases](#ingredient-aliases) (motivated by oil variants, not salt, but the mechanism is identical: add "cooking salt" → "salt" as a group via Settings if that specific gap ever shows up — not pre-seeded, since the extraction prompt already covers the common salt wording for AI-captured recipes). Still open: feeding the alias table *into* the extraction prompt so the capture-review screen shows the canonical name immediately, rather than only the final shopping list — see [Ingredient Aliases](#ingredient-aliases). |
 | Multi-user login / separate accounts | Post-MVP | Shared access, no auth. |
 | AnyList credential storage: `keyring` vs `.env` | ~~Phase 5 kickoff~~ **Resolved 2026-09-07 — hybrid** | `config.py` reads Windows Credential Manager (`keyring`) first, falls back to `ANYLIST_EMAIL` / `ANYLIST_PASSWORD` in `.env` with a logged WARNING. `keyring` is a pinned dependency. Built in [Phase 5 Chunk 5.1](#phase-5--checklist--anylist-integration). See [Security](#security) §2. |
 | Shared basic-auth on API routes | Optional, any phase | Cheap extra barrier against other devices on the WiFi. Recommended but not required at current trust level; not built. See [Security](#security) §4. |

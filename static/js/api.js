@@ -231,6 +231,27 @@
           });
         },
       },
+      ingredientAliases: {
+        list: function () {
+          return api.get("/api/v1/settings/ingredient-aliases?limit=500");
+        },
+        create: function (data) {
+          return jsonBody("POST", "/api/v1/settings/ingredient-aliases", data);
+        },
+        update: function (id, data) {
+          return jsonBody(
+            "PATCH",
+            "/api/v1/settings/ingredient-aliases/" + encodeURIComponent(id),
+            data
+          );
+        },
+        delete: function (id) {
+          return request("/api/v1/settings/ingredient-aliases/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          });
+        },
+      },
     },
     sessions: {
       list: function () {

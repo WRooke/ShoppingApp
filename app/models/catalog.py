@@ -1,6 +1,6 @@
-"""``product_units``, ``staples`` and ``remembered_substitutions`` — the editable
-reference catalogue managed from the Settings page. (``remembered_substitutions`` was
-``ingredient_substitutions`` with an auto-applying ``is_default`` until Phase 3.9 M4.)"""
+"""``product_units``, ``staples``, ``remembered_substitutions`` and ``ingredient_aliases`` —
+the editable reference catalogue managed from the Settings page. (``remembered_substitutions``
+was ``ingredient_substitutions`` with an auto-applying ``is_default`` until Phase 3.9 M4.)"""
 
 from __future__ import annotations
 
@@ -92,5 +92,37 @@ class RememberedSubstitution(Base):
     original_unit = Column(Text, nullable=True)
     substitute_qty = Column(Float, nullable=True)
     substitute_unit = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class IngredientAlias(Base):
+    """"Same shopping item" grouping (2026-09-10, generalised from a hand-testing complaint
+    about oil variants — "canola oil"/"vegetable oil"/"oil spray" reading as separate lines).
+
+    Deliberately a DIFFERENT concept from ``RememberedSubstitution`` above, not a variant of
+    it — see CLAUDE.md > Ingredient Aliases for the full distinction. In short: a substitution
+    is "I don't want to buy X, buy Y instead" (a deliberate, per-recipe, confirmed swap,
+    because the two are genuinely different products). An alias is "X and Y are the same
+    thing to my household" (no swap, no confirmation, no recipe-level record — it's a pure
+    relabelling applied uniformly wherever the ingredient name is used for grouping).
+
+    ``alias_name`` -> ``canonical_name``, both normalised lowercase. Multiple aliases may
+    point at the same canonical name (that's how a group forms); a canonical name is never
+    itself required to appear as a real ingredient anywhere. Chains are flattened at write
+    time (services/ingredient_aliases.py), not followed at read time — every row's
+    ``canonical_name`` is always a final target, never another alias.
+
+    Resolved dynamically at consolidation time (services/session_consolidation.py), NOT
+    written into ``recipe_ingredients.name`` — this is what makes adding a new alias benefit
+    every existing recipe immediately, and keeps a recipe's own data showing what it actually
+    said. See CLAUDE.md > Ingredient Aliases and > Data Model > ingredient_aliases.
+    """
+
+    __tablename__ = "ingredient_aliases"
+
+    id = Column(Integer, primary_key=True)
+    alias_name = Column(Text, nullable=False, unique=True)  # normalised lowercase
+    canonical_name = Column(Text, nullable=False, index=True)  # normalised lowercase
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

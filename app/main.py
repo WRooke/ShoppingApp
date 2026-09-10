@@ -68,6 +68,11 @@ from app.services.substitutions import (
     InvalidSubstitutionError,
     SubstitutionNotFoundError,
 )
+from app.services.ingredient_aliases import (
+    DuplicateIngredientAliasError,
+    IngredientAliasNotFoundError,
+    InvalidIngredientAliasError,
+)
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -360,6 +365,43 @@ async def invalid_substitution_handler(request: Request, exc: InvalidSubstitutio
     return JSONResponse(
         status_code=422,
         content=_error_body("INVALID_SUBSTITUTION", exc.reason, None),
+    )
+
+
+@app.exception_handler(IngredientAliasNotFoundError)
+async def ingredient_alias_not_found_handler(request: Request, exc: IngredientAliasNotFoundError):
+    logger.info(
+        "Ingredient alias not found: id=%s (%s %s)", exc.alias_id, request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "INGREDIENT_ALIAS_NOT_FOUND", f"Ingredient alias {exc.alias_id} not found.", None
+        ),
+    )
+
+
+@app.exception_handler(DuplicateIngredientAliasError)
+async def duplicate_ingredient_alias_handler(request: Request, exc: DuplicateIngredientAliasError):
+    logger.info(
+        "Duplicate ingredient alias: %r (%s %s)", exc.alias_name, request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "DUPLICATE_INGREDIENT_ALIAS",
+            f'"{exc.alias_name}" is already grouped under another name.',
+            None,
+        ),
+    )
+
+
+@app.exception_handler(InvalidIngredientAliasError)
+async def invalid_ingredient_alias_handler(request: Request, exc: InvalidIngredientAliasError):
+    logger.info("Invalid ingredient alias: %s (%s %s)", exc.reason, request.method, request.url.path)
+    return JSONResponse(
+        status_code=422,
+        content=_error_body("INVALID_INGREDIENT_ALIAS", exc.reason, None),
     )
 
 

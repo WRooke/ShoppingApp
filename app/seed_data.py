@@ -11,7 +11,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.catalog import ProductUnit, Staple
+from app.models.catalog import IngredientAlias, ProductUnit, Staple
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,20 @@ STAPLE_SEEDS: list[str] = [
     "plain flour",
 ]
 
+# "Same shopping item" groupings (2026-09-10 — see CLAUDE.md > Ingredient Aliases). Seeded
+# with the one group that motivated the feature: "canola oil" and "oil spray" fold onto
+# "vegetable oil" — which is already a STAPLE_SEED above, so this also means those recipe
+# wordings now correctly match the existing vegetable-oil staple, not just each other.
+# "olive oil" (also already a staple) is deliberately left OUT of this group — a household
+# commonly wants it kept distinct from a neutral oil (dressing vs frying), and merging
+# genuinely different products risks silently under-buying one of them. As with every other
+# list on this page: add more groups via Settings only when a real gap shows up in use, not
+# pre-emptively.
+INGREDIENT_ALIAS_SEEDS: list[dict] = [
+    {"alias_name": "canola oil", "canonical_name": "vegetable oil"},
+    {"alias_name": "oil spray", "canonical_name": "vegetable oil"},
+]
+
 
 def seed_reference_data(db: Session) -> dict:
     """Insert any missing preseeded product units and staples. Idempotent.
@@ -114,7 +128,22 @@ def seed_reference_data(db: Session) -> dict:
             db.add(Staple(name=name))
             added_staples += 1
 
+    added_aliases = 0
+    for row in INGREDIENT_ALIAS_SEEDS:
+        exists = (
+            db.query(IngredientAlias)
+            .filter(IngredientAlias.alias_name == row["alias_name"])
+            .first()
+        )
+        if exists is None:
+            db.add(IngredientAlias(**row))
+            added_aliases += 1
+
     db.commit()
-    result = {"product_units_added": added_units, "staples_added": added_staples}
+    result = {
+        "product_units_added": added_units,
+        "staples_added": added_staples,
+        "ingredient_aliases_added": added_aliases,
+    }
     logger.info("Reference data seed: %s", result)
     return result

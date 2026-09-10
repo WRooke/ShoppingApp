@@ -4,12 +4,12 @@ size and scope discipline.
 
 This is the DB plumbing around the *pure* ``services/consolidation.py`` +
 ``purchase_units.py``: it pulls a session's scaled ingredient lines out of the DB (resolving
-per-recipe ``resolved_ingredient`` / the M8 quantity/unit transform and any session-only
-override), runs them through consolidation, resolves pack sizes, and upserts
-``session_checklist_items`` without discarding per-line checklist state (``have_it`` /
-``add_to_list`` / ``already_on_anylist`` / ``anylist_item_id``). The rounding/unit rules
-themselves live in ``consolidation.py``. See CLAUDE.md > Scaling Logic and > Build Phases >
-Phase 4 > Chunk 4.6.
+per-recipe ``resolved_ingredient`` / the M8 quantity/unit transform, any session-only
+override, and — 2026-09-10 — the ``ingredient_aliases`` "same shopping item" map), runs them
+through consolidation, resolves pack sizes, and upserts ``session_checklist_items`` without
+discarding per-line checklist state (``have_it`` / ``add_to_list`` / ``already_on_anylist`` /
+``anylist_item_id``). The rounding/unit rules themselves live in ``consolidation.py``. See
+CLAUDE.md > Scaling Logic, > Ingredient Aliases, and > Build Phases > Phase 4 > Chunk 4.6.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.catalog import ProductUnit, Staple
 from app.models.planning import PlanningSession, SessionChecklistItem
 from app.schemas.sessions import SessionOverride
-from app.services import consolidation, purchase_units, scaling
+from app.services import consolidation, ingredient_aliases, purchase_units, scaling
 from app.services.sessions import get_session
 
 logger = logging.getLogger(__name__)
@@ -70,12 +70,17 @@ def _apply_session_override(
 
 
 def _scaled_lines(
-    session: PlanningSession, override_map: dict[str, SessionOverride]
+    session: PlanningSession,
+    override_map: dict[str, SessionOverride],
+    alias_map: dict[str, str],
 ) -> list[consolidation.IngredientLine]:
     """Scaled ingredient lines with the *effective* name (and, for M8, amount/unit) already
     resolved: per-recipe `resolved_ingredient` / `resolved_quantity` (fallback `name` /
-    `quantity`), then a session-only override keyed off that resolved name.
-    `consolidation.consolidate()` itself does no substitution (Phase 3.9 M4/M8)."""
+    `quantity`), then a session-only override keyed off that resolved name, then — 2026-09-10
+    — the ingredient_aliases "same shopping item" map, as a final normalisation pass applied
+    to whatever name resulted from the steps before it (CLAUDE.md > Ingredient Aliases > Where
+    it applies). `consolidation.consolidate()` itself does no substitution or aliasing (Phase
+    3.9 M4/M8; 2026-09-10)."""
     lines: list[consolidation.IngredientLine] = []
     for slot in session.recipes:
         if slot.slot_type != "recipe" or slot.recipe is None:
@@ -91,6 +96,7 @@ def _scaled_lines(
                 name, qty, unit = _apply_session_override(
                     name, qty, unit, sq.scaled, ov
                 )
+            name = alias_map.get(_norm(name), name)
             lines.append(
                 consolidation.IngredientLine(
                     name=name, quantity=qty, unit=unit, is_no_scale=not sq.scaled
@@ -170,7 +176,9 @@ def consolidate_session(
     # global rule map. Keyed by normalised original name; the whole override (incl. any M8
     # equivalence pair) is carried through.
     override_map = {_norm(ov.original_name): ov for ov in (overrides or [])}
-    items = consolidation.consolidate(_scaled_lines(session, override_map))
+    items = consolidation.consolidate(
+        _scaled_lines(session, override_map, ingredient_aliases.alias_map(db))
+    )
 
     staple_names = {s.name for s in db.query(Staple).all()}
     existing = {ci.ingredient_name: ci for ci in session.checklist_items}

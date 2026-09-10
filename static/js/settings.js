@@ -329,6 +329,7 @@
     renderProductUnitsCard(root);
     global.SettingsSubstitutionsView.renderCard(root); // Phase 4, see settings-substitutions.js
     global.SettingsUsualsView.renderCard(root); // Phase 5, see settings-usuals.js
+    global.SettingsIngredientAliasesView.renderCard(root); // 2026-09-10, see settings-ingredient-aliases.js
   }
 
   function unmount() {

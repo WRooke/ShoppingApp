@@ -18,6 +18,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.schemas.ingredient_aliases import (
+    IngredientAliasCreate,
+    IngredientAliasRead,
+    IngredientAliasUpdate,
+)
 from app.schemas.settings import (
     ProductUnitCreate,
     ProductUnitRead,
@@ -32,6 +37,7 @@ from app.schemas.substitutions import (
     RememberedSubstitutionRead,
     RememberedSubstitutionUpdate,
 )
+from app.services import ingredient_aliases as ingredient_aliases_service
 from app.services import settings as settings_service
 from app.services import substitutions as substitutions_service
 from app.services import usuals as usuals_service
@@ -225,3 +231,52 @@ def update_usual(usual_id: int, data: UsualItemUpdate, db: Session = Depends(get
 def delete_usual(usual_id: int, db: Session = Depends(get_db)) -> dict:
     usuals_service.delete_usual(db, usual_id)
     return {"ok": True, "data": {"id": usual_id, "deleted": True}}
+
+
+# --- ingredient aliases: "same shopping item" grouping (2026-09-10) --------------------
+#
+# Distinct from remembered substitutions above — see CLAUDE.md > Ingredient Aliases. Never
+# applies a swap or needs confirmation; it's a pure relabelling resolved fresh at every
+# consolidate (app/services/session_consolidation.py), not stored on any recipe.
+
+
+def _alias_read(row) -> dict:
+    return IngredientAliasRead.model_validate(row).model_dump(mode="json")
+
+
+@router.post("/ingredient-aliases", status_code=201)
+def create_ingredient_alias(data: IngredientAliasCreate, db: Session = Depends(get_db)) -> dict:
+    row = ingredient_aliases_service.create_alias(db, data)
+    return {"ok": True, "data": _alias_read(row)}
+
+
+@router.get("/ingredient-aliases")
+def list_ingredient_aliases(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> dict:
+    items, total = ingredient_aliases_service.list_aliases(db, limit=limit, offset=offset)
+    return {
+        "ok": True,
+        "data": {
+            "items": [_alias_read(r) for r in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
+
+
+@router.patch("/ingredient-aliases/{alias_id}")
+def update_ingredient_alias(
+    alias_id: int, data: IngredientAliasUpdate, db: Session = Depends(get_db)
+) -> dict:
+    row = ingredient_aliases_service.update_alias(db, alias_id, data)
+    return {"ok": True, "data": _alias_read(row)}
+
+
+@router.delete("/ingredient-aliases/{alias_id}")
+def delete_ingredient_alias(alias_id: int, db: Session = Depends(get_db)) -> dict:
+    ingredient_aliases_service.delete_alias(db, alias_id)
+    return {"ok": True, "data": {"id": alias_id, "deleted": True}}

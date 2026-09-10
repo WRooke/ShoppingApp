@@ -298,6 +298,62 @@ def test_usuals_crud_roundtrip(client):
     assert deleted.status_code == 200 and deleted.json()["data"]["deleted"] is True
 
 
+# --- ingredient aliases: "same shopping item" grouping (2026-09-10) --------------------
+
+
+def _create_alias(client, alias_name, canonical_name):
+    return client.post(
+        "/api/v1/settings/ingredient-aliases",
+        json={"alias_name": alias_name, "canonical_name": canonical_name},
+    )
+
+
+def test_create_ingredient_alias_happy_path(client):
+    resp = _create_alias(client, "ZZ-Canola Oil", "ZZ-Vegetable Oil")
+    assert resp.status_code == 201
+    body = resp.json()["data"]
+    assert body["alias_name"] == "zz-canola oil"  # normalised
+    assert body["canonical_name"] == "zz-vegetable oil"
+
+
+def test_create_ingredient_alias_duplicate_returns_structured_409(client):
+    _create_alias(client, "ZZ-Dup-Alias", "ZZ-Canonical-A")
+    resp = _create_alias(client, "zz-dup-alias", "zz-canonical-b")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "DUPLICATE_INGREDIENT_ALIAS"
+
+
+def test_create_self_ingredient_alias_returns_structured_422(client):
+    resp = _create_alias(client, "ZZ-Self-Alias", "zz-self-alias")
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_INGREDIENT_ALIAS"
+
+
+def test_multiple_aliases_share_one_canonical(client):
+    a = _create_alias(client, "ZZ-Multi-A", "ZZ-Multi-Canonical").json()["data"]
+    b = _create_alias(client, "ZZ-Multi-B", "ZZ-Multi-Canonical").json()["data"]
+    assert a["id"] != b["id"]
+
+    listed = client.get("/api/v1/settings/ingredient-aliases?limit=500").json()["data"]["items"]
+    mine = [r for r in listed if r["canonical_name"] == "zz-multi-canonical"]
+    assert {r["alias_name"] for r in mine} == {"zz-multi-a", "zz-multi-b"}
+
+
+def test_delete_ingredient_alias(client):
+    row = _create_alias(client, "ZZ-DeleteMe-Alias", "ZZ-DeleteMe-Canonical").json()["data"]
+    resp = client.delete(f"/api/v1/settings/ingredient-aliases/{row['id']}")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["deleted"] is True
+
+
+def test_update_ingredient_alias_not_found_returns_structured_404(client):
+    resp = client.patch(
+        "/api/v1/settings/ingredient-aliases/999999", json={"canonical_name": "x"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "INGREDIENT_ALIAS_NOT_FOUND"
+
+
 def test_usuals_duplicate_name_is_409(client):
     client.post("/api/v1/settings/usuals", json={"name": "ZZ Dish Soap", "cadence_days": 10})
     dup = client.post("/api/v1/settings/usuals", json={"name": "zz dish soap", "cadence_days": 5})

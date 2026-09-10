@@ -244,6 +244,38 @@ def test_consolidate_scales_and_sums_across_recipes(db):
     assert it.purchase_qty == 1000
 
 
+def test_consolidate_folds_ingredient_aliases_into_the_canonical_name(db):
+    # 2026-09-10 hand-testing ("oil vs oil spray vs vegetable oil vs canola oil is stupid,
+    # needs to be consolidated") -- see CLAUDE.md > Ingredient Aliases. Two recipes using
+    # different but aliased names must consolidate onto one line under the canonical name,
+    # and the recipes' own stored ingredient names must be untouched (dynamic resolution,
+    # not a rewrite).
+    from app.services import ingredient_aliases as ia_service
+    from app.schemas.ingredient_aliases import IngredientAliasCreate
+
+    ia_service.create_alias(
+        db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil")
+    )
+    ia_service.create_alias(
+        db, IngredientAliasCreate(alias_name="oil spray", canonical_name="vegetable oil")
+    )
+
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r1 = _recipe_with(db, "Stir Fry", [{"name": "canola oil", "quantity": 1, "unit": "tbsp"}])
+    r2 = _recipe_with(db, "Pan Fry", [{"name": "oil spray", "quantity": 1, "unit": "tbsp"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1  # merged onto one line, not two
+    assert items[0].ingredient_name == "vegetable oil"
+    assert items[0].total_quantity == 2 and items[0].total_unit == "tbsp"  # 1 tbsp + 1 tbsp
+
+    # the recipes' own data is untouched -- dynamic resolution, not a rewrite
+    r1_fresh = recipes_service.get_recipe(db, r1.id)
+    assert r1_fresh.ingredients[0].name == "canola oil"
+
+
 def test_consolidate_leftovers_slot_contributes_nothing(db):
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "Soup", [{"name": "carrot", "quantity": 3, "unit": None}])

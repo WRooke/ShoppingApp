@@ -3,7 +3,13 @@
 One module per table group (see CLAUDE.md > Data Model).
 """
 
-from app.models.catalog import ProductUnit, RememberedSubstitution, Staple, UsualItem
+from app.models.catalog import (
+    IngredientAlias,
+    ProductUnit,
+    RememberedSubstitution,
+    Staple,
+    UsualItem,
+)
 from app.models.diagnostics import AiCallLog
 from app.models.history import ShoppingHistory
 from app.models.planning import PlanningSession, SessionChecklistItem, SessionRecipe
@@ -18,6 +24,7 @@ __all__ = [
     "Staple",
     "UsualItem",
     "RememberedSubstitution",
+    "IngredientAlias",
     "PlanningSession",
     "SessionRecipe",
     "SessionChecklistItem",
