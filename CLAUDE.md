@@ -598,6 +598,20 @@ alias_name      TEXT NOT NULL UNIQUE   -- normalised lowercase, matches recipe_i
 canonical_name  TEXT NOT NULL          -- normalised lowercase; not required to exist
                                         -- anywhere else — a household can invent a bucket
                                         -- label no recipe ever literally uses
+note            TEXT                   -- nullable, freetext, e.g. "roughly 3 tbsp per lemon"
+
+-- Quantity/unit equivalence (added 2026-09-10, second kickoff — "lemon juice should be put
+-- on the list as a lemon"). Same idea as remembered_substitutions' M8 pair
+-- ("alias_qty alias_unit ~= canonical_qty canonical_unit"), but canonical_unit may be NULL —
+-- the canonical side is very often a bare discrete count ("1 lemon"), unlike a substitution's
+-- substitute which is always some purchasable product with a real unit. Both-or-neither on
+-- the two quantities; alias_qty must be > 0 when set. All four NULL = a name-only alias
+-- (unchanged from the original 2026-09-10 oil-variant design).
+alias_qty       REAL              -- nullable
+alias_unit      TEXT              -- nullable
+canonical_qty   REAL              -- nullable
+canonical_unit  TEXT              -- nullable
+
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
@@ -605,11 +619,18 @@ updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 at write time (`services/ingredient_aliases.py`) — a row's `canonical_name` is always a final
 target, never itself an `alias_name` elsewhere in the table; the service re-points any row
 that *was* pointing at a name which has just become an alias, so the whole table stays flat,
-not just the newly-written row. Resolved dynamically at consolidation time
+not just the newly-written row (a row's own equivalence pair is untouched by this re-pointing —
+it describes that alias's own conversion, independent of which canonical name it currently
+resolves to). Resolved dynamically at consolidation time
 (`services/session_consolidation.py`), never written into `recipe_ingredients.name` — a
 recipe's own stored ingredient name is never touched, and a newly-added group benefits every
-existing recipe immediately. Seeded with one starter group (`app/seed_data.py >
-INGREDIENT_ALIAS_SEEDS`) — see [Ingredient Aliases](#ingredient-aliases).
+existing recipe immediately. When the equivalence pair is set and the recipe line's own unit
+matches `alias_unit`, the amount is converted too and the consolidated line's `note` records
+what it was converted from ("from 4 tbsp lemon juice") — shown, not silent, because (unlike a
+plain rename) it's an approximation. A unit mismatch skips the conversion and falls back to a
+name-only rename, same precedent as the M8 substitution transform. Seeded
+(`app/seed_data.py > INGREDIENT_ALIAS_SEEDS`) with the oil-variant group plus lemon/lime
+juice and zest → whole fruit — see [Ingredient Aliases](#ingredient-aliases).
 
 ### `planning_sessions`
 ```
@@ -1302,9 +1323,10 @@ under-buying one of them).
   after a recipe's own `resolved_ingredient` (substitution) and any session-only override are
   already applied — so an alias folds together names arrived at by any path uniformly. The
   pure `services/consolidation.py` is untouched: it still just receives finished lines.
-- **Silent merge, no UI treatment** (confirmed 2026-09-10) — a merged line looks exactly like
-  any other consolidated line, the same as the existing salt-group prompt-based
-  canonicalisation already behaves. No "(includes canola oil, oil spray)" annotation.
+- **Silent merge for a plain (name-only) alias** (confirmed 2026-09-10) — a merged line looks
+  exactly like any other consolidated line, the same as the existing salt-group prompt-based
+  canonicalisation already behaves. No "(includes canola oil, oil spray)" annotation. **Not**
+  the case when an alias carries a quantity/unit transform — see below.
 - **Downstream matching (staples, product_units, AnyList fuzzy-match) needs no separate
   change** — because resolution happens before grouping, every consolidated
   `session_checklist_items.ingredient_name` is already the canonical name by the time staple
@@ -1341,6 +1363,77 @@ under-buying one of them).
   `alias_name` isn't editable after creation (delete + recreate); `canonical_name` can be
   changed (re-grouping), same convention as `RememberedSubstitution`'s immutable
   `original_name`.
+
+### Quantity/unit equivalence transform (added 2026-09-10, second kickoff)
+
+Raised by "lemon juice should be put on the list as a lemon, same thing with limes" — a
+plain rename isn't enough here, since "2 tbsp lemon juice" needs to become "1 lemon", not
+"2 tbsp lemon". Two mechanisms already do half of this each — substitutions already support
+exactly this shape of equivalence pair but require confirming the swap on every recipe;
+aliases apply silently everywhere but only rename. **Resolved: extend aliases with an
+optional pair, not a new third mechanism** — this is squarely "a kitchen fact, not a
+judgement call" (unlike a substitution), so no per-recipe confirmation makes sense.
+
+- **Same pair shape as `remembered_substitutions`' M8 transform**
+  (`alias_qty`/`alias_unit ~= canonical_qty`/`canonical_unit`), with one deliberate
+  difference: `canonical_unit` may be blank. A substitution's substitute is always some
+  purchasable product with a real unit; an alias's canonical target is very often a bare
+  discrete count ("1 lemon", no unit — same as `recipe_ingredients.unit` being NULL for
+  unitless produce). This is why aliases have their own validator
+  (`schemas/ingredient_aliases.py > _validate_alias_pair`) instead of reusing
+  `schemas.substitutions.validate_equivalence_pair` verbatim — both-or-neither and positive
+  on the two *quantities* only, no unit required on either side.
+- **Resolved in the same place as a plain alias** — `session_consolidation.py > _apply_alias`
+  mirrors `_apply_session_override`'s M8 logic exactly: converts `qty / alias_qty *
+  canonical_qty` only when `alias_unit` matches the line's own unit (case-insensitive) and
+  the line is a real scalable quantity (not "to taste"); a unit mismatch falls back to a
+  name-only rename rather than guessing across units — same precedent, same reasoning, as
+  the M8 substitution transform. No cross-unit conversion table here either.
+- **Shown, not silent — the maintainer's call, 2026-09-10.** Unlike a plain rename, a
+  quantity conversion is an approximation (a lemon's juice yield varies), so the consolidated
+  line's `note` records what it was converted from: "from 4 tbsp lemon juice". Multiple
+  aliased contributions to the same canonical name sum into one fragment per distinct
+  (source ingredient, source unit) pair — two recipes each needing "2 tbsp lemon juice" show
+  as one "from 4 tbsp lemon juice", not two. Mechanically: `IngredientLine` carries an
+  optional pre-conversion `(source_qty, source_unit, source_name)`, which the pure
+  `consolidation.py` treats as opaque display metadata — it just sums matching triples per
+  group into `ConsolidatedItem.conversion_notes`, with no idea *why* a line has one.
+  `session_consolidation.py` appends `"from " + ", ".join(conversion_notes)` to the line's
+  `note`, combining with (not replacing) a needs_review breakdown / overage hint / "to taste"
+  marker if one is also present.
+- **Fixed alongside this**: `checklist.js`'s `qtyText()` never showed `item.note` for a
+  normally-resolved line (only for a needs_review conflict, or when the quantity was null
+  entirely) — `session-review.js`'s equivalent function already did. This meant a
+  conversion note (or an overage hint, or "(+ to taste)") was visible on the review screen
+  but invisible on the checklist screen right before push. Both screens now match.
+- **Seeded** (`app/seed_data.py > INGREDIENT_ALIAS_SEEDS`): "lemon juice" (3 tbsp ≈ 1 lemon)
+  and "lemon zest" (3 tsp ≈ 1 lemon) → "lemon"; "lime juice" (2 tbsp ≈ 1 lime) and "lime
+  zest" (2 tsp ≈ 1 lime) → "lime". Deliberately in whichever unit a recipe is more likely to
+  actually use (zest in tsp, not tbsp, even though "1 tbsp per lemon" is the same ratio) —
+  2026-09-10 live verification caught a tbsp-seeded zest ratio silently failing to match a
+  tsp-based recipe, falling back to a name-only rename that then hit an unrelated real
+  mass/volume-style conflict with a juice contribution and got flagged `needs_review` instead
+  of converting cleanly. **"orange juice" deliberately NOT seeded** — flagged by the
+  maintainer as genuinely recipe-dependent (sometimes a real ingredient in its own right,
+  e.g. a marinade base bought as a carton, not always a fresh-squeeze stand-in), so guessing
+  would be wrong often enough not to attempt automatically. Ratios are rough kitchen
+  approximations, documented as such via each seed's `note`.
+
+### Known limitation — juice + zest from the same fruit currently over-count (raised
+2026-09-10, unresolved, tracked for the Phase 5 review)
+
+A recipe needing both "2 tbsp lemon juice" and "1 tsp lemon zest" realistically needs **one**
+lemon (you zest it, then juice it) — but each alias converts and sums independently, so the
+current result is roughly `lemons-for-juice + lemons-for-zest` (additive), not
+`max(lemons-for-juice, lemons-for-zest)` (shared-source). The failure direction is safe
+(suggests buying somewhat more fruit than strictly necessary, never less), but it's a real
+inaccuracy, not just a cosmetic one, and worth fixing properly rather than patching around.
+Not a small tweak: it needs a concept of two aliases drawing from the same underlying
+produce item, which the current flat `alias_name -> canonical_name` map has no way to
+express, and "take the max" isn't even universally correct either — a recipe explicitly
+calling for "zest of 3 lemons, juice of 1" genuinely needs the juice-lemon to be additional
+to (not shared with) the zest-lemons. Needs real design thought, not a quick fix — see
+[Deferred Decisions](#deferred-decisions).
 
 ---
 
@@ -3299,7 +3392,8 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Partial quantities UX | ~~Phase 5~~ **Resolved 2026-09-07 at Phase 5 kickoff — binary** | The checklist tap cycle is `unknown → yes → no` only; the `have_it` column keeps `'partial'` as an allowed value but nothing sets it. Revisit if a real need turns up. See [Phase 5 Chunk 5.5](#phase-5--checklist--anylist-integration). |
 | Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | ~~Revisit after real use~~ **Revisited 2026-09-10 — see the Decision Dialogue** | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." **It has bitten**: 2026-09-10 hand-testing surfaced real free-text-unit friction (oil variants not consolidating, lemon juice not resolving to a lemon, no metric-only unit picker). Direction floated by the maintainer: not a single flat allowed-unit list, but a per-ingredient "what units/pack forms make sense for this" concept (garlic: clove/head; spices: g or spoon measures; milk: ml/L) — explicitly **not** wanting to hand-populate this for every ingredient up front. See the Decision Dialogue below and [Scaling Logic](#scaling-logic). |
 | Ingredient-specific unit vocabulary (extends the row above) | Not scheduled — needs scoping at a future kickoff | 2026-09-10: `product_units` already carries a per-ingredient *purchase pack* shape (eggs: dozen; milk: 2L bottle), seeded lightly and grown opportunistically (CLAUDE.md > Pre-seeded Product Units). The proposal is a sibling concept for the *input* side — which units are sensible to type a *quantity* in for a given ingredient — built the same way: a small generic default (g/kg, ml/L, tsp/tbsp/cup, a bare count) covers most ingredients with **zero setup**, and a per-ingredient override list is added only reactively, the same "don't pre-guess, wait for a real gap" rule already used for staples/product_units/staples-vs-usuals. See the Decision Dialogue below. |
-| Ingredient-to-purchase-form mapping (lemon juice → buy a lemon; lime juice → a lime) | Not scheduled | 2026-09-10 hand-testing: "lemon juice should be put on the list as a lemon, same thing with limes. Orange juice may be difficult, depends on the recipe." A real feature, not a bug fix — needs a new mapping (something like "N tbsp of this juice ≈ 1 of this whole fruit"), which is closer in shape to the existing [Ingredient Substitution](#ingredient-substitution) equivalence-pair mechanism (`remembered_substitutions`' `original_qty`/`unit ≈ substitute_qty`/`unit`) than to a brand-new table — worth checking whether a substitution-style quick-pick already covers this ("lemon juice" → "lemon", 2 tbsp ≈ 1 lemon) before building anything new. Orange juice called out by the maintainer as genuinely ambiguous (sometimes a real ingredient in its own right, not always a fruit stand-in) — not a candidate for automatic handling either way. |
+| Ingredient-to-purchase-form mapping (lemon juice → buy a lemon; lime juice → a lime) | ~~Not scheduled~~ **Resolved 2026-09-10 — built as the [Ingredient Aliases](#ingredient-aliases) quantity/unit equivalence transform** | Not a substitution (that mechanism was considered and rejected for this — see the section) — extended the alias mechanism instead with an optional "N unit ≈ M unit" pair, resolved silently (no per-recipe confirmation) but with a visible "from 4 tbsp lemon juice" note on the shopping list, since it's an approximation. Seeded: lemon/lime juice and zest → lemon/lime. "orange juice" deliberately **not** seeded — flagged by the maintainer as genuinely recipe-dependent, not a safe default either way. |
+| Juice + zest from the same fruit over-count (a recipe needing both "2 tbsp lemon juice" and "1 tsp lemon zest" gets charged roughly two lemons' worth, additively, when realistically one lemon covers both) | Raised 2026-09-10 — to be resolved before the Phase 5 review | Failure direction is safe (over-buys fruit, never under-buys), but it's a real inaccuracy in the [Ingredient Aliases](#ingredient-aliases) quantity/unit transform, not cosmetic. Not a quick fix: needs a "shared source" concept two aliases can draw from the same underlying produce item, which the flat `alias_name -> canonical_name` map has no way to express — and even "take the max instead of the sum" isn't universally correct (a recipe explicitly wanting "zest of 3 lemons, juice of 1" genuinely needs 4 lemons' worth, not 3). See [Ingredient Aliases > Known limitation](#ingredient-aliases). |
 | Automatic consolidation of near-synonym pantry items (canola vs vegetable vs olive oil; oil vs oil spray) | ~~Not scheduled — needs a decision, not a build~~ **Resolved 2026-09-10 — built as [Ingredient Aliases](#ingredient-aliases)** | Generalised into a reusable, not-oil-specific mechanism rather than an oil-only fix — see that section for the full design. The maintainer's call on which pairs actually merge: "canola oil"/"oil spray" → "vegetable oil" (seeded); "olive oil" deliberately left separate (dressing vs frying — a household may genuinely want both). More groups added via Settings ("Ingredient groups" card) only as a real gap shows up, same as every other reference list in this file. |
 | Default target servings as a Settings field | Not scheduled | 2026-09-06: `DEFAULT_TARGET_SERVINGS = 4` is a constant (form pre-fill, always overridable per recipe). If the household size changes often enough to matter, promote it to an editable Settings value. Needs a general app-settings store (Settings today is only staples + product_units CRUD). See [Scaling Logic](#scaling-logic). |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |
@@ -3314,6 +3408,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Bulk ingredient rename/merge across recipes | Possible future follow-up, not scheduled | Raised alongside [Ingredient Substitution](#ingredient-substitution): if a recipe's ingredient text needs a genuine *correction* (not a substitution) and the same wrong text appears in several recipes, there's no bulk find-and-replace — each recipe is edited individually via the existing editor ([Chunk 2.4](#phase-2--recipe-library)). Confirmed 2026-09-06 that per-recipe editing is good enough for now; flagged here in case it becomes a real friction point. |
 | Duplicate recipe prevention | **Designed 2026-09-06 — build in Phase 4** | Warn-with-override (never a hard block) when a save looks like a recipe the library already has. Signals: `source_url` exact, name exact, `source_book`+`source_page` overlap, conservative stdlib fuzzy name. Full design in [Duplicate Recipe Prevention](#duplicate-recipe-prevention); becomes a Phase 4 chunk at kickoff. Residual deferred piece: the **ingredient-set overlap** signal is *not* in the Phase 4 build — revisit only if near-dupes still get through afterwards. Fuzzy threshold and whether to build the live `check-duplicate` endpoint are Phase 4 kickoff details. |
 | Store deletion/merge | Post-MVP / low priority | Not designed — add if it comes up. See [Shopping List Store Layout](#shopping-list-store-layout). |
+| "Which recipe is this ingredient from" (a consolidated shopping-list line traces back to its contributing recipe(s)) | Raised 2026-09-10 — to be resolved before the Phase 5 review | No record of this ever being designed or built anywhere in this file, git history, or session memory prior to being raised — checked all three before recording this row, rather than assume it exists. If wanted: a consolidated `session_checklist_items` line would need to carry which recipe(s) contributed to it (e.g. "beef mince — needed by: Bolognese, Tacos"), which the current pure `consolidation.consolidate()` doesn't track (it only knows summed quantities per name, not provenance) — would need `IngredientLine` to carry a recipe reference through `session_consolidation.py`'s `_scaled_lines()`, same shape as the 2026-09-10 conversion-notes addition for Ingredient Aliases. Not scoped further until confirmed this is actually wanted now. |
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
 | Shop layout reorganisation (list sorting by aisle) | ~~Phase 6 or post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |

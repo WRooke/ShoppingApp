@@ -69,18 +69,47 @@ def _apply_session_override(
     return new_name, qty, unit
 
 
+def _apply_alias(
+    name: str, qty: float, unit: str | None, scaled: bool,
+    alias_map: dict[str, ingredient_aliases.AliasResolution],
+) -> tuple[str, float, str | None, tuple[float, str | None, str] | None]:
+    """Fold an ingredient_aliases resolution into an already-scaled line, as the FINAL
+    normalisation step (after any substitution / session override). Always renames when a
+    match exists; also transforms the amount when the alias carries an equivalence pair
+    ("2 tbsp lemon juice ~= 1 lemon") AND its `alias_unit` matches this line's unit
+    (case-insensitive) AND the line is a real scalable quantity (not "to taste") — same
+    matching rule as `_apply_session_override`'s M8 transform, and the same reasoning: a unit
+    mismatch means we can't trust the ratio, so fall back to a name-only rename instead of
+    guessing. Returns (name, qty, unit, source) where `source` is
+    `(pre_conversion_qty, pre_conversion_unit, pre_conversion_name)` when a transform applied
+    (for the "from 3 tbsp lemon juice" display note — CLAUDE.md > Ingredient Aliases), else
+    None."""
+    alias = alias_map.get(_norm(name))
+    if alias is None:
+        return name, qty, unit, None
+    if (
+        scaled
+        and alias.has_pair
+        and _norm(alias.alias_unit or "") == _norm(unit or "")
+    ):
+        new_qty = qty / alias.alias_qty * alias.canonical_qty
+        return alias.canonical_name, new_qty, alias.canonical_unit, (qty, unit, name)
+    return alias.canonical_name, qty, unit, None
+
+
 def _scaled_lines(
     session: PlanningSession,
     override_map: dict[str, SessionOverride],
-    alias_map: dict[str, str],
+    alias_map: dict[str, ingredient_aliases.AliasResolution],
 ) -> list[consolidation.IngredientLine]:
-    """Scaled ingredient lines with the *effective* name (and, for M8, amount/unit) already
-    resolved: per-recipe `resolved_ingredient` / `resolved_quantity` (fallback `name` /
-    `quantity`), then a session-only override keyed off that resolved name, then — 2026-09-10
-    — the ingredient_aliases "same shopping item" map, as a final normalisation pass applied
-    to whatever name resulted from the steps before it (CLAUDE.md > Ingredient Aliases > Where
-    it applies). `consolidation.consolidate()` itself does no substitution or aliasing (Phase
-    3.9 M4/M8; 2026-09-10)."""
+    """Scaled ingredient lines with the *effective* name (and, for M8/aliases, amount/unit)
+    already resolved: per-recipe `resolved_ingredient` / `resolved_quantity` (fallback `name`
+    / `quantity`), then a session-only override keyed off that resolved name, then —
+    2026-09-10 — the ingredient_aliases "same shopping item" map (optionally with its own
+    quantity/unit transform, e.g. "lemon juice" -> "lemon"), as a final normalisation pass
+    applied to whatever name/amount resulted from the steps before it (CLAUDE.md > Ingredient
+    Aliases > Where it applies). `consolidation.consolidate()` itself does no substitution or
+    aliasing (Phase 3.9 M4/M8; 2026-09-10)."""
     lines: list[consolidation.IngredientLine] = []
     for slot in session.recipes:
         if slot.slot_type != "recipe" or slot.recipe is None:
@@ -96,10 +125,13 @@ def _scaled_lines(
                 name, qty, unit = _apply_session_override(
                     name, qty, unit, sq.scaled, ov
                 )
-            name = alias_map.get(_norm(name), name)
+            name, qty, unit, source = _apply_alias(name, qty, unit, sq.scaled, alias_map)
             lines.append(
                 consolidation.IngredientLine(
-                    name=name, quantity=qty, unit=unit, is_no_scale=not sq.scaled
+                    name=name, quantity=qty, unit=unit, is_no_scale=not sq.scaled,
+                    source_qty=source[0] if source else None,
+                    source_unit=source[1] if source else None,
+                    source_name=source[2] if source else None,
                 )
             )
     return lines
@@ -236,6 +268,16 @@ def consolidate_session(
                     row.note = _overage_note(resolution.overage, item)
             if item.also_to_taste:
                 row.note = f"{row.note} (+ to taste)" if row.note else "(+ to taste)"
+
+        # 2026-09-10 (Ingredient Aliases quantity/unit transform, e.g. "lemon juice" ->
+        # "lemon") — shown per the maintainer's call: an alias-with-transform conversion is
+        # an approximation (a lemon's juice yield varies), so it's surfaced rather than fully
+        # silent, unlike a plain name-only alias. Appended after every other note branch
+        # above so it combines with a needs_review breakdown / overage / to-taste marker
+        # rather than replacing it.
+        if item.conversion_notes:
+            frag = "from " + ", ".join(item.conversion_notes)
+            row.note = f"{row.note} ({frag})" if row.note else frag
 
     for stale in existing.values():
         db.delete(stale)

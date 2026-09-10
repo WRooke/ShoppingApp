@@ -94,9 +94,47 @@ STAPLE_SEEDS: list[str] = [
 # genuinely different products risks silently under-buying one of them. As with every other
 # list on this page: add more groups via Settings only when a real gap shows up in use, not
 # pre-emptively.
+#
+# 2026-09-10 (second kickoff, lemon/lime juice -> whole fruit): a group may also carry an
+# optional quantity/unit equivalence pair (alias_qty/alias_unit ~= canonical_qty/
+# canonical_unit) — "2 tbsp lemon juice" and "1 tsp lemon zest" both fold onto "lemon" as a
+# bare count (canonical_unit=None, same as recipe_ingredients.unit=NULL for unitless
+# produce). The ratios are rough kitchen approximations (a real lemon's yield varies) — the
+# consolidated line always shows what it was converted FROM (services/session_consolidation.py
+# appends a "(from ...)" note) precisely because it's an approximation, unlike the pure-rename
+# oil group above which merges silently. "orange juice" is deliberately NOT seeded — the
+# maintainer flagged it as genuinely recipe-dependent (sometimes a real ingredient in its own
+# right, e.g. a marinade base bought as a carton, not always a fresh-squeeze stand-in), so
+# auto-converting it would be wrong often enough to not guess at.
 INGREDIENT_ALIAS_SEEDS: list[dict] = [
     {"alias_name": "canola oil", "canonical_name": "vegetable oil"},
     {"alias_name": "oil spray", "canonical_name": "vegetable oil"},
+    {
+        "alias_name": "lemon juice", "canonical_name": "lemon",
+        "alias_qty": 3, "alias_unit": "tbsp", "canonical_qty": 1, "canonical_unit": None,
+        "note": "roughly 3 tbsp juice per lemon",
+    },
+    {
+        # Seeded in tsp, not tbsp, even though "roughly 1 tbsp per lemon" is the same ratio —
+        # recipes overwhelmingly call for zest in teaspoons, and the transform only applies
+        # when a recipe's own unit exactly matches alias_unit (2026-09-10 hand-testing caught
+        # this: a tsp-based recipe against a tbsp-seeded ratio silently fell back to a
+        # name-only rename, which then hit an unrelated real conflict with a juice
+        # contribution and got flagged needs_review instead of converting cleanly).
+        "alias_name": "lemon zest", "canonical_name": "lemon",
+        "alias_qty": 3, "alias_unit": "tsp", "canonical_qty": 1, "canonical_unit": None,
+        "note": "roughly 3 tsp (1 tbsp) zest per lemon",
+    },
+    {
+        "alias_name": "lime juice", "canonical_name": "lime",
+        "alias_qty": 2, "alias_unit": "tbsp", "canonical_qty": 1, "canonical_unit": None,
+        "note": "roughly 2 tbsp juice per lime (limes are smaller than lemons)",
+    },
+    {
+        "alias_name": "lime zest", "canonical_name": "lime",
+        "alias_qty": 2, "alias_unit": "tsp", "canonical_qty": 1, "canonical_unit": None,
+        "note": "roughly 2 tsp zest per lime",
+    },
 ]
 
 

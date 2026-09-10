@@ -24,15 +24,22 @@
   var HAVE_LABEL = { unknown: "?", yes: "have it", no: "need it" };
 
   function qtyText(item) {
+    // 2026-09-10 hand-testing: a note on a normally-resolved line (an overage hint, "(+ to
+    // taste)", or — new — an Ingredient Aliases conversion note like "from 4 tbsp lemon
+    // juice") used to only show up on the session-review screen, never here on the
+    // checklist, even though this is the screen right before push. Matched to
+    // session-review.js's renderItemRow so both screens show the same information.
     if (item.needs_review) return item.note || "mixed units";
     if (item.display_qty) {
       var s = item.display_qty;
       if (item.total_quantity != null)
         s += " · need ~" + fmtNum(item.total_quantity) + (item.total_unit ? " " + item.total_unit : "");
+      if (item.note) s += " · " + item.note;
       return s;
     }
     if (item.total_quantity == null) return item.note || "";
-    return fmtNum(item.total_quantity) + (item.total_unit ? " " + item.total_unit : "");
+    var qty = fmtNum(item.total_quantity) + (item.total_unit ? " " + item.total_unit : "");
+    return item.note ? qty + " · " + item.note : qty;
   }
 
   function fmtNum(n) {

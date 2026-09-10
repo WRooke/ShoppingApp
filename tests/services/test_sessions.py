@@ -276,6 +276,66 @@ def test_consolidate_folds_ingredient_aliases_into_the_canonical_name(db):
     assert r1_fresh.ingredients[0].name == "canola oil"
 
 
+def test_consolidate_applies_the_alias_equivalence_pair_transform(db):
+    # 2026-09-10 ("lemon juice should be put on the list as a lemon"). An alias with a
+    # quantity/unit pair renames AND converts the amount, then shows what it was converted
+    # from as a note -- an approximation, unlike the plain-rename oil case above, so it's
+    # surfaced rather than silent (maintainer's call).
+    from app.services import ingredient_aliases as ia_service
+    from app.schemas.ingredient_aliases import IngredientAliasCreate
+
+    ia_service.create_alias(
+        db,
+        IngredientAliasCreate(
+            alias_name="lemon juice", canonical_name="lemon",
+            alias_qty=2, alias_unit="tbsp", canonical_qty=1, canonical_unit=None,
+        ),
+    )
+
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Lemon Chicken", [{"name": "lemon juice", "quantity": 2, "unit": "tbsp"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=8))
+    # base_servings=4 -> target 8 -> factor 2 -> 4 tbsp lemon juice -> 4/2*1 = 2 lemons
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    item = items[0]
+    assert item.ingredient_name == "lemon"
+    assert item.total_quantity == 2 and item.total_unit is None
+    assert item.note == "from 4 tbsp lemon juice"
+
+    # the recipe's own ingredient is untouched
+    r_fresh = recipes_service.get_recipe(db, r.id)
+    assert r_fresh.ingredients[0].name == "lemon juice"
+    assert r_fresh.ingredients[0].quantity == 2  # unscaled, as stored
+
+
+def test_consolidate_alias_pair_falls_back_to_name_only_on_unit_mismatch(db):
+    # Same alias as above, but a recipe uses "ml" instead of the configured "tbsp" -- the
+    # transform is skipped (can't trust the ratio across units), falling back to a plain
+    # rename that keeps the recipe's own unit.
+    from app.services import ingredient_aliases as ia_service
+    from app.schemas.ingredient_aliases import IngredientAliasCreate
+
+    ia_service.create_alias(
+        db,
+        IngredientAliasCreate(
+            alias_name="lemon juice", canonical_name="lemon",
+            alias_qty=2, alias_unit="tbsp", canonical_qty=1, canonical_unit=None,
+        ),
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe_with(db, "Lemon Chicken", [{"name": "lemon juice", "quantity": 30, "unit": "ml"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    item = items[0]
+    assert item.ingredient_name == "lemon"  # still renamed
+    assert item.total_quantity == 30 and item.total_unit == "ml"  # NOT converted
+    assert item.note is None  # no conversion note when the transform didn't apply
+
+
 def test_consolidate_leftovers_slot_contributes_nothing(db):
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "Soup", [{"name": "carrot", "quantity": 3, "unit": None}])

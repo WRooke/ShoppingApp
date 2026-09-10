@@ -20,6 +20,14 @@ see CLAUDE.md > Scaling Logic > Rounding & unit rules:
     ingredient's volume (spoons included) then goes through normal ml/L clean-rounding.
   * mass + volume for one ingredient => irreconcilable: not merged, flagged, parts shown.
   * "to taste" style amounts (scaling.NO_SCALE_UNITS) => shown with no number.
+
+2026-09-10 (Ingredient Aliases' lemon/lime-juice equivalence-pair transform) — a line whose
+name/quantity/unit were changed by an alias conversion may carry its PRE-conversion form
+(``source_qty``/``source_unit``/``source_name``) purely for display ("from 3 tbsp lemon
+juice"). This module treats it as opaque: it just sums matching (source_name, source_unit)
+pairs within a group into ``ConsolidatedItem.conversion_notes`` and plays no part in deciding
+whether/how a conversion happened — that logic lives in
+``services/session_consolidation.py``.
 """
 
 from __future__ import annotations
@@ -40,6 +48,13 @@ class IngredientLine:
     quantity: float
     unit: str | None
     is_no_scale: bool = False  # scaling.ScaledQuantity.scaled == False ("to taste")
+    # 2026-09-10 — Ingredient Aliases quantity/unit transform (e.g. "lemon juice" -> "lemon").
+    # Set together when an alias conversion changed this line's amount+unit: the PRE-
+    # conversion (already-scaled) quantity/unit/name, purely for the "from 3 tbsp lemon
+    # juice" display note. None for a name-only alias, a substitution, or no alias at all.
+    source_qty: float | None = None
+    source_unit: str | None = None
+    source_name: str | None = None
 
 
 @dataclass
@@ -51,6 +66,10 @@ class ConsolidatedItem:
     also_to_taste: bool = False  # has a real quantity AND a "to taste" contribution
     needs_review: bool = False  # mass + volume mix — not merged
     review_parts: list[str] = field(default_factory=list)  # ["100 g", "200 ml"]
+    # 2026-09-10 — summed (source_name, source_unit) contributions from any lines an alias
+    # transform changed, formatted for display, e.g. ["3 tbsp lemon juice"]. Empty when no
+    # line in this group went through an alias quantity/unit conversion.
+    conversion_notes: list[str] = field(default_factory=list)
 
 
 def _dimension(unit: str | None) -> str:
@@ -92,12 +111,35 @@ def _summarise_bucket(dimension: str, total: float) -> str:
     return f"{_fmt_qty(total)} {dimension.split(':', 1)[1]}"
 
 
+def _conversion_notes(lines: list[IngredientLine]) -> list[str]:
+    """Sum matching (source_name, source_unit) pairs across every line in a group into
+    display-ready fragments ("3 tbsp lemon juice") — see CLAUDE.md > Ingredient Aliases. Two
+    recipes each contributing "2 tbsp lemon juice" (aliased to the same canonical "lemon")
+    show as one combined "4 tbsp lemon juice", not two separate fragments."""
+    totals: dict[tuple[str, str], float] = {}
+    for ln in lines:
+        if ln.source_name is None:
+            continue
+        key = (ln.source_name, (ln.source_unit or "").strip().lower())
+        totals[key] = totals.get(key, 0.0) + (ln.source_qty or 0.0)
+    return [
+        f"{_fmt_qty(qty)} {unit} {src_name}".strip() if unit else f"{_fmt_qty(qty)} {src_name}"
+        for (src_name, unit), qty in totals.items()
+    ]
+
+
 def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
     real = [ln for ln in lines if not ln.is_no_scale]
     has_to_taste = any(ln.is_no_scale for ln in lines)
+    conversion_notes = _conversion_notes(lines)
+
+    def _item(quantity: float | None, unit: str | None, **kwargs) -> ConsolidatedItem:
+        return ConsolidatedItem(
+            name=name, quantity=quantity, unit=unit, conversion_notes=conversion_notes, **kwargs
+        )
 
     if not real:
-        return ConsolidatedItem(name=name, quantity=None, unit=None, is_no_scale=True)
+        return _item(None, None, is_no_scale=True)
 
     # Bucket the real contributions by dimension, summing into a common base per bucket.
     buckets: dict[str, float] = {}
@@ -124,21 +166,14 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
 
     if len(buckets) > 1:
         parts = [_summarise_bucket(dim, total) for dim, total in sorted(buckets.items())]
-        return ConsolidatedItem(
-            name=name,
-            quantity=None,
-            unit=None,
-            needs_review=True,
-            review_parts=parts,
-            also_to_taste=has_to_taste,
-        )
+        return _item(None, None, needs_review=True, review_parts=parts, also_to_taste=has_to_taste)
 
     (dim, total), = buckets.items()
     if dim == "mass":
         rounded = _round_mass_or_volume_g_ml(total)
         if rounded >= 1000:
-            return ConsolidatedItem(name, round(rounded / 1000, 2), "kg", also_to_taste=has_to_taste)
-        return ConsolidatedItem(name, rounded, "g", also_to_taste=has_to_taste)
+            return _item(round(rounded / 1000, 2), "kg", also_to_taste=has_to_taste)
+        return _item(rounded, "g", also_to_taste=has_to_taste)
     if dim == "volume":
         if spoon_cup_only:
             if cup_used:
@@ -147,7 +182,7 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
                 # "cup appears at all, and nothing was a literal ml/L" so a cup+tbsp mix of
                 # the same ingredient still gets a sane display unit instead of falling
                 # through to the ml branch below.
-                return ConsolidatedItem(name, round(total / 250.0, 2), "cup", also_to_taste=has_to_taste)
+                return _item(round(total / 250.0, 2), "cup", also_to_taste=has_to_taste)
             # CLAUDE.md > Scaling Logic's "pure tbsp/tsp -> ceil to nearest 0.5" rule — long
             # unreachable because this function unconditionally converted every tbsp/tsp
             # contribution to ml. 2026-09-10 hand-testing: a bulky/leafy ingredient measured
@@ -157,19 +192,15 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
             # see the fall-through below), display in whichever of tbsp/tsp was actually
             # used, ceiled to the nearest 0.5 rather than converted to ml.
             unit = "tbsp" if tbsp_used else "tsp"
-            return ConsolidatedItem(
-                name, _ceil_step(total / _ML_PER[unit], 0.5), unit, also_to_taste=has_to_taste
-            )
+            return _item(_ceil_step(total / _ML_PER[unit], 0.5), unit, also_to_taste=has_to_taste)
         rounded = _round_mass_or_volume_g_ml(total)
         if rounded >= 1000:
-            return ConsolidatedItem(name, round(rounded / 1000, 2), "L", also_to_taste=has_to_taste)
-        return ConsolidatedItem(name, rounded, "ml", also_to_taste=has_to_taste)
+            return _item(round(rounded / 1000, 2), "L", also_to_taste=has_to_taste)
+        return _item(rounded, "ml", also_to_taste=has_to_taste)
     if dim == "count":
-        return ConsolidatedItem(name, float(math.ceil(total)), None, also_to_taste=has_to_taste)
+        return _item(float(math.ceil(total)), None, also_to_taste=has_to_taste)
     # free-text unit -> discrete, ceil to whole, keep the unit label
-    return ConsolidatedItem(
-        name, float(math.ceil(total)), dim.split(":", 1)[1], also_to_taste=has_to_taste
-    )
+    return _item(float(math.ceil(total)), dim.split(":", 1)[1], also_to_taste=has_to_taste)
 
 
 def _normalise_name(name: str) -> str:

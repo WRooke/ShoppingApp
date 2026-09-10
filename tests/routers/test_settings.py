@@ -354,6 +354,30 @@ def test_update_ingredient_alias_not_found_returns_structured_404(client):
     assert resp.json()["error"]["code"] == "INGREDIENT_ALIAS_NOT_FOUND"
 
 
+def test_create_ingredient_alias_with_equivalence_pair(client):
+    resp = client.post(
+        "/api/v1/settings/ingredient-aliases",
+        json={
+            "alias_name": "ZZ-Lemon Juice", "canonical_name": "ZZ-Lemon",
+            "alias_qty": 3, "alias_unit": "TBSP", "canonical_qty": 1, "canonical_unit": None,
+            "note": "roughly 3 tbsp per lemon",
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()["data"]
+    assert body["alias_qty"] == 3 and body["alias_unit"] == "tbsp"
+    assert body["canonical_qty"] == 1 and body["canonical_unit"] is None
+    assert body["note"] == "roughly 3 tbsp per lemon"
+
+
+def test_create_ingredient_alias_half_pair_returns_422(client):
+    resp = client.post(
+        "/api/v1/settings/ingredient-aliases",
+        json={"alias_name": "ZZ-Half-Pair", "canonical_name": "ZZ-Half-Canonical", "alias_qty": 2},
+    )
+    assert resp.status_code == 422
+
+
 def test_usuals_duplicate_name_is_409(client):
     client.post("/api/v1/settings/usuals", json={"name": "ZZ Dish Soap", "cadence_days": 10})
     dup = client.post("/api/v1/settings/usuals", json={"name": "zz dish soap", "cadence_days": 5})

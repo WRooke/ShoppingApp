@@ -8,8 +8,11 @@ from __future__ import annotations
 from app.services.consolidation import IngredientLine, consolidate
 
 
-def L(name, qty, unit=None, is_no_scale=False):
-    return IngredientLine(name=name, quantity=qty, unit=unit, is_no_scale=is_no_scale)
+def L(name, qty, unit=None, is_no_scale=False, source_qty=None, source_unit=None, source_name=None):
+    return IngredientLine(
+        name=name, quantity=qty, unit=unit, is_no_scale=is_no_scale,
+        source_qty=source_qty, source_unit=source_unit, source_name=source_name,
+    )
 
 
 def one(lines):
@@ -156,3 +159,41 @@ def test_same_effective_name_merges_into_one_line():
 def test_names_normalised_and_sorted():
     result = consolidate([L("  Beef  Mince ", 500, "g"), L("apple", 2, None)])
     assert [i.name for i in result] == ["apple", "beef mince"]
+
+
+# --- conversion notes (2026-09-10, Ingredient Aliases quantity/unit transform) ------------
+#
+# consolidation.py treats source_qty/unit/name as opaque display metadata — the actual
+# alias-resolution decision lives in session_consolidation.py. Here we just check the
+# aggregation: matching (source_name, source_unit) pairs sum into one fragment.
+
+
+def test_conversion_note_for_a_single_aliased_line():
+    item = one([L("lemon", 1, None, source_qty=2, source_unit="tbsp", source_name="lemon juice")])
+    assert item.conversion_notes == ["2 tbsp lemon juice"]
+
+
+def test_conversion_notes_sum_matching_source_across_recipes():
+    item = one(
+        [
+            L("lemon", 1, None, source_qty=2, source_unit="tbsp", source_name="lemon juice"),
+            L("lemon", 0.5, None, source_qty=1, source_unit="tbsp", source_name="lemon juice"),
+        ]
+    )
+    assert item.conversion_notes == ["3 tbsp lemon juice"]
+
+
+def test_conversion_notes_keep_distinct_sources_separate():
+    item = one(
+        [
+            L("lemon", 1, None, source_qty=2, source_unit="tbsp", source_name="lemon juice"),
+            L("lemon", 1, None, source_qty=1, source_unit="tsp", source_name="lemon zest"),
+        ]
+    )
+    assert set(item.conversion_notes) == {"2 tbsp lemon juice", "1 tsp lemon zest"}
+
+
+def test_a_plain_line_with_no_alias_has_no_conversion_notes():
+    item = one([L("lemon", 1, None), L("lemon", 1, None, source_qty=2, source_unit="tbsp", source_name="lemon juice")])
+    assert item.conversion_notes == ["2 tbsp lemon juice"]  # only the aliased line contributes
+    assert item.quantity == 2  # both lines still sum normally as plain "lemon" count

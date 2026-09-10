@@ -15,6 +15,12 @@ touching either file if the distinction isn't obvious from the names alone:
     confirmation. It's pure relabelling, resolved fresh every time, so it benefits every
     recipe (existing and future) uniformly and automatically.
 
+**2026-09-10 (lemon/lime juice -> whole fruit):** an alias may optionally carry a quantity/
+unit equivalence pair too ("2 tbsp lemon juice ~= 1 lemon"), the same idea as
+``RememberedSubstitution``'s M8 transform but resolved silently (no per-recipe confirmation)
+since an alias is never a judgement call — see ``AliasResolution`` and
+``services/session_consolidation.py > _apply_alias``.
+
 Plain Python / SQLAlchemy — no ``fastapi`` import. Exceptions translate to the envelope in
 app/main.py.
 """
@@ -22,6 +28,7 @@ app/main.py.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -56,6 +63,22 @@ class InvalidIngredientAliasError(Exception):
 
 def _normalise(name: str) -> str:
     return " ".join(name.strip().lower().split())
+
+
+def _clean_note(note: str | None) -> str | None:
+    if note is None:
+        return None
+    trimmed = note.strip()
+    return trimmed or None
+
+
+def _clean_unit(unit: str | None) -> str | None:
+    """Matches recipe_ingredients.unit case-insensitivity downstream — trim + lowercase,
+    blank -> None. Mirrors substitutions._clean_unit."""
+    if unit is None:
+        return None
+    trimmed = " ".join(unit.strip().lower().split())
+    return trimmed or None
 
 
 def _flatten(db: Session, canonical_name: str, *, exclude_id: int | None = None) -> str:
@@ -99,7 +122,15 @@ def create_alias(db: Session, data: IngredientAliasCreate) -> IngredientAlias:
     if alias == canonical:
         raise InvalidIngredientAliasError("An ingredient can't be an alias for itself.")
 
-    row = IngredientAlias(alias_name=alias, canonical_name=canonical)
+    row = IngredientAlias(
+        alias_name=alias,
+        canonical_name=canonical,
+        note=_clean_note(data.note),
+        alias_qty=data.alias_qty,
+        alias_unit=_clean_unit(data.alias_unit),
+        canonical_qty=data.canonical_qty,
+        canonical_unit=_clean_unit(data.canonical_unit),
+    )
     db.add(row)
     try:
         db.commit()
@@ -150,9 +181,13 @@ def list_aliases(
 
 
 def update_alias(db: Session, alias_id: int, data: IngredientAliasUpdate) -> IngredientAlias:
-    """Re-group an existing alias under a different canonical name. ``alias_name`` itself is
-    not editable (delete + recreate — same convention as RememberedSubstitution's immutable
-    `original_name`)."""
+    """Re-group an existing alias under a different canonical name, and/or set/change/clear
+    its equivalence pair. ``alias_name`` itself is not editable (delete + recreate — same
+    convention as RememberedSubstitution's immutable `original_name`).
+
+    Note: re-pointing to a different canonical name does NOT re-derive this row's own pair —
+    a stored ratio ("2 tbsp lemon juice ~= 1 lemon") describes this alias's own conversion,
+    independent of which final canonical name it currently resolves to."""
     row = get_alias(db, alias_id)
     changes = data.model_dump(exclude_unset=True)
     if "canonical_name" in changes and changes["canonical_name"] is not None:
@@ -160,6 +195,18 @@ def update_alias(db: Session, alias_id: int, data: IngredientAliasUpdate) -> Ing
         if new_canonical == row.alias_name:
             raise InvalidIngredientAliasError("An ingredient can't be an alias for itself.")
         row.canonical_name = new_canonical
+    if "note" in changes:
+        row.note = _clean_note(changes["note"])
+    # Equivalence pair — the schema validator already enforced both-or-neither across the
+    # fields actually sent; sending them all as null clears the pair.
+    if "alias_qty" in changes:
+        row.alias_qty = changes["alias_qty"]
+    if "alias_unit" in changes:
+        row.alias_unit = _clean_unit(changes["alias_unit"])
+    if "canonical_qty" in changes:
+        row.canonical_qty = changes["canonical_qty"]
+    if "canonical_unit" in changes:
+        row.canonical_unit = _clean_unit(changes["canonical_unit"])
     db.commit()
     db.refresh(row)
     logger.info("Ingredient alias updated: id=%s -> %r", alias_id, row.canonical_name)
@@ -175,8 +222,36 @@ def delete_alias(db: Session, alias_id: int) -> None:
     logger.info("Ingredient alias deleted: id=%s", alias_id)
 
 
-def alias_map(db: Session) -> dict[str, str]:
-    """The whole table as {alias_name: canonical_name} — loaded once per consolidate (same
+@dataclass(frozen=True)
+class AliasResolution:
+    """What ``alias_map`` hands the consolidation orchestrator for one ``alias_name``: the
+    final canonical name, plus an optional quantity/unit equivalence pair. ``has_pair`` is
+    True only when both quantities are set (the schema enforces both-or-neither) — callers
+    should check it rather than testing individual fields, since a name-only alias has all
+    four pair fields None."""
+
+    canonical_name: str
+    alias_qty: float | None = None
+    alias_unit: str | None = None
+    canonical_qty: float | None = None
+    canonical_unit: str | None = None
+
+    @property
+    def has_pair(self) -> bool:
+        return self.alias_qty is not None and self.canonical_qty is not None
+
+
+def alias_map(db: Session) -> dict[str, AliasResolution]:
+    """The whole table as {alias_name: AliasResolution} — loaded once per consolidate (same
     bulk-load pattern as ``session_consolidation``'s ``staple_names``) rather than a query per
     ingredient line. See CLAUDE.md > Ingredient Aliases > Where it applies."""
-    return {row.alias_name: row.canonical_name for row in db.query(IngredientAlias).all()}
+    return {
+        row.alias_name: AliasResolution(
+            canonical_name=row.canonical_name,
+            alias_qty=row.alias_qty,
+            alias_unit=row.alias_unit,
+            canonical_qty=row.canonical_qty,
+            canonical_unit=row.canonical_unit,
+        )
+        for row in db.query(IngredientAlias).all()
+    }

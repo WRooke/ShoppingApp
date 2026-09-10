@@ -117,6 +117,14 @@ class IngredientAlias(Base):
     written into ``recipe_ingredients.name`` — this is what makes adding a new alias benefit
     every existing recipe immediately, and keeps a recipe's own data showing what it actually
     said. See CLAUDE.md > Ingredient Aliases and > Data Model > ingredient_aliases.
+
+    2026-09-10 (lemon/lime juice -> whole fruit): an alias can optionally carry a quantity/
+    unit equivalence pair too ("2 tbsp lemon juice ~= 1 lemon"), the same shape
+    ``RememberedSubstitution`` already has for its M8 transform. Unlike that pair,
+    ``canonical_unit`` may be blank — the canonical side is very often a bare discrete count
+    ("1 lemon"), same as ``recipe_ingredients.unit`` being NULL for unitless produce. All four
+    of qty/unit are still both-or-neither as a *pair* (``alias_qty``/``canonical_qty`` set
+    together or not at all); see ``schemas/ingredient_aliases.py`` for the exact rule.
     """
 
     __tablename__ = "ingredient_aliases"
@@ -124,5 +132,10 @@ class IngredientAlias(Base):
     id = Column(Integer, primary_key=True)
     alias_name = Column(Text, nullable=False, unique=True)  # normalised lowercase
     canonical_name = Column(Text, nullable=False, index=True)  # normalised lowercase
+    note = Column(Text, nullable=True)  # freetext, e.g. "roughly 3 tbsp juice per lemon"
+    alias_qty = Column(Float, nullable=True)
+    alias_unit = Column(Text, nullable=True)
+    canonical_qty = Column(Float, nullable=True)
+    canonical_unit = Column(Text, nullable=True)  # nullable -- the canonical side is often a bare count
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

@@ -6,6 +6,7 @@ this is a deliberately separate concept (see the module docstring).
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -107,10 +108,26 @@ def test_update_rejects_a_self_alias(db):
 # --- alias_map / resolve helper -----------------------------------------------------
 
 
-def test_alias_map_is_a_flat_dict(db):
+def test_alias_map_is_a_flat_dict_of_resolutions(db):
     ia.create_alias(db, _c("canola oil", "vegetable oil"))
     ia.create_alias(db, _c("oil spray", "vegetable oil"))
-    assert ia.alias_map(db) == {"canola oil": "vegetable oil", "oil spray": "vegetable oil"}
+    m = ia.alias_map(db)
+    assert set(m) == {"canola oil", "oil spray"}
+    assert m["canola oil"].canonical_name == "vegetable oil"
+    assert m["canola oil"].has_pair is False
+
+
+def test_alias_map_carries_the_equivalence_pair(db):
+    create = IngredientAliasCreate(
+        alias_name="lemon juice", canonical_name="lemon",
+        alias_qty=2, alias_unit="tbsp", canonical_qty=1, canonical_unit=None,
+    )
+    ia.create_alias(db, create)
+    res = ia.alias_map(db)["lemon juice"]
+    assert res.has_pair is True
+    assert res.canonical_name == "lemon"
+    assert res.alias_qty == 2 and res.alias_unit == "tbsp"
+    assert res.canonical_qty == 1 and res.canonical_unit is None
 
 
 def test_alias_map_empty_when_no_rows(db):
@@ -123,6 +140,66 @@ def test_alias_map_empty_when_no_rows(db):
 def test_get_missing_raises(db):
     with pytest.raises(ia.IngredientAliasNotFoundError):
         ia.get_alias(db, 999)
+
+
+# --- equivalence pair (2026-09-10, lemon/lime juice -> whole fruit) ------------------
+
+
+def _cp(alias, canonical, aq, au, cq, cu):
+    return IngredientAliasCreate(
+        alias_name=alias, canonical_name=canonical,
+        alias_qty=aq, alias_unit=au, canonical_qty=cq, canonical_unit=cu,
+    )
+
+
+def test_create_with_equivalence_pair_stores_normalised_units(db):
+    row = ia.create_alias(db, _cp("lemon juice", "lemon", 2, "  TBSP ", 1, None))
+    assert (row.alias_qty, row.alias_unit) == (2, "tbsp")
+    assert (row.canonical_qty, row.canonical_unit) == (1, None)
+
+
+def test_canonical_unit_may_be_blank_for_a_bare_count_target(db):
+    # "1 lemon" has no unit -- same as recipe_ingredients.unit being NULL for unitless
+    # produce. This is the whole reason ingredient_aliases has its own validator instead of
+    # reusing schemas.substitutions.validate_equivalence_pair verbatim.
+    row = ia.create_alias(db, _cp("lemon juice", "lemon", 3, "tbsp", 1, ""))
+    assert row.canonical_unit is None
+
+
+def test_create_rejects_half_a_pair(db):
+    with pytest.raises(ValidationError):
+        _cp("lemon juice", "lemon", 2, "tbsp", None, None)
+
+
+def test_create_rejects_zero_alias_qty(db):
+    with pytest.raises(ValidationError):
+        _cp("lemon juice", "lemon", 0, "tbsp", 1, None)
+
+
+def test_update_can_set_and_clear_the_pair(db):
+    row = ia.create_alias(db, _c("lemon juice", "lemon"))
+    assert row.alias_qty is None
+
+    ia.update_alias(
+        db, row.id,
+        IngredientAliasUpdate(alias_qty=2, alias_unit="tbsp", canonical_qty=1, canonical_unit=None),
+    )
+    assert (row.alias_qty, row.alias_unit) == (2, "tbsp")
+    assert row.canonical_qty == 1
+
+    ia.update_alias(
+        db, row.id,
+        IngredientAliasUpdate(alias_qty=None, alias_unit=None, canonical_qty=None, canonical_unit=None),
+    )
+    assert row.alias_qty is None and row.canonical_qty is None
+
+
+def test_note_is_stored_and_trimmed(db):
+    create = IngredientAliasCreate(
+        alias_name="lemon juice", canonical_name="lemon", note="  roughly 3 tbsp per lemon  "
+    )
+    row = ia.create_alias(db, create)
+    assert row.note == "roughly 3 tbsp per lemon"
 
 
 def test_delete_only_removes_that_row(db):
