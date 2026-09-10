@@ -152,15 +152,22 @@ def consolidate_session(
     data: ConsolidateRequest | None = None,
     db: Session = Depends(get_db),
 ) -> dict:
-    items = sessions_service.consolidate_session(
+    # 2026-09-11 — recipe_breakdown ("which recipe is this ingredient from") is ephemeral:
+    # computed fresh alongside this same consolidate pass, never persisted to
+    # session_checklist_items. See CLAUDE.md > "Which recipe is this ingredient from".
+    rows, breakdown = sessions_service.consolidate_session_with_breakdown(
         db, session_id, overrides=(data.overrides if data else None)
     )
+    items = [
+        ChecklistItemRead.model_validate(row).model_copy(
+            update={"recipe_breakdown": breakdown.get(row.ingredient_name, [])}
+        )
+        for row in rows
+    ]
     return {
         "ok": True,
         "data": {
             "session_id": session_id,
-            "items": [
-                ChecklistItemRead.model_validate(ci).model_dump(mode="json") for ci in items
-            ],
+            "items": [item.model_dump(mode="json") for item in items],
         },
     }

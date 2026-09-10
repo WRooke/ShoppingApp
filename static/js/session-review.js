@@ -94,12 +94,38 @@
       body.appendChild(next);
     }
 
+    // 2026-09-11 — "which recipe is this ingredient from": one row per contributing recipe
+    // SLOT, never merged (even two slots of the same recipe show separately — CLAUDE.md).
+    // Purely a display aid for the "hey what did we need this for?" check before checklist/
+    // push; the data itself is ephemeral (recomputed on every consolidate, never stored).
+    function fmtContribution(c) {
+      if (c.is_no_scale) return "to taste";
+      var n = c.quantity === Math.round(c.quantity) ? String(Math.round(c.quantity)) : String(c.quantity);
+      return c.unit ? n + " " + c.unit : n;
+    }
+
+    function renderBreakdown(item) {
+      var wrap = el("div", "recipe-breakdown");
+      (item.recipe_breakdown || []).forEach(function (c) {
+        var line = el("div", "recipe-breakdown-row muted");
+        var link = el("a", null, c.recipe_label);
+        if (c.recipe_id != null) link.href = "#/recipes/" + c.recipe_id;
+        line.appendChild(link);
+        line.appendChild(document.createTextNode(" — " + fmtContribution(c)));
+        wrap.appendChild(line);
+      });
+      return wrap;
+    }
+
     function renderItemRow(item) {
       var row = el("div", "settings-row");
+      var hasBreakdown = (item.recipe_breakdown || []).length > 0;
 
       var main = el("div");
       main.style.flex = "3 1 200px";
-      main.appendChild(el("div", "recipe-row-name", item.ingredient_name));
+      var nameEl = hasBreakdown ? el("button", "recipe-row-name recipe-row-name-btn") : el("div", "recipe-row-name");
+      nameEl.textContent = item.ingredient_name + (hasBreakdown ? " ▾" : "");
+      main.appendChild(nameEl);
 
       var detail;
       if (item.needs_review) {
@@ -118,6 +144,23 @@
 
       var swapBtn = el("button", null, "Swap");
       row.appendChild(swapBtn);
+
+      var breakdownSlot = el("div");
+      breakdownSlot.style.flexBasis = "100%";
+      row.appendChild(breakdownSlot);
+
+      if (hasBreakdown) {
+        nameEl.addEventListener("click", function () {
+          if (breakdownSlot.firstChild) {
+            breakdownSlot.innerHTML = "";
+            nameEl.textContent = item.ingredient_name + " ▾";
+            return;
+          }
+          breakdownSlot.innerHTML = "";
+          breakdownSlot.appendChild(renderBreakdown(item));
+          nameEl.textContent = item.ingredient_name + " ▴";
+        });
+      }
 
       var swapSlot = el("div");
       swapSlot.style.flexBasis = "100%";

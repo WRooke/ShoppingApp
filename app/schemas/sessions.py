@@ -169,8 +169,30 @@ class ChecklistItemRead(BaseModel):
     note: str | None
     created_at: datetime
     updated_at: datetime
+    # 2026-09-11 — NOT a session_checklist_items column; always [] straight out of
+    # model_validate(row) (pydantic falls back to the default when the ORM object has no such
+    # attribute). The consolidate endpoint fills this in per-item afterwards via model_copy —
+    # see routers/sessions.py and CLAUDE.md > "Which recipe is this ingredient from".
+    recipe_breakdown: list["RecipeContribution"] = Field(default_factory=list)
+
+
+class RecipeContribution(BaseModel):
+    """One recipe slot's contribution to a consolidated ingredient-review line — 2026-09-11,
+    CLAUDE.md > "Which recipe is this ingredient from". Ephemeral: computed fresh on every
+    POST /sessions/{id}/consolidate, never persisted to session_checklist_items (confirmed
+    with the maintainer — this is a review-screen-only aid, not needed later on the checklist
+    screen or in shopping history)."""
+
+    recipe_id: int | None
+    recipe_label: str
+    quantity: float
+    unit: str | None
+    is_no_scale: bool = False
 
 
 class ConsolidateResponse(BaseModel):
     session_id: int
     items: list[ChecklistItemRead]
+
+
+ChecklistItemRead.model_rebuild()  # resolves the forward ref to RecipeContribution, defined below it

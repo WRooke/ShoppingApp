@@ -336,6 +336,27 @@ def test_consolidate_alias_pair_falls_back_to_name_only_on_unit_mismatch(db):
     assert item.note is None  # no conversion note when the transform didn't apply
 
 
+def test_consolidate_with_breakdown_disambiguates_duplicate_recipe_slots_by_day(db):
+    # 2026-09-11, "which recipe is this ingredient from" -- the same recipe slotted into a
+    # session twice (e.g. meal-prepped for two different nights) shows as two separate
+    # breakdown rows, disambiguated by day when set (CLAUDE.md).
+    r = _recipe_with(db, "Bolognese", [{"name": "beef mince", "quantity": 500, "unit": "g"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(
+        db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4, day_of_week=1)
+    )
+    sessions_service.add_session_recipe(
+        db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=6, day_of_week=4)
+    )
+
+    _rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, s.id)
+    contributions = breakdown["beef mince"]
+    assert len(contributions) == 2  # not merged, even though it's the same recipe
+    by_label = {c.recipe_label: c for c in contributions}
+    assert by_label["Bolognese (Mon)"].quantity == 500
+    assert by_label["Bolognese (Thu)"].quantity == 750  # scaled x1.5 for 6 servings
+
+
 def test_consolidate_leftovers_slot_contributes_nothing(db):
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "Soup", [{"name": "carrot", "quantity": 3, "unit": None}])

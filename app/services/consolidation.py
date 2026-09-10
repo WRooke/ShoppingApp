@@ -28,6 +28,14 @@ juice"). This module treats it as opaque: it just sums matching (source_name, so
 pairs within a group into ``ConsolidatedItem.conversion_notes`` and plays no part in deciding
 whether/how a conversion happened — that logic lives in
 ``services/session_consolidation.py``.
+
+2026-09-11 (recipe review "which recipe is this from" breakdown) — a line may also carry
+which recipe slot it came from (``recipe_id``/``recipe_label``). Every line's OWN
+(``quantity``, ``unit``) — already its post-substitution/post-alias, already-scaled final
+form — becomes one ``RecipeContribution`` in the group's ``ConsolidatedItem.recipe_breakdown``,
+listed one-per-line (never merged, even when two slots share a recipe — see CLAUDE.md >
+Ingredient Aliases' sibling section on this). Again purely opaque display metadata: this
+module doesn't know what a "recipe" is, it just carries the label through.
 """
 
 from __future__ import annotations
@@ -55,6 +63,26 @@ class IngredientLine:
     source_qty: float | None = None
     source_unit: str | None = None
     source_name: str | None = None
+    # 2026-09-11 — which recipe slot this line came from, for the ingredient-review "which
+    # recipe is this from" breakdown. recipe_label is a ready-to-display string (e.g.
+    # "Bolognese" or "Bolognese (Mon)" when a day is set) built by the caller — this module
+    # never touches slot/day concepts. None only for a line with no recipe context (shouldn't
+    # happen in practice — every real IngredientLine originates from a recipe slot — but kept
+    # optional rather than assumed, matching source_qty/unit/name's own optionality).
+    recipe_id: int | None = None
+    recipe_label: str | None = None
+
+
+@dataclass(frozen=True)
+class RecipeContribution:
+    """One recipe slot's contribution to a consolidated line — CLAUDE.md > "Which recipe is
+    this ingredient from"."""
+
+    recipe_id: int | None
+    recipe_label: str
+    quantity: float
+    unit: str | None
+    is_no_scale: bool = False  # a "to taste" contribution — quantity/unit are meaningless
 
 
 @dataclass
@@ -70,6 +98,10 @@ class ConsolidatedItem:
     # transform changed, formatted for display, e.g. ["3 tbsp lemon juice"]. Empty when no
     # line in this group went through an alias quantity/unit conversion.
     conversion_notes: list[str] = field(default_factory=list)
+    # 2026-09-11 — one entry per contributing line (never merged, even for two slots of the
+    # same recipe — CLAUDE.md > "Which recipe is this ingredient from"), for the ingredient
+    # review screen's expandable "which recipe needed this" breakdown.
+    recipe_breakdown: list[RecipeContribution] = field(default_factory=list)
 
 
 def _dimension(unit: str | None) -> str:
@@ -128,14 +160,30 @@ def _conversion_notes(lines: list[IngredientLine]) -> list[str]:
     ]
 
 
+def _recipe_breakdown(lines: list[IngredientLine]) -> list[RecipeContribution]:
+    """One entry per line that carries a recipe_label, in the order given — never merged
+    (CLAUDE.md > "Which recipe is this ingredient from": two slots of the same recipe show as
+    two separate rows, e.g. different serving sizes on different days)."""
+    return [
+        RecipeContribution(
+            recipe_id=ln.recipe_id, recipe_label=ln.recipe_label,
+            quantity=ln.quantity, unit=ln.unit, is_no_scale=ln.is_no_scale,
+        )
+        for ln in lines
+        if ln.recipe_label is not None
+    ]
+
+
 def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
     real = [ln for ln in lines if not ln.is_no_scale]
     has_to_taste = any(ln.is_no_scale for ln in lines)
     conversion_notes = _conversion_notes(lines)
+    recipe_breakdown = _recipe_breakdown(lines)
 
     def _item(quantity: float | None, unit: str | None, **kwargs) -> ConsolidatedItem:
         return ConsolidatedItem(
-            name=name, quantity=quantity, unit=unit, conversion_notes=conversion_notes, **kwargs
+            name=name, quantity=quantity, unit=unit, conversion_notes=conversion_notes,
+            recipe_breakdown=recipe_breakdown, **kwargs
         )
 
     if not real:

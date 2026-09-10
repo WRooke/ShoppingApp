@@ -959,6 +959,65 @@ discards checklist progress.
 
 ---
 
+## Which Recipe Is This Ingredient From
+
+**Status: in scope, built 2026-09-11.** Raised as a "hey, what did we need this for?" check
+on the ingredient-review screen, before the checklist and pushing to AnyList: tap a
+consolidated line's name to expand it into a per-recipe breakdown. No record of this ever
+being designed or built before it was raised — checked CLAUDE.md, the full git history, and
+session memory first, rather than assume it existed.
+
+### Design (confirmed 2026-09-11)
+
+- **Ephemeral, review-screen-only — nothing persisted.** Computed fresh on every
+  `POST /sessions/{id}/consolidate`, the same call that already runs the whole pipeline; not
+  written to `session_checklist_items` or anywhere else. It doesn't need to survive to the
+  checklist screen or into `shopping_history` — the ingredient-review step is the one place
+  this check makes sense, right before the household commits to "do I have this?" and pushes.
+- **One row per contributing recipe *slot*, never merged — even two slots of the same
+  recipe.** If a recipe is slotted into a session twice (e.g. meal-prepped for two different
+  nights, at different serving sizes), the breakdown shows both occurrences separately rather
+  than a combined total, since the two occurrences can genuinely need different amounts.
+  Disambiguated by day when one is set (`"Bolognese (Mon)"`, `"Bolognese (Thu)"`); two
+  same-recipe slots with no day set show as identical, indistinguishable labels — accepted,
+  not solved further (a rare case, and the underlying `recipe_id` still links each one to the
+  right recipe page even if the labels read the same).
+- **Shows each recipe's own final, already-scaled amount** — i.e. exactly the `IngredientLine`
+  that recipe contributed to consolidation, post-substitution and post-alias resolution (so a
+  recipe that said "canola oil" shows under "vegetable oil"'s breakdown labelled with its own
+  recipe name, not "canola oil"). This is deliberately **not** re-derived from the recipe's
+  raw, unscaled ingredient data — it's whatever this specific session actually asked for.
+  Amounts are shown in each line's own unit, not converted to the consolidated total's
+  display unit, so if two recipes contributed in different-but-mergeable units (say `g` and
+  `kg`) the breakdown reads naturally per-recipe even though the numbers don't visually
+  re-sum without doing that conversion yourself — the "why do I need this much" answer is in
+  each recipe's own terms, not a second arithmetic exercise.
+- **Each row links to the recipe** (`#/recipes/<id>`) — free to add since `recipe_id` is
+  already on hand from the session's recipe slots.
+- **Implementation stays out of the pure `consolidation.consolidate()`'s reasoning** — same
+  discipline as the Ingredient Aliases conversion notes: `IngredientLine` carries an opaque
+  `recipe_id`/`recipe_label` (a ready-made display string built by
+  `services/session_consolidation.py > _recipe_label()`, which is the only place that knows
+  about slots/days), and `_resolve_group()` just collects one `RecipeContribution` per line
+  into `ConsolidatedItem.recipe_breakdown` — it has no idea what a "recipe" is, same as it has
+  no idea what an "alias" is.
+- **Threading it to the API without changing `consolidate_session()`'s signature** — that
+  function is called from many places (the checklist load/push path, most of the test suite)
+  that have no use for this and shouldn't need updating. `consolidate_session()` stays exactly
+  as it was, now a thin wrapper around a shared internal `_consolidate_session_impl()`; a new
+  `consolidate_session_with_breakdown()` (used only by the one router endpoint that needs it)
+  reads the breakdown map off the SAME already-computed `ConsolidatedItem`s the upsert loop
+  iterates, so there's no second consolidation pass. Wire format:
+  `ChecklistItemRead.recipe_breakdown` (`list[RecipeContribution]`, always `[]` on any other
+  endpoint that returns a `ChecklistItemRead` — populated only by the consolidate endpoint via
+  `model_copy()` after validation, since it isn't a real `session_checklist_items` column).
+- **UI**: `session-review.js` — the ingredient name becomes a tappable toggle (▾/▴) only when
+  a breakdown actually exists; expands to a small list of "Recipe name — amount" rows, each
+  linking to its recipe. Collapsed by default. No change to the checklist screen
+  (`checklist.js`) — this is deliberately review-screen-only, per the design above.
+
+---
+
 ## Recipe Capture — AI Extraction
 
 **Provider: Google Gemini** (`gemini-2.5-flash` → `gemini-2.5-flash-lite` → `capture_queue`),
@@ -3408,7 +3467,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Bulk ingredient rename/merge across recipes | Possible future follow-up, not scheduled | Raised alongside [Ingredient Substitution](#ingredient-substitution): if a recipe's ingredient text needs a genuine *correction* (not a substitution) and the same wrong text appears in several recipes, there's no bulk find-and-replace — each recipe is edited individually via the existing editor ([Chunk 2.4](#phase-2--recipe-library)). Confirmed 2026-09-06 that per-recipe editing is good enough for now; flagged here in case it becomes a real friction point. |
 | Duplicate recipe prevention | **Designed 2026-09-06 — build in Phase 4** | Warn-with-override (never a hard block) when a save looks like a recipe the library already has. Signals: `source_url` exact, name exact, `source_book`+`source_page` overlap, conservative stdlib fuzzy name. Full design in [Duplicate Recipe Prevention](#duplicate-recipe-prevention); becomes a Phase 4 chunk at kickoff. Residual deferred piece: the **ingredient-set overlap** signal is *not* in the Phase 4 build — revisit only if near-dupes still get through afterwards. Fuzzy threshold and whether to build the live `check-duplicate` endpoint are Phase 4 kickoff details. |
 | Store deletion/merge | Post-MVP / low priority | Not designed — add if it comes up. See [Shopping List Store Layout](#shopping-list-store-layout). |
-| "Which recipe is this ingredient from" (a consolidated shopping-list line traces back to its contributing recipe(s)) | Raised 2026-09-10 — to be resolved before the Phase 5 review | No record of this ever being designed or built anywhere in this file, git history, or session memory prior to being raised — checked all three before recording this row, rather than assume it exists. If wanted: a consolidated `session_checklist_items` line would need to carry which recipe(s) contributed to it (e.g. "beef mince — needed by: Bolognese, Tacos"), which the current pure `consolidation.consolidate()` doesn't track (it only knows summed quantities per name, not provenance) — would need `IngredientLine` to carry a recipe reference through `session_consolidation.py`'s `_scaled_lines()`, same shape as the 2026-09-10 conversion-notes addition for Ingredient Aliases. Not scoped further until confirmed this is actually wanted now. |
+| "Which recipe is this ingredient from" (a consolidated shopping-list line traces back to its contributing recipe(s)) | ~~Raised 2026-09-10~~ **Resolved 2026-09-11 — built as [Which Recipe Is This Ingredient From](#which-recipe-is-this-ingredient-from)** | Tap a consolidated line on the ingredient-review screen to expand a per-recipe breakdown. Ephemeral (computed fresh per consolidate, not persisted); one row per contributing recipe *slot*, never merged — including two lines from the *same* recipe (e.g. its own "lemon juice" and "lemon zest" both aliased to "lemon") showing as two separate rows rather than folded together. Incidentally makes the juice+zest over-count row below easier to spot by eye (two rows attributed to one recipe), but doesn't fix it. |
 | Section vocabulary — final list | Confirm before Phase 6 store-setup UI is built | Starter list seeded in Phase 1 (`app/seed_data.py > SECTION_VOCABULARY`) is provisional. See [Section Vocabulary Starter List](#section-vocabulary-starter-list). |
 | Multi-shop support | ~~Post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |
 | Shop layout reorganisation (list sorting by aisle) | ~~Phase 6 or post-MVP~~ **Resolved — now in scope** | See [Shopping List Store Layout](#shopping-list-store-layout). Kept here only so the reversal isn't missed by anyone skimming old notes. |

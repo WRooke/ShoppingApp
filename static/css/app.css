@@ -230,6 +230,21 @@ select, input[type="text"] {
 .recipe-row-meta { font-size: 0.85rem; }
 .recipe-row-rating { font-size: 1.1rem; }
 
+/* 2026-09-11 — the ingredient-review "which recipe is this from" expandable name (session-
+   review.js > renderItemRow). A <button> so it's tappable, styled to still read as a plain
+   heading label rather than a boxed button. */
+.recipe-row-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  min-height: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.recipe-breakdown { margin-top: 6px; }
+.recipe-breakdown-row { padding: 2px 0; font-size: 0.85rem; }
+
 .ingredient-list {
   margin: 0;
   padding-left: 1.2em;

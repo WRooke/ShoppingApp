@@ -26,6 +26,10 @@ from app.services.sessions import get_session
 
 logger = logging.getLogger(__name__)
 
+# 1=Monday..7=Sunday (CLAUDE.md > Data Model > session_recipes). Only used to disambiguate
+# _recipe_label() below when the same recipe is slotted into a session more than once.
+_DAY_ABBR = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
+
 # Pack-unit strings we know how to normalise, grouped by dimension — mirrors
 # consolidation._G_PER / _ML_PER so pack sizes line up with consolidated quantities.
 _PACK_G = {"g": 1.0, "kg": 1000.0}
@@ -97,6 +101,17 @@ def _apply_alias(
     return alias.canonical_name, qty, unit, None
 
 
+def _recipe_label(slot) -> str:
+    """Display label for one recipe slot's contributions to the "which recipe is this
+    ingredient from" breakdown (CLAUDE.md). Just the recipe name, unless a day is set — the
+    day disambiguates when the SAME recipe is slotted into a session more than once (e.g.
+    meal-prepped for two different nights); no other disambiguator is attempted (two
+    same-recipe, same-day-unset slots show as identical labels — accepted, see the
+    "duplicate recipes" note in that section)."""
+    day = _DAY_ABBR.get(slot.day_of_week)
+    return f"{slot.recipe.name} ({day})" if day else slot.recipe.name
+
+
 def _scaled_lines(
     session: PlanningSession,
     override_map: dict[str, SessionOverride],
@@ -109,12 +124,15 @@ def _scaled_lines(
     quantity/unit transform, e.g. "lemon juice" -> "lemon"), as a final normalisation pass
     applied to whatever name/amount resulted from the steps before it (CLAUDE.md > Ingredient
     Aliases > Where it applies). `consolidation.consolidate()` itself does no substitution or
-    aliasing (Phase 3.9 M4/M8; 2026-09-10)."""
+    aliasing (Phase 3.9 M4/M8; 2026-09-10). Each line also carries which recipe slot it came
+    from (2026-09-11, CLAUDE.md > "Which recipe is this ingredient from"), purely for display —
+    it plays no part in any of the above resolution."""
     lines: list[consolidation.IngredientLine] = []
     for slot in session.recipes:
         if slot.slot_type != "recipe" or slot.recipe is None:
             continue  # leftovers slots contribute nothing
         factor = scaling.scaling_factor(slot.recipe.base_servings, slot.scaled_servings)
+        label = _recipe_label(slot)
         for ing in slot.recipe.ingredients:
             base = ing.resolved_ingredient or ing.name
             src_qty, src_unit = _effective_source(ing)
@@ -132,6 +150,7 @@ def _scaled_lines(
                     source_qty=source[0] if source else None,
                     source_unit=source[1] if source else None,
                     source_name=source[2] if source else None,
+                    recipe_id=slot.recipe_id, recipe_label=label,
                 )
             )
     return lines
@@ -200,7 +219,33 @@ def consolidate_session(
     """Rebuild the consolidated checklist for a session. Upsert, not wipe: computed
     fields are recomputed, new lines added, gone lines removed, but per-line state
     (have_it / add_to_list / already_on_anylist / anylist_item_id) is PRESERVED for
-    lines that persist (CLAUDE.md > Scaling Logic > re-running consolidation)."""
+    lines that persist (CLAUDE.md > Scaling Logic > re-running consolidation).
+
+    Thin wrapper kept at this exact name/signature for every existing caller (the checklist
+    load/push path, and the bulk of the test suite) — see `consolidate_session_with_breakdown`
+    below for the one caller (the ingredient-review endpoint) that also needs the pure
+    `ConsolidatedItem`s themselves, e.g. for `recipe_breakdown` (CLAUDE.md > "Which recipe is
+    this ingredient from")."""
+    rows, _items = _consolidate_session_impl(db, session_id, overrides=overrides)
+    return rows
+
+
+def consolidate_session_with_breakdown(
+    db: Session, session_id: int, *, overrides: list[SessionOverride] | None = None
+) -> tuple[list[SessionChecklistItem], dict[str, list[consolidation.RecipeContribution]]]:
+    """Same upsert as `consolidate_session`, plus a {ingredient_name: recipe_breakdown} map —
+    computed for free alongside it (no second consolidation pass) since the upsert loop
+    already iterates the pure `ConsolidatedItem`s that carry this. Not persisted anywhere
+    (CLAUDE.md > "Which recipe is this ingredient from" — confirmed ephemeral, review-screen-
+    only): recomputed fresh on every call, same as the rest of consolidation."""
+    rows, items = _consolidate_session_impl(db, session_id, overrides=overrides)
+    breakdown = {item.name: item.recipe_breakdown for item in items}
+    return rows, breakdown
+
+
+def _consolidate_session_impl(
+    db: Session, session_id: int, *, overrides: list[SessionOverride] | None = None
+) -> tuple[list[SessionChecklistItem], list[consolidation.ConsolidatedItem]]:
     session = get_session(db, session_id)
 
     # Session-only overrides — client-held, not written anywhere (Phase 3.9 M4/M8). Per-recipe
@@ -290,4 +335,5 @@ def consolidate_session(
         len(overrides or []),
     )
     db.refresh(session)
-    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
+    rows = sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
+    return rows, items

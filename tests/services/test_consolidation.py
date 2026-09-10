@@ -5,13 +5,17 @@ unit rule from the 2026-09-06 grilling is exercised here (CLAUDE.md > Scaling Lo
 
 from __future__ import annotations
 
-from app.services.consolidation import IngredientLine, consolidate
+from app.services.consolidation import IngredientLine, RecipeContribution, consolidate
 
 
-def L(name, qty, unit=None, is_no_scale=False, source_qty=None, source_unit=None, source_name=None):
+def L(
+    name, qty, unit=None, is_no_scale=False, source_qty=None, source_unit=None, source_name=None,
+    recipe_id=None, recipe_label=None,
+):
     return IngredientLine(
         name=name, quantity=qty, unit=unit, is_no_scale=is_no_scale,
         source_qty=source_qty, source_unit=source_unit, source_name=source_name,
+        recipe_id=recipe_id, recipe_label=recipe_label,
     )
 
 
@@ -197,3 +201,46 @@ def test_a_plain_line_with_no_alias_has_no_conversion_notes():
     item = one([L("lemon", 1, None), L("lemon", 1, None, source_qty=2, source_unit="tbsp", source_name="lemon juice")])
     assert item.conversion_notes == ["2 tbsp lemon juice"]  # only the aliased line contributes
     assert item.quantity == 2  # both lines still sum normally as plain "lemon" count
+
+
+# --- recipe breakdown (2026-09-11, "which recipe is this ingredient from") ---------------
+
+
+def test_recipe_breakdown_lists_one_entry_per_line():
+    item = one(
+        [
+            L("beef mince", 500, "g", recipe_id=1, recipe_label="Bolognese"),
+            L("beef mince", 375, "g", recipe_id=2, recipe_label="Chilli"),
+        ]
+    )
+    assert item.quantity == 875 and item.unit == "g"
+    assert item.recipe_breakdown == [
+        RecipeContribution(recipe_id=1, recipe_label="Bolognese", quantity=500, unit="g"),
+        RecipeContribution(recipe_id=2, recipe_label="Chilli", quantity=375, unit="g"),
+    ]
+
+
+def test_recipe_breakdown_never_merges_same_recipe_twice():
+    # Two slots of the same recipe (e.g. added on both Monday and Thursday) show as two
+    # separate rows, not summed into one -- CLAUDE.md > "Which recipe is this ingredient from".
+    item = one(
+        [
+            L("beef mince", 500, "g", recipe_id=1, recipe_label="Bolognese (Mon)"),
+            L("beef mince", 375, "g", recipe_id=1, recipe_label="Bolognese (Thu)"),
+        ]
+    )
+    assert len(item.recipe_breakdown) == 2
+    assert [rc.recipe_label for rc in item.recipe_breakdown] == ["Bolognese (Mon)", "Bolognese (Thu)"]
+
+
+def test_recipe_breakdown_includes_to_taste_contributions():
+    item = one([L("saffron", 1, "pinch", is_no_scale=True, recipe_id=1, recipe_label="Paella")])
+    assert item.is_no_scale is True
+    assert item.recipe_breakdown == [
+        RecipeContribution(recipe_id=1, recipe_label="Paella", quantity=1, unit="pinch", is_no_scale=True)
+    ]
+
+
+def test_recipe_breakdown_empty_when_no_line_carries_a_label():
+    item = one([L("beef mince", 500, "g")])
+    assert item.recipe_breakdown == []

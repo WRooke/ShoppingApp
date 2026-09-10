@@ -184,6 +184,38 @@ def test_consolidate_endpoint_returns_checklist(client):
     assert names["beef mince"]["display_qty"] == "1 × 500g pack"
 
 
+def test_consolidate_endpoint_includes_recipe_breakdown(client):
+    # 2026-09-11 -- "which recipe is this ingredient from". Two recipes contributing to the
+    # same ingredient must each show up as their own row.
+    s = _session(client, "ZZ-Breakdown")
+    r1 = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "ZZ-Breakdown-Bolognese", "source_type": "manual", "base_servings": 4,
+            "ingredients": [{"name": "beef mince", "quantity": 500, "unit": "g"}],
+            "allow_duplicate": True,
+        },
+    ).json()["data"]
+    r2 = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "ZZ-Breakdown-Chilli", "source_type": "manual", "base_servings": 4,
+            "ingredients": [{"name": "beef mince", "quantity": 250, "unit": "g"}],
+            "allow_duplicate": True,
+        },
+    ).json()["data"]
+    client.post(f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r1["id"], "scaled_servings": 4})
+    client.post(f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r2["id"], "scaled_servings": 4})
+
+    resp = client.post(f"/api/v1/sessions/{s['id']}/consolidate", json={})
+    beef = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "beef mince")
+    assert beef["total_quantity"] == 750
+    breakdown = {b["recipe_label"]: b for b in beef["recipe_breakdown"]}
+    assert breakdown["ZZ-Breakdown-Bolognese"]["quantity"] == 500
+    assert breakdown["ZZ-Breakdown-Chilli"]["quantity"] == 250
+    assert breakdown["ZZ-Breakdown-Bolognese"]["recipe_id"] == r1["id"]
+
+
 def test_consolidate_endpoint_unknown_session_404(client):
     resp = client.post("/api/v1/sessions/999999/consolidate", json={})
     assert resp.status_code == 404

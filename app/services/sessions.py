@@ -241,4 +241,7 @@ def reorder_slots(db: Session, session_id: int, ordered_ids: list[int]) -> list[
 # > Code Architecture > File size). Re-exported here so `sessions_service.consolidate_session`
 # and the tests keep resolving unchanged. Imported at the bottom so `get_session` is defined
 # before session_consolidation imports it back.
-from app.services.session_consolidation import consolidate_session  # noqa: E402,F401
+from app.services.session_consolidation import (  # noqa: E402,F401
+    consolidate_session,
+    consolidate_session_with_breakdown,
+)
