@@ -252,6 +252,48 @@
           });
         },
       },
+      unitSynonyms: {
+        list: function () {
+          return api.get("/api/v1/settings/unit-synonyms?limit=500");
+        },
+        create: function (data) {
+          return jsonBody("POST", "/api/v1/settings/unit-synonyms", data);
+        },
+        update: function (id, data) {
+          return jsonBody(
+            "PATCH",
+            "/api/v1/settings/unit-synonyms/" + encodeURIComponent(id),
+            data
+          );
+        },
+        delete: function (id) {
+          return request("/api/v1/settings/unit-synonyms/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          });
+        },
+      },
+      coarseIngredients: {
+        list: function () {
+          return api.get("/api/v1/settings/coarse-ingredients?limit=500");
+        },
+        create: function (data) {
+          return jsonBody("POST", "/api/v1/settings/coarse-ingredients", data);
+        },
+        update: function (id, data) {
+          return jsonBody(
+            "PATCH",
+            "/api/v1/settings/coarse-ingredients/" + encodeURIComponent(id),
+            data
+          );
+        },
+        delete: function (id) {
+          return request("/api/v1/settings/coarse-ingredients/" + encodeURIComponent(id), {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          });
+        },
+      },
     },
     sessions: {
       list: function () {

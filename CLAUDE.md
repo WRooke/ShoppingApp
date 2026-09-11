@@ -1687,14 +1687,34 @@ quantity math entirely for ingredients where precision is pointless.
       Decisions + Decision Dialogue updates, Project Directory Structure entries. Done
       2026-09-12, before any code — the maintainer's explicit ask, so the full design is on
       record before implementation starts.
-- [ ] **Chunk 1 — `unit_synonyms`.** Migration, model, schema, service (CRUD + the
+- [x] **Chunk 1 — `unit_synonyms`.** Migration, model, schema, service (CRUD + the
       pluralisation-strip helper + `synonym_map()`), router endpoints under
       `/api/v1/settings/unit-synonyms`, Settings card, seed data, tests.
+      Done 2026-09-12. Migration `e7f2c9a4d6b8` (shared with Chunk 3, one table each, both
+      brand-new so plain `create_table`). `strip_plural()` lives in `services/unit_synonyms.py`
+      (same heuristic as `checklist.py`'s `_singularise()`, applied to unit strings); a check
+      script against every real seed row + spot-check inputs (grams/kgs/mls/litres/
+      teaspoons/tablespoons/tbsps/cloves/bunches/sprigs/cans) confirmed no dead/unreachable
+      seed rows and every real-world spelling resolves correctly. One real gap the tests
+      caught: `canonical_unit` is normalised lowercase the same as `alias_unit` (consistent
+      with every other normalised field in the app) — an original seed entry ("l" -> "L")
+      would have been rejected as a self-alias once case-folded, and was dead weight anyway
+      (consolidation.py's volume-display branch already hardcodes "L"/"ml" regardless of
+      input casing) — removed; the `liter`/`litre` -> `l` entries fixed to lowercase.
+      14 service tests + 9 router tests; suite 447 pass. Headless-Edge verified: "Unit
+      spellings" card renders 6 canonical groups (g/kg/l/ml/tbsp/tsp) from the real seed,
+      zero console errors.
 - [ ] **Chunk 2 — wire Layer A into consolidation.** Resolve unit synonyms in
       `_scaled_lines()`, same layer as ingredient alias resolution, applied to every line's
       unit before `consolidation.consolidate()` buckets it.
-- [ ] **Chunk 3 — `coarse_ingredients`.** Migration, model, schema, service, router endpoints
+- [x] **Chunk 3 — `coarse_ingredients`.** Migration, model, schema, service, router endpoints
       under `/api/v1/settings/coarse-ingredients`, Settings card, seed data, tests.
+      Done 2026-09-12 (migration `e7f2c9a4d6b8`, shared with Chunk 1). CRUD only in this
+      chunk — the counting/`packs_needed` resolution logic is Chunk 4, in
+      `session_consolidation.py`, not here. Seeded parsley/coriander/mint/basil, all
+      `purchase_label="bunch"`, `recipes_per_pack=3`. 10 service tests + 8 router tests;
+      suite 447 pass. Headless-Edge verified: "Coarse ingredients" card lists all 4 seeded
+      rows with editable label/recipes-per-pack fields, zero console errors.
 - [ ] **Chunk 4 — wire Layer D into consolidation.** Partition lines into coarse/normal in
       the orchestrator; build coarse `ConsolidatedItem`s by hand; merge into the upsert loop
       with its own display-string branch, bypassing pack resolution.

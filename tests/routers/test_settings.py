@@ -394,3 +394,104 @@ def test_usuals_update_missing_is_404(client):
     resp = client.patch("/api/v1/settings/usuals/999999", json={"cadence_days": 7})
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "USUAL_ITEM_NOT_FOUND"
+
+
+# --- unit synonyms: spelling canonicalisation (2026-09-12) -----------------------------
+
+
+def test_create_unit_synonym_happy_path(client):
+    resp = client.post(
+        "/api/v1/settings/unit-synonyms",
+        json={"alias_unit": "ZZ-Grams", "canonical_unit": "ZZ-G"},
+    )
+    assert resp.status_code == 201
+    body = resp.json()["data"]
+    assert body["alias_unit"] == "zz-gram"  # normalised through strip_plural too
+    assert body["canonical_unit"] == "zz-g"
+
+
+def test_create_unit_synonym_duplicate_returns_409(client):
+    client.post(
+        "/api/v1/settings/unit-synonyms",
+        json={"alias_unit": "ZZ-Dup-Unit", "canonical_unit": "ZZ-A"},
+    )
+    resp = client.post(
+        "/api/v1/settings/unit-synonyms",
+        json={"alias_unit": "zz-dup-unit", "canonical_unit": "zz-b"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "DUPLICATE_UNIT_SYNONYM"
+
+
+def test_create_self_unit_synonym_returns_422(client):
+    resp = client.post(
+        "/api/v1/settings/unit-synonyms",
+        json={"alias_unit": "ZZ-Self-Unit", "canonical_unit": "zz-self-unit"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_UNIT_SYNONYM"
+
+
+def test_delete_unit_synonym(client):
+    row = client.post(
+        "/api/v1/settings/unit-synonyms",
+        json={"alias_unit": "ZZ-DeleteMe-Unit", "canonical_unit": "zz-target"},
+    ).json()["data"]
+    resp = client.delete(f"/api/v1/settings/unit-synonyms/{row['id']}")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["deleted"] is True
+
+
+def test_update_unit_synonym_not_found_returns_404(client):
+    resp = client.patch(
+        "/api/v1/settings/unit-synonyms/999999", json={"canonical_unit": "x"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "UNIT_SYNONYM_NOT_FOUND"
+
+
+# --- coarse ingredients: skip quantity math entirely (2026-09-12) ----------------------
+
+
+def test_create_coarse_ingredient_happy_path(client):
+    resp = client.post(
+        "/api/v1/settings/coarse-ingredients",
+        json={"name": "ZZ-Parsley", "purchase_label": "bunch"},
+    )
+    assert resp.status_code == 201
+    body = resp.json()["data"]
+    assert body["name"] == "zz-parsley"
+    assert body["purchase_label"] == "bunch"
+    assert body["recipes_per_pack"] == 3  # default
+
+
+def test_create_coarse_ingredient_duplicate_returns_409(client):
+    client.post("/api/v1/settings/coarse-ingredients", json={"name": "ZZ-Dup-Coarse"})
+    resp = client.post("/api/v1/settings/coarse-ingredients", json={"name": "zz-dup-coarse"})
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "DUPLICATE_COARSE_INGREDIENT"
+
+
+def test_create_coarse_ingredient_rejects_zero_recipes_per_pack(client):
+    resp = client.post(
+        "/api/v1/settings/coarse-ingredients",
+        json={"name": "ZZ-Bad-Coarse", "recipes_per_pack": 0},
+    )
+    assert resp.status_code == 422
+
+
+def test_delete_coarse_ingredient(client):
+    row = client.post(
+        "/api/v1/settings/coarse-ingredients", json={"name": "ZZ-DeleteMe-Coarse"}
+    ).json()["data"]
+    resp = client.delete(f"/api/v1/settings/coarse-ingredients/{row['id']}")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["deleted"] is True
+
+
+def test_update_coarse_ingredient_not_found_returns_404(client):
+    resp = client.patch(
+        "/api/v1/settings/coarse-ingredients/999999", json={"purchase_label": "bunch"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "COARSE_INGREDIENT_NOT_FOUND"

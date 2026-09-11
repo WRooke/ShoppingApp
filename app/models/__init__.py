@@ -4,10 +4,12 @@ One module per table group (see CLAUDE.md > Data Model).
 """
 
 from app.models.catalog import (
+    CoarseIngredient,
     IngredientAlias,
     ProductUnit,
     RememberedSubstitution,
     Staple,
+    UnitSynonym,
     UsualItem,
 )
 from app.models.diagnostics import AiCallLog
@@ -25,6 +27,8 @@ __all__ = [
     "UsualItem",
     "RememberedSubstitution",
     "IngredientAlias",
+    "UnitSynonym",
+    "CoarseIngredient",
     "PlanningSession",
     "SessionRecipe",
     "SessionChecklistItem",

@@ -11,7 +11,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.catalog import IngredientAlias, ProductUnit, Staple
+from app.models.catalog import CoarseIngredient, IngredientAlias, ProductUnit, Staple, UnitSynonym
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,52 @@ INGREDIENT_ALIAS_SEEDS: list[dict] = [
     },
 ]
 
+# Unit-spelling canonicalisation (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling >
+# Layer A). A small, ONE-TIME, universal set of English cooking-measurement word-forms — not
+# per-ingredient, so this isn't the admin the maintainer is avoiding.
+#
+# Only the BASE (already-singular) form of each word-form needs a row: resolve_unit() always
+# runs strip_plural() before consulting this map, so a plural like "grams" or "teaspoons"
+# already arrives here as "gram"/"teaspoon" — adding "grams" -> "g" as well would just be a
+# dead, never-reached row. The two exceptions are units short enough (<=3 chars) that
+# strip_plural()'s length guard deliberately leaves them alone (to avoid over-stripping — see
+# that function's docstring), so "kgs"/"mls" need their own explicit rows.
+UNIT_SYNONYM_SEEDS: list[dict] = [
+    {"alias_unit": "gram", "canonical_unit": "g"},
+    {"alias_unit": "kilogram", "canonical_unit": "kg"},
+    {"alias_unit": "kgs", "canonical_unit": "kg"},
+    {"alias_unit": "millilitre", "canonical_unit": "ml"},
+    {"alias_unit": "milliliter", "canonical_unit": "ml"},
+    {"alias_unit": "mls", "canonical_unit": "ml"},
+    # Lowercase "l", not "L" -- services/unit_synonyms.py normalises canonical_unit lowercase
+    # the same as alias_unit (consistent with every other normalised field in the app), and
+    # it makes no functional difference here: consolidation.py's volume-display branch
+    # hardcodes "L" for a >=1000ml total regardless of the input unit's casing.
+    {"alias_unit": "litre", "canonical_unit": "l"},
+    {"alias_unit": "liter", "canonical_unit": "l"},
+    # No "l" -> "L" row: consolidation.py's _dimension()/_ML_PER already lowercase and match
+    # "l" as volume regardless of input casing, and the display branch always hardcodes "L"
+    # for a >=1000ml total — the casing genuinely doesn't matter anywhere downstream, so a
+    # synonym row here would be dead weight (and, once case-folded, a self-alias anyway —
+    # create_synonym() would reject "l" -> "L" for exactly that reason).
+    {"alias_unit": "teaspoon", "canonical_unit": "tsp"},
+    {"alias_unit": "tablespoon", "canonical_unit": "tbsp"},
+    {"alias_unit": "tbs", "canonical_unit": "tbsp"},
+]
+
+# Coarse ingredients (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling > Layer D).
+# Skip quantity/unit math entirely at consolidation: any nonzero need resolves straight to a
+# purchase-label count. Seeded with the maintainer's own motivating example (parsley) plus
+# its obvious fresh-herb siblings — same "exercise it immediately" call as the oil-variant
+# and lemon/lime alias seeds. recipes_per_pack is a rough, editable guess, not derived from
+# anything — see the Known limitation note in CLAUDE.md > Ingredient Unit Handling.
+COARSE_INGREDIENT_SEEDS: list[dict] = [
+    {"name": "parsley", "purchase_label": "bunch", "recipes_per_pack": 3},
+    {"name": "coriander", "purchase_label": "bunch", "recipes_per_pack": 3},
+    {"name": "mint", "purchase_label": "bunch", "recipes_per_pack": 3},
+    {"name": "basil", "purchase_label": "bunch", "recipes_per_pack": 3},
+]
+
 
 def seed_reference_data(db: Session) -> dict:
     """Insert any missing preseeded product units and staples. Idempotent.
@@ -177,11 +223,31 @@ def seed_reference_data(db: Session) -> dict:
             db.add(IngredientAlias(**row))
             added_aliases += 1
 
+    added_unit_synonyms = 0
+    for row in UNIT_SYNONYM_SEEDS:
+        exists = (
+            db.query(UnitSynonym).filter(UnitSynonym.alias_unit == row["alias_unit"]).first()
+        )
+        if exists is None:
+            db.add(UnitSynonym(**row))
+            added_unit_synonyms += 1
+
+    added_coarse = 0
+    for row in COARSE_INGREDIENT_SEEDS:
+        exists = (
+            db.query(CoarseIngredient).filter(CoarseIngredient.name == row["name"]).first()
+        )
+        if exists is None:
+            db.add(CoarseIngredient(**row))
+            added_coarse += 1
+
     db.commit()
     result = {
         "product_units_added": added_units,
         "staples_added": added_staples,
         "ingredient_aliases_added": added_aliases,
+        "unit_synonyms_added": added_unit_synonyms,
+        "coarse_ingredients_added": added_coarse,
     }
     logger.info("Reference data seed: %s", result)
     return result

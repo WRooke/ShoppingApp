@@ -1,6 +1,7 @@
-"""``product_units``, ``staples``, ``remembered_substitutions`` and ``ingredient_aliases`` —
-the editable reference catalogue managed from the Settings page. (``remembered_substitutions``
-was ``ingredient_substitutions`` with an auto-applying ``is_default`` until Phase 3.9 M4.)"""
+"""``product_units``, ``staples``, ``remembered_substitutions``, ``ingredient_aliases``,
+``unit_synonyms`` and ``coarse_ingredients`` — the editable reference catalogue managed from
+the Settings page. (``remembered_substitutions`` was ``ingredient_substitutions`` with an
+auto-applying ``is_default`` until Phase 3.9 M4.)"""
 
 from __future__ import annotations
 
@@ -137,5 +138,56 @@ class IngredientAlias(Base):
     alias_unit = Column(Text, nullable=True)
     canonical_qty = Column(Float, nullable=True)
     canonical_unit = Column(Text, nullable=True)  # nullable -- the canonical side is often a bare count
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class UnitSynonym(Base):
+    """Unit-spelling canonicalisation (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling
+    > Layer A). The plainer sibling of ``IngredientAlias`` above — same "warn/merge, no admin"
+    spirit, but for the *spelling* of a unit rather than the *identity* of an ingredient, and
+    with no equivalence pair: a unit doesn't need a quantity conversion to its own synonym
+    ("tablespoon" just *is* "tbsp", not "N tablespoon ~= M tbsp").
+
+    Resolved dynamically at consolidation time (services/session_consolidation.py), same
+    point and reasoning as ``IngredientAlias`` — a Settings-editable synonym added later
+    should retroactively fix recipes saved before it existed, which rewriting
+    ``recipe_ingredients.unit`` at save time couldn't do. A generic, tableless pluralisation-
+    strip rule (``services/unit_synonyms.py > strip_plural()``) runs first and handles most
+    discrete-unit plurals (clove/cloves, bunch/bunches) for free — this table only needs
+    entries for genuine word-form differences the strip rule can't derive (gram(s) -> g,
+    tablespoon(s)/tbs -> tbsp), which is why it's a small, one-time, universal seed rather
+    than per-household admin.
+    """
+
+    __tablename__ = "unit_synonyms"
+
+    id = Column(Integer, primary_key=True)
+    alias_unit = Column(Text, nullable=False, unique=True)  # normalised lowercase, post-strip
+    canonical_unit = Column(Text, nullable=False)  # normalised lowercase
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class CoarseIngredient(Base):
+    """An ingredient that skips the normal sum -> normalise -> round consolidation pipeline
+    entirely because precision is pointless for it (2026-09-12 — "10g + 1 tbsp of parsley is
+    probably just a bunch, I'm not out shopping for parsley by the gram and tablespoon"). See
+    CLAUDE.md > Ingredient Unit Handling > Layer D.
+
+    Deliberately its own table rather than a flag on ``ProductUnit`` — a coarse ingredient's
+    "pack" concept (a plain purchase label + a recipe-count divisor) is simpler than, and
+    orthogonal to, ``ProductUnit``'s precise weight/volume pack-size resolution, which a
+    coarse ingredient never runs. Checked against an ingredient's FINAL resolved name (after
+    substitution + ``IngredientAlias`` resolution), the same point ``is_staple`` is checked.
+    """
+
+    __tablename__ = "coarse_ingredients"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(Text, nullable=False, unique=True)  # normalised lowercase
+    purchase_label = Column(Text, nullable=True)  # e.g. "bunch"; NULL = just "needed", no count
+    recipes_per_pack = Column(Integer, nullable=False, default=3)
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

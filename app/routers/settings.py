@@ -18,6 +18,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.schemas.coarse_ingredients import (
+    CoarseIngredientCreate,
+    CoarseIngredientRead,
+    CoarseIngredientUpdate,
+)
 from app.schemas.ingredient_aliases import (
     IngredientAliasCreate,
     IngredientAliasRead,
@@ -31,15 +36,22 @@ from app.schemas.settings import (
     StapleRead,
     StapleUpdate,
 )
+from app.schemas.unit_synonyms import (
+    UnitSynonymCreate,
+    UnitSynonymRead,
+    UnitSynonymUpdate,
+)
 from app.schemas.usuals import UsualItemCreate, UsualItemUpdate
 from app.schemas.substitutions import (
     RememberedSubstitutionCreate,
     RememberedSubstitutionRead,
     RememberedSubstitutionUpdate,
 )
+from app.services import coarse_ingredients as coarse_ingredients_service
 from app.services import ingredient_aliases as ingredient_aliases_service
 from app.services import settings as settings_service
 from app.services import substitutions as substitutions_service
+from app.services import unit_synonyms as unit_synonyms_service
 from app.services import usuals as usuals_service
 
 logger = logging.getLogger(__name__)
@@ -280,3 +292,102 @@ def update_ingredient_alias(
 def delete_ingredient_alias(alias_id: int, db: Session = Depends(get_db)) -> dict:
     ingredient_aliases_service.delete_alias(db, alias_id)
     return {"ok": True, "data": {"id": alias_id, "deleted": True}}
+
+
+# --- unit synonyms: spelling canonicalisation (2026-09-12) -----------------------------
+#
+# Distinct from ingredient aliases above — see CLAUDE.md > Ingredient Unit Handling > Layer
+# A. No equivalence pair (a unit needs no quantity conversion to its own synonym).
+
+
+def _unit_synonym_read(row) -> dict:
+    return UnitSynonymRead.model_validate(row).model_dump(mode="json")
+
+
+@router.post("/unit-synonyms", status_code=201)
+def create_unit_synonym(data: UnitSynonymCreate, db: Session = Depends(get_db)) -> dict:
+    row = unit_synonyms_service.create_synonym(db, data)
+    return {"ok": True, "data": _unit_synonym_read(row)}
+
+
+@router.get("/unit-synonyms")
+def list_unit_synonyms(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> dict:
+    items, total = unit_synonyms_service.list_synonyms(db, limit=limit, offset=offset)
+    return {
+        "ok": True,
+        "data": {
+            "items": [_unit_synonym_read(r) for r in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
+
+
+@router.patch("/unit-synonyms/{synonym_id}")
+def update_unit_synonym(
+    synonym_id: int, data: UnitSynonymUpdate, db: Session = Depends(get_db)
+) -> dict:
+    row = unit_synonyms_service.update_synonym(db, synonym_id, data)
+    return {"ok": True, "data": _unit_synonym_read(row)}
+
+
+@router.delete("/unit-synonyms/{synonym_id}")
+def delete_unit_synonym(synonym_id: int, db: Session = Depends(get_db)) -> dict:
+    unit_synonyms_service.delete_synonym(db, synonym_id)
+    return {"ok": True, "data": {"id": synonym_id, "deleted": True}}
+
+
+# --- coarse ingredients: skip quantity math entirely (2026-09-12) ----------------------
+#
+# See CLAUDE.md > Ingredient Unit Handling > Layer D.
+
+
+def _coarse_read(row) -> dict:
+    return CoarseIngredientRead.model_validate(row).model_dump(mode="json")
+
+
+@router.post("/coarse-ingredients", status_code=201)
+def create_coarse_ingredient(
+    data: CoarseIngredientCreate, db: Session = Depends(get_db)
+) -> dict:
+    row = coarse_ingredients_service.create_coarse_ingredient(db, data)
+    return {"ok": True, "data": _coarse_read(row)}
+
+
+@router.get("/coarse-ingredients")
+def list_coarse_ingredients(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> dict:
+    items, total = coarse_ingredients_service.list_coarse_ingredients(
+        db, limit=limit, offset=offset
+    )
+    return {
+        "ok": True,
+        "data": {
+            "items": [_coarse_read(r) for r in items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
+
+
+@router.patch("/coarse-ingredients/{coarse_id}")
+def update_coarse_ingredient(
+    coarse_id: int, data: CoarseIngredientUpdate, db: Session = Depends(get_db)
+) -> dict:
+    row = coarse_ingredients_service.update_coarse_ingredient(db, coarse_id, data)
+    return {"ok": True, "data": _coarse_read(row)}
+
+
+@router.delete("/coarse-ingredients/{coarse_id}")
+def delete_coarse_ingredient(coarse_id: int, db: Session = Depends(get_db)) -> dict:
+    coarse_ingredients_service.delete_coarse_ingredient(db, coarse_id)
+    return {"ok": True, "data": {"id": coarse_id, "deleted": True}}

@@ -73,6 +73,15 @@ from app.services.ingredient_aliases import (
     IngredientAliasNotFoundError,
     InvalidIngredientAliasError,
 )
+from app.services.unit_synonyms import (
+    DuplicateUnitSynonymError,
+    InvalidUnitSynonymError,
+    UnitSynonymNotFoundError,
+)
+from app.services.coarse_ingredients import (
+    CoarseIngredientNotFoundError,
+    DuplicateCoarseIngredientError,
+)
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -402,6 +411,67 @@ async def invalid_ingredient_alias_handler(request: Request, exc: InvalidIngredi
     return JSONResponse(
         status_code=422,
         content=_error_body("INVALID_INGREDIENT_ALIAS", exc.reason, None),
+    )
+
+
+@app.exception_handler(UnitSynonymNotFoundError)
+async def unit_synonym_not_found_handler(request: Request, exc: UnitSynonymNotFoundError):
+    logger.info(
+        "Unit synonym not found: id=%s (%s %s)", exc.synonym_id, request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "UNIT_SYNONYM_NOT_FOUND", f"Unit synonym {exc.synonym_id} not found.", None
+        ),
+    )
+
+
+@app.exception_handler(DuplicateUnitSynonymError)
+async def duplicate_unit_synonym_handler(request: Request, exc: DuplicateUnitSynonymError):
+    logger.info(
+        "Duplicate unit synonym: %r (%s %s)", exc.alias_unit, request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "DUPLICATE_UNIT_SYNONYM",
+            f'"{exc.alias_unit}" is already mapped to another unit.',
+            None,
+        ),
+    )
+
+
+@app.exception_handler(InvalidUnitSynonymError)
+async def invalid_unit_synonym_handler(request: Request, exc: InvalidUnitSynonymError):
+    logger.info("Invalid unit synonym: %s (%s %s)", exc.reason, request.method, request.url.path)
+    return JSONResponse(
+        status_code=422,
+        content=_error_body("INVALID_UNIT_SYNONYM", exc.reason, None),
+    )
+
+
+@app.exception_handler(CoarseIngredientNotFoundError)
+async def coarse_ingredient_not_found_handler(request: Request, exc: CoarseIngredientNotFoundError):
+    logger.info(
+        "Coarse ingredient not found: id=%s (%s %s)", exc.coarse_id, request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=404,
+        content=_error_body(
+            "COARSE_INGREDIENT_NOT_FOUND", f"Coarse ingredient {exc.coarse_id} not found.", None
+        ),
+    )
+
+
+@app.exception_handler(DuplicateCoarseIngredientError)
+async def duplicate_coarse_ingredient_handler(request: Request, exc: DuplicateCoarseIngredientError):
+    logger.info("Duplicate coarse ingredient: %r (%s %s)", exc.name, request.method, request.url.path)
+    return JSONResponse(
+        status_code=409,
+        content=_error_body(
+            "DUPLICATE_COARSE_INGREDIENT", f'"{exc.name}" is already a coarse ingredient.', None
+        ),
     )
 
 
