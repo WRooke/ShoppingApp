@@ -168,6 +168,18 @@ UNIT_SYNONYM_SEEDS: list[dict] = [
     {"alias_unit": "teaspoon", "canonical_unit": "tsp"},
     {"alias_unit": "tablespoon", "canonical_unit": "tbsp"},
     {"alias_unit": "tbs", "canonical_unit": "tbsp"},
+    # 2026-09-12 — added as part of "admin reduction" (see CLAUDE.md > Ingredient Unit
+    # Handling > Admin reduction). More universal word-forms the original pass missed; same
+    # "only the base form" rule as above (each one's plural resolves for free once
+    # strip_plural() reduces it to the row below).
+    {"alias_unit": "gramme", "canonical_unit": "g"},  # British spelling; "grammes" -> this
+    {"alias_unit": "kilogramme", "canonical_unit": "kg"},  # "kilogrammes" -> this
+    {"alias_unit": "kilo", "canonical_unit": "kg"},  # "kilos" -> this
+    {"alias_unit": "tspn", "canonical_unit": "tsp"},
+    {"alias_unit": "tbspn", "canonical_unit": "tbsp"},
+    {"alias_unit": "ltr", "canonical_unit": "l"},  # <=3 chars -> strip_plural leaves it alone,
+                                                    # same reason "kgs"/"mls" need their own row
+                                                    # above; "ltrs" -> this
 ]
 
 # Coarse ingredients (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling > Layer D).

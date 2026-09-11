@@ -22,6 +22,7 @@ from app.schemas.recipes import (
     RecipeUpdate,
 )
 from app.services import product_sections
+from app.services import unit_synonyms as unit_synonyms_service
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,14 @@ def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = Fa
         recipe.name,
         len(recipe.ingredients),
     )
+    # Admin reduction (2026-09-12) — best-effort, never blocks the save above. See
+    # CLAUDE.md > Ingredient Unit Handling > Admin reduction.
+    unit_synonyms_service.learn_new_units(
+        db,
+        [ing.unit for ing in data.ingredients],
+        exclude_ingredient_ids={ing.id for ing in recipe.ingredients},
+        context_id=f"recipe:{recipe.id}",
+    )
     return recipe
 
 
@@ -202,6 +211,17 @@ def create_recipe_from_capture(
     )
 
     product_sections.tag_suggested_sections(db, ingredient_sections)
+
+    # Admin reduction (2026-09-12) — best-effort, never blocks the save above. Covers a unit
+    # the user typed/edited on the review screen; AI-extracted units are already constrained
+    # to the standard vocabulary so this is mostly a no-op on a straight, unedited capture.
+    # See CLAUDE.md > Ingredient Unit Handling > Admin reduction.
+    unit_synonyms_service.learn_new_units(
+        db,
+        [ing.unit for ing in data.ingredients],
+        exclude_ingredient_ids={ing.id for ing in recipe.ingredients},
+        context_id=f"recipe:{recipe.id}",
+    )
 
     # Bump last_used_at on any remembered substitution the user re-confirmed here, so it
     # floats to the top of the quick-picks next time (Phase 3.9 M4). Silent no-op for swaps
@@ -310,6 +330,13 @@ def add_ingredient(db: Session, recipe_id: int, data: RecipeIngredientCreate) ->
         ingredient.id,
         ingredient.name,
     )
+    # Admin reduction (2026-09-12) — best-effort, never blocks the save above.
+    unit_synonyms_service.learn_new_units(
+        db,
+        [ingredient.unit],
+        exclude_ingredient_ids={ingredient.id},
+        context_id=f"recipe:{recipe_id}",
+    )
     return ingredient
 
 
@@ -352,6 +379,16 @@ def update_ingredient(
         ingredient_id,
         list(changes.keys()),
     )
+    if "unit" in changes and changes["unit"]:
+        # Admin reduction (2026-09-12) — only worth checking when the unit actually changed.
+        # Never blocks the update above. See CLAUDE.md > Ingredient Unit Handling > Admin
+        # reduction.
+        unit_synonyms_service.learn_new_units(
+            db,
+            [ingredient.unit],
+            exclude_ingredient_ids={ingredient.id},
+            context_id=f"recipe:{recipe_id}",
+        )
     return ingredient
 
 

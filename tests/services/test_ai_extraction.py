@@ -26,6 +26,7 @@ from app.services.ai_extraction import (
     AiExtractionError,
     ExtractedIngredient,
     capture_recipe,
+    classify_units,
     extract_recipe,
     flag_substitutions,
     suggest_sections,
@@ -280,6 +281,62 @@ def test_suggest_sections_empty_names_no_call(db, api_enabled):
 def test_suggest_sections_fake_mode(db, fake_mode):
     out = suggest_sections(db, context_id=None, ingredient_names=["beef mince", "onion", "made up"])
     assert out["beef mince"] == "meat & seafood" and "made up" not in out
+
+
+# --- classify_units (call 4, admin reduction 2026-09-12) ---------------------
+
+
+def test_classify_units_accepts_a_confident_same_magnitude_match(db, api_enabled):
+    payload = {"units": [
+        {"unit": "grms", "canonical": "g"},
+        {"unit": "clove", "canonical": None},        # genuinely distinct -- unmatched
+        {"unit": "oz", "canonical": "invalid junk"},  # not in the allow-list -> dropped
+    ]}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        out = classify_units(db, context_id=None, unit_texts=["grms", "clove", "oz"])
+    assert out == {"grms": "g"}
+
+
+def test_classify_units_ignores_entries_not_in_the_input(db, api_enabled):
+    payload = {"units": [{"unit": "not requested", "canonical": "g"}]}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        out = classify_units(db, context_id=None, unit_texts=["grms"])
+    assert out == {}
+
+
+def test_classify_units_never_maps_a_unit_to_itself(db, api_enabled):
+    # Defensive -- a hallucinated no-op match shouldn't ever produce a self-alias downstream.
+    payload = {"units": [{"unit": "g", "canonical": "g"}]}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        out = classify_units(db, context_id=None, unit_texts=["g"])
+    assert out == {}
+
+
+def test_classify_units_empty_input_no_call(db, api_enabled):
+    client = MagicMock()
+    with patch("app.services.ai_extraction.genai.Client", client):
+        assert classify_units(db, context_id=None, unit_texts=[]) == {}
+        client.assert_not_called()
+
+
+def test_classify_units_fake_mode(db, fake_mode):
+    out = classify_units(db, context_id=None, unit_texts=["grms", "clove", "made up unit"])
+    assert out == {"grms": "g"}
+
+
+def test_classify_units_refuses_when_disabled(db, monkeypatch):
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_enabled", False)
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", False)
+    with pytest.raises(AiExtractionDisabledError):
+        classify_units(db, context_id=None, unit_texts=["grms"])
+
+
+def test_classify_units_logs_task_classify_units(db, api_enabled):
+    payload = {"units": [{"unit": "grms", "canonical": "g"}]}
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
+        classify_units(db, context_id="recipe:1", unit_texts=["grms"])
+    row = db.query(AiCallLog).one()
+    assert (row.task, row.outcome) == ("classify_units", "success")
 
 
 # --- flag_substitutions (call 2) --------------------------------------------

@@ -15,6 +15,17 @@ orchestrator) or the individual task functions, never ``google.genai`` directly.
 ``capture_recipe()`` runs all three and merges the result. Calls 2 and 3 are enrichment —
 if they fail the recipe is still usable (M3 turns a quota failure into a queued retry).
 
+A fourth call, unrelated to capture, lives here too for the same "one small stable
+interface" reason (CLAUDE.md > Ingredient Unit Handling > Admin reduction, 2026-09-12):
+  4. ``classify_units()``      — is a never-before-seen unit spelling a same-magnitude
+                                 variant of a standard unit (g/kg/ml/l/tsp/tbsp/cup)?
+                                 Called from ``services/unit_synonyms.py > learn_new_units()``
+                                 after an ingredient save, not from ``capture_recipe()``. Its
+                                 input is the household's own typed data, not scraped/
+                                 photographed content, so — uniquely among the four — it does
+                                 NOT wrap its input in the §0a untrusted-content delimiter;
+                                 the output is still allow-list validated regardless.
+
 Two highest-priority standing rules (CLAUDE.md > Security §0a/§0c):
   * **§0c** — a real call needs ``settings.ai_extraction_enabled`` (off by default);
     ``settings.ai_extraction_fake_mode`` returns canned fixtures with no network. No agent
@@ -86,6 +97,12 @@ MAX_INPUT_TEXT_CHARS = 20_000
 _MAX_SUBSTITUTION_NOTE_CHARS = 120
 
 _SECTION_VOCABULARY_SET = frozenset(SECTION_VOCABULARY)
+
+# classify_units() allow-list (Ingredient Unit Handling > Admin reduction) — the app's
+# standard, same-magnitude units. A classification is only ever accepted if it lands exactly
+# on one of these; anything else (an imperial unit, a genuinely different/discrete unit, or a
+# hallucinated string) is discarded, never written to unit_synonyms.
+_STANDARD_UNITS = frozenset({"g", "kg", "ml", "l", "tsp", "tbsp", "cup"})
 
 # Untrusted content wrapper — the system prompts tell Gemini never to treat it as
 # instructions. Random-looking so injected text can't spoof its own closing tag.
@@ -175,6 +192,26 @@ Return a JSON object: {{"flags": [{{"original": "<ingredient name, unchanged>",
   items are similar or taste alike. ~10 words max.
 - Return ONLY valid JSON. An empty "flags" array is fine."""
 
+_STANDARD_UNITS_LIST = ", ".join(sorted(_STANDARD_UNITS))
+UNIT_CLASSIFICATION_SYSTEM_PROMPT = f"""You are given a JSON array of unit strings a home cook typed into a recipe app's quantity
+field. For each one, decide whether it is a common alternate spelling or abbreviation of one
+of this app's standard units — meaning it is EXACTLY the same unit, just written differently,
+not merely similar in size or convertible with a multiplier.
+
+The standard units are: {_STANDARD_UNITS_LIST}
+
+Return a JSON object: {{"units": [{{"unit": "<the input string, unchanged>",
+"canonical": "<one of the standard units above>" or null}}]}}
+
+- canonical must be exactly one of the standard units listed, or null — nothing else
+- Use null whenever the unit is a genuinely different measurement (an imperial unit like
+  "oz"/"ounce"/"lb"/"pound"/"pint"/"quart" — these need a real conversion, not a spelling
+  fix), a discrete count unit (e.g. "clove", "bunch", "pinch", "can", "sprig", "head"), or you
+  are not reasonably confident it's the same unit
+- NEVER map two units of different sizes to each other, even if they're commonly confused
+- Return one entry per input string, the string itself unchanged
+- Return ONLY valid JSON."""
+
 
 # --- Gemini structured-output schemas --------------------------------------------------
 
@@ -212,6 +249,15 @@ class _GFlag(BaseModel):
 
 class _GFlags(BaseModel):
     flags: list[_GFlag]
+
+
+class _GUnitEntry(BaseModel):
+    unit: str
+    canonical: str | None = None
+
+
+class _GUnitClassifications(BaseModel):
+    units: list[_GUnitEntry]
 
 
 # --- public result types --------------------------------------------------------------
@@ -342,6 +388,15 @@ _FAKE_SECTION_MAP: dict[str, str] = {
     for fx in _FAKE_FIXTURES
     for ing in fx["ingredients"]
     if ing["suggested_section"]
+}
+
+# Canned unit classifications for fake mode (see classify_units()). Deliberately small and
+# hand-picked rather than derived from anything — anything not listed here comes back
+# unmatched in fake mode, same as a genuinely distinct unit would in real classification.
+_FAKE_UNIT_CLASSIFICATIONS: dict[str, str] = {
+    "grms": "g",
+    "mlitre": "ml",
+    "tbspoon": "tbsp",
 }
 
 
@@ -706,6 +761,57 @@ def suggest_sections(
         raise AiExtractionError("Gemini's section response could not be parsed.") from exc
 
     logger.info("AI suggest_sections: %d section(s)", len(out))
+    return out
+
+
+# --- call 4: unit-spelling classification (admin reduction, unrelated to capture) -------
+
+
+def classify_units(
+    db: Session, *, context_id: str | None = None, unit_texts: list[str]
+) -> dict[str, str]:
+    """{raw unit string: canonical standard unit} for entries the model is confident are a
+    same-magnitude spelling variant of g/kg/ml/l/tsp/tbsp/cup — never a genuinely different or
+    discrete unit (allow-list validated against _STANDARD_UNITS regardless of what comes
+    back). Called by services/unit_synonyms.py > learn_new_units(), which treats any failure
+    here (disabled/quota/parse/network) as "no match" — the unit is simply left as its own
+    distinct unit, exactly today's behaviour without this feature. See CLAUDE.md >
+    Ingredient Unit Handling > Admin reduction."""
+    texts = [u for u in unit_texts if u]
+    if not texts:
+        return {}
+
+    if settings.ai_extraction_fake_mode:
+        out = {u: _FAKE_UNIT_CLASSIFICATIONS[u] for u in texts if u in _FAKE_UNIT_CLASSIFICATIONS}
+        logger.info("AI classify_units: FAKE MODE — %d match(es)", len(out))
+        return out
+
+    _require_enabled("classify_units")
+    # Household's own typed input, not scraped/photographed content — this is the one call in
+    # this module that skips the §0a untrusted-content delimiter (see the module docstring).
+    parts = [genai_types.Part.from_text(text=json.dumps(texts))]
+    raw = _call_gemini(
+        db,
+        call_type="classify_units",
+        context_id=context_id,
+        system_prompt=UNIT_CLASSIFICATION_SYSTEM_PROMPT,
+        response_schema=_GUnitClassifications,
+        parts=parts,
+    )
+    try:
+        data = json.loads(_strip_code_fence(raw))
+        text_set = set(texts)
+        out: dict[str, str] = {}
+        for entry in data.get("units", []):
+            unit = entry.get("unit")
+            canonical = entry.get("canonical")
+            if unit in text_set and canonical in _STANDARD_UNITS and canonical != unit:
+                out[unit] = canonical
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.error("AI classify_units: bad response %r", raw, exc_info=True)
+        raise AiExtractionError("Gemini's unit classification response could not be parsed.") from exc
+
+    logger.info("AI classify_units: %d match(es)", len(out))
     return out
 
 

@@ -20,12 +20,13 @@ from app.models.diagnostics import AiCallLog
 logger = logging.getLogger(__name__)
 
 # Map the AI-call `call_type` (recipe_url / recipe_photo / flag_substitutions /
-# suggest_sections) to the ai_call_log.task vocabulary.
+# suggest_sections / classify_units) to the ai_call_log.task vocabulary.
 _TASK = {
     "recipe_url": "extract",
     "recipe_photo": "extract",
     "flag_substitutions": "flag_substitutions",
     "suggest_sections": "suggest_sections",
+    "classify_units": "classify_units",  # admin reduction (2026-09-12), unrelated to capture
 }
 
 

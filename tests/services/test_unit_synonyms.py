@@ -205,3 +205,100 @@ def test_known_units_empty_for_never_used_ingredient(db):
 def test_known_units_ignores_unitless_lines(db):
     _recipe_with(db, "Salad", [{"name": "onion", "quantity": 1, "unit": None}])
     assert us.known_units_for_ingredient(db, "onion") == []
+
+
+# --- learn_new_units() — admin reduction (2026-09-12) -----------------------------------
+
+
+def test_learn_new_units_writes_a_synonym_on_a_confident_match(db, monkeypatch):
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
+    us.learn_new_units(db, ["grms"])
+    smap = us.synonym_map(db)
+    assert us.resolve_unit("grms", smap) == "g"
+
+
+def test_learn_new_units_does_nothing_when_ai_disabled(db, monkeypatch):
+    # Both switches off (CLAUDE.md > Security §0c) -- must not raise, and must not write
+    # anything -- exactly today's behaviour with the feature turned off.
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_enabled", False)
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", False)
+    us.learn_new_units(db, ["grms"])
+    assert us.synonym_map(db) == {}
+
+
+def test_learn_new_units_skips_units_already_resolving_to_standard(db, monkeypatch):
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
+    called = []
+    import app.services.ai_extraction as ai_extraction_module
+
+    monkeypatch.setattr(
+        ai_extraction_module, "classify_units", lambda *a, **k: called.append(1) or {}
+    )
+    us.learn_new_units(db, ["kg"])  # already a standard unit -- nothing to learn
+    assert called == []
+
+
+def test_learn_new_units_skips_units_already_covered_by_an_existing_synonym(db, monkeypatch):
+    us.create_synonym(db, _c("custom", "tbsp"))
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
+    called = []
+    import app.services.ai_extraction as ai_extraction_module
+
+    monkeypatch.setattr(
+        ai_extraction_module, "classify_units", lambda *a, **k: called.append(1) or {}
+    )
+    us.learn_new_units(db, ["custom"])
+    assert called == []
+
+
+def test_learn_new_units_skips_no_scale_units(db, monkeypatch):
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
+    called = []
+    import app.services.ai_extraction as ai_extraction_module
+
+    monkeypatch.setattr(
+        ai_extraction_module, "classify_units", lambda *a, **k: called.append(1) or {}
+    )
+    us.learn_new_units(db, ["to taste"])
+    assert called == []
+
+
+def test_learn_new_units_classifies_a_new_discrete_unit_only_once(db, monkeypatch):
+    # First-ever occurrence -- AI disabled (default), so classification is skipped, but the
+    # raw unit is still saved on the ingredient row. That alone is enough to count as
+    # "already used" from now on -- a real, established discrete unit ("wug" standing in for
+    # "clove"/"bunch"/etc) never gets asked about a second time.
+    _recipe_with(db, "R1", [{"name": "widget", "quantity": 1, "unit": "wug"}])
+
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
+    called = []
+    import app.services.ai_extraction as ai_extraction_module
+
+    monkeypatch.setattr(
+        ai_extraction_module, "classify_units", lambda *a, **k: called.append(1) or {}
+    )
+    us.learn_new_units(db, ["wug"])
+    assert called == []
+
+
+def test_learn_new_units_swallows_classification_failure(db, monkeypatch):
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_enabled", True)
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", False)
+    import app.services.ai_extraction as ai_extraction_module
+
+    def _boom(*a, **k):
+        raise ai_extraction_module.AiExtractionError("boom")
+
+    monkeypatch.setattr(ai_extraction_module, "classify_units", _boom)
+    us.learn_new_units(db, ["wibble"])  # must not raise
+    assert us.synonym_map(db) == {}
+
+
+def test_create_recipe_auto_learns_a_novel_unit(db, monkeypatch):
+    # End-to-end via the real save path (services/recipes.py > create_recipe): confirms the
+    # just-saved ingredient row is correctly excluded from its own "already used" check --
+    # otherwise a first-ever novel unit could never pass that gate.
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
+    _recipe_with(db, "Cake", [{"name": "flour", "quantity": 200, "unit": "grms"}])
+    smap = us.synonym_map(db)
+    assert us.resolve_unit("grms", smap) == "g"

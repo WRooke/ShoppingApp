@@ -1723,6 +1723,85 @@ quantity math entirely for ingredients where precision is pointless.
   items — that machinery is precision-driven (brute-force pack-size combinations against a
   precise required quantity), which is exactly what "coarse" means opting out of.
 
+### Admin reduction — auto-learning new unit spellings (raised 2026-09-12, built same day)
+
+Once Layers A–D above fixed the actual reconciliation bug, the maintainer asked a broader
+question: could the *remaining* manual Settings admin — noticing a new unit misspelling and
+adding a `unit_synonyms` row by hand, and by extension `ingredient_aliases` /
+`coarse_ingredients` / `remembered_substitutions` / `staples` / `product_units` /
+`usual_items` — be reduced further with some "intelligent" automation, with an explicit,
+permission-granting caveat: if it's too much of a code burden to do this well, plain manual
+entry is a perfectly acceptable fallback.
+
+**Verdict: `unit_synonyms` is the one strong candidate; everything else stays manual.** The
+dividing line is objective fact vs. household preference:
+- `staples` / `usual_items` ("do we always have this on hand" / "buy this on a schedule") and
+  `ingredient_aliases` / `coarse_ingredients` ("is X the same shopping item as Y for us" / "do
+  we track this ingredient coarsely") are all judgment calls about *this* household's kitchen.
+  An AI can only guess at them — automating these would just move the guessing from the
+  household to the model, which the household would still need to check, and would quietly
+  undo the "don't pre-guess, wait for a real gap to show up in use" discipline every other
+  reference list in this file already follows deliberately (staples, product_units, usuals
+  were all seeded minimal on purpose — see their own sections). Not built. If typing these
+  ever proves genuinely tedious, an AI-*suggests*/household-*confirms* flow (the same shape as
+  the existing capture-time substitution flagging) is the fallback worth reaching for, not
+  full automation — see [Deferred Decisions](#deferred-decisions).
+- `unit_synonyms` is different in kind: whether "tablespoon" means "tbsp" is a fact about
+  English, not a preference — no household could reasonably want it resolved any other way,
+  so it's safe to resolve silently, with no confirmation step, the same standing as the
+  static seed itself.
+
+**What was built:**
+
+1. **Expanded the static seed** (`app/seed_data.py > UNIT_SYNONYM_SEEDS`) with a few more
+   universal cooking-measurement word-forms the original pass missed: `gramme` → `g`,
+   `kilogramme` → `kg`, `kilo` → `kg`, `tspn` → `tsp`, `tbspn` → `tbsp`, `ltr` → `l`. Their
+   plurals (`grammes`, `kilogrammes`, `kilos`, `ltrs`) all resolve for free once
+   `strip_plural()` reduces them to these singular forms — same cascade the original seed's
+   own comment describes — verified with the same throwaway check-script approach as Chunk 1,
+   confirming no dead/unreachable rows. Deliberately **not** added: a bare `c` for cup (too
+   ambiguous a single letter to seed blind) or anything imperial (`oz`, `lb`, `pint`, `quart`)
+   — those aren't spelling variants, they're a different magnitude that would need a real
+   conversion, exactly what this table must never attempt (see [Data
+   Model > unit_synonyms](#unit_synonyms)).
+2. **A new, fourth Gemini call** — `services/ai_extraction.py > classify_units()` — alongside
+   the existing three (`extract_recipe`, `flag_substitutions`, `suggest_sections`), same §0c
+   gates (`AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`), same
+   allow-list-validate-the-output discipline as `suggest_sections()`. Given a batch of raw
+   unit strings, it asks only "is this a common alternate spelling of `g`/`kg`/`ml`/`l`/
+   `tsp`/`tbsp`/`cup` — the exact same unit, not merely similar or convertible — or something
+   else?" and returns a match only for a confident, same-magnitude spelling variant; anything
+   else (a genuinely different/discrete unit, or the model unsure) comes back unmatched, same
+   as today's behaviour. **Deliberately not wrapped in the §0a untrusted-content delimiter**
+   — unlike the other three calls, its input is a unit the household itself typed into the
+   ingredient form, not scraped or photographed content, so it isn't the untrusted-content
+   scenario §0a exists for. The output is still allow-list validated regardless (never trust
+   a model's output just because it parsed) — that's a general habit here, not one specific
+   to §0a.
+3. **The trigger** — `services/unit_synonyms.py > learn_new_units()`, called after an
+   ingredient is saved (manual entry, editing, or an edit made on the capture-review screen)
+   with whichever raw unit(s) it introduced. A unit is only worth spending a call to classify
+   at all when it (a) doesn't already resolve to a standard unit via the existing
+   `strip_plural()` / `unit_synonyms` map, **and** (b) has never appeared as any
+   `recipe_ingredients.unit` value anywhere before. Condition (b) is the load-bearing one: a
+   real, established discrete unit (`clove`, `bunch`, `pinch`, …) only ever gets asked about
+   **once**, the very first time it's ever typed anywhere in the app — the moment that first
+   (correctly negative) classification happens, it becomes an "already-used" unit like any
+   other and is never asked about again, at zero further cost. A confident match writes a
+   normal, Settings-editable `unit_synonyms` row through the existing `create_synonym()` —
+   from then on Layer A resolves it silently and for free, indistinguishable from a
+   manually-added row.
+- **Never blocks or slows down a save on failure.** Disabled/quota/parse/network failures are
+  all caught and logged; the unit is simply left as its own distinct unit — exactly today's
+  behaviour with the feature turned off. No retry queue: if the same spelling is ever typed
+  again, condition (b) above now sees it (the just-saved row is itself a use of it) and skips
+  straight past re-asking — the failure mode degrades cleanly to "add it by hand once, same
+  as before this feature existed," never to a repeated wasted call or a blocked save.
+- **Scope, deliberately narrow for now**: only `recipe_ingredients.unit`, the primary
+  quantity unit. `recipe_ingredients.resolved_unit` (a substitution's swapped-to unit) isn't
+  covered — the same mechanism could extend there later if it ever proves a real gap; not
+  built speculatively, same standing as everything else in this file.
+
 ### Build chunks
 - [x] **Chunk 6 — this documentation pass.** Data Model entries, this section, Deferred
       Decisions + Decision Dialogue updates, Project Directory Structure entries. Done
@@ -1818,10 +1897,44 @@ quantity math entirely for ingredients where precision is pointless.
       table entry needed); typing a genuine typo "clve" surfaces "did you mean 'clove'?",
       and clicking "use it" correctly fills the unit field and dismisses the nudge — zero
       console errors throughout.
+- [x] **Chunk 7 — Admin reduction: auto-learn unit spellings.** Documented above, same day,
+      before any code, per the maintainer's explicit ask.
+      Done 2026-09-12. `services/ai_extraction.py > classify_units()` — the 4th Gemini call,
+      same §0c gates (`AI_EXTRACTION_ENABLED`/`AI_EXTRACTION_FAKE_MODE`) and
+      allow-list-validate-the-output discipline as `suggest_sections()`, but — uniquely
+      among the four — does **not** wrap its input in the §0a untrusted-content delimiter,
+      since it's classifying the household's own typed unit strings, not scraped/
+      photographed content (module docstring spells this out explicitly so it isn't
+      mistaken for an oversight later). `services/unit_synonyms.py > learn_new_units()` —
+      the "genuinely new" gate (doesn't already resolve to a standard unit, AND has never
+      appeared as any `recipe_ingredients.unit` value before, excluding the row(s) just
+      saved) + auto-write via the existing `create_synonym()`; deferred-imports
+      `ai_extraction` so an ordinary save with nothing novel never pays for that import;
+      catches `AiExtractionDisabledError` (the expected default — no WARNING/traceback),
+      `AiExtractionError` (already logged in detail upstream), and a belt-and-braces bare
+      `Exception` — never blocks or fails the caller's save. Wired into all 4 of
+      `services/recipes.py`'s ingredient-save paths (`create_recipe`,
+      `create_recipe_from_capture`, `add_ingredient`, `update_ingredient` — the last only
+      when `unit` is actually part of the change). 6 new `UNIT_SYNONYM_SEEDS` rows
+      (`gramme`/`kilogramme`/`kilo`/`tspn`/`tbspn`/`ltr`), each verified via a throwaway
+      `strip_plural()` check script to confirm their plurals cascade for free, same as
+      Chunk 1's own check. 18 new tests (7 in `test_ai_extraction.py`, 11 in
+      `test_unit_synonyms.py`, incl. an end-to-end `create_recipe` test confirming the
+      just-saved ingredient row is correctly excluded from its own "already used" check).
+      Suite 479 pass; no migration (writes through the existing `unit_synonyms` table and
+      `create_synonym()`, no schema change). Verified live against a scratch server (fake
+      mode): a recipe saved with `"flour" 200 "grms"` auto-added `grm -> g` to
+      `unit_synonyms` (confirmed via `GET /settings/unit-synonyms`); a genuinely novel
+      discrete unit (`"wug"`, standing in for a real thing like `clove`/`bunch`, not in the
+      fake fixture's answer set) correctly got **no** row and no error; re-using `"wug"` in
+      a second recipe produced **zero** further classification calls (confirmed via the
+      server log's `AI classify_units` line count staying at 1 across both saves) — the
+      "ask once, never again" behaviour working exactly as designed.
 
-**All six chunks complete 2026-09-12.** Status line above and the `unit_synonyms` /
+**Chunks 1–7 complete 2026-09-12.** Status line above and the `unit_synonyms` /
 `coarse_ingredients` Data Model entries updated from "designed, build starting" to built —
-see those sections for the finished design.
+see those sections for the finished design. Chunk 7 (admin reduction) was raised, designed,
+and built the same day, documented ahead of its own build per the maintainer's ask.
 
 ---
 
@@ -3843,6 +3956,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | 1-to-many ingredient substitutions as structured data | Not scheduled | Merge decision #5 (2026-09-06): `remembered_substitutions.substitute_name` and `recipe_ingredients.resolved_ingredient` are a single freetext string; `buttermilk → "milk + lemon juice"` is stored verbatim and the user splits it by hand if they want. Making a resolved ingredient a real *list* ripples into scaling / consolidation / pack-resolution counting — revisit only if the freetext approach proves annoying in practice. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). **Distinct from the Phase 3.9 M8 quantity/unit transform** (one substitute at a different amount, e.g. corn cobs → cans), which *is* being built. |
 | AI-suggested quantity/unit for a flagged substitution | Revisit if hand-entry proves tedious | Phase 3.9 M8 adds a quantity/unit transform to substitutions but deliberately does **not** extend the `flag_substitutions` Gemini call to suggest the numbers — that would be fresh [§0a](#0a-prompt-injection-hardening-highest-priority) number/unit-validation surface for values the user must sanity-check anyway. Add best-effort `suggested_*_qty` / `suggested_*_unit` to the flag schema (allow-list validated) only if typing the equivalence every time turns out to be a real annoyance. Same standing as any other not-yet-needed feature — no reserved phase. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
 | Cross-unit pack resolution after a substitution unit change | Not scheduled | Phase 3.9 M8: a line resolved to a new free-text unit ("6 can" from "corn cobs") gets no `product_units` pack breakdown unless a matching-unit pack row is seeded — the resolver drops rows whose unit doesn't match the line's dimension. Acceptable for now (line still shows "6 can"). Revisit only if it's a real friction point; a fix would mean teaching `_pack_options_for` a per-ingredient unit-bridge, which is close to the conversion table M8 explicitly avoids. |
+| AI-assisted admin reduction beyond unit spellings (`ingredient_aliases` / `coarse_ingredients` / `staples` / `usual_items` / `product_units` / `remembered_substitutions`) | Not scheduled — revisit only if hand-entry proves genuinely tedious | Raised 2026-09-12 alongside [Ingredient Unit Handling > Admin reduction](#ingredient-unit-handling): `unit_synonyms` was resolved (an objective fact about English, safe to auto-classify with no confirmation — built as `classify_units()` / `learn_new_units()`). Every other Settings-managed reference list encodes a household-specific judgment call (same shopping item? tracked coarsely? always on hand? what pack sizes?) that an AI can only guess at — automating those moves the guessing from the household to the model without actually removing it, and would quietly undo the deliberate "don't pre-guess, wait for a real gap" seeding discipline this file already applies to every one of those tables. If typing any of them ever proves a real annoyance, the fallback worth reaching for is an AI-*suggests*/household-*confirms* flow (same shape as the existing capture-time substitution flagging), never silent automation — same standing as any other not-yet-needed feature, no reserved phase. |
 | Split `services/ai_extraction.py` into an `ai_extraction/` package | Deferred at the Phase 3.9 M-review (2026-09-07); do before or early in Phase 5 | The file (~715 lines) was scoped for a split at the M-review alongside `recipes.py`/`sessions.py` (both done). Deferred because the capture-fixes work had just rewritten large parts of it and a third structural refactor in the same pass, right on the Phase 5 boundary, was the riskier option. ~⅓ of the file is prompt-string / fixture constants, not logic. Plan (in its `# NOTE:`): pure moves into `prompts.py` / `schemas.py` / `types.py` / `fixtures.py` / `client.py` (`_call_gemini` + gates + cleaners) / `calls.py` (the 3 calls + `capture_recipe`), with `__init__.py` re-exporting the current public surface so no caller changes. |
 
 ### Decision Dialogues
