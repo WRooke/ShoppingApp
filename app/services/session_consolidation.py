@@ -157,6 +157,48 @@ def _coarse_items(
     return coarse_items, normal
 
 
+def _apply_shared_extraction_adjustment(
+    slot_lines: list[consolidation.IngredientLine],
+) -> list[consolidation.IngredientLine]:
+    """Within ONE recipe slot, if 2+ *different* alias sources (e.g. "lemon juice" and
+    "lemon zest", tracked via `source_name`) each carrying a quantity/unit transform resolved
+    to the same canonical name, they're almost certainly different extractions from the same
+    physical unit in one cooking act (zest it, then juice it) — buying enough for the larger
+    demand covers the smaller one "for free". A plain rename alias (no `source_name`, e.g.
+    the oil-variant case) is never affected: it's a different, genuinely-additive substance,
+    unchanged. See CLAUDE.md > Ingredient Aliases > Shared-source combining for the full
+    design and the deliberate, accepted trade-off this represents.
+
+    Implementation: for each canonical name with 2+ distinct `source_name` groups among this
+    slot's own lines, add ONE synthetic correction line — quantity `max(group sums) -
+    sum(group sums)` (always <= 0), `recipe_id`/`recipe_label` left `None` (so it never
+    appears in the "which recipe" breakdown — it's not a real recipe contribution) and
+    `source_name` left `None` (so it's never picked up by the conversion-notes aggregation).
+    Every real line this slot produced is returned completely untouched alongside it, so the
+    breakdown and conversion notes keep showing the real, honest, per-source amounts; only
+    the final summed total (computed later, in the pure `consolidation.consolidate()`, which
+    needs no changes at all to make this work) comes out reduced to the max."""
+    groups: dict[str, dict[str, float]] = {}  # canonical name -> {source_name: summed qty}
+    unit_by_name: dict[str, str | None] = {}
+    for ln in slot_lines:
+        if ln.source_name is None:
+            continue
+        by_source = groups.setdefault(ln.name, {})
+        by_source[ln.source_name] = by_source.get(ln.source_name, 0.0) + ln.quantity
+        unit_by_name[ln.name] = ln.unit
+
+    adjustments = []
+    for name, by_source in groups.items():
+        if len(by_source) < 2:
+            continue  # only one extraction type present -- nothing to combine
+        total = sum(by_source.values())
+        peak = max(by_source.values())
+        adjustments.append(
+            consolidation.IngredientLine(name=name, quantity=peak - total, unit=unit_by_name[name])
+        )
+    return slot_lines + adjustments
+
+
 def _scaled_lines(
     session: PlanningSession,
     override_map: dict[str, SessionOverride],
@@ -176,13 +218,18 @@ def _scaled_lines(
     does no substitution, aliasing, or unit-spelling resolution (Phase 3.9 M4/M8; 2026-09-10;
     2026-09-12). Each line also carries which recipe slot it came from (2026-09-11, CLAUDE.md
     > "Which recipe is this ingredient from"), purely for display — it plays no part in any of
-    the above resolution."""
+    the above resolution. Finally, each recipe slot's OWN lines get one more pass —
+    `_apply_shared_extraction_adjustment()` (2026-09-12, CLAUDE.md > Ingredient Aliases >
+    Shared-source combining) — collapsing 2+ different alias sources sharing a canonical name
+    *within that one recipe* down to their max rather than their sum (e.g. lemon juice + lemon
+    zest in one recipe -> one shared lemon, not two)."""
     lines: list[consolidation.IngredientLine] = []
     for slot in session.recipes:
         if slot.slot_type != "recipe" or slot.recipe is None:
             continue  # leftovers slots contribute nothing
         factor = scaling.scaling_factor(slot.recipe.base_servings, slot.scaled_servings)
         label = _recipe_label(slot)
+        slot_lines: list[consolidation.IngredientLine] = []
         for ing in slot.recipe.ingredients:
             base = ing.resolved_ingredient or ing.name
             src_qty, src_unit = _effective_source(ing)
@@ -195,7 +242,7 @@ def _scaled_lines(
                     name, qty, unit, sq.scaled, ov
                 )
             name, qty, unit, source = _apply_alias(name, qty, unit, sq.scaled, alias_map)
-            lines.append(
+            slot_lines.append(
                 consolidation.IngredientLine(
                     name=name, quantity=qty, unit=unit, is_no_scale=not sq.scaled,
                     source_qty=source[0] if source else None,
@@ -204,6 +251,7 @@ def _scaled_lines(
                     recipe_id=slot.recipe_id, recipe_label=label,
                 )
             )
+        lines.extend(_apply_shared_extraction_adjustment(slot_lines))
     return lines
 
 

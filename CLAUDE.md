@@ -1541,21 +1541,61 @@ judgement call" (unlike a substitution), so no per-recipe confirmation makes sen
   would be wrong often enough not to attempt automatically. Ratios are rough kitchen
   approximations, documented as such via each seed's `note`.
 
-### Known limitation — juice + zest from the same fruit currently over-count (raised
-2026-09-10, unresolved, tracked for the Phase 5 review)
+### Shared-source combining — juice + zest from the same fruit (raised 2026-09-10, designed
+and built 2026-09-12)
 
 A recipe needing both "2 tbsp lemon juice" and "1 tsp lemon zest" realistically needs **one**
-lemon (you zest it, then juice it) — but each alias converts and sums independently, so the
-current result is roughly `lemons-for-juice + lemons-for-zest` (additive), not
-`max(lemons-for-juice, lemons-for-zest)` (shared-source). The failure direction is safe
-(suggests buying somewhat more fruit than strictly necessary, never less), but it's a real
-inaccuracy, not just a cosmetic one, and worth fixing properly rather than patching around.
-Not a small tweak: it needs a concept of two aliases drawing from the same underlying
-produce item, which the current flat `alias_name -> canonical_name` map has no way to
-express, and "take the max" isn't even universally correct either — a recipe explicitly
-calling for "zest of 3 lemons, juice of 1" genuinely needs the juice-lemon to be additional
-to (not shared with) the zest-lemons. Needs real design thought, not a quick fix — see
-[Deferred Decisions](#deferred-decisions).
+lemon (you zest it, then juice it) — but each alias converted and summed independently, so
+the result was roughly `lemons-for-juice + lemons-for-zest` (additive), not
+`max(lemons-for-juice, lemons-for-zest)` (shared-source). The failure direction was safe
+(bought somewhat more fruit than strictly necessary, never less) but a real inaccuracy, not
+just cosmetic.
+
+**The distinguishing signal, found on a second planning pass**: this can only ever happen
+when **two or more *different* alias sources, each carrying an M8-style quantity/unit
+transform, resolve to the same `canonical_name`** — a plain rename alias with no transform
+(the oil-variant case) is never affected by this and shouldn't be; those genuinely are the
+same interchangeable substance and correctly keep summing across recipes unchanged. That
+combination — 2+ transform-carrying aliases sharing a canonical target — is *only* ever the
+result of the household having deliberately configured it that way, so it needed **no new
+table, no new Settings screen, no per-group toggle**: the mechanism is implicit in how
+aliases already get set up. If a future third extraction (e.g. "lemon slices", consumed
+whole and not available for zest/juice afterward) shouldn't pool with the other two, the
+existing escape hatch already covers it — alias it to a *different* canonical name (e.g.
+"lemon (whole)") instead, and it's automatically excluded.
+
+**Scope: per recipe, not per session.** Combining only makes real-world sense within one
+recipe's own cooking act (zest then juice the same physical lemon in one go) — two
+*different* recipes, plausibly cooked on different days, wouldn't share a partially-used
+lemon between them. So: within one recipe, 2+ transform-alias sources sharing a canonical
+name combine via `max`; across different recipes, their own (already-combined) totals still
+sum normally, exactly as before.
+
+**"Take the max" is a deliberate, accepted trade-off, not a certainty** — confirmed with the
+maintainer 2026-09-12. A recipe explicitly meaning "zest of 3 lemons for one component,
+*separately* juice of 1 fresh lemon for another" (the zested fruit not actually available
+for juicing) would still combine down to 3 here, one short of the true 4 needed — genuinely
+ambiguous from ingredient-list data alone (there's no method/step data to know whether the
+zested fruit stays available). Accepted because the common case (same fruit, zest then
+juice) is overwhelmingly more frequent, and under-buying by one cheap, commonly-available
+item is a trivial in-store fix — same "safe-direction approximation, not a precise model"
+standing as `coarse_ingredients`' `recipes_per_pack` guess.
+
+**Mechanism** (`services/session_consolidation.py > _apply_shared_extraction_adjustment()`,
+called once per recipe slot in `_scaled_lines()`, right after that slot's own ingredient
+lines are built): group the slot's own alias-transform lines by which alias they came from
+(the existing `source_name` field), sum within each group, and — whenever 2+ distinct
+sources contributed — add ONE synthetic negative-quantity `IngredientLine` (`recipe_id`/
+`recipe_label` left `None` so it never appears in the "which recipe" breakdown;
+`source_name` left `None` so it's never picked up by the conversion-notes aggregation)
+equal to `max(group sums) - sum(group sums)`. That single correction nets the group's total
+down to the max once summed with everything else in `consolidation.consolidate()` — every
+real line, and everything the breakdown/conversion-notes show, is completely untouched, so
+the transparency work already done for both features (CLAUDE.md > "Which recipe is this
+ingredient from" and > Ingredient Aliases' conversion notes) still shows the real, honest,
+per-recipe, per-source amounts. `consolidation.py`'s pure summing logic needed **no
+changes** — it has no idea this happened, same discipline as every other extension to this
+pipeline (aliases, coarse ingredients).
 
 ---
 
@@ -3749,7 +3789,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | ~~Revisit after real use~~ ~~Revisited 2026-09-10 — see the Decision Dialogue~~ **Resolved 2026-09-12 — built as [Ingredient Unit Handling](#ingredient-unit-handling)** | The scaling/ceiling behaviour for discrete free-text units is unchanged (still scaled, then ceiled to whole). What was actually causing real friction — the same unit spelled two ways (`clove`/`cloves`, `g`/`grams`) being treated as genuinely different, unreconcilable units — is fixed by that section's Layer A (`unit_synonyms`, dynamic resolution + a generic pluralisation-strip rule); the "some ingredients shouldn't be measured precisely at all" case (parsley) is Layer D (`coarse_ingredients`). |
 | Ingredient-specific unit vocabulary (extends the row above) | ~~Not scheduled — needs scoping at a future kickoff~~ **Resolved 2026-09-12 — built as [Ingredient Unit Handling](#ingredient-unit-handling)** | Reframed across the Decision Dialogue below from "restrict an ingredient to one vocabulary" (rejected — the maintainer pointed out one ingredient genuinely has several valid units, e.g. garlic in cloves, heads, spoons, or grams) into four separately-scoped layers: unit-spelling canonicalisation, per-ingredient known-units derived live from existing recipe data (zero admin — no pre-population, no new table for this part), a warn-never-block duplicate-unit nudge, and the distinct "coarse ingredient" escape hatch for ingredients where precision is pointless. See that section for the full design. |
 | Ingredient-to-purchase-form mapping (lemon juice → buy a lemon; lime juice → a lime) | ~~Not scheduled~~ **Resolved 2026-09-10 — built as the [Ingredient Aliases](#ingredient-aliases) quantity/unit equivalence transform** | Not a substitution (that mechanism was considered and rejected for this — see the section) — extended the alias mechanism instead with an optional "N unit ≈ M unit" pair, resolved silently (no per-recipe confirmation) but with a visible "from 4 tbsp lemon juice" note on the shopping list, since it's an approximation. Seeded: lemon/lime juice and zest → lemon/lime. "orange juice" deliberately **not** seeded — flagged by the maintainer as genuinely recipe-dependent, not a safe default either way. |
-| Juice + zest from the same fruit over-count (a recipe needing both "2 tbsp lemon juice" and "1 tsp lemon zest" gets charged roughly two lemons' worth, additively, when realistically one lemon covers both) | Raised 2026-09-10 — to be resolved before the Phase 5 review | Failure direction is safe (over-buys fruit, never under-buys), but it's a real inaccuracy in the [Ingredient Aliases](#ingredient-aliases) quantity/unit transform, not cosmetic. Not a quick fix: needs a "shared source" concept two aliases can draw from the same underlying produce item, which the flat `alias_name -> canonical_name` map has no way to express — and even "take the max instead of the sum" isn't universally correct (a recipe explicitly wanting "zest of 3 lemons, juice of 1" genuinely needs 4 lemons' worth, not 3). See [Ingredient Aliases > Known limitation](#ingredient-aliases). |
+| Juice + zest from the same fruit over-count (a recipe needing both "2 tbsp lemon juice" and "1 tsp lemon zest" gets charged roughly two lemons' worth, additively, when realistically one lemon covers both) | ~~Raised 2026-09-10~~ **Resolved 2026-09-12 — built as [Ingredient Aliases > Shared-source combining](#ingredient-aliases)** | Per recipe (not per session), 2+ transform-carrying aliases sharing a canonical name now combine via `max` instead of summing, via one synthetic correction line — no new table or config, since the trigger condition (2+ transform aliases sharing a canonical target) only ever arises from deliberate configuration. Confirmed with the maintainer as a deliberate, accepted trade-off: this can rarely under-buy by one item in the edge case where a recipe genuinely needs the fruit twice over (e.g. "zest of 3, separately juice of 1" truly needing 4) — accepted because the common case is far more frequent and the failure is a trivial in-store fix. |
 | Automatic consolidation of near-synonym pantry items (canola vs vegetable vs olive oil; oil vs oil spray) | ~~Not scheduled — needs a decision, not a build~~ **Resolved 2026-09-10 — built as [Ingredient Aliases](#ingredient-aliases)** | Generalised into a reusable, not-oil-specific mechanism rather than an oil-only fix — see that section for the full design. The maintainer's call on which pairs actually merge: "canola oil"/"oil spray" → "vegetable oil" (seeded); "olive oil" deliberately left separate (dressing vs frying — a household may genuinely want both). More groups added via Settings ("Ingredient groups" card) only as a real gap shows up, same as every other reference list in this file. |
 | Default target servings as a Settings field | Not scheduled | 2026-09-06: `DEFAULT_TARGET_SERVINGS = 4` is a constant (form pre-fill, always overridable per recipe). If the household size changes often enough to matter, promote it to an editable Settings value. Needs a general app-settings store (Settings today is only staples + product_units CRUD). See [Scaling Logic](#scaling-logic). |
 | Countable item purchase unit thresholds | Phase 4 | e.g. "need 6 eggs, buy a dozen?". **Design resolved 2026-09-05, implementation still pending Phase 4:** folded into the general multi-pack-size resolution algorithm — see [Purchase unit resolution](#scaling-logic) and the [`product_units`](#product_units) schema note. No separate special case needed once an ingredient can have more than one seeded pack size. |

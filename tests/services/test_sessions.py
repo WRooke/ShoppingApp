@@ -449,6 +449,98 @@ def test_consolidate_coarse_ingredient_still_populates_recipe_breakdown(db):
     assert by_label["Tabbouleh"] == (1, "tbsp")
 
 
+def _lemon_juice_and_zest_aliases(db):
+    from app.services import ingredient_aliases as ia_service
+    from app.schemas.ingredient_aliases import IngredientAliasCreate
+
+    ia_service.create_alias(
+        db, IngredientAliasCreate(
+            alias_name="lemon juice", canonical_name="lemon",
+            alias_qty=2, alias_unit="tbsp", canonical_qty=1, canonical_unit=None,
+        ),
+    )
+    ia_service.create_alias(
+        db, IngredientAliasCreate(
+            alias_name="lemon zest", canonical_name="lemon",
+            alias_qty=3, alias_unit="tsp", canonical_qty=1, canonical_unit=None,
+        ),
+    )
+
+
+def test_consolidate_combines_juice_and_zest_from_one_recipe_via_max(db):
+    # 2026-09-12, Ingredient Aliases > Shared-source combining -- ONE recipe needing both
+    # "4 tbsp lemon juice" (-> 2 lemons) and "3 tsp lemon zest" (-> 1 lemon) needs 2 lemons
+    # total (the larger of the two), not 3 (their sum) -- the same physical lemons cover both.
+    _lemon_juice_and_zest_aliases(db)
+    r = _recipe_with(
+        db, "Lemon Chicken",
+        [
+            {"name": "lemon juice", "quantity": 4, "unit": "tbsp"},
+            {"name": "lemon zest", "quantity": 3, "unit": "tsp"},
+        ],
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    item = items[0]
+    assert item.ingredient_name == "lemon"
+    assert item.total_quantity == 2  # max(2, 1), not 2 + 1 = 3
+
+    # the breakdown/conversion-notes still show BOTH real, untouched contributions -- the
+    # combining is invisible everywhere except the final total.
+    _rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, s.id)
+    contributions = breakdown["lemon"]
+    assert len(contributions) == 2  # the synthetic correction line never appears here
+    by_label_qty = sorted(c.quantity for c in contributions)
+    assert by_label_qty == [1, 2]  # the zest line's 1 lemon and the juice line's 2 lemons, as-is
+    assert "4 tbsp lemon juice" in item.note
+    assert "3 tsp lemon zest" in item.note
+
+
+def test_consolidate_juice_and_zest_from_different_recipes_still_sum(db):
+    # Two DIFFERENT recipes -- plausibly cooked on different days -- genuinely need separate
+    # lemons; only within-recipe sharing is assumed.
+    _lemon_juice_and_zest_aliases(db)
+    r1 = _recipe_with(db, "Lemon Curd", [{"name": "lemon juice", "quantity": 4, "unit": "tbsp"}])
+    r2 = _recipe_with(db, "Lemon Cake", [{"name": "lemon zest", "quantity": 3, "unit": "tsp"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    assert items[0].total_quantity == 3  # 2 + 1, unaffected -- different recipes, not combined
+
+
+def test_consolidate_plain_rename_alias_never_combines_via_max(db):
+    # Name-only aliases (no transform, e.g. the oil-variant case) are never affected by this
+    # -- they're the same additive substance and should keep summing even within one recipe.
+    from app.services import ingredient_aliases as ia_service
+    from app.schemas.ingredient_aliases import IngredientAliasCreate
+
+    ia_service.create_alias(db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil"))
+    ia_service.create_alias(db, IngredientAliasCreate(alias_name="oil spray", canonical_name="vegetable oil"))
+    r = _recipe_with(
+        db, "Stir Fry",
+        [
+            {"name": "canola oil", "quantity": 1, "unit": "tbsp"},
+            {"name": "oil spray", "quantity": 1, "unit": "tbsp"},
+        ],
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    assert items[0].ingredient_name == "vegetable oil"
+    # 1 tbsp + 1 tbsp summed = 2 tbsp (shown in tbsp, not ml -- consolidation's spoon/cup
+    # display exception, since nothing here is a literal ml/L). If this had been maxed
+    # instead of summed it would show 1 tbsp, not 2.
+    assert items[0].total_quantity == 2 and items[0].total_unit == "tbsp"
+
+
 def test_consolidate_with_breakdown_disambiguates_duplicate_recipe_slots_by_day(db):
     # 2026-09-11, "which recipe is this ingredient from" -- the same recipe slotted into a
     # session twice (e.g. meal-prepped for two different nights) shows as two separate
