@@ -3323,21 +3323,43 @@ session flips `ANYLIST_ENABLED`.
       `?force=true`. `anylist_client.last_success_at()` feeds diagnostics without a live
       round-trip; `POST /diagnostics/anylist-check` does an on-demand one. +8 tests; suite
       356 pass; headless E2E (review → checklist → push → history + diagnostics) clean.
-- [ ] **Chunk 5.7 — Live AnyList verification (TestList, explicit go-ahead required).** The
+- [x] **Chunk 5.7 — Live AnyList verification (TestList, explicit go-ahead required).** The
       one point that needs a real AnyList call. With real creds (keyring or `.env`),
       `ANYLIST_ENABLED=true`, `ANYLIST_TARGET_LIST_NAME=TestList`, and the maintainer's
       explicit in-conversation go-ahead **for that specific run** (a standing "yes" does not
       carry): one real end-to-end — load a checklist against TestList, push a small list,
       confirm via re-fetch + diff, then remove the test items again. **The real household
       list is never touched.**
-      **2026-09-11 — the maintainer has personally trialled this live and confirmed it works.**
-      Box **deliberately left unticked**: the maintainer separately wants an agent-run pass
-      too, and asked not to proceed yet — the `.env` needs checking first (their words: "keep
-      this open"). No agent session should attempt a real AnyList call here until the
-      maintainer says to proceed, even though a standing verbal "it works" has already been
-      given — that's a report of their own result, not the fresh per-run go-ahead this chunk's
-      own rule requires. Does not block the Phase 5 review, which records it as a
-      carried-forward open item if still outstanding.
+      **2026-09-11 — the maintainer personally trialled this live and confirmed it works.**
+      Box deliberately left unticked at that point because a separate agent-run pass was
+      wanted, and the maintainer asked to hold off until the `.env` had been checked ("keep
+      this open").
+      **Done 2026-09-12 — agent-run pass, fresh explicit go-ahead given this session** (the
+      maintainer set `ANYLIST_ENABLED=true` themselves — per §0c-equivalent policy no agent
+      session flips that switch; confirmed both directly and via a config dump before
+      anything ran: `ANYLIST_ENABLED=true`, `ANYLIST_FAKE_MODE=false`,
+      `ANYLIST_TARGET_LIST_NAME='TestList'`). Ran a throwaway scratchpad script (same
+      precedent as the Phase 3.9 M7 Gemini live check) directly against
+      `services/anylist_client.py`'s public surface: `check_auth()` → authenticated;
+      `get_items()` → confirmed the real TestList's starting state (2 items: "Crossed off"
+      (checked), "Not crossed off"); `add_or_increment_items()` pushed one throwaway item
+      ("Claude Chunk 5.7 Test Item", qty "1") → `confirmed=True`, zero discrepancies,
+      re-fetch showed it landed with the right name + quantity; item removed again; final
+      `get_items()` confirmed TestList back to exactly its original 2 items. **The real
+      household list was never read or touched at any point** — every call targeted
+      `TestList` only, per `settings.anylist_target_list_name`.
+      **One genuine finding, not a pre-existing bug (nothing in the shipped app calls
+      remove):** the first removal attempt sent a `remove-shopping-list-item` op with only
+      `list_id`/`list_item_id` (no item submessage) — AnyList returned `HTTP 200` but
+      silently no-opped, exactly the class of "200 doesn't mean it landed" gotcha
+      `anylist_client.py`'s own module docstring already warns about for other operations.
+      Re-checking `spike/anylist_spike.py`'s `remove_item()` showed it always embeds the full
+      item wire (field 6) on a remove, same as add — doing the same fixed it, confirmed by
+      re-fetch. Not a code change: `services/anylist_client.py` deliberately exposes no
+      `remove()` (the app's own push flow never deletes an AnyList item), so this only
+      mattered for this one-off script — noted here in case a future feature ever needs
+      programmatic removal. Does not block the Phase 5 review, which can now proceed with no
+      open items from this chunk.
 - [ ] **Phase 5 review** — re-check against [Checklist Screen Logic](#checklist-screen-logic),
       [AnyList Push Logic](#anylist-push-logic), [Data Model](#data-model)
       (`session_checklist_items`, `shopping_history`, `usual_items`), [Security](#security)
