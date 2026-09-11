@@ -195,6 +195,7 @@
           [nameI, qtyI, unitI, prepI, sectionI, removeBtn].forEach(function (n) {
             rowEl.appendChild(n);
           });
+          rowEl.appendChild(global.UnitHints.attach(nameI, unitI)); // 2026-09-12, see unit-hints.js
           var wrapEl = el("div", "ingredient-edit-wrap");
           wrapEl.appendChild(rowEl);
           wrapEl.appendChild(swap.el);

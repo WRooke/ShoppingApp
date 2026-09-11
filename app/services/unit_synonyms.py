@@ -16,6 +16,16 @@ Resolved **dynamically** at consolidation time (``services/session_consolidation
 architectural point and reasoning as ``ingredient_aliases`` — a synonym added later should
 retroactively fix recipes saved before it existed, which a save-time rewrite couldn't do.
 
+Also home to Layer B (``known_units_for_ingredient()``) — "what units has this ingredient
+been used with before", derived live from ``recipe_ingredients`` with **zero new table and
+zero admin**: it's a plain query, pooled across an ingredient's ``ingredient_aliases`` group
+so typing "vegetable oil" also surfaces units seen under "canola oil". Kept in this module
+(despite querying ``recipe_ingredients``, conceptually ``services/recipes.py``'s domain)
+because it's fundamentally a "what units..." question and needs ``resolve_unit()`` to
+de-duplicate its results anyway — putting it here keeps the unit theme in one place rather
+than pushing `recipes.py` past the file-size guideline for a query that's arguably more
+about units than about recipes.
+
 Plain Python / SQLAlchemy — no ``fastapi`` import. Exceptions translate to the envelope in
 app/main.py.
 """
@@ -24,11 +34,14 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.catalog import UnitSynonym
+from app.models.recipes import RecipeIngredient
 from app.schemas.unit_synonyms import UnitSynonymCreate, UnitSynonymUpdate
+from app.services import ingredient_aliases
 
 logger = logging.getLogger(__name__)
 
@@ -153,3 +166,44 @@ def resolve_unit(unit: str | None, synonyms: dict[str, str]) -> str | None:
         return None
     stripped = strip_plural(unit)
     return synonyms.get(stripped, stripped)
+
+
+# --- Layer B: per-ingredient known units, derived live (2026-09-12) --------------------
+
+
+def _alias_group_names(db: Session, name: str) -> set[str]:
+    """Every ingredient name that should count as "the same ingredient" for pooling known
+    units — the given name plus its whole ``ingredient_aliases`` group, whichever direction
+    it points (an alias asking about its own canonical, or a canonical asking about its
+    aliases)."""
+    normalised = " ".join(name.strip().lower().split())
+    amap = ingredient_aliases.alias_map(db)
+    canonical = amap[normalised].canonical_name if normalised in amap else normalised
+    group = {canonical}
+    group.update(alias for alias, res in amap.items() if res.canonical_name == canonical)
+    return group
+
+
+def known_units_for_ingredient(db: Session, name: str) -> list[str]:
+    """Units already used for this ingredient (pooled across its alias group), most-
+    frequently-used first, each already canonicalised through ``resolve_unit`` — so "grams"
+    and "g" already show up as one entry, "g", not two. Zero admin: a plain query over
+    ``recipe_ingredients``, no new table (CLAUDE.md > Ingredient Unit Handling > Layer B).
+    Surfaced as quick-pick buttons on the unit input in manual entry / editing / capture
+    review, and as the comparison set for the Layer C duplicate-unit nudge."""
+    names = _alias_group_names(db, name)
+    if not names:
+        return []
+    synonyms = synonym_map(db)
+    rows = (
+        db.query(RecipeIngredient.unit, func.count(RecipeIngredient.id))
+        .filter(RecipeIngredient.name.in_(names), RecipeIngredient.unit.isnot(None))
+        .group_by(RecipeIngredient.unit)
+        .all()
+    )
+    counts: dict[str, int] = {}
+    for unit, count in rows:
+        canonical = resolve_unit(unit, synonyms)
+        if canonical:
+            counts[canonical] = counts.get(canonical, 0) + count
+    return sorted(counts, key=lambda u: (-counts[u], u))

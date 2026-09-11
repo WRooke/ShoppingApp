@@ -323,3 +323,23 @@ def test_recipe_read_exposes_ai_pending_tasks(client):
 
     fetched = client.get(f"/api/v1/recipes/{created['id']}").json()["data"]
     assert fetched["ai_pending_tasks"] == ["suggest_sections"]
+
+
+# --- ingredient-units: Ingredient Unit Handling Layer B (2026-09-12) --------------------
+
+
+def test_ingredient_units_endpoint_returns_units_used_before(client):
+    _create_recipe(
+        client,
+        name="ZZ-IngUnits-Test",
+        ingredients=[{"name": "zz-saffron-test", "quantity": 1, "unit": "pinch"}],
+    )
+    resp = client.get("/api/v1/recipes/ingredient-units?name=zz-saffron-test")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["units"] == ["pinch"]
+
+
+def test_ingredient_units_endpoint_empty_for_unused_name(client):
+    resp = client.get("/api/v1/recipes/ingredient-units?name=zz-never-used-ingredient")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["units"] == []

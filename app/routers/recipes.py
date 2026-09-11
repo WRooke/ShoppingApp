@@ -30,6 +30,7 @@ from app.schemas.recipes import (
 )
 from app.services import capture_photo, capture_queue, capture_url
 from app.services import recipes as recipes_service
+from app.services import unit_synonyms as unit_synonyms_service
 from app.services.ai_extraction import AiQuotaExhaustedError, ExtractionResult
 
 # Returned (inside the {"ok": true} envelope) when a capture is parked on the retry queue
@@ -144,6 +145,18 @@ def check_duplicate(
             matches=[DuplicateMatch.model_validate(m) for m in matches]
         ).model_dump(mode="json"),
     }
+
+
+# Ingredient Unit Handling Layer B (2026-09-12, CLAUDE.md) — units already used for this
+# ingredient, pooled across its ingredient_aliases group, most-frequent first. Same
+# declared-before-{recipe_id} reasoning as check-duplicate above. Feeds the unit-input
+# quick-picks and the Layer C duplicate-unit nudge in manual entry / editing / capture review.
+@router.get("/ingredient-units")
+def ingredient_units(
+    name: str = Query(..., min_length=1), db: Session = Depends(get_db)
+) -> dict:
+    units = unit_synonyms_service.known_units_for_ingredient(db, name)
+    return {"ok": True, "data": {"units": units}}
 
 
 @router.get("/{recipe_id}")

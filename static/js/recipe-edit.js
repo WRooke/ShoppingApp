@@ -278,6 +278,7 @@
         row.appendChild(n);
       }
     );
+    row.appendChild(global.UnitHints.attach(nameInput, unitInput)); // 2026-09-12, see unit-hints.js
     return row;
   }
 
@@ -330,6 +331,7 @@
     [nameInput, qtyInput, unitInput, prepInput, addBtn, rowErr].forEach(function (n) {
       row.appendChild(n);
     });
+    row.appendChild(global.UnitHints.attach(nameInput, unitInput)); // 2026-09-12, see unit-hints.js
     return row;
   }
 

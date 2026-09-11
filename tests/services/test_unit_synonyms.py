@@ -9,8 +9,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
+from app.schemas.recipes import RecipeCreate, RecipeIngredientCreate
 from app.schemas.unit_synonyms import UnitSynonymCreate, UnitSynonymUpdate
+from app.services import ingredient_aliases as ia
+from app.services import recipes as recipes_service
 from app.services import unit_synonyms as us
+from app.schemas.ingredient_aliases import IngredientAliasCreate
 
 
 @pytest.fixture()
@@ -30,6 +34,17 @@ def db():
 
 def _c(alias, canonical):
     return UnitSynonymCreate(alias_unit=alias, canonical_unit=canonical)
+
+
+def _recipe_with(db, name, ings):
+    return recipes_service.create_recipe(
+        db,
+        RecipeCreate(
+            name=name, source_type="manual", base_servings=4,
+            ingredients=[RecipeIngredientCreate(**i) for i in ings],
+        ),
+        allow_duplicate=True,
+    )
 
 
 # --- strip_plural() — the tableless generic heuristic ---------------------------------
@@ -146,3 +161,47 @@ def test_synonym_map_is_a_flat_dict(db):
 
 def test_synonym_map_empty_when_no_rows(db):
     assert us.synonym_map(db) == {}
+
+
+# --- known_units_for_ingredient() (Layer B, 2026-09-12) ---------------------------------
+
+
+def test_known_units_returns_units_used_before(db):
+    _recipe_with(db, "Aioli", [{"name": "garlic", "quantity": 2, "unit": "clove"}])
+    _recipe_with(db, "Roast", [{"name": "garlic", "quantity": 1, "unit": "head"}])
+    assert set(us.known_units_for_ingredient(db, "garlic")) == {"clove", "head"}
+
+
+def test_known_units_canonicalises_spelling_variants_into_one_entry(db):
+    us.create_synonym(db, _c("gram", "g"))
+    _recipe_with(db, "Cake", [{"name": "flour", "quantity": 200, "unit": "gram"}])
+    _recipe_with(db, "Bread", [{"name": "flour", "quantity": 300, "unit": "g"}])
+    # "gram" and "g" are the same unit once canonicalised -- one entry, not two
+    assert us.known_units_for_ingredient(db, "flour") == ["g"]
+
+
+def test_known_units_orders_most_frequent_first(db):
+    _recipe_with(db, "R1", [{"name": "milk", "quantity": 1, "unit": "cup"}])
+    _recipe_with(db, "R2", [{"name": "milk", "quantity": 1, "unit": "cup"}])
+    _recipe_with(db, "R3", [{"name": "milk", "quantity": 200, "unit": "ml"}])
+    assert us.known_units_for_ingredient(db, "milk") == ["cup", "ml"]
+
+
+def test_known_units_pools_across_an_alias_group(db):
+    # Typing "vegetable oil" should also surface units seen under "canola oil" -- same
+    # shopping item, per Ingredient Aliases.
+    ia.create_alias(db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil"))
+    _recipe_with(db, "Stir Fry", [{"name": "canola oil", "quantity": 1, "unit": "tbsp"}])
+    _recipe_with(db, "Cake", [{"name": "vegetable oil", "quantity": 100, "unit": "ml"}])
+    assert set(us.known_units_for_ingredient(db, "vegetable oil")) == {"tbsp", "ml"}
+    # also works the other direction -- asking about the alias itself
+    assert set(us.known_units_for_ingredient(db, "canola oil")) == {"tbsp", "ml"}
+
+
+def test_known_units_empty_for_never_used_ingredient(db):
+    assert us.known_units_for_ingredient(db, "saffron") == []
+
+
+def test_known_units_ignores_unitless_lines(db):
+    _recipe_with(db, "Salad", [{"name": "onion", "quantity": 1, "unit": None}])
+    assert us.known_units_for_ingredient(db, "onion") == []

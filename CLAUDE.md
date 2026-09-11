@@ -634,7 +634,7 @@ juice and zest → whole fruit — see [Ingredient Aliases](#ingredient-aliases)
 
 ### `unit_synonyms`
 
-**Designed 2026-09-12, build starting** — see [Ingredient Unit Handling](#ingredient-unit-handling)
+**Built 2026-09-12** — see [Ingredient Unit Handling](#ingredient-unit-handling)
 for the full design. A flat `alias_unit -> canonical_unit` map, structurally the plainer
 sibling of [`ingredient_aliases`](#ingredient_aliases) — same "warn/merge, not block, no
 admin" spirit, but for the *spelling* of a unit rather than the *identity* of an ingredient,
@@ -665,7 +665,7 @@ small, one-time, *universal* seed rather than per-household admin.
 
 ### `coarse_ingredients`
 
-**Designed 2026-09-12, build starting** — see [Ingredient Unit Handling](#ingredient-unit-handling)
+**Built 2026-09-12** — see [Ingredient Unit Handling](#ingredient-unit-handling)
 for the full design, raised by "10g + 1 tbsp of parsley is probably just a bunch, I'm not out
 shopping for parsley by the gram and tablespoon." An ingredient in this table skips the
 normal sum → normalise → round pipeline entirely — precision is pointless for it, so none is
@@ -1561,8 +1561,9 @@ to (not shared with) the zest-lemons. Needs real design thought, not a quick fix
 
 ## Ingredient Unit Handling
 
-**Status: designed 2026-09-12 across two rounds of Decision Dialogue with the maintainer —
-see chunk list below for build progress.** Resolves both the
+**Status: in scope, built 2026-09-12** — designed across two rounds of Decision Dialogue with
+the maintainer, then all six chunks built and verified the same day (see chunk list below).
+Resolves both the
 ["Free-text unit scaling" and "Ingredient-specific unit vocabulary" Deferred
 Decisions](#deferred-decisions) rows, and the
 [Decision Dialogue](#ingredient-specific-unit-vocabulary-raised-2026-09-10-hand-testing--not-yet-scoped)
@@ -1751,9 +1752,36 @@ quantity math entirely for ingredients where precision is pointless.
       across two recipes — which would otherwise flag `needs_review` — instead shows
       `1 × bunch` with the breakdown correctly expanding to each recipe's own contribution,
       zero console errors.
-- [ ] **Chunk 5 — Layers B+C, the known-units endpoint + frontend.** New
+- [x] **Chunk 5 — Layers B+C, the known-units endpoint + frontend.** New
       `GET /api/v1/recipes/ingredient-units` endpoint; quick-picks + the duplicate-unit
       nudge wired into `recipe-form.js`, `recipe-edit.js`, `capture-review.js`'s unit inputs.
+      Done 2026-09-12. `known_units_for_ingredient()` (Layer B) lives in
+      `services/unit_synonyms.py`, not `services/recipes.py` — despite querying
+      `recipe_ingredients`, it's fundamentally a "what units..." question and needs
+      `resolve_unit()` to de-duplicate its own results, and `recipes.py` was already at its
+      file-size guideline. A plain `GROUP BY unit` query, pooled across an ingredient's
+      `ingredient_aliases` group (typing "vegetable oil" also surfaces units seen under
+      "canola oil"), most-frequent first, zero new table. Layer C (the duplicate-unit nudge)
+      is entirely client-side — `static/js/unit-hints.js` re-implements the exact same
+      `strip_plural()` heuristic in JS (so the duplicate check agrees with what the backend
+      will actually resolve to) plus a small from-scratch Levenshtein distance for genuine
+      typos ("clve" → suggest "clove"), threshold tight for short units (1 char) and looser
+      for longer ones (2 chars) — tuned by hand-testing rather than reusing Duplicate Recipe
+      Prevention's name-matching thresholds unchanged, per that chunk's own kickoff note.
+      One shared module (`UnitHints.attach(nameInput, unitInput)`, same precedent as
+      `dup-warn.js`) wired into all three ingredient-row builders (including
+      `recipe-edit.js`'s two separate ones — existing rows and the add-new row). 12 new
+      backend tests (6 service, 2 router, plus the pooling/frequency-order/empty/unitless
+      cases). Suite 461 pass. Verified live end-to-end (headless Edge): typing "garlic"
+      surfaces a "clove" quick-pick from a real seeded recipe; typing the exact plural
+      "cloves" correctly shows no nudge (already reconciled by the tableless strip rule, no
+      table entry needed); typing a genuine typo "clve" surfaces "did you mean 'clove'?",
+      and clicking "use it" correctly fills the unit field and dismisses the nudge — zero
+      console errors throughout.
+
+**All six chunks complete 2026-09-12.** Status line above and the `unit_synonyms` /
+`coarse_ingredients` Data Model entries updated from "designed, build starting" to built —
+see those sections for the finished design.
 
 ---
 

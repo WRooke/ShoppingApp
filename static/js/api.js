@@ -110,6 +110,9 @@
         });
         return api.get("/api/v1/recipes/check-duplicate?" + q.join("&"));
       },
+      ingredientUnits: function (name) {
+        return api.get("/api/v1/recipes/ingredient-units?name=" + encodeURIComponent(name));
+      },
       addIngredient: function (recipeId, data) {
         return jsonBody(
           "POST",

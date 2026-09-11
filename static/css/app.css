@@ -386,6 +386,10 @@ select, input[type="text"] {
 .link-btn { min-height: 0; padding: 2px 6px; font-size: 0.85rem; }
 /* recipe detail: "using X instead" line */
 .ingredient-resolved { color: var(--accent); font-size: 0.85rem; }
+/* Ingredient Unit Handling Layers B+C (2026-09-12) — unit-hints.js */
+.unit-hints { flex-basis: 100%; font-size: 0.85rem; }
+.unit-hints-picks { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.unit-hints-nudge { display: block; margin-top: 2px; }
 
 /* --- "Pending AI processing" badge (Phase 3.9 M6) --- */
 .pending-ai-badge {

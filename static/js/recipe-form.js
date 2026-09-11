@@ -104,6 +104,7 @@
       [nameI, qtyI, unitI, prepI, removeBtn].forEach(function (n) {
         rowEl.appendChild(n);
       });
+      rowEl.appendChild(global.UnitHints.attach(nameI, unitI)); // 2026-09-12, see unit-hints.js
       ingList.appendChild(rowEl);
 
       var record = { nameInput: nameI, qtyInput: qtyI, unitInput: unitI, prepInput: prepI, rowEl: rowEl };
