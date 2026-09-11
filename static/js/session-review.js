@@ -131,7 +131,12 @@
       if (item.needs_review) {
         detail = "⚠ " + (item.note || "mixed units — needs review");
       } else if (item.display_qty) {
-        detail = item.display_qty + " · need ~" + fmtQty(item);
+        // 2026-09-12 (Ingredient Unit Handling Layer D, "coarse ingredients") — a coarse
+        // item has a display_qty (e.g. "1 × bunch") but no precise total_quantity at all,
+        // by design (that's the whole point of "coarse" — skip quantity math entirely).
+        // Appending "· need ~" with nothing after it read as a dangling half-sentence.
+        detail = item.display_qty;
+        if (item.total_quantity != null) detail += " · need ~" + fmtQty(item);
         if (item.note) detail += " · " + item.note;
       } else {
         detail = fmtQty(item);

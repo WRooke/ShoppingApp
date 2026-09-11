@@ -336,6 +336,119 @@ def test_consolidate_alias_pair_falls_back_to_name_only_on_unit_mismatch(db):
     assert item.note is None  # no conversion note when the transform didn't apply
 
 
+def test_consolidate_resolves_unit_spelling_before_summing(db):
+    # 2026-09-12, Ingredient Unit Handling Layer A -- "gram" is a free-text unit today
+    # (consolidation._dimension() only recognises "g"/"kg" as mass), so without synonym
+    # resolution this would land in a DIFFERENT bucket than "g" and get flagged needs_review
+    # even though they're plainly the same thing. With the seeded gram->g synonym (via a
+    # fresh row here, not relying on seed_data), the two recipes merge cleanly.
+    from app.services import unit_synonyms as us_service
+    from app.schemas.unit_synonyms import UnitSynonymCreate
+
+    us_service.create_synonym(db, UnitSynonymCreate(alias_unit="gram", canonical_unit="g"))
+
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r1 = _recipe_with(db, "Cake", [{"name": "flour", "quantity": 200, "unit": "gram"}])
+    r2 = _recipe_with(db, "Bread", [{"name": "flour", "quantity": 300, "unit": "g"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1  # merged onto one line, not flagged needs_review
+    assert items[0].total_quantity == 500 and items[0].total_unit == "g"
+
+
+def test_consolidate_unit_synonym_lets_a_plural_typo_reconcile_too(db):
+    # Plain plurals need no synonym row at all -- services/unit_synonyms.py's strip_plural()
+    # handles "clove"/"cloves" generically before any table lookup.
+    r1 = _recipe_with(db, "Aioli", [{"name": "garlic", "quantity": 2, "unit": "clove"}])
+    r2 = _recipe_with(db, "Soup", [{"name": "garlic", "quantity": 3, "unit": "cloves"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    assert items[0].total_quantity == 5 and items[0].total_unit == "clove"
+
+
+def test_consolidate_coarse_ingredient_ignores_quantity_and_counts_recipe_slots(db):
+    # 2026-09-12, Ingredient Unit Handling Layer D -- parsley in "10g" and "1 tbsp" would
+    # normally be flagged needs_review (mass + volume). Marked coarse, it skips quantity math
+    # entirely: 2 contributing recipe slots, recipes_per_pack=3 -> ceil(2/3) = 1 pack.
+    from app.services import coarse_ingredients as ci_service
+    from app.schemas.coarse_ingredients import CoarseIngredientCreate
+
+    ci_service.create_coarse_ingredient(
+        db, CoarseIngredientCreate(name="parsley", purchase_label="bunch", recipes_per_pack=3)
+    )
+    r1 = _recipe_with(db, "Chimichurri", [{"name": "parsley", "quantity": 10, "unit": "g"}])
+    r2 = _recipe_with(db, "Tabbouleh", [{"name": "parsley", "quantity": 1, "unit": "tbsp"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert len(items) == 1
+    item = items[0]
+    assert item.ingredient_name == "parsley"
+    assert item.needs_review is False  # would have been True without the coarse flag
+    assert item.total_quantity is None and item.total_unit is None
+    assert item.display_qty == "1 × bunch"
+    assert item.purchase_label == "bunch"
+
+
+def test_consolidate_coarse_ingredient_scales_pack_count_with_recipe_count(db):
+    # 4 contributing recipes, recipes_per_pack=3 -> ceil(4/3) = 2 packs.
+    from app.services import coarse_ingredients as ci_service
+    from app.schemas.coarse_ingredients import CoarseIngredientCreate
+
+    ci_service.create_coarse_ingredient(
+        db, CoarseIngredientCreate(name="basil", purchase_label="bunch", recipes_per_pack=3)
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    for i in range(4):
+        r = _recipe_with(db, f"Basil Dish {i}", [{"name": "basil", "quantity": 5, "unit": "g"}])
+        sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert items[0].display_qty == "2 × bunch"
+
+
+def test_consolidate_coarse_ingredient_without_purchase_label_shows_no_count(db):
+    from app.services import coarse_ingredients as ci_service
+    from app.schemas.coarse_ingredients import CoarseIngredientCreate
+
+    ci_service.create_coarse_ingredient(db, CoarseIngredientCreate(name="chives"))
+    r = _recipe_with(db, "Garnish", [{"name": "chives", "quantity": 1, "unit": "tbsp"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert items[0].display_qty is None and items[0].purchase_label is None
+
+
+def test_consolidate_coarse_ingredient_still_populates_recipe_breakdown(db):
+    # The breakdown is independent of how the total is computed -- each contributing recipe's
+    # own raw quantity/unit still shows, even though the total ignores it.
+    from app.services import coarse_ingredients as ci_service
+    from app.schemas.coarse_ingredients import CoarseIngredientCreate
+
+    ci_service.create_coarse_ingredient(db, CoarseIngredientCreate(name="parsley", purchase_label="bunch"))
+    r1 = _recipe_with(db, "Chimichurri", [{"name": "parsley", "quantity": 10, "unit": "g"}])
+    r2 = _recipe_with(db, "Tabbouleh", [{"name": "parsley", "quantity": 1, "unit": "tbsp"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+
+    _rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, s.id)
+    contributions = breakdown["parsley"]
+    assert len(contributions) == 2
+    by_label = {c.recipe_label: (c.quantity, c.unit) for c in contributions}
+    assert by_label["Chimichurri"] == (10, "g")
+    assert by_label["Tabbouleh"] == (1, "tbsp")
+
+
 def test_consolidate_with_breakdown_disambiguates_duplicate_recipe_slots_by_day(db):
     # 2026-09-11, "which recipe is this ingredient from" -- the same recipe slotted into a
     # session twice (e.g. meal-prepped for two different nights) shows as two separate

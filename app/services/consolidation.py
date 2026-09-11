@@ -102,6 +102,17 @@ class ConsolidatedItem:
     # same recipe — CLAUDE.md > "Which recipe is this ingredient from"), for the ingredient
     # review screen's expandable "which recipe needed this" breakdown.
     recipe_breakdown: list[RecipeContribution] = field(default_factory=list)
+    # 2026-09-12 — Ingredient Unit Handling Layer D ("coarse ingredients", e.g. parsley).
+    # Only ever set by `session_consolidation.py`'s `_coarse_items()` — a coarse ingredient's
+    # lines never reach `consolidate()`/`_resolve_group()` at all (they're partitioned out
+    # before this module is even called), so `quantity`/`unit`/`needs_review`/etc. above stay
+    # at their defaults (None/False) for a coarse item; the display comes from these three
+    # fields instead. `recipe_breakdown` above is still populated normally for a coarse item
+    # (via the same `_recipe_breakdown()` helper) — it's independent of how the total/count is
+    # computed, which is exactly the "why do I need this" transparency the feature is for.
+    is_coarse: bool = False
+    coarse_packs_needed: int | None = None  # ceil(contributing recipe SLOTS / recipes_per_pack)
+    coarse_purchase_label: str | None = None  # e.g. "bunch"; None -> just "needed", no count
 
 
 def _dimension(unit: str | None) -> str:

@@ -1704,9 +1704,22 @@ quantity math entirely for ingredients where precision is pointless.
       14 service tests + 9 router tests; suite 447 pass. Headless-Edge verified: "Unit
       spellings" card renders 6 canonical groups (g/kg/l/ml/tbsp/tsp) from the real seed,
       zero console errors.
-- [ ] **Chunk 2 — wire Layer A into consolidation.** Resolve unit synonyms in
+- [x] **Chunk 2 — wire Layer A into consolidation.** Resolve unit synonyms in
       `_scaled_lines()`, same layer as ingredient alias resolution, applied to every line's
       unit before `consolidation.consolidate()` buckets it.
+      Done 2026-09-12. Applied *earlier* than originally described — right after
+      `_effective_source()` returns the raw (quantity, unit), before scaling and before any
+      substitution/override/alias matching runs — not merely as a final pass alongside
+      alias resolution. Reason found while implementing: an alias's or session override's own
+      `alias_unit`/`original_unit` is compared against the line's unit for its equivalence-
+      pair match; canonicalising the line's unit only *after* that comparison would make a
+      recipe spelling a unit differently ("tablespoons" vs a configured "tbsp") spuriously
+      fail to match. Canonicalising first means every downstream comparison already sees a
+      consistent spelling. 2 new integration tests (`test_sessions.py`): "gram"+"g" flour
+      across two recipes merges instead of `needs_review`; a `clove`/`cloves` plural mismatch
+      reconciles via the tableless strip rule alone (no synonym row needed). Verified live
+      against a scratch server + headless Edge: 200 g + 300 "gram" flour merged to `500 g`,
+      confirmed in both the API response and the rendered ingredient-review row.
 - [x] **Chunk 3 — `coarse_ingredients`.** Migration, model, schema, service, router endpoints
       under `/api/v1/settings/coarse-ingredients`, Settings card, seed data, tests.
       Done 2026-09-12 (migration `e7f2c9a4d6b8`, shared with Chunk 1). CRUD only in this
@@ -1715,9 +1728,29 @@ quantity math entirely for ingredients where precision is pointless.
       `purchase_label="bunch"`, `recipes_per_pack=3`. 10 service tests + 8 router tests;
       suite 447 pass. Headless-Edge verified: "Coarse ingredients" card lists all 4 seeded
       rows with editable label/recipes-per-pack fields, zero console errors.
-- [ ] **Chunk 4 — wire Layer D into consolidation.** Partition lines into coarse/normal in
+- [x] **Chunk 4 — wire Layer D into consolidation.** Partition lines into coarse/normal in
       the orchestrator; build coarse `ConsolidatedItem`s by hand; merge into the upsert loop
       with its own display-string branch, bypassing pack resolution.
+      Done 2026-09-12. Three new fields on `ConsolidatedItem` (`is_coarse` /
+      `coarse_packs_needed` / `coarse_purchase_label`) — `consolidate()`'s own logic is
+      completely untouched, only ever populated by `session_consolidation.py._coarse_items()`
+      constructing items by hand for the lines it partitions out before `consolidate()` is
+      even called. `recipe_breakdown` is still built via the same `consolidation._recipe_breakdown()`
+      helper `consolidate()` itself uses, confirming it really is independent of how the total
+      is computed. Real frontend bug found and fixed along the way:
+      `session-review.js`'s `renderItemRow()` unconditionally appended
+      `" · need ~" + fmtQty(item)` after `display_qty`, which for a coarse item (display_qty
+      set, total_quantity always null by design) rendered a dangling "1 × bunch · need ~"
+      with nothing after it — `checklist.js`'s equivalent already guarded this correctly,
+      `session-review.js` didn't; now both do. 6 new integration tests covering: mass+volume
+      contributions that would normally be `needs_review` instead resolving to a pack count;
+      the count scaling with the number of contributing recipes (`ceil(4/3) = 2` packs); no
+      `purchase_label` configured showing plain "needed" with no count; the recipe breakdown
+      still showing each contributor's own raw, un-coarsened quantity and unit. Suite 453
+      pass. Verified live end-to-end (curl + headless Edge): parsley in "10 g" + "1 tbsp"
+      across two recipes — which would otherwise flag `needs_review` — instead shows
+      `1 × bunch` with the breakdown correctly expanding to each recipe's own contribution,
+      zero console errors.
 - [ ] **Chunk 5 — Layers B+C, the known-units endpoint + frontend.** New
       `GET /api/v1/recipes/ingredient-units` endpoint; quick-picks + the duplicate-unit
       nudge wired into `recipe-form.js`, `recipe-edit.js`, `capture-review.js`'s unit inputs.

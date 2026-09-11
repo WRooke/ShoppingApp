@@ -5,23 +5,32 @@ size and scope discipline.
 This is the DB plumbing around the *pure* ``services/consolidation.py`` +
 ``purchase_units.py``: it pulls a session's scaled ingredient lines out of the DB (resolving
 per-recipe ``resolved_ingredient`` / the M8 quantity/unit transform, any session-only
-override, and — 2026-09-10 — the ``ingredient_aliases`` "same shopping item" map), runs them
-through consolidation, resolves pack sizes, and upserts ``session_checklist_items`` without
-discarding per-line checklist state (``have_it`` / ``add_to_list`` / ``already_on_anylist`` /
-``anylist_item_id``). The rounding/unit rules themselves live in ``consolidation.py``. See
-CLAUDE.md > Scaling Logic, > Ingredient Aliases, and > Build Phases > Phase 4 > Chunk 4.6.
+override, — 2026-09-10 — the ``ingredient_aliases`` "same shopping item" map, and — 2026-09-12
+— the ``unit_synonyms`` spelling map), runs them through consolidation, resolves pack sizes,
+and upserts ``session_checklist_items`` without discarding per-line checklist state
+(``have_it`` / ``add_to_list`` / ``already_on_anylist`` / ``anylist_item_id``). The
+rounding/unit rules themselves live in ``consolidation.py``. See CLAUDE.md > Scaling Logic,
+> Ingredient Aliases, > Ingredient Unit Handling, and > Build Phases > Phase 4 > Chunk 4.6.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 
 from sqlalchemy.orm import Session
 
 from app.models.catalog import ProductUnit, Staple
 from app.models.planning import PlanningSession, SessionChecklistItem
 from app.schemas.sessions import SessionOverride
-from app.services import consolidation, ingredient_aliases, purchase_units, scaling
+from app.services import (
+    coarse_ingredients,
+    consolidation,
+    ingredient_aliases,
+    purchase_units,
+    scaling,
+    unit_synonyms,
+)
 from app.services.sessions import get_session
 
 logger = logging.getLogger(__name__)
@@ -112,21 +121,62 @@ def _recipe_label(slot) -> str:
     return f"{slot.recipe.name} ({day})" if day else slot.recipe.name
 
 
+def _coarse_items(
+    lines: list[consolidation.IngredientLine],
+    coarse_cfg: dict[str, coarse_ingredients.CoarseIngredient],
+) -> tuple[list[consolidation.ConsolidatedItem], list[consolidation.IngredientLine]]:
+    """Partition already-resolved lines into (coarse ConsolidatedItems, remaining normal
+    lines) — CLAUDE.md > Ingredient Unit Handling > Layer D. A coarse ingredient's lines
+    never reach the pure `consolidation.consolidate()` at all: instead of summing quantity,
+    `packs_needed = ceil(number of contributing recipe SLOTS / recipes_per_pack)`, ignoring
+    what quantity/unit each line actually carries (that's the whole point — precision is
+    pointless for these). `recipe_breakdown` is still built normally via the same helper
+    `consolidate()` uses, since it's independent of how the total is computed and is exactly
+    the "why do I need this" transparency the breakdown feature exists for."""
+    grouped: dict[str, list[consolidation.IngredientLine]] = {}
+    normal: list[consolidation.IngredientLine] = []
+    for ln in lines:
+        cfg = coarse_cfg.get(_norm(ln.name))
+        if cfg is None:
+            normal.append(ln)
+        else:
+            grouped.setdefault(_norm(ln.name), []).append(ln)
+
+    coarse_items = [
+        consolidation.ConsolidatedItem(
+            name=name,
+            quantity=None,
+            unit=None,
+            recipe_breakdown=consolidation._recipe_breakdown(group),
+            is_coarse=True,
+            coarse_packs_needed=math.ceil(len(group) / coarse_cfg[name].recipes_per_pack),
+            coarse_purchase_label=coarse_cfg[name].purchase_label,
+        )
+        for name, group in grouped.items()
+    ]
+    return coarse_items, normal
+
+
 def _scaled_lines(
     session: PlanningSession,
     override_map: dict[str, SessionOverride],
     alias_map: dict[str, ingredient_aliases.AliasResolution],
+    synonym_map: dict[str, str],
 ) -> list[consolidation.IngredientLine]:
     """Scaled ingredient lines with the *effective* name (and, for M8/aliases, amount/unit)
-    already resolved: per-recipe `resolved_ingredient` / `resolved_quantity` (fallback `name`
-    / `quantity`), then a session-only override keyed off that resolved name, then —
-    2026-09-10 — the ingredient_aliases "same shopping item" map (optionally with its own
-    quantity/unit transform, e.g. "lemon juice" -> "lemon"), as a final normalisation pass
-    applied to whatever name/amount resulted from the steps before it (CLAUDE.md > Ingredient
-    Aliases > Where it applies). `consolidation.consolidate()` itself does no substitution or
-    aliasing (Phase 3.9 M4/M8; 2026-09-10). Each line also carries which recipe slot it came
-    from (2026-09-11, CLAUDE.md > "Which recipe is this ingredient from"), purely for display —
-    it plays no part in any of the above resolution."""
+    already resolved: the ingredient's own unit is canonicalised (2026-09-12, CLAUDE.md >
+    Ingredient Unit Handling > Layer A) BEFORE anything else runs, so a recipe spelling a unit
+    differently ("tablespoons" vs "tbsp") doesn't cause a session override's or an alias's own
+    configured unit to spuriously fail to match; then per-recipe `resolved_ingredient` /
+    `resolved_quantity` (fallback `name` / `quantity`), then a session-only override keyed off
+    that resolved name, then — 2026-09-10 — the ingredient_aliases "same shopping item" map
+    (optionally with its own quantity/unit transform, e.g. "lemon juice" -> "lemon"), as a
+    final normalisation pass applied to whatever name/amount resulted from the steps before it
+    (CLAUDE.md > Ingredient Aliases > Where it applies). `consolidation.consolidate()` itself
+    does no substitution, aliasing, or unit-spelling resolution (Phase 3.9 M4/M8; 2026-09-10;
+    2026-09-12). Each line also carries which recipe slot it came from (2026-09-11, CLAUDE.md
+    > "Which recipe is this ingredient from"), purely for display — it plays no part in any of
+    the above resolution."""
     lines: list[consolidation.IngredientLine] = []
     for slot in session.recipes:
         if slot.slot_type != "recipe" or slot.recipe is None:
@@ -136,6 +186,7 @@ def _scaled_lines(
         for ing in slot.recipe.ingredients:
             base = ing.resolved_ingredient or ing.name
             src_qty, src_unit = _effective_source(ing)
+            src_unit = unit_synonyms.resolve_unit(src_unit, synonym_map)
             sq = scaling.scale_quantity(src_qty, src_unit, factor)
             name, qty, unit = base, sq.quantity, sq.unit
             ov = override_map.get(_norm(base))
@@ -253,9 +304,13 @@ def _consolidate_session_impl(
     # global rule map. Keyed by normalised original name; the whole override (incl. any M8
     # equivalence pair) is carried through.
     override_map = {_norm(ov.original_name): ov for ov in (overrides or [])}
-    items = consolidation.consolidate(
-        _scaled_lines(session, override_map, ingredient_aliases.alias_map(db))
+    all_lines = _scaled_lines(
+        session, override_map, ingredient_aliases.alias_map(db), unit_synonyms.synonym_map(db)
     )
+    # Ingredient Unit Handling Layer D (2026-09-12) — a coarse ingredient's lines never reach
+    # the pure consolidate() below; they're grouped and resolved by _coarse_items() instead.
+    coarse_items, normal_lines = _coarse_items(all_lines, coarse_ingredients.coarse_map(db))
+    items = coarse_items + consolidation.consolidate(normal_lines)
 
     staple_names = {s.name for s in db.query(Staple).all()}
     existing = {ci.ingredient_name: ci for ci in session.checklist_items}
@@ -289,7 +344,15 @@ def _consolidate_session_impl(
         row.needs_review = item.needs_review
         row.note = None
 
-        if item.needs_review:
+        if item.is_coarse:
+            # Ingredient Unit Handling Layer D (2026-09-12) — no quantity/unit math at all;
+            # `_pack_options_for`/`purchase_units.resolve_packs()` (precision-driven pack-size
+            # resolution) are skipped entirely, matching what "coarse" means opting out of.
+            if item.coarse_purchase_label:
+                row.display_qty = f"{item.coarse_packs_needed} × {item.coarse_purchase_label}"
+                row.purchase_label = item.coarse_purchase_label
+                row.purchase_qty = float(item.coarse_packs_needed)
+        elif item.needs_review:
             row.note = " + ".join(item.review_parts)
         elif item.is_no_scale:
             row.note = "to taste"
