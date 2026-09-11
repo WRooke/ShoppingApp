@@ -632,6 +632,65 @@ name-only rename, same precedent as the M8 substitution transform. Seeded
 (`app/seed_data.py > INGREDIENT_ALIAS_SEEDS`) with the oil-variant group plus lemon/lime
 juice and zest → whole fruit — see [Ingredient Aliases](#ingredient-aliases).
 
+### `unit_synonyms`
+
+**Designed 2026-09-12, build starting** — see [Ingredient Unit Handling](#ingredient-unit-handling)
+for the full design. A flat `alias_unit -> canonical_unit` map, structurally the plainer
+sibling of [`ingredient_aliases`](#ingredient_aliases) — same "warn/merge, not block, no
+admin" spirit, but for the *spelling* of a unit rather than the *identity* of an ingredient,
+and with no equivalence pair (a unit doesn't need a quantity conversion to its own synonym —
+"tablespoon" just *is* "tbsp", not "N tablespoon ≈ M tbsp").
+```
+id              INTEGER PRIMARY KEY
+alias_unit      TEXT NOT NULL UNIQUE   -- normalised lowercase, after the generic
+                                        -- pluralisation-strip (see below) has already run
+canonical_unit  TEXT NOT NULL          -- normalised lowercase; one of the app's standard
+                                        -- units (g, kg, ml, L, tsp, tbsp, cup) or any other
+                                        -- free-text unit already in genuine use — NOT
+                                        -- constrained to the metric set
+created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+```
+Resolved **dynamically** at consolidation time (`services/session_consolidation.py`), the
+same architectural point and reasoning as `ingredient_aliases` — a save-time rewrite was
+considered and rejected specifically *because* this table is Settings-editable: a synonym
+added later should retroactively fix recipes already saved before it existed, which a
+save-time rewrite can't do. Plurals of discrete units (`clove`/`cloves`, `bunch`/`bunches`,
+`sprig`/`sprigs`) are handled by a generic, tableless pluralisation-strip rule that runs
+*before* this map is consulted (same idea as `checklist.py`'s `_singularise()`, applied to
+unit strings instead of ingredient names) — this table only needs entries for genuine
+word-form differences the strip rule can't derive (`gram`/`grams` → `g`, `tablespoon`(`s`)/
+`tbs` → `tbsp`, `millilitre`(`s`)/`milliliter`(`s`) → `ml`, and so on), which is why it's a
+small, one-time, *universal* seed rather than per-household admin.
+
+### `coarse_ingredients`
+
+**Designed 2026-09-12, build starting** — see [Ingredient Unit Handling](#ingredient-unit-handling)
+for the full design, raised by "10g + 1 tbsp of parsley is probably just a bunch, I'm not out
+shopping for parsley by the gram and tablespoon." An ingredient in this table skips the
+normal sum → normalise → round pipeline entirely — precision is pointless for it, so none is
+attempted.
+```
+id                INTEGER PRIMARY KEY
+name              TEXT NOT NULL UNIQUE   -- normalised lowercase; checked against the FINAL
+                                          -- resolved name (after substitution + ingredient-
+                                          -- alias resolution), same point `is_staple` checks
+purchase_label    TEXT                   -- nullable, e.g. "bunch" -- shown as "2 × bunch";
+                                          -- NULL = the line just shows "needed", no pack count
+recipes_per_pack  INTEGER NOT NULL DEFAULT 3  -- how many contributing recipe SLOTS (not
+                                          -- summed quantity) one pack is assumed to cover
+notes             TEXT                   -- nullable
+created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+```
+Seeded with parsley, coriander, mint, basil (`purchase_label="bunch"`, default
+`recipes_per_pack=3`) — the maintainer's own motivating example plus its obvious siblings,
+same "exercise it immediately rather than ship dormant" call as the oil-variant and
+lemon/lime alias seeds. Deliberately its own table rather than a flag on `product_units` —
+a coarse ingredient's "pack" concept (a plain purchase label + a recipe-count divisor) is
+simpler than and orthogonal to `product_units`' precise weight/volume pack-size resolution,
+which a coarse ingredient never runs.
+
 ### `planning_sessions`
 ```
 id              INTEGER PRIMARY KEY
@@ -868,8 +927,12 @@ Applied to the **summed** quantity for each consolidated ingredient, in this ord
 ### Free-text units (`can`, `bunch`, `clove`, `sprig`, …) — 2026-09-06
 Manual entry allows any unit string. Anything not in {`g`,`kg`,`ml`,`L`,`tsp`,`tbsp`,`cup`}
 and not in `NO_SCALE_UNITS` is treated as **discrete** — scaled, then ceil-to-whole
-("2 cloves" ×1.5 → 3). **Flagged as a revisit-after-real-use item** (see
-[Deferred Decisions](#deferred-decisions)) — it's the pragmatic default, not a confident one.
+("2 cloves" ×1.5 → 3). This scaling behaviour is unchanged and still the pragmatic default,
+not a confident one — what real use actually surfaced as broken wasn't this rule but
+**reconciliation** ("2 clove" and "3 cloves" landing in different, unmergeable buckets),
+fixed by [Ingredient Unit Handling](#ingredient-unit-handling)'s dynamic unit-spelling
+canonicalisation (Layer A) — that section is also where the "some ingredients shouldn't be
+measured this precisely at all" case (Layer D, `coarse_ingredients`) lives.
 
 ### Consolidation across recipes
 Each ingredient's effective name is its `recipe_ingredients.resolved_ingredient` if set,
@@ -1493,6 +1556,151 @@ express, and "take the max" isn't even universally correct either — a recipe e
 calling for "zest of 3 lemons, juice of 1" genuinely needs the juice-lemon to be additional
 to (not shared with) the zest-lemons. Needs real design thought, not a quick fix — see
 [Deferred Decisions](#deferred-decisions).
+
+---
+
+## Ingredient Unit Handling
+
+**Status: designed 2026-09-12 across two rounds of Decision Dialogue with the maintainer —
+see chunk list below for build progress.** Resolves both the
+["Free-text unit scaling" and "Ingredient-specific unit vocabulary" Deferred
+Decisions](#deferred-decisions) rows, and the
+[Decision Dialogue](#ingredient-specific-unit-vocabulary-raised-2026-09-10-hand-testing--not-yet-scoped)
+below. Raised by 2026-09-10/11 hand-testing: "free text input for units causes issues,"
+compounded by real recipes genuinely needing several different units for the same ingredient
+(garlic: clove, head, spoon, or gram, all legitimate depending on the recipe) and by pure
+spelling variance ("clove" vs "cloves", "g" vs "grams") already causing false
+`needs_review` conflicts between recipes that mean the same thing.
+
+### Distinct from Ingredient Aliases — a different axis entirely
+[Ingredient Aliases](#ingredient-aliases) resolves two *names* being the same shopping item
+("canola oil" = "vegetable oil"). This resolves problems with the *unit*, given a correctly-
+identified, correctly-named ingredient — a different axis, addressed by a different pair of
+mechanisms below. The two are independent and can both apply to the same ingredient line
+(a line's name resolves through substitution → alias; its unit resolves through the synonym
+map below; the two resolutions don't interact).
+
+### Why this needed a full re-plan, not just "restrict units to a fixed list"
+The maintainer's own framing after the first pass of questions (2026-09-11) is worth keeping
+verbatim, because it's the reason the design below has four distinct, independently-scoped
+layers instead of one "unit vocabulary" table:
+
+> There are an incredible amount of units... you can't have a one size fits all approach for
+> a given ingredient, garlic can be measured in spoons, heads, cloves or grams... It's also a
+> problem when entering recipes manually, eg clove vs cloves, g vs grams etc which all
+> produce entries the system considers unreconcilable... 10g + 1tbsp of parsley is probably
+> just a bunch, I'm not out shopping for parsley by the gram and tablespoon... Blocking an
+> entry is not a good idea... I'd prefer not to do all of this crap manually as well, I don't
+> want to spend hours inputting "legitimate" units for ingredients, this is the admin I'm
+> trying to remove.
+
+Four genuinely different problems fell out of that: (A) the same unit spelled two ways is
+treated as two different units (the actual cause of most real `needs_review` false
+positives); (B) one ingredient legitimately has several valid units, so there is no single
+"correct" unit to restrict an ingredient to; (C) a near-duplicate unit should be nudged
+toward the existing one, never blocked; (D) some ingredients shouldn't have their quantity
+summed at all, because the real-world purchase granularity is coarser than any recipe's
+stated amount. Layers A-C fix the actual reconciliation bug with **zero manual admin**
+(everything is either a small one-time universal seed or derived live from existing recipe
+data); Layer D is a distinct mechanism, included in this same design pass at the maintainer's
+request rather than parked separately.
+
+### Layer A — unit spelling canonicalisation (fixes the real `needs_review` bug)
+- New table [`unit_synonyms`](#unit_synonyms): `alias_unit -> canonical_unit`, resolved
+  **dynamically** at consolidation time in `services/session_consolidation.py`, at the same
+  point and for the same reason `ingredient_aliases` is — a Settings-editable synonym added
+  later should retroactively fix recipes saved before it existed, which a save-time rewrite
+  of `recipe_ingredients.unit` couldn't do.
+- A generic, **tableless** pluralisation-strip rule runs first and handles the common
+  discrete-unit case (`clove`/`cloves`, `bunch`/`bunches`, `sprig`/`sprigs`, `can`/`cans`) —
+  same small heuristic idea as `checklist.py`'s `_singularise()`, applied to unit strings.
+  `unit_synonyms` only needs entries for genuine word-form differences the strip rule can't
+  derive on its own (`gram`(`s`) → `g`, `tablespoon`(`s`)/`tbs` → `tbsp`,
+  `millilitre`(`s`)/`milliliter`(`s`) → `ml`, `litre`(`s`)/`liter`(`s`) → `L`,
+  `teaspoon`(`s`) → `tsp`, `kilogram`(`s`) → `kg`, `cup`s already matches itself under the
+  strip rule) — a small, finite, **universal** seed (not per-ingredient, so not the admin
+  burden the maintainer is avoiding), Settings-editable ("Unit spellings" card,
+  `static/js/settings-unit-synonyms.js`) for anything the seed and the strip rule both miss.
+- Applied to every `IngredientLine`'s unit, right alongside (but independently of) ingredient
+  alias resolution — same layer, orthogonal axis. `consolidation.py`'s pure dimension
+  bucketing needs no change: it already groups by whatever unit string it's handed, so
+  feeding it the canonical spelling instead of the raw one is enough to fix the false
+  conflicts on its own.
+
+### Layer B — per-ingredient known units, derived live (zero new admin)
+- **No new table.** "What units has garlic been used with before?" is a plain query against
+  existing `recipe_ingredients` data (pooled across an ingredient's alias group — typing
+  "vegetable oil" surfaces units seen under "canola oil" too, matching the "same shopping
+  item" philosophy). New endpoint `GET /api/v1/recipes/ingredient-units?name=…`.
+  household-scale data, no caching needed.
+- Surfaced as quick-pick buttons on the unit input in manual entry (`recipe-form.js`),
+  editing (`recipe-edit.js`), and the capture review screen (`capture-review.js`) — reduces
+  the chance of a fresh typo-variant ever being typed, with zero setup, because it's built
+  entirely from what's already in the library.
+
+### Layer C — duplicate-unit nudge (warn, never block)
+- When a typed unit doesn't exactly match anything in that ingredient's own known-units list
+  (Layer B) but is fuzzy-close to one, show a dismissible inline hint — "did you mean
+  'clove', already used 3 times for this ingredient?" — using the same `difflib`-based
+  approach [Duplicate Recipe Prevention](#duplicate-recipe-prevention) already uses for
+  near-duplicate recipe names (exact threshold tuned during this feature's own verification,
+  not assumed to transfer unchanged from recipe-name matching to short unit strings). Never
+  blocks — accepting the suggestion is one click, dismissing it and keeping the typed unit is
+  free.
+
+### Layer D — coarse ingredients (the parsley problem)
+A genuinely different mechanism from A-C: not a unit-spelling fix, but an escape hatch from
+quantity math entirely for ingredients where precision is pointless.
+- New table [`coarse_ingredients`](#coarse_ingredients): a flat set of ingredient names (same
+  shape as `staples`), each with a `purchase_label` (e.g. "bunch") and a `recipes_per_pack`
+  divisor (default 3).
+- At consolidation, an ingredient in this table (checked against its final resolved name,
+  same point `is_staple` checks) **skips the normal sum → normalise → round pipeline
+  entirely** — its contributing lines' quantities and units are never summed or compared.
+  Instead: count how many recipe **slots** (not summed quantity) use it this session,
+  `packs_needed = ceil(slot_count / recipes_per_pack)`, displayed as
+  `"{packs_needed} × {purchase_label}"` (or just "needed", no count, if `purchase_label` is
+  NULL). This scales with how many recipes actually call for the ingredient, without
+  reintroducing the cross-unit precision tracking the feature exists to avoid.
+- **Accepted approximation, documented not solved further**: `recipes_per_pack` is a rough,
+  per-ingredient, Settings-editable guess, not derived from anything — a session with more
+  parsley-heavy recipes than the default accounts for will under-count until the household
+  either bumps the checklist quantity by hand that week or tunes `recipes_per_pack` down for
+  that ingredient. Same standing as the [juice + zest over-count
+  limitation](#ingredient-aliases) above: a safe-direction approximation, not a precise model.
+- **The [per-recipe "which recipe is this from" breakdown](#which-recipe-is-this-ingredient-from)
+  needs no special-casing for coarse items** — it's independent of how the total is computed,
+  and still shows each contributing recipe's own raw (uncanonicalised-by-Layer-D) quantity
+  and unit, which is exactly the "why do I need this" transparency the feature exists for.
+- Mechanically: `consolidation.py`'s pure `consolidate()` never sees a coarse ingredient's
+  lines at all — the orchestrator (`session_consolidation.py`) partitions lines by name
+  before calling it, builds coarse `ConsolidatedItem`s by hand (two new optional fields,
+  `is_coarse` / `coarse_packs_needed` / `coarse_purchase_label`, added to the existing
+  dataclass but only ever populated by the orchestrator — `consolidate()`'s own logic is
+  unchanged), and merges both sets of items before the upsert loop. The pack-resolution step
+  (`_pack_options_for` / `purchase_units.resolve_packs()`) is skipped entirely for coarse
+  items — that machinery is precision-driven (brute-force pack-size combinations against a
+  precise required quantity), which is exactly what "coarse" means opting out of.
+
+### Build chunks
+- [x] **Chunk 6 — this documentation pass.** Data Model entries, this section, Deferred
+      Decisions + Decision Dialogue updates, Project Directory Structure entries. Done
+      2026-09-12, before any code — the maintainer's explicit ask, so the full design is on
+      record before implementation starts.
+- [ ] **Chunk 1 — `unit_synonyms`.** Migration, model, schema, service (CRUD + the
+      pluralisation-strip helper + `synonym_map()`), router endpoints under
+      `/api/v1/settings/unit-synonyms`, Settings card, seed data, tests.
+- [ ] **Chunk 2 — wire Layer A into consolidation.** Resolve unit synonyms in
+      `_scaled_lines()`, same layer as ingredient alias resolution, applied to every line's
+      unit before `consolidation.consolidate()` buckets it.
+- [ ] **Chunk 3 — `coarse_ingredients`.** Migration, model, schema, service, router endpoints
+      under `/api/v1/settings/coarse-ingredients`, Settings card, seed data, tests.
+- [ ] **Chunk 4 — wire Layer D into consolidation.** Partition lines into coarse/normal in
+      the orchestrator; build coarse `ConsolidatedItem`s by hand; merge into the upsert loop
+      with its own display-string branch, bypassing pack resolution.
+- [ ] **Chunk 5 — Layers B+C, the known-units endpoint + frontend.** New
+      `GET /api/v1/recipes/ingredient-units` endpoint; quick-picks + the duplicate-unit
+      nudge wired into `recipe-form.js`, `recipe-edit.js`, `capture-review.js`'s unit inputs.
 
 ---
 
@@ -3141,6 +3349,8 @@ ShoppingApp/
 │   │   ├── recipe_duplicates.py ← duplicate-recipe detection (Chunk 4.2); split from recipes.py at the M-review
 │   │   ├── substitutions.py     ← remembered_substitutions quick-pick library (M4) + M8 equivalence pair
 │   │   ├── ingredient_aliases.py ← "same shopping item" grouping (2026-09-10); distinct from substitutions.py, see CLAUDE.md > Ingredient Aliases
+│   │   ├── unit_synonyms.py     ← unit-spelling canonicalisation (2026-09-12), see CLAUDE.md > Ingredient Unit Handling > Layer A
+│   │   ├── coarse_ingredients.py ← ingredients that skip quantity math entirely (2026-09-12), see CLAUDE.md > Ingredient Unit Handling > Layer D
 │   │   ├── sessions.py
 │   │   ├── capture_url.py
 │   │   ├── capture_photo.py
@@ -3455,8 +3665,8 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 |---|---|---|
 | Australian pack size rounding for weight/volume | ~~Phase 4 discussion~~ **Resolved 2026-09-06 — option 2 (calculate exactly, show overage)** | e.g. "needs 340g → buy 400g can, 60g over". Scaling keeps the true quantity; whole-pack rounding + overage live only in purchase-unit resolution. No pack-size reference data set needed. See [Scaling Logic](#scaling-logic) and the Decision Dialogue; builds in Phase 4 Chunks 4.3 / 4.6. |
 | Partial quantities UX | ~~Phase 5~~ **Resolved 2026-09-07 at Phase 5 kickoff — binary** | The checklist tap cycle is `unknown → yes → no` only; the `have_it` column keeps `'partial'` as an allowed value but nothing sets it. Revisit if a real need turns up. See [Phase 5 Chunk 5.5](#phase-5--checklist--anylist-integration). |
-| Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | ~~Revisit after real use~~ **Revisited 2026-09-10 — see the Decision Dialogue** | 2026-09-06 grilling: anything not in {g,kg,ml,L,tsp,tbsp,cup} / `NO_SCALE_UNITS` is scaled as **discrete** (ceil to whole). Maintainer: "sounds good on paper, might come back to bite me — go with it for now, flag as a review item." **It has bitten**: 2026-09-10 hand-testing surfaced real free-text-unit friction (oil variants not consolidating, lemon juice not resolving to a lemon, no metric-only unit picker). Direction floated by the maintainer: not a single flat allowed-unit list, but a per-ingredient "what units/pack forms make sense for this" concept (garlic: clove/head; spices: g or spoon measures; milk: ml/L) — explicitly **not** wanting to hand-populate this for every ingredient up front. See the Decision Dialogue below and [Scaling Logic](#scaling-logic). |
-| Ingredient-specific unit vocabulary (extends the row above) | Not scheduled — needs scoping at a future kickoff | 2026-09-10: `product_units` already carries a per-ingredient *purchase pack* shape (eggs: dozen; milk: 2L bottle), seeded lightly and grown opportunistically (CLAUDE.md > Pre-seeded Product Units). The proposal is a sibling concept for the *input* side — which units are sensible to type a *quantity* in for a given ingredient — built the same way: a small generic default (g/kg, ml/L, tsp/tbsp/cup, a bare count) covers most ingredients with **zero setup**, and a per-ingredient override list is added only reactively, the same "don't pre-guess, wait for a real gap" rule already used for staples/product_units/staples-vs-usuals. See the Decision Dialogue below. |
+| Free-text unit scaling (`can`, `bunch`, `clove`, `sprig`…) | ~~Revisit after real use~~ ~~Revisited 2026-09-10 — see the Decision Dialogue~~ **Resolved 2026-09-12 — built as [Ingredient Unit Handling](#ingredient-unit-handling)** | The scaling/ceiling behaviour for discrete free-text units is unchanged (still scaled, then ceiled to whole). What was actually causing real friction — the same unit spelled two ways (`clove`/`cloves`, `g`/`grams`) being treated as genuinely different, unreconcilable units — is fixed by that section's Layer A (`unit_synonyms`, dynamic resolution + a generic pluralisation-strip rule); the "some ingredients shouldn't be measured precisely at all" case (parsley) is Layer D (`coarse_ingredients`). |
+| Ingredient-specific unit vocabulary (extends the row above) | ~~Not scheduled — needs scoping at a future kickoff~~ **Resolved 2026-09-12 — built as [Ingredient Unit Handling](#ingredient-unit-handling)** | Reframed across the Decision Dialogue below from "restrict an ingredient to one vocabulary" (rejected — the maintainer pointed out one ingredient genuinely has several valid units, e.g. garlic in cloves, heads, spoons, or grams) into four separately-scoped layers: unit-spelling canonicalisation, per-ingredient known-units derived live from existing recipe data (zero admin — no pre-population, no new table for this part), a warn-never-block duplicate-unit nudge, and the distinct "coarse ingredient" escape hatch for ingredients where precision is pointless. See that section for the full design. |
 | Ingredient-to-purchase-form mapping (lemon juice → buy a lemon; lime juice → a lime) | ~~Not scheduled~~ **Resolved 2026-09-10 — built as the [Ingredient Aliases](#ingredient-aliases) quantity/unit equivalence transform** | Not a substitution (that mechanism was considered and rejected for this — see the section) — extended the alias mechanism instead with an optional "N unit ≈ M unit" pair, resolved silently (no per-recipe confirmation) but with a visible "from 4 tbsp lemon juice" note on the shopping list, since it's an approximation. Seeded: lemon/lime juice and zest → lemon/lime. "orange juice" deliberately **not** seeded — flagged by the maintainer as genuinely recipe-dependent, not a safe default either way. |
 | Juice + zest from the same fruit over-count (a recipe needing both "2 tbsp lemon juice" and "1 tsp lemon zest" gets charged roughly two lemons' worth, additively, when realistically one lemon covers both) | Raised 2026-09-10 — to be resolved before the Phase 5 review | Failure direction is safe (over-buys fruit, never under-buys), but it's a real inaccuracy in the [Ingredient Aliases](#ingredient-aliases) quantity/unit transform, not cosmetic. Not a quick fix: needs a "shared source" concept two aliases can draw from the same underlying produce item, which the flat `alias_name -> canonical_name` map has no way to express — and even "take the max instead of the sum" isn't universally correct (a recipe explicitly wanting "zest of 3 lemons, juice of 1" genuinely needs 4 lemons' worth, not 3). See [Ingredient Aliases > Known limitation](#ingredient-aliases). |
 | Automatic consolidation of near-synonym pantry items (canola vs vegetable vs olive oil; oil vs oil spray) | ~~Not scheduled — needs a decision, not a build~~ **Resolved 2026-09-10 — built as [Ingredient Aliases](#ingredient-aliases)** | Generalised into a reusable, not-oil-specific mechanism rather than an oil-only fix — see that section for the full design. The maintainer's call on which pairs actually merge: "canola oil"/"oil spray" → "vegetable oil" (seeded); "olive oil" deliberately left separate (dressing vs frying — a household may genuinely want both). More groups added via Settings ("Ingredient groups" card) only as a real gap shows up, same as every other reference list in this file. |
@@ -3848,6 +4058,21 @@ when does it get built?
 ---
 
 #### Ingredient-specific unit vocabulary (raised 2026-09-10 hand-testing — not yet scoped)
+
+**Resolved 2026-09-12 — none of the three options below, after a further round of
+questioning surfaced the actual shape of the problem.** Option 2 (a per-ingredient
+vocabulary override) was the maintainer's own floated direction here, but a follow-up
+grilling ("I feel this will require some significant planning... ask me as many questions as
+possible") surfaced that even option 2 was the wrong frame: one ingredient genuinely has
+*several* legitimate units (garlic in cloves, heads, spoons, or grams — not one "correct"
+unit to restrict it to), the actual bug causing real friction was unit-*spelling* variance
+("clove"/"cloves", "g"/"grams") being treated as genuinely different units, and a distinct
+third problem (some ingredients — fresh herbs — shouldn't have precise quantities summed at
+all) had gotten folded into the same question. See
+[Ingredient Unit Handling](#ingredient-unit-handling) for the resulting four-layer design
+(unit-spelling canonicalisation / per-ingredient known-units derived live / a warn-never-
+block duplicate nudge / "coarse ingredients"), none of which is a per-ingredient allowed-unit
+table. Kept below for the record of what was actually asked.
 
 **Q:** Free-text units are causing real friction (2026-09-10 hand-testing): recipe photos/URLs
 sometimes return non-metric or oddball units the app has no opinion on, and a flat
