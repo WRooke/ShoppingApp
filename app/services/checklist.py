@@ -208,16 +208,42 @@ def resolve_item(
 # --- push (Chunk 5.6) ---------------------------------------------------------------
 
 
-def _display_quantity(item: SessionChecklistItem) -> str | None:
-    """The string to put in AnyList's quantity field (CLAUDE.md > AnyList Push Logic step 3):
-    the resolved pack breakdown, else the plain total, else nothing (to-taste / unitless)."""
-    if item.display_qty:
-        return item.display_qty
+def _anylist_quantity(item: SessionChecklistItem) -> str | None:
+    """The 'need' amount for AnyList's quantity field (CLAUDE.md > AnyList Push Logic step 3)
+    — how much to actually buy, not the pack-count string. Falls back to the pack breakdown
+    only when there's no plain numeric total at all (a coarse ingredient, e.g. "2 × bunch",
+    which has no numeric total by design — CLAUDE.md > Ingredient Unit Handling > Layer D).
+
+    **Maintainer request, Chunk 5.7 live-verification (2026-09-12).** Previously this
+    function (then `_display_quantity`) sent the pack-breakdown string itself (e.g.
+    "2 × 500g pack") to AnyList's quantity field. That's moved to the note instead (see
+    `_anylist_note`) — the quantity field is reserved for the plain figure a shopper needs,
+    not a sentence describing how it was packed."""
     if item.total_quantity is not None:
         n = item.total_quantity
         n = str(int(n)) if n == int(n) else f"{n:g}"
         return f"{n} {item.total_unit}".strip() if item.total_unit else n
+    if item.display_qty:
+        return item.display_qty
     return None
+
+
+def _anylist_note(item: SessionChecklistItem) -> str | None:
+    """The note sent to AnyList's ``details`` field: pack-size context (moved here from the
+    quantity field, see `_anylist_quantity`) plus whatever the checklist's own `.note` already
+    carries — an overage hint, "to taste", a needs_review breakdown, an alias conversion note
+    (CLAUDE.md > Scaling Logic, > Ingredient Aliases). Doesn't touch
+    `session_checklist_items.note`/`.display_qty` themselves (the app's own checklist screen
+    is unaffected) — this only shapes what crosses over to the real AnyList list."""
+    parts = []
+    if item.display_qty and item.total_quantity is not None:
+        # Only a separate fragment when the quantity field carried the plain total instead of
+        # it. A coarse item has no numeric total, so display_qty IS what went into quantity
+        # above — repeating it here would be redundant.
+        parts.append(item.display_qty)
+    if item.note:
+        parts.append(item.note)
+    return " · ".join(parts) if parts else None
 
 
 def push_to_anylist(
@@ -244,13 +270,14 @@ def push_to_anylist(
     push_items = [
         PushItem(
             name=ci.ingredient_name.title(),
-            quantity=_display_quantity(ci),
+            quantity=_anylist_quantity(ci),
             existing_id=ci.anylist_item_id if ci.already_on_anylist else None,
             # 2026-09-10 hand-testing: a checklist note ("to taste", an overage hint like
             # "150 g spare", a needs_review breakdown) was silently dropped on push — it only
             # ever showed up on the app's own checklist screen. Carried through to AnyList's
-            # details field so it's visible from the real list too.
-            note=ci.note,
+            # details field (plus the pack breakdown, moved here at Chunk 5.7 — see
+            # `_anylist_note`) so it's visible from the real list too.
+            note=_anylist_note(ci),
         )
         for ci in to_push
     ]

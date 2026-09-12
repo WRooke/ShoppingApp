@@ -8,8 +8,9 @@ One external integration behind one small, stable interface (CLAUDE.md > Code Ar
 
 The wire codec and message shapes are lifted from ``spike/anylist_spike.py`` (Phase 1.5
 derisking spike) — AnyList's API is unofficial, reverse-engineered from the Node package
-``codetheweb/anylist``, and speaks raw protobuf with no public ``.proto``. Three spike
-findings are load-bearing here:
+``codetheweb/anylist``, and speaks raw protobuf with no public ``.proto``. Several findings
+are load-bearing here, the last two from live-verification against the real API at Chunk 5.7
+(2026-09-12), which corrected an earlier (2026-09-10) misdiagnosis — see the third bullet:
 
   * **Quantity lives in two fields.** A freshly *added* item carries ``quantityPb.amount``
     (field 21); an item whose quantity was later *updated* via ``set-list-item-quantity``
@@ -17,15 +18,38 @@ findings are load-bearing here:
     fall back to field 18.
   * **The ``operations`` multipart part must have no filename.** With one, the server returns
     HTTP 200 and silently does nothing.
-  * **A batch POST returns 200 even if some ops were no-ops.** Push success can't be trusted
-    from the status — always re-fetch and diff against intent.
-  * **A brand-new item's quantity must be set via ``set-list-item-quantity``, not just
-    embedded on add.** 2026-09-10 hand-testing: items added with a quantity nested in
-    ``add-shopping-list-item``'s item message (field 21) showed no quantity in the real
-    AnyList app. ``set-list-item-quantity`` (the app's own "edit quantity" mechanism, which
-    writes the legacy field 18 instead — see the two-field note above) is known-good, so
-    every add with a quantity chains an immediate follow-up ``set-list-item-quantity`` op
-    for the same new item, in the same batch.
+  * **One operation per HTTP request — never batch, even across different items.** Live
+    testing against the real API found AnyList's server silently drops an operation whenever
+    a single request's operation list touches more than one distinct ``list_item_id`` —
+    reproduced with 2 and 3 items, whether combined in one POST or split into separate ones
+    (immediately back-to-back, or several seconds apart). A single item's own op(s) always
+    applied correctly. The reference ``codetheweb/anylist`` client independently confirms
+    this discipline — every one of its list-mutation methods POSTs exactly one operation,
+    alone, every time. This *supersedes* a 2026-09-10 finding that used to live here
+    ("a brand-new item's quantity needs a chained ``set-list-item-quantity`` op, embedding it
+    on add alone doesn't work") — that finding was almost certainly this same bug, misread
+    from a test that (in hindsight) can't be confirmed as single-item. Confirmed live:
+    quantity embedded *only* in the add's own item message (field 21) renders correctly with
+    no follow-up op, one item per request, exactly matching the reference client's own
+    ``_encode()``.
+  * **A batch POST returns 200 even if an op was a no-op** (folds into the point above, but
+    worth its own line): push success can't be trusted from the HTTP status — always re-fetch
+    and diff against intent, which is what makes the finding above detectable at all.
+  * **``set-list-item-details`` (present in the reference client's field→handler mapping,
+    not previously used here) works for setting a note on an item's own creation — but
+    calling it on an item AFTER creation permanently breaks that item's quantity.** Confirmed
+    live, reproduced from a clean single-item test: add (quantity + details together) ->
+    ``set-list-item-details`` alone (quantity still fine) -> ``set-list-item-quantity`` alone
+    (fails from here on — the item's quantity comes back completely absent, field 21 *and*
+    18 both gone, not just stale). Order didn't matter, waiting didn't matter, and re-sending
+    ``add-shopping-list-item`` for the same id doesn't recover it either (that handler is
+    add-only — it silently no-ops once the id already exists). The only recovery found was
+    delete + re-add under a brand-new id, which the app can't do on every push without
+    orphaning any manual edits/checks a household member made on that AnyList item.
+    **Consequence:** a note is set correctly on an item's first push (still embedded in the
+    add's own item message — safe, and the mechanism this finding doesn't touch) but does
+    **not** update on a later push to an item that's already on the list — a real, accepted
+    limitation, not a bug left unfixed by oversight. See CLAUDE.md > AnyList Push Logic.
 
 Safety (CLAUDE.md > Security §2, mirrors §0c for the AI): every real call is gated on
 ``settings.anylist_enabled`` (default off — no agent flips it). ``settings.anylist_fake_mode``
@@ -60,12 +84,17 @@ _TIMEOUT = 15.0
 
 @dataclass(frozen=True)
 class AnyListItem:
-    """One item on an AnyList shopping list, as the app cares about it."""
+    """One item on an AnyList shopping list, as the app cares about it.
+
+    ``note`` (protobuf field 5, AnyList's "details") added at the Chunk 5.7 live-verification
+    fix — previously this type had no way to represent it at all, which is part of why the
+    update-path note bug (see ``_RealAnyList.add_or_increment_items``) went undetected."""
 
     identifier: str
     name: str | None
     quantity: str | None
     checked: bool | None
+    note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -211,7 +240,8 @@ def _item_from_wire(raw: bytes) -> AnyListItem:
     if quantity is None and 18 in f:  # deprecatedQuantity — legacy, set by set-list-item-quantity
         quantity = _s(f, 18)
     return AnyListItem(
-        identifier=_s(f, 1) or "", name=_s(f, 4), quantity=quantity, checked=_b(f, 6)
+        identifier=_s(f, 1) or "", name=_s(f, 4), quantity=quantity, checked=_b(f, 6),
+        note=_s(f, 5),
     )
 
 
@@ -368,80 +398,107 @@ class _RealAnyList:
 
     # -- writes --
     def add_or_increment_items(self, list_name: str, items: list[PushItem]) -> PushResult:
+        """Add/update each item, then re-fetch + diff to confirm (spike finding #3: a 200
+        doesn't mean every op landed).
+
+        **One operation per HTTP request — never batched, even across different items.**
+        Chunk 5.7 live-verification (2026-09-12) found that AnyList's server silently drops
+        an operation whenever a request's ``PBListOperationList`` contains ops targeting more
+        than one distinct ``list_item_id`` — reproduced against the real API with 2 and 3
+        items, whether the ops were combined in one POST or split into separate POSTs sent
+        back-to-back or several seconds apart (ruling out both a batching-format issue and a
+        "new item needs to settle" timing issue). A single item's own op(s) always applied
+        correctly, batched or not. The reference ``codetheweb/anylist`` Node client (the
+        project this connector was adapted from — see CLAUDE.md > Tech Stack) independently
+        confirms this discipline: every method in its ``lib/list.js``/``lib/item.js``
+        (``addItem`` / ``removeItem`` / ``save``) builds a ``PBListOperationList`` with
+        exactly one operation and POSTs it alone — it never combines operations for
+        different items into one request either.
+
+        This *also* means the previous "chain a set-list-item-quantity op immediately after
+        add, in the same batch" workaround (2026-09-10) was superseded, not just superfluous:
+        that workaround was almost certainly compensating for this exact bug, misread at the
+        time as "the embedded quantityPb.amount field doesn't work" when a single-item test
+        would have looked identical either way. Confirmed live: quantity embedded *only* in
+        the add's own item message (field 21, matching the reference client's ``_encode()``)
+        renders correctly with no follow-up op, one item per request. ``set-list-item-details``
+        (present in the reference client's ``OP_MAPPING``, not previously used here) is real
+        and working — used below to fix the second live-verification finding: the old
+        update path only ever sent ``set-list-item-quantity``, silently leaving a stale note
+        forever on an item that already existed on the list.
+        """
         target = self._resolve_list(list_name)
         before = {i.identifier: i for i in target.items}
         result = PushResult()
-        ops: list[bytes] = []
-        planned: list[tuple[str, str, str | None]] = []  # (op_kind, identifier, expected_qty)
+        # (op_kind, identifier, expected_qty, expected_note) — note checked too now (Chunk 5.7).
+        planned: list[tuple[str, str, str | None, str | None]] = []
+        raw_responses: list[str] = []
+
+        def _post_one(op: bytes) -> None:
+            resp = self._data_post(
+                "/data/shopping-lists/update",
+                files={"operations": (None, _build_operation_list([op]), "application/octet-stream")},
+            )
+            raw_responses.append(f"HTTP {resp.status_code}")
 
         for it in items:
             if it.existing_id and it.existing_id in before:
-                ops.append(
-                    _build_operation(
-                        handler_id="set-list-item-quantity",
-                        list_id=target.identifier,
-                        list_item_id=it.existing_id,
-                        updated_value=it.quantity or "",
-                    )
-                )
-                planned.append(("update", it.existing_id, it.quantity or ""))
+                _post_one(_build_operation(
+                    handler_id="set-list-item-quantity",
+                    list_id=target.identifier,
+                    list_item_id=it.existing_id,
+                    updated_value=it.quantity or "",
+                ))
+                # NOT syncing details here — reverted after live-verification found a second,
+                # nastier bug: once ANY set-list-item-details op has touched an item, every
+                # subsequent set-list-item-quantity op for that SAME item silently fails
+                # (confirmed reproducible: real push, reordering quantity/details, and a
+                # clean from-scratch repro all landed the item with NO quantity value at all,
+                # field 21 and field 18 both absent — not stale, gone). Re-sending
+                # add-shopping-list-item for the existing id doesn't recover it either (that
+                # handler is add-only; it silently no-ops once the id exists). The only
+                # recovery found was delete + re-add under a brand-new id — not something the
+                # app can do on every push without surprising the household (it would orphan
+                # any manual edits/checks on that AnyList item). Quantity correctness matters
+                # more than note freshness, so: a note is set correctly on an item's first
+                # push (still embedded in the add's own item message, safe and confirmed
+                # working) but does NOT update on a later push to the same still-listed item —
+                # documented limitation, not solved. See CLAUDE.md > AnyList Push Logic.
+                planned.append(("update", it.existing_id, it.quantity or "", None))
                 result.updated.append(it.name)
             else:
                 new_id = uuid.uuid4().hex
-                ops.append(
-                    _build_operation(
-                        handler_id="add-shopping-list-item",
-                        list_id=target.identifier,
-                        list_item_id=new_id,
-                        item_wire=_item_to_wire(
-                            identifier=new_id, list_id=target.identifier,
-                            name=it.name, quantity=it.quantity, details=it.note,
-                        ),
-                    )
-                )
-                if it.quantity:
-                    # 2026-09-10 hand-testing: items pushed via add-shopping-list-item alone
-                    # (quantity only embedded in the item's nested quantityPb, field 21) came
-                    # back with NO quantity shown in the real AnyList app. set-list-item-
-                    # quantity (deprecatedQuantity, field 18) is the mechanism the app's own
-                    # "edit quantity" UI produces — known-good, since a human doing that by
-                    # hand is exactly what it's for. Chain it immediately after the add, in
-                    # the same batch (spike-confirmed: ops in one batch apply in submitted
-                    # order), so a freshly pushed item's quantity is guaranteed to render the
-                    # same way one typed in by hand does. Keeping the field-21 embed above too
-                    # is harmless belt-and-suspenders, not reliance on it.
-                    ops.append(
-                        _build_operation(
-                            handler_id="set-list-item-quantity",
-                            list_id=target.identifier,
-                            list_item_id=new_id,
-                            updated_value=it.quantity,
-                        )
-                    )
-                planned.append(("add", new_id, it.quantity))
+                _post_one(_build_operation(
+                    handler_id="add-shopping-list-item",
+                    list_id=target.identifier,
+                    list_item_id=new_id,
+                    item_wire=_item_to_wire(
+                        identifier=new_id, list_id=target.identifier,
+                        name=it.name, quantity=it.quantity, details=it.note,
+                    ),
+                ))
+                planned.append(("add", new_id, it.quantity, it.note))
                 result.added.append(it.name)
 
-        if not ops:
+        if not planned:
             result.confirmed = True
             return result
 
-        resp = self._data_post(
-            "/data/shopping-lists/update",
-            files={"operations": (None, _build_operation_list(ops), "application/octet-stream")},
-        )
-        result.raw_response = f"HTTP {resp.status_code}; {len(resp.content)} bytes"
+        result.raw_response = "; ".join(raw_responses)
 
-        # Spike finding: a 200 doesn't mean every op landed. Re-fetch and diff against intent.
-        # Checked uniformly for add and update: an add now also chains a set-list-item-
-        # quantity op above, so its quantity is just as verifiable as an update's.
         after = {i.identifier: i for i in self._resolve_list(list_name).items}
-        for kind, ident, expected_qty in planned:
+        for kind, ident, expected_qty, expected_note in planned:
             got = after.get(ident)
             if got is None:
                 result.discrepancies.append(f"{kind} {ident} did not land")
-            elif expected_qty and got.quantity != expected_qty:
+                continue
+            if expected_qty and got.quantity != expected_qty:
                 result.discrepancies.append(
                     f"{kind} {ident}: quantity is {got.quantity!r}, expected {expected_qty!r}"
+                )
+            if expected_note and got.note != expected_note:
+                result.discrepancies.append(
+                    f"{kind} {ident}: note is {got.note!r}, expected {expected_note!r}"
                 )
         result.confirmed = not result.discrepancies
         if not result.confirmed:
@@ -479,16 +536,21 @@ class _FakeAnyList:
         return AuthStatus(True, "FAKE MODE — no real AnyList call", utcnow())
 
     def add_or_increment_items(self, list_name: str, items: list[PushItem]) -> PushResult:
+        # Mirrors the REAL connector's confirmed behaviour (Chunk 5.7), not an idealised one:
+        # a note lands correctly on add, but an update only ever touches quantity — the note
+        # a pre-existing item already carries is left as-is. See the module docstring's
+        # set-list-item-details finding for why (a real, reproducible AnyList server bug, not
+        # an oversight here).
         lst = self._list(list_name)
         result = PushResult()
         for it in items:
             if it.existing_id and it.existing_id in lst:
                 old = lst[it.existing_id]
-                lst[it.existing_id] = AnyListItem(old.identifier, old.name, it.quantity, old.checked)
+                lst[it.existing_id] = AnyListItem(old.identifier, old.name, it.quantity, old.checked, old.note)
                 result.updated.append(it.name)
             else:
                 new_id = f"fake-{uuid.uuid4().hex[:8]}"
-                lst[new_id] = AnyListItem(new_id, it.name, it.quantity, False)
+                lst[new_id] = AnyListItem(new_id, it.name, it.quantity, False, it.note)
                 result.added.append(it.name)
         result.confirmed = True
         result.raw_response = "FAKE MODE"

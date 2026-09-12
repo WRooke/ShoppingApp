@@ -2082,18 +2082,39 @@ On push:
    (the checklist tap sets `add_to_list` when you tap to "need it", so in practice these
    coincide), plus any ticked **due "usuals"**.
    - If `already_on_anylist = True` AND `anylist_item_id` is set: **update the existing item
-     in place** (`set-list-item-quantity` to our `display_qty`) rather than adding a
-     duplicate. Note "increment" from the original plan can't be literal — AnyList's quantity
-     field holds a freetext display string ("2 × 500g packs"), not a number, so our computed
-     quantity replaces it. The household may also edit that item by hand between pushes; this
-     is accepted (our list is the derived shopping quantity).
+     in place** (`set-list-item-quantity`) rather than adding a duplicate. Note "increment"
+     from the original plan can't be literal — AnyList's quantity field holds a freetext
+     display string, not a number, so our computed quantity replaces it. The household may
+     also edit that item by hand between pushes; this is accepted (our list is the derived
+     shopping quantity).
    - Otherwise: add as a new item (client-generated UUID identifier, per the spike).
 2. Item name: `ingredient_name` `.title()`-cased; a usual uses its own name.
-3. Item quantity: `display_qty` if set, else `total_quantity total_unit`, else nothing
-   (to-taste / unitless).
-4. One batched `POST /data/shopping-lists/update`, then **re-fetch + diff** to confirm (an
-   HTTP 200 alone is not proof — spike finding #3). `confirmed` / `discrepancies` are
-   recorded and returned.
+3. **Item quantity and note (reworked at Chunk 5.7 live-verification, 2026-09-12, per the
+   maintainer's request).** `services/checklist.py > _anylist_quantity()` sends the plain
+   "need" total (`total_quantity`/`total_unit`) as AnyList's quantity — the amount to
+   actually buy, not a sentence describing how it's packed — falling back to the pack-count
+   string only when there's no numeric total at all (a coarse ingredient). `_anylist_note()`
+   sends the pack breakdown (e.g. "2 × 500g pack") *plus* whatever the checklist's own `note`
+   already carries (an overage hint, "to taste", a needs_review breakdown, an alias
+   conversion), combined with " · ". Example: `passata — 2 × 750 g jars · need ~1.05 kg` on
+   the app's own checklist becomes AnyList quantity `"1050 g"`, note
+   `"2 × 750g jars · 450 g spare"`.
+   **Known limitation, confirmed live, not solved:** a note only lands correctly on an item's
+   *first* push. Updating an existing AnyList item's note (`set-list-item-details`) was tried
+   and reverted — it reliably breaks that same item's quantity on every future update
+   (confirmed reproducible against the real API; full finding recorded on the
+   [Phase 5 Chunk 5.7](#phase-5--checklist--anylist-integration) entry). So a note that
+   changes between two pushes of the same still-listed ingredient (e.g. a different overage
+   next week) will **not** refresh on the real list — only the quantity does. Revisit only if
+   AnyList's behaviour here is ever independently re-verified as safe.
+4. **One operation per HTTP request — never batched, even across different items**
+   (`services/anylist_client.py > add_or_increment_items()`, reworked at the same
+   Chunk 5.7 pass). AnyList's server was found to silently drop an operation whenever a
+   single request touched more than one distinct list item — confirmed reproducible, and
+   matching the reference `codetheweb/anylist` client's own behaviour (it never batches
+   either). A push of N items is therefore N sequential requests, each individually
+   **re-fetch + diff**-confirmed together at the end (an HTTP 200 alone is not proof — spike
+   finding #3). `confirmed` / `discrepancies` are recorded and returned.
 5. On completion: set `planning_sessions.status = 'pushed'` + `pushed_at`, stamp
    `usual_items.last_added_at` for any pushed usuals, and write one `shopping_history` row
    (`items_json` snapshot + `anylist_response_json` = the raw response summary +
@@ -3461,18 +3482,83 @@ session flips `ANYLIST_ENABLED`.
       `get_items()` confirmed TestList back to exactly its original 2 items. **The real
       household list was never read or touched at any point** — every call targeted
       `TestList` only, per `settings.anylist_target_list_name`.
-      **One genuine finding, not a pre-existing bug (nothing in the shipped app calls
-      remove):** the first removal attempt sent a `remove-shopping-list-item` op with only
-      `list_id`/`list_item_id` (no item submessage) — AnyList returned `HTTP 200` but
-      silently no-opped, exactly the class of "200 doesn't mean it landed" gotcha
+      **One genuine finding from that first pass, not a pre-existing bug (nothing in the
+      shipped app calls remove):** the first removal attempt sent a `remove-shopping-list-item`
+      op with only `list_id`/`list_item_id` (no item submessage) — AnyList returned `HTTP 200`
+      but silently no-opped, the same class of "200 doesn't mean it landed" gotcha
       `anylist_client.py`'s own module docstring already warns about for other operations.
       Re-checking `spike/anylist_spike.py`'s `remove_item()` showed it always embeds the full
       item wire (field 6) on a remove, same as add — doing the same fixed it, confirmed by
       re-fetch. Not a code change: `services/anylist_client.py` deliberately exposes no
       `remove()` (the app's own push flow never deletes an AnyList item), so this only
-      mattered for this one-off script — noted here in case a future feature ever needs
-      programmatic removal. Does not block the Phase 5 review, which can now proceed with no
-      open items from this chunk.
+      mattered for this one-off script.
+
+      **Second pass, same session (2026-09-12) — the maintainer asked whether quantities and
+      notes actually reach the real list, since hand-testing had flagged that before.** That
+      question uncovered two real, previously undetected bugs, both fixed, plus one that
+      couldn't be resolved today and is carried forward:
+
+      1. **Fixed — one operation per HTTP request, never batched across items.** A real push
+         of 2+ ingredients (the normal case — almost every session) was silently losing every
+         quantity. Root-caused by comparing against the reference `codetheweb/anylist` Node
+         client's actual source (`lib/list.js`/`lib/item.js`, fetched and read directly):
+         it never combines operations for different items into one request either — every
+         list mutation is its own lone-operation POST. `add_or_increment_items()` rewritten
+         to match: one `_data_post` call per item, confirmed live with 2 items each landing
+         its correct quantity. This *also* superseded the 2026-09-10 "chain a
+         set-list-item-quantity op after add" workaround, which was almost certainly this
+         exact bug misdiagnosed from what can't be confirmed as a single-item test at the
+         time — quantity embedded only in the add's own item message (matching the reference
+         client's `_encode()`) now confirmed to render correctly with no follow-up op.
+      2. **Implemented, per the maintainer's request** (quantity field = the amount to
+         actually buy; notes field = pack-size context): `services/checklist.py`'s
+         `_display_quantity` → `_anylist_quantity` now sends the "need" total
+         (`total_quantity`/`total_unit`) as AnyList's quantity, and a new `_anylist_note`
+         folds the pack breakdown (e.g. "2 × 500g pack") into the note alongside the existing
+         overage/to-taste/review text. Confirmed live and **visually confirmed by the
+         maintainer in the real AnyList app**: "Beef Mince" showed quantity 600 g with note
+         "2 × 500g pack · 400 g spare"; "Saffron" showed no quantity, note "to taste".
+      3. **Attempted, then reverted — syncing a note on an item that's already on the list.**
+         The original gap (a checklist note never reached AnyList past an item's first push)
+         was fixed with a chained `set-list-item-details` op — confirmed live it updated the
+         note correctly. But it also introduced a worse regression: once `set-list-item-details`
+         touches an item, every later `set-list-item-quantity` call for that *same* item
+         silently fails from then on (reproduced from a clean single-item test — quantity
+         comes back completely absent, not stale). Re-sending `add-shopping-list-item` for
+         the existing id doesn't recover it (that handler no-ops once the id exists); the only
+         recovery found was delete + re-add under a new id, which the app can't do
+         automatically without risking orphaning a household member's manual edits/checks on
+         that item. **Reverted**: the update path sends only `set-list-item-quantity` again: a
+         note is set correctly on an item's first push and does not update on a later push
+         to an already-listed item. Documented as a real, accepted limitation (not a silent
+         gap) in `anylist_client.py`'s module docstring and [AnyList Push
+         Logic](#anylist-push-logic).
+      4. **Carried forward, unresolved — `set-list-item-quantity` reliability on an update
+         got flaky as this session went on.** After the revert above, a plain quantity-only
+         update (no details involved at all) still failed on a fresh item, then failed again
+         after a real 45-second delay — yet the *first* successful test of this exact
+         mechanism, early in the same session (Part A), worked cleanly. Every quantity
+         update attempted *later* in the session failed regardless of that item's own
+         history, batching, or elapsed time; quantity *embedded directly in an add* worked
+         every single time, no exceptions, throughout. Best current guess: something
+         cumulative across a long real-API testing session (soft throttling on that specific
+         handler, perhaps) rather than a fixed defect tied to any particular sequence — but
+         this is a guess, not a finding, and needs re-testing fresh another day/session
+         rather than more guessing against the real account. **Practical impact today:**
+         the update path (an ingredient already on `TestList` from a previous push) cannot be
+         confirmed reliable for quantity right now; the add path (a brand-new item) is
+         solidly confirmed working. Re-verify this specific piece — ideally at the *start* of
+         a session, away from any cumulative call volume — before relying on it. Flag for the
+         Phase 5 review below.
+
+      `TestList` restored to its exact 2 baseline items throughout and at the end of both
+      passes. The real household list was never read or touched at any point. Suite re-run
+      **481 pass** after all of the above; new/updated tests in `tests/services/test_anylist_client.py`
+      (one-op-per-request, update-sends-only-quantity) and `tests/services/test_checklist.py`
+      (`_anylist_quantity`/`_anylist_note`). Chunk kept ticked — the chunk's own ask (a real
+      push, confirmed via re-fetch+diff, cleaned up after) is solidly met for the add path and
+      the maintainer's quantity/note design is live-confirmed; item 4 above is the one
+      genuinely open thread, carried to the Phase 5 review rather than silently dropped.
 - [ ] **Phase 5 review** — re-check against [Checklist Screen Logic](#checklist-screen-logic),
       [AnyList Push Logic](#anylist-push-logic), [Data Model](#data-model)
       (`session_checklist_items`, `shopping_history`, `usual_items`), [Security](#security)
@@ -3480,7 +3566,10 @@ session flips `ANYLIST_ENABLED`.
       [API Conventions](#api-conventions), and [Diagnostics & Logging](#diagnostics--logging),
       per [Phase workflow & progress tracking](#phase-workflow--progress-tracking). Also pick
       up the deferred **ingredient synonym alias table** if it's being brought forward here
-      (M-review open item), and re-confirm the "The usuals" cadence model against real use.
+      (M-review open item), re-confirm the "The usuals" cadence model against real use, and
+      **re-verify Chunk 5.7's carried-forward item 4** (whether `set-list-item-quantity` on an
+      already-listed item is actually reliable, tested fresh rather than deep into a long
+      testing session) before treating the update path as trustworthy.
 
 **Deliverable:** Full end-to-end flow works. User can complete a planning session and
 push the result to AnyList (`TestList` in dev).
@@ -3958,6 +4047,7 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | Cross-unit pack resolution after a substitution unit change | Not scheduled | Phase 3.9 M8: a line resolved to a new free-text unit ("6 can" from "corn cobs") gets no `product_units` pack breakdown unless a matching-unit pack row is seeded — the resolver drops rows whose unit doesn't match the line's dimension. Acceptable for now (line still shows "6 can"). Revisit only if it's a real friction point; a fix would mean teaching `_pack_options_for` a per-ingredient unit-bridge, which is close to the conversion table M8 explicitly avoids. |
 | AI-assisted admin reduction beyond unit spellings (`ingredient_aliases` / `coarse_ingredients` / `staples` / `usual_items` / `product_units` / `remembered_substitutions`) | Not scheduled — revisit only if hand-entry proves genuinely tedious | Raised 2026-09-12 alongside [Ingredient Unit Handling > Admin reduction](#ingredient-unit-handling): `unit_synonyms` was resolved (an objective fact about English, safe to auto-classify with no confirmation — built as `classify_units()` / `learn_new_units()`). Every other Settings-managed reference list encodes a household-specific judgment call (same shopping item? tracked coarsely? always on hand? what pack sizes?) that an AI can only guess at — automating those moves the guessing from the household to the model without actually removing it, and would quietly undo the deliberate "don't pre-guess, wait for a real gap" seeding discipline this file already applies to every one of those tables. If typing any of them ever proves a real annoyance, the fallback worth reaching for is an AI-*suggests*/household-*confirms* flow (same shape as the existing capture-time substitution flagging), never silent automation — same standing as any other not-yet-needed feature, no reserved phase. |
 | Split `services/ai_extraction.py` into an `ai_extraction/` package | Deferred at the Phase 3.9 M-review (2026-09-07); do before or early in Phase 5 | The file (~715 lines) was scoped for a split at the M-review alongside `recipes.py`/`sessions.py` (both done). Deferred because the capture-fixes work had just rewritten large parts of it and a third structural refactor in the same pass, right on the Phase 5 boundary, was the riskier option. ~⅓ of the file is prompt-string / fixture constants, not logic. Plan (in its `# NOTE:`): pure moves into `prompts.py` / `schemas.py` / `types.py` / `fixtures.py` / `client.py` (`_call_gemini` + gates + cleaners) / `calls.py` (the 3 calls + `capture_recipe`), with `__init__.py` re-exporting the current public surface so no caller changes. |
+| AnyList `set-list-item-quantity` reliability on an already-listed item | Re-verify fresh, ideally at the start of a session, before the Phase 5 review | Chunk 5.7 live-verification (2026-09-12): the multi-item-batching bug that used to break every quantity is fixed and confirmed (one op per HTTP request now, matching the reference client). A separate, narrower issue surfaced on top of that fix and couldn't be pinned down the same session: a plain quantity-only update to an item already on the list worked once, early in the testing session, then failed on every later attempt regardless of that item's own history, batching, or a real 45-second delay — while quantity embedded directly in an *add* worked every single time throughout. Best guess is something cumulative across a long real-API session (soft throttling on that specific handler) rather than a fixed code defect, but that's unconfirmed. See [AnyList Push Logic](#anylist-push-logic) and the [Phase 5 Chunk 5.7](#phase-5--checklist--anylist-integration) entry for the full trail. Related, confirmed-and-accepted limitation (not the same open question): a *note* update on an already-listed item was tried, found to reliably corrupt that item's quantity via `set-list-item-details`, and deliberately reverted — not revisited unless AnyList's behaviour there is independently re-verified safe. |
 
 ### Decision Dialogues
 

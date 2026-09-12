@@ -225,10 +225,39 @@ def test_push_includes_and_stamps_selected_usuals(db):
     assert soap.last_added_at is not None  # no longer due
 
 
-def test_display_quantity_prefers_pack_then_total_then_none(db):
+def test_anylist_quantity_prefers_total_then_pack_then_none(db):
+    """Chunk 5.7 (2026-09-12): the 'need' total goes to AnyList's quantity field now, not the
+    pack-count string — the pack breakdown moved to `_anylist_note` instead (row below)."""
     from app.models.planning import SessionChecklistItem as CI
 
-    assert checklist_service._display_quantity(CI(display_qty="2 × 500g pack", total_quantity=1000, total_unit="g")) == "2 × 500g pack"
-    assert checklist_service._display_quantity(CI(total_quantity=400, total_unit="g")) == "400 g"
-    assert checklist_service._display_quantity(CI(total_quantity=3, total_unit=None)) == "3"
-    assert checklist_service._display_quantity(CI(total_quantity=None, total_unit=None)) is None
+    assert checklist_service._anylist_quantity(CI(display_qty="2 × 500g pack", total_quantity=1000, total_unit="g")) == "1000 g"
+    assert checklist_service._anylist_quantity(CI(total_quantity=400, total_unit="g")) == "400 g"
+    assert checklist_service._anylist_quantity(CI(total_quantity=3, total_unit=None)) == "3"
+    assert checklist_service._anylist_quantity(CI(total_quantity=None, total_unit=None)) is None
+    # a coarse item has no numeric total by design -> falls back to the pack string
+    assert checklist_service._anylist_quantity(CI(display_qty="2 × bunch", total_quantity=None)) == "2 × bunch"
+
+
+def test_anylist_note_folds_in_the_pack_breakdown(db):
+    """The pack breakdown that used to be the AnyList quantity now rides in the note instead,
+    alongside whatever the checklist's own note already says (overage / to taste / review)."""
+    from app.models.planning import SessionChecklistItem as CI
+
+    # normal pack-size item, no extra note -> just the pack breakdown
+    assert checklist_service._anylist_note(
+        CI(display_qty="2 × 500g pack", total_quantity=1000, total_unit="g", note=None)
+    ) == "2 × 500g pack"
+    # pack breakdown + an overage note both carry across, combined
+    assert checklist_service._anylist_note(
+        CI(display_qty="2 × 500g pack", total_quantity=1000, total_unit="g", note="400 g spare")
+    ) == "2 × 500g pack · 400 g spare"
+    # coarse item: display_qty IS the quantity (total_quantity is None) -> not repeated in the note
+    assert checklist_service._anylist_note(
+        CI(display_qty="2 × bunch", total_quantity=None, note=None)
+    ) is None
+    # no pack, just a plain note (to taste / needs_review breakdown / conversion)
+    assert checklist_service._anylist_note(
+        CI(display_qty=None, total_quantity=None, note="to taste")
+    ) == "to taste"
+    # nothing at all
+    assert checklist_service._anylist_note(CI(display_qty=None, total_quantity=100, note=None)) is None
