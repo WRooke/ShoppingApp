@@ -348,11 +348,26 @@ data. The same applies to anything else with an external dependency added later.
     are unchanged.
   - ✅ `services/sessions.py` (448 → 244) — the `consolidate_session` orchestrator moved to
     `services/session_consolidation.py`; `sessions.py` re-exports it.
-  - ⏸ `services/ai_extraction.py` (~715) — **split deferred** at the M-review (had just been
-    substantially rewritten by the capture-fixes work; a third structural refactor in the same
-    pass on the Phase 5 boundary was the riskier call). Still tracked — see
-    [Deferred Decisions](#deferred-decisions). Its `# NOTE:` carries the plan (prompts /
-    schemas / types / fixtures / client / calls + an `__init__` re-export).
+  - ✅ `services/ai_extraction.py` (~861 by the time it was picked up) — split at the
+    **Phase 5 review** (2026-09-12) into the `services/ai_extraction/` package exactly as
+    the deferred `# NOTE:` planned: `types.py` (model-ID constants + public dataclasses +
+    exceptions — deliberately the one module with zero imports from its siblings, which is
+    what keeps the package's import graph one-way), `prompts.py`, `schemas.py`,
+    `fixtures.py`, `client.py` (`_call_gemini` + the §0c gate + response cleaners), `calls.py`
+    (the 4 task functions + `capture_recipe()`), `__init__.py` re-exporting the full former
+    public surface (including `genai`/`settings` themselves, so
+    `patch("app.services.ai_extraction.genai.Client", ...)`-style test patches keep
+    resolving to the same shared module object). One real behaviour wrinkle found and fixed
+    during the split, not just a file move: `capture_recipe()`'s internal calls to
+    `extract_recipe()`/`suggest_sections()`/`flag_substitutions()` used to resolve as
+    same-module bare names — which a test patching `app.services.ai_extraction.suggest_sections`
+    relied on working, by coincidence of everything living in one file. Split apart, that
+    patch no longer reached the call; fixed by having `capture_recipe()` route through the
+    package's own current attributes (a call-time-deferred `from app.services import
+    ai_extraction as _pkg`) instead of bare names, restoring the old patchability with no
+    test changes needed. Suite 481 pass; live-smoke-tested against the real dev server in
+    fake mode (`capture_recipe()` end-to-end: extraction + section suggestion + substitution
+    flagging all correct), `/diagnostics/recent-errors` clean.
 
 ### Documentation & comments — thorough and judicious (set 2026-09-06)
 Every file, function and non-obvious block must be documented well enough that a session
@@ -738,6 +753,13 @@ needs_review    BOOLEAN NOT NULL DEFAULT 0  -- Phase 4 Chunk 4.6: irreconcilable
 note            TEXT               -- nullable, Phase 4 Chunk 4.6: display-only hint —
                                     -- "100 g + 200 ml" (review breakdown), "to taste",
                                     -- or "450 g spare" (overage, shown only when > ~half a pack)
+review_resolved_by_user BOOLEAN NOT NULL DEFAULT 0  -- 2026-09-10 hand-testing fix, added
+                                    -- without a CLAUDE.md update at the time (closed at the
+                                    -- Phase 5 review, 2026-09-12). Set by
+                                    -- `services/checklist.py > resolve_item()` when the user
+                                    -- manually picks a total for a needs_review line. See
+                                    -- Scaling Logic > "Re-running consolidation is a merge,
+                                    -- not a rebuild" below for what it protects against.
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
@@ -1019,6 +1041,19 @@ recomputed, new lines are added and lines no longer needed are removed, but per-
 **state is preserved** for lines that persist — `have_it`, `add_to_list`, and (Phase 5)
 `already_on_anylist` / `anylist_item_id`. So adding a recipe and re-consolidating never
 discards checklist progress.
+
+**A manually-resolved `needs_review` conflict is also preserved, as long as the underlying
+conflict is still there (2026-09-10 hand-testing fix — "doesn't remember amounts under
+review").** Without this, every re-consolidate (adding another recipe, changing servings,
+simply re-opening the review screen) recomputed a `needs_review` line from scratch and
+silently threw away a total the user had just manually picked via
+`services/checklist.py > resolve_item()`. `session_checklist_items.review_resolved_by_user`
+tracks this: `resolve_item()` sets it when the user commits a manual total; the
+`consolidate_session()` upsert skips recomputing `total_quantity`/`total_unit`/`needs_review`
+for a line where it's set **and** the ingredient still conflicts, leaving the user's choice
+alone. Once the conflict is actually gone (a substitution or alias resolved it, say), the
+flag is cleared and the line falls through to a normal recompute — a stale manual pick from
+an earlier, unrelated conflict is never silently reused for a fresh one.
 
 ---
 
@@ -3550,6 +3585,18 @@ session flips `ANYLIST_ENABLED`.
          solidly confirmed working. Re-verify this specific piece — ideally at the *start* of
          a session, away from any cumulative call volume — before relying on it. Flag for the
          Phase 5 review below.
+         **Re-verified at the Phase 5 review (2026-09-12, fresh session, minimal calls,
+         maintainer's explicit go-ahead for this one run):** add a throwaway item → update its
+         quantity via `existing_id` (the exact mechanism under test) → re-fetch. `confirmed=True`,
+         zero discrepancies, quantity read back exactly as set (`'1'` → `'2'`), on the very
+         first attempt. `TestList` restored to its original 2 items; household list never
+         touched. This is consistent with the "something cumulative across a long live-testing
+         session" theory above, not a fixed code defect — the update path is reliable when
+         exercised normally (a session pushes a handful of updates, not dozens back-to-back).
+         No code change from this finding. **Residual caution, not a block:** if the earlier
+         degradation recurs during a real long AnyList-heavy session, treat it as the same
+         known, unconfirmed-mechanism issue rather than a new bug — don't re-diagnose from
+         scratch each time.
 
       `TestList` restored to its exact 2 baseline items throughout and at the end of both
       passes. The real household list was never read or touched at any point. Suite re-run
@@ -3559,17 +3606,91 @@ session flips `ANYLIST_ENABLED`.
       push, confirmed via re-fetch+diff, cleaned up after) is solidly met for the add path and
       the maintainer's quantity/note design is live-confirmed; item 4 above is the one
       genuinely open thread, carried to the Phase 5 review rather than silently dropped.
-- [ ] **Phase 5 review** — re-check against [Checklist Screen Logic](#checklist-screen-logic),
+- [x] **Phase 5 review** — re-check against [Checklist Screen Logic](#checklist-screen-logic),
       [AnyList Push Logic](#anylist-push-logic), [Data Model](#data-model)
       (`session_checklist_items`, `shopping_history`, `usual_items`), [Security](#security)
       §1/§2, [Code Architecture](#code-architecture--maintainability),
       [API Conventions](#api-conventions), and [Diagnostics & Logging](#diagnostics--logging),
-      per [Phase workflow & progress tracking](#phase-workflow--progress-tracking). Also pick
-      up the deferred **ingredient synonym alias table** if it's being brought forward here
-      (M-review open item), re-confirm the "The usuals" cadence model against real use, and
-      **re-verify Chunk 5.7's carried-forward item 4** (whether `set-list-item-quantity` on an
-      already-listed item is actually reliable, tested fresh rather than deep into a long
-      testing session) before treating the update path as trustworthy.
+      per [Phase workflow & progress tracking](#phase-workflow--progress-tracking).
+      **Done 2026-09-12.** Full suite **481 pass** throughout (incl. after the package split
+      below); `/diagnostics/recent-errors` clean on a fresh dev-server smoke test.
+      **Checked and confirmed implemented:**
+      - **Checklist Screen Logic** — `load_checklist()` fuzzy-matches AnyList items
+        (normalised lowercase, plural-tolerant `_singularise`), pre-ticks matches, recomputes
+        `already_on_anylist`/`anylist_item_id` only when the AnyList fetch actually succeeds
+        (never wipes a previous match on a transient failure); staples surfaced only when
+        used this session; tap cycle is binary `unknown → yes → no → unknown` (no `partial`,
+        per the already-resolved Deferred Decisions row); usuals appear as their own group
+        only when due; `needs_review` lines get the mass/volume/manual resolve control.
+      - **AnyList Push Logic** — collects `add_to_list OR have_it == 'no'` lines + ticked due
+        usuals; update-in-place vs add keyed on `anylist_item_id`; re-fetch+diff confirms,
+        never trusts HTTP status alone; session marked `pushed` even on a partial confirm
+        (discrepancies recorded, not silently dropped); `SESSION_ALREADY_PUSHED` unless
+        `?force=true`; usuals `last_added_at` stamped only on an actual push, not merely
+        being offered.
+      - **Data Model** — `session_checklist_items` / `shopping_history` / `usual_items` ORM
+        models match the spec field-for-field, with one gap found and fixed (below).
+      - **Security §1/§2** — `ANYLIST_ENABLED`/`ANYLIST_FAKE_MODE` both default `false` in
+        `config.py`; keyring-first credential resolution with a logged WARNING on the `.env`
+        fallback (`anylist_secret_source` tracks which); CORS/firewall scoping from Phase 1
+        untouched by this phase.
+      - **Code Architecture** — zero `fastapi` imports anywhere under `app/services/`;
+        `checklist.py`/`usuals.py`/`anylist_client.py` all go through the `{"ok": ...}`
+        envelope via their routers, never raw `HTTPException`; `router.js` remains the only
+        hash-parser; tests mirror `app/` (`test_checklist.py`, `test_usuals.py`,
+        `test_anylist_client.py` at both service and router level).
+      - **API Conventions** — checklist/usuals/anylist-check endpoints all use the envelope;
+        `CHECKLIST_NOT_CONSOLIDATED` / `CHECKLIST_ITEM_NOT_FOUND` / `SESSION_ALREADY_PUSHED` /
+        `ANYLIST_DISABLED` / `ANYLIST_AUTH_FAILED` / `ANYLIST_FAILED` / `USUAL_ITEM_NOT_FOUND` /
+        `DUPLICATE_USUAL_ITEM_NAME` are all SCREAMING_SNAKE_CASE, translated centrally in
+        `main.py`; the usuals list endpoint supports `?limit`/`?offset`.
+      - **Diagnostics & Logging** — the `anylist` block reports enabled/fake-mode state,
+        target list, credential source, last successful `check_auth()`, and the last push's
+        confirm/discrepancy summary; component colour logic (grey/amber/red/green) matches
+        the documented states.
+
+      **Gaps found and fixed, not just noted:**
+      1. **Doc/code drift** — `session_checklist_items.review_resolved_by_user` (added
+         2026-09-10 fixing a real hand-testing bug: a manually-resolved `needs_review` total
+         was being silently reset on the next re-consolidate) existed in the ORM model and
+         was referenced by two code comments pointing at "CLAUDE.md > Scaling Logic >
+         re-running consolidation" — but was never actually added there. Fixed: the column is
+         now in the `session_checklist_items` schema block and "Re-running consolidation is a
+         merge, not a rebuild" now describes what it protects against. No code change needed
+         — the behaviour itself was already correct, only the documentation was missing.
+      2. **File-size guideline, `services/ai_extraction.py`** — flagged at the Phase 3.9
+         M-review (~715 lines) to split "before or early in Phase 5," still unsplit and grown
+         to 861. Split into the `ai_extraction/` package this review (types/prompts/schemas/
+         fixtures/client/calls + `__init__` re-export) — see
+         [Code Architecture & Maintainability > File size and scope discipline](#file-size-and-scope-discipline)
+         for the finished shape and the one real behavioural fix the split needed
+         (`capture_recipe()`'s internal calls routed through the package's own attributes,
+         not bare module names, to keep a test's patch targeting
+         `app.services.ai_extraction.suggest_sections` working). Live-smoke-tested against
+         the real dev server in fake mode after the split, not just the test suite.
+      3. **Chunk 5.7 carried-forward item 4, re-verified fresh** — `set-list-item-quantity`
+         on an already-listed item, tested at the start of a fresh session with minimal calls
+         (maintainer's explicit go-ahead for this one run): add → update via `existing_id` →
+         re-fetch, confirmed correct first attempt, `TestList` restored to baseline. Consistent
+         with the "something cumulative across a long live-testing session" theory, not a
+         fixed defect — no code change. See the updated Chunk 5.7 entry and the
+         [Deferred Decisions](#deferred-decisions) row.
+
+      **Explicitly not brought forward / honestly recorded rather than guessed at:**
+      - **Ingredient synonym alias table** — the M-review's open item on this is already
+        resolved, ahead of this review: built as [Ingredient Aliases](#ingredient-aliases)
+        (2026-09-10) and extended by [Ingredient Unit Handling](#ingredient-unit-handling)
+        (2026-09-12). Nothing left to bring forward here.
+      - **"The usuals" cadence model against real use** — per the maintainer, `usual_items`
+        has **not** yet been exercised in a real household session — only seeded/tested and
+        headless-verified. Recorded honestly rather than claimed confirmed; re-confirm once
+        it's actually been lived with for a few weeks.
+      - **Remaining oversized files** — `services/session_consolidation.py` (450 lines) and
+        `services/anylist_client.py` (635 lines, grown further by today's Chunk 5.7 fix) are
+        both still over the ~300–400 guideline. Not split this review (only
+        `ai_extraction.py`'s split was asked for) — flagged here rather than silently carried;
+        revisit at Phase 6 or whenever either file is next touched for a real feature change,
+        same standing as any other not-yet-urgent cleanup.
 
 **Deliverable:** Full end-to-end flow works. User can complete a planning session and
 push the result to AnyList (`TestList` in dev).
@@ -3699,7 +3820,7 @@ ShoppingApp/
 │   │   ├── sessions.py
 │   │   ├── capture_url.py
 │   │   ├── capture_photo.py
-│   │   ├── ai_extraction.py     ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1). Package split still pending — see Deferred Decisions
+│   │   ├── ai_extraction/       ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1; split into this package at the Phase 5 review, 2026-09-12 — types/prompts/schemas/fixtures/client/calls + __init__ re-export)
 │   │   ├── capture_queue.py     ← 429 retry queue + hourly poller (Phase 3.9 M3)
 │   │   ├── checklist.py         ← checklist load + AnyList push orchestrator (Phase 5)
 │   │   ├── usuals.py            ← "the usuals" recurring-items CRUD + due calc (Phase 5)
@@ -4046,8 +4167,8 @@ speculatively. When the relevant phase begins, flag these for a focused decision
 | AI-suggested quantity/unit for a flagged substitution | Revisit if hand-entry proves tedious | Phase 3.9 M8 adds a quantity/unit transform to substitutions but deliberately does **not** extend the `flag_substitutions` Gemini call to suggest the numbers — that would be fresh [§0a](#0a-prompt-injection-hardening-highest-priority) number/unit-validation surface for values the user must sanity-check anyway. Add best-effort `suggested_*_qty` / `suggested_*_unit` to the flag schema (allow-list validated) only if typing the equivalence every time turns out to be a real annoyance. Same standing as any other not-yet-needed feature — no reserved phase. See [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
 | Cross-unit pack resolution after a substitution unit change | Not scheduled | Phase 3.9 M8: a line resolved to a new free-text unit ("6 can" from "corn cobs") gets no `product_units` pack breakdown unless a matching-unit pack row is seeded — the resolver drops rows whose unit doesn't match the line's dimension. Acceptable for now (line still shows "6 can"). Revisit only if it's a real friction point; a fix would mean teaching `_pack_options_for` a per-ingredient unit-bridge, which is close to the conversion table M8 explicitly avoids. |
 | AI-assisted admin reduction beyond unit spellings (`ingredient_aliases` / `coarse_ingredients` / `staples` / `usual_items` / `product_units` / `remembered_substitutions`) | Not scheduled — revisit only if hand-entry proves genuinely tedious | Raised 2026-09-12 alongside [Ingredient Unit Handling > Admin reduction](#ingredient-unit-handling): `unit_synonyms` was resolved (an objective fact about English, safe to auto-classify with no confirmation — built as `classify_units()` / `learn_new_units()`). Every other Settings-managed reference list encodes a household-specific judgment call (same shopping item? tracked coarsely? always on hand? what pack sizes?) that an AI can only guess at — automating those moves the guessing from the household to the model without actually removing it, and would quietly undo the deliberate "don't pre-guess, wait for a real gap" seeding discipline this file already applies to every one of those tables. If typing any of them ever proves a real annoyance, the fallback worth reaching for is an AI-*suggests*/household-*confirms* flow (same shape as the existing capture-time substitution flagging), never silent automation — same standing as any other not-yet-needed feature, no reserved phase. |
-| Split `services/ai_extraction.py` into an `ai_extraction/` package | Deferred at the Phase 3.9 M-review (2026-09-07); do before or early in Phase 5 | The file (~715 lines) was scoped for a split at the M-review alongside `recipes.py`/`sessions.py` (both done). Deferred because the capture-fixes work had just rewritten large parts of it and a third structural refactor in the same pass, right on the Phase 5 boundary, was the riskier option. ~⅓ of the file is prompt-string / fixture constants, not logic. Plan (in its `# NOTE:`): pure moves into `prompts.py` / `schemas.py` / `types.py` / `fixtures.py` / `client.py` (`_call_gemini` + gates + cleaners) / `calls.py` (the 3 calls + `capture_recipe`), with `__init__.py` re-exporting the current public surface so no caller changes. |
-| AnyList `set-list-item-quantity` reliability on an already-listed item | Re-verify fresh, ideally at the start of a session, before the Phase 5 review | Chunk 5.7 live-verification (2026-09-12): the multi-item-batching bug that used to break every quantity is fixed and confirmed (one op per HTTP request now, matching the reference client). A separate, narrower issue surfaced on top of that fix and couldn't be pinned down the same session: a plain quantity-only update to an item already on the list worked once, early in the testing session, then failed on every later attempt regardless of that item's own history, batching, or a real 45-second delay — while quantity embedded directly in an *add* worked every single time throughout. Best guess is something cumulative across a long real-API session (soft throttling on that specific handler) rather than a fixed code defect, but that's unconfirmed. See [AnyList Push Logic](#anylist-push-logic) and the [Phase 5 Chunk 5.7](#phase-5--checklist--anylist-integration) entry for the full trail. Related, confirmed-and-accepted limitation (not the same open question): a *note* update on an already-listed item was tried, found to reliably corrupt that item's quantity via `set-list-item-details`, and deliberately reverted — not revisited unless AnyList's behaviour there is independently re-verified safe. |
+| Split `services/ai_extraction.py` into an `ai_extraction/` package | ~~Deferred at the Phase 3.9 M-review (2026-09-07); do before or early in Phase 5~~ **Resolved — done at the Phase 5 review, 2026-09-12** | Split into `types.py`/`prompts.py`/`schemas.py`/`fixtures.py`/`client.py`/`calls.py` + an `__init__.py` re-export, per the file's own `# NOTE:` plan. See [Code Architecture & Maintainability > File size and scope discipline](#file-size-and-scope-discipline) for the finished shape and the one real fix it needed (`capture_recipe()`'s internal calls routed through the package, not bare module names, to preserve test patchability). |
+| AnyList `set-list-item-quantity` reliability on an already-listed item | ~~Re-verify fresh, ideally at the start of a session, before the Phase 5 review~~ **Re-verified at the Phase 5 review, 2026-09-12 — reliable when tested fresh** | Chunk 5.7 live-verification (2026-09-12): the multi-item-batching bug that used to break every quantity is fixed and confirmed (one op per HTTP request now, matching the reference client). A separate, narrower issue surfaced on top of that fix and couldn't be pinned down the same session: a plain quantity-only update to an item already on the list worked once, early in the testing session, then failed on every later attempt regardless of that item's own history, batching, or a real 45-second delay — while quantity embedded directly in an *add* worked every single time throughout. **Re-tested fresh at the Phase 5 review** (minimal calls, maintainer's go-ahead for that one run): add → update via `existing_id` → re-fetch, confirmed correct on the first attempt, TestList restored to baseline. Consistent with "something cumulative across a long live-testing session" (soft throttling on that handler, perhaps) rather than a fixed code defect — no code change. If the degradation recurs during a real AnyList-heavy session, treat it as this same known, unconfirmed-mechanism issue rather than re-diagnosing from scratch. See [AnyList Push Logic](#anylist-push-logic) and the [Phase 5 Chunk 5.7](#phase-5--checklist--anylist-integration) entry for the full trail. Related, confirmed-and-accepted limitation (not the same question): a *note* update on an already-listed item was tried, found to reliably corrupt that item's quantity via `set-list-item-details`, and deliberately reverted — not revisited unless AnyList's behaviour there is independently re-verified safe. |
 
 ### Decision Dialogues
 
