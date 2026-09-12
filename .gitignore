@@ -25,3 +25,8 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/settings.local.json
+
+# Maintainer's own scratch review-prompt template — not part of the app, deliberately kept
+# local-only (previously untracked by hand in commit ee46a32; gitignored here so it stops
+# tripping scripts/deploy.py's clean-working-tree check).
+comprehensive-code-review-prompt.md
