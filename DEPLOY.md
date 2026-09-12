@@ -34,11 +34,10 @@ renames or adds an environment variable, the NUC's `.env` must be hand-edited to
 `update.bat` — nothing else will. The renamed key fails safe (an unset switch reads as
 `false`, an unset key reads as absent), so the symptom is a feature silently not working
 rather than a crash. Check `.env.example` against the NUC's `.env` whenever a release note
-mentions config. **Known pending rename — Phase 3.9 M1:** `ANTHROPIC_API_KEY` →
-`GEMINI_API_KEY`, `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE` →
-`AI_EXTRACTION_FAKE_MODE` (see CLAUDE.md > AI Provider Migration). The NUC has never run
-Phase 3 capture, so its `.env` still carries the old placeholder names — update them the
-next time the NUC is touched, before recipe capture is used there for real.
+mentions config. (The Phase 3.9 M1 rename — `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`,
+`CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE` →
+`AI_EXTRACTION_FAKE_MODE`, see CLAUDE.md > AI Provider Migration — sat as a known-pending
+NUC `.env` edit from M1 until the Phase 5 review; confirmed applied on the NUC 2026-09-12.)
 
 **Phase 5 adds** `ANYLIST_ENABLED` / `ANYLIST_FAKE_MODE` / `ANYLIST_TARGET_LIST_NAME` (all
 safe defaults: gate off, fake off, target `TestList`). The AnyList email/password are read
