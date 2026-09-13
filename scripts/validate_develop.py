@@ -89,16 +89,16 @@ def main() -> int:
         )
         return 1
 
-    print(f"✓ On {DEV_BRANCH} branch")
-    print("✓ Working tree is clean")
-    print("✓ origin remote is configured\n")
+    print(f"OK: on {DEV_BRANCH} branch")
+    print("OK: working tree is clean")
+    print("OK: origin remote is configured\n")
 
     # Run tests
     if not _run_pytest():
         _fail("Tests failed - fix them before pushing.")
         return 1
 
-    print("\n✓ All tests passed")
+    print("\nOK: all tests passed")
     print("\n=== Validation complete ===")
     print(f"Ready to push {DEV_BRANCH} to origin.\n")
     return 0
