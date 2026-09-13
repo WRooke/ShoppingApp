@@ -20,6 +20,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.log_config import setup_logging
+from scripts.backup import _backup_db_file
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -61,9 +62,26 @@ def do_restore(target: Path, confirmed: bool) -> None:
     if db_path.exists():
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
         pre_restore = db_path.with_name(f"{db_path.stem}.pre-restore-{stamp}{db_path.suffix}")
-        shutil.copy2(db_path, pre_restore)
+        # 2026-09-13 code review — the database being restored OVER may itself be the live,
+        # WAL-mode (app/database.py) database of a currently-running server; a plain
+        # shutil.copy2 has the same "might catch it mid-write" risk scripts/backup.py's own
+        # copy used to have. Reuse the same safe online-backup-API copy for this pre-restore
+        # safety snapshot too.
+        _backup_db_file(db_path, pre_restore)
         logger.info("Restore: saved pre-restore safety copy to %s", pre_restore)
         print(f"Saved current database to {pre_restore} before overwriting.")
+
+    # 2026-09-13 code review — remove any leftover -wal/-shm sidecar files next to the LIVE
+    # path before copying the restored backup into place, so a stale WAL from the
+    # pre-restore state is never replayed against the freshly-restored file the next time
+    # something opens it. The backup file itself (`target`) is a static, already-consistent
+    # single file (scripts/backup.py's online-backup-API copy never leaves sidecar files of
+    # its own), so a plain copy for the restore step itself is safe as-is.
+    for suffix in ("-wal", "-shm"):
+        stale = db_path.with_name(db_path.name + suffix)
+        if stale.exists():
+            stale.unlink()
+            logger.info("Restore: removed stale %s", stale.name)
 
     shutil.copy2(target, db_path)
     logger.info("Restore: restored %s -> %s", target, db_path)

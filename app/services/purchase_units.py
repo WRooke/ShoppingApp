@@ -75,12 +75,29 @@ def resolve_packs(required: float, options: list[PackOption]) -> PackResolution 
     max_per_pack = math.ceil(required / smallest_qty) + 1
 
     best: tuple[float, int, tuple[int, ...]] | None = None  # (overage, pack_count, counts)
+    # 2026-09-13 code review — defensive budget on the DFS below. The docstring's assumption
+    # ("a handful of pack sizes, 2-3 deep") isn't enforced anywhere — Settings lets a
+    # household add an unbounded number of product_units rows per ingredient — so a
+    # pathological setup (many dissimilar pack sizes + a large required quantity) could make
+    # the branching genuinely slow. Once the call budget is spent, stop exploring further and
+    # use whatever combination has already been found (or, if none has, fall through to the
+    # same single-largest-pack fallback below that already exists for the "shouldn't happen"
+    # case) — a possibly non-optimal but always-correct (never under-covers) answer, fast.
+    _MAX_SEARCH_CALLS = 5000
+    calls = 0
+    budget_exceeded = False
 
     def recurse(idx: int, remaining: float, chosen: list[int]) -> None:
         # DFS over "how many of pack `idx`" (0..cap). When `remaining` <= 0 the combo covers
         # the requirement — score it (overage, then pack count) and keep the best. `cap`
         # keeps the branching tiny; the pack list is a handful of sizes, 2-3 deep.
-        nonlocal best
+        nonlocal best, calls, budget_exceeded
+        if budget_exceeded:
+            return
+        calls += 1
+        if calls > _MAX_SEARCH_CALLS:
+            budget_exceeded = True
+            return
         if remaining <= 0:
             total = sum(c * usable[i].qty for i, c in enumerate(chosen))
             overage = total - required
@@ -97,9 +114,12 @@ def resolve_packs(required: float, options: list[PackOption]) -> PackResolution 
             chosen.append(n)
             recurse(idx + 1, remaining - n * usable[idx].qty, chosen)
             chosen.pop()
+            if budget_exceeded:
+                break
 
     recurse(0, required, [])
-    if best is None:  # shouldn't happen — one big pack always covers it
+    if best is None:  # the search budget ran out before finding anything, or (as originally
+        # noted) "shouldn't happen" — one big pack always covers it either way.
         opt = usable[0]
         n = math.ceil(required / opt.qty)
         best = (n * opt.qty - required, n, tuple([n] + [0] * (len(usable) - 1)))

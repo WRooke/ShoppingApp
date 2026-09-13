@@ -4,6 +4,8 @@ display rules: CLAUDE.md > Scaling Logic > Purchase unit resolution.
 
 from __future__ import annotations
 
+import time
+
 from app.services.purchase_units import PackOption, resolve_packs
 
 
@@ -76,3 +78,24 @@ def test_zero_required_still_buys_smallest_pack():
     r = resolve_packs(0, [_opt("1kg", 1000), _opt("500g", 500)])
     assert r.counts == [("500g", 1)]
     assert r.show_overage is False
+
+
+def test_many_dissimilar_pack_sizes_terminates_quickly_and_still_covers_the_requirement():
+    """2026-09-13 code review: nothing enforces the docstring's "a handful of pack sizes,
+    2-3 deep" assumption -- Settings lets a household seed unlimited product_units rows per
+    ingredient. A pathological set of many dissimilar sizes against a large requirement must
+    not make this hang; the defensive search-call budget should kick in and fall back to a
+    still-correct (never under-covers), if not perfectly optimal, answer."""
+    # 11 dissimilar prime-ish sizes -- deliberately not clean multiples of each other, so the
+    # combinatorial search can't shortcut via an obvious dominant option.
+    sizes = [37, 53, 71, 89, 101, 127, 149, 173, 199, 223, 251]
+    options = [_opt(f"{s}g pack", s) for s in sizes]
+
+    start = time.monotonic()
+    r = resolve_packs(50_000, options)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 2.0, f"resolve_packs took {elapsed:.2f}s -- the search budget didn't cap it"
+    assert r is not None
+    assert r.total_purchased >= 50_000  # never under-covers, even via the greedy fallback
+    assert r.overage == r.total_purchased - 50_000 >= 0

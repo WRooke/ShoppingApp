@@ -1,7 +1,9 @@
 """Weekly automated backup (Schema & Planning Addendum #4).
 
 What it does, every run:
-  1. Copies the live SQLite .db file into backups/ with a timestamped name.
+  1. Copies the live SQLite database into backups/ with a timestamped name, using SQLite's
+     own online backup API rather than a plain file copy (see run_backup()'s docstring for
+     why), then verifies the copy with PRAGMA integrity_check.
   2. Dumps every table to a JSON file alongside it (diffable, unlike the binary .db).
   3. Trims old backups, keeping the most recent KEEP_COUNT pairs.
   4. If the project is a git repo, commits backups/, rebases onto the latest origin
@@ -19,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,6 +136,38 @@ def trim_old_backups() -> None:
         logger.info("Backup: trimmed old backup %s", old_db.name)
 
 
+def _backup_db_file(db_path: Path, dest_db: Path) -> None:
+    """Copy the live database using SQLite's own online backup API, then verify the result.
+
+    2026-09-13 code review — this used to be a plain ``shutil.copy2``, which is unsafe against
+    a database that might be open and actively written to: the app runs as an always-on
+    server (CLAUDE.md > Deployment Environment) and this backup is triggered independently by
+    Windows Task Scheduler, with no coordination between the two. A raw byte-copy that lands
+    mid-transaction can catch a torn or inconsistent snapshot of the file. SQLite's
+    ``Connection.backup()`` is specifically designed to be safe against a concurrent writer —
+    it copies page-by-page under SQLite's own locking, correctly folding in any WAL content
+    (CLAUDE.md > Backup & Restore; see app/database.py's WAL-mode comment) regardless of
+    journal mode. ``PRAGMA integrity_check`` afterward catches a bad backup at backup time,
+    not the day it's actually needed for a restore.
+    """
+    source = sqlite3.connect(str(db_path))
+    dest = sqlite3.connect(str(dest_db))
+    try:
+        source.backup(dest)
+    finally:
+        dest.close()
+        source.close()
+
+    check = sqlite3.connect(str(dest_db))
+    try:
+        result = check.execute("PRAGMA integrity_check").fetchone()
+    finally:
+        check.close()
+    if result != ("ok",):
+        dest_db.unlink(missing_ok=True)
+        raise RuntimeError(f"Backup integrity check failed for {dest_db.name}: {result}")
+
+
 def run_backup() -> Path:
     db_path = Path(settings.database_path)
     if not db_path.exists():
@@ -146,7 +179,8 @@ def run_backup() -> Path:
     dest_json = BACKUP_DIR / f"mealplanner_{stamp}.json"
 
     logger.info("Backup: starting (source=%s)", db_path)
-    shutil.copy2(db_path, dest_db)
+    _backup_db_file(db_path, dest_db)
+    logger.info("Backup: %s passed PRAGMA integrity_check", dest_db.name)
 
     dump = dump_db_to_json(db_path)
     dest_json.write_text(json.dumps(dump, indent=2, default=str), encoding="utf-8")

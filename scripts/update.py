@@ -40,6 +40,28 @@ def _fail(message: str) -> None:
     print(f"\n{message}\n")
 
 
+def _server_is_running() -> bool:
+    """Best-effort: is a ShoppingApp server process currently alive? Same detection pattern
+    stop.bat already uses (a python.exe whose command line mentions app.main or uvicorn).
+    Never raises -- if PowerShell isn't available or anything else goes wrong, this can't
+    tell, so it answers False (no warning) rather than blocking the update on a check that
+    itself failed. 2026-09-13 code review — see the pre-flight warning in main() below."""
+    try:
+        result = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                "(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                "Where-Object { $_.CommandLine -match 'app\\.main' -or "
+                "$_.CommandLine -match 'uvicorn' } | Measure-Object).Count",
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        return result.returncode == 0 and result.stdout.strip() not in ("", "0")
+    except Exception:  # noqa: BLE001 — best-effort only, never blocks the update on this
+        logger.warning("Update: could not check whether the server is currently running", exc_info=True)
+        return False
+
+
 def main() -> int:
     is_repo, repo_out = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
     if not is_repo:
@@ -96,6 +118,28 @@ def main() -> int:
     if pip.returncode != 0:
         _fail("pip install failed - see output above. Server NOT restarted.")
         return 1
+
+    # 2026-09-13 code review — this migration step runs BEFORE stop.bat (see update.bat's
+    # ordering), meaning a SQLite batch-mode ALTER (create-new-table -> copy rows -> drop-old
+    # -> rename) can execute while the PREVIOUS server process is still alive and holding open
+    # connections against the table being rewritten. Deliberately NOT reordering this to run
+    # after stop.bat: that would trade today's "a failed update leaves the old version
+    # running" guarantee for "a failed migration leaves nothing running", a worse failure mode
+    # at this app's real (very low, two-household-members) concurrency risk. Instead: detect
+    # whether the server is actually running right now and say so loudly, rather than
+    # silently migrating against a live process either way — a human running update.bat can
+    # then judge whether to stop it by hand first. See CLAUDE.md > Code Architecture >
+    # Migrations and DEPLOY.md.
+    if _server_is_running():
+        logger.warning(
+            "Update: the server appears to be RUNNING right now - the migration below will "
+            "run against a live database. This is usually fine (nullable-column adds are the "
+            "common case), but if you want to be certain, Ctrl+C now and run stop.bat first."
+        )
+        print(
+            "\nWARNING: the server appears to be running. Migrating its live database now.\n"
+            "This is usually fine, but stop.bat first if you'd rather be certain.\n"
+        )
 
     # Apply any DB schema migrations the pulled commit added, BEFORE the restart, so the
     # new code never starts against an old schema. Alembic bootstrapped in Phase 3 Chunk
