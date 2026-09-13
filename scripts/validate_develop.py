@@ -13,10 +13,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.log_config import setup_logging
 from scripts.git_utils import run_git
 
-setup_logging()
+# Deliberately NOT `from app.log_config import setup_logging`: that import pulls in
+# app.config, whose module-level `load_dotenv()` sets DATABASE_PATH/LOGS_PATH/IMAGES_PATH
+# from .env into THIS PROCESS's environment. Since _run_pytest() below spawns pytest as a
+# subprocess that inherits our environment, those vars would already be set by the time
+# tests/conftest.py's `os.environ.setdefault(...)` runs -- setdefault is then a no-op, and
+# the "isolated" test suite silently runs against the real dev database instead of a temp
+# one (see conftest.py's docstring). Plain stdlib logging avoids importing app.config at
+# all, so this script can never poison that subprocess's environment.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
