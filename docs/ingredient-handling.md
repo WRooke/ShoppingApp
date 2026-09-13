@@ -569,7 +569,7 @@ quantity math entirely for ingredients where precision is pointless.
   `is_coarse` / `coarse_packs_needed` / `coarse_purchase_label`, added to the existing
   dataclass but only ever populated by the orchestrator — `consolidate()`'s own logic is
   unchanged), and merges both sets of items before the upsert loop. The pack-resolution step
-  (`_pack_options_for` / `purchase_units.resolve_packs()`) is skipped entirely for coarse
+  (`session_pack_resolution.pack_options_for()` / `purchase_units.resolve_packs()`) is skipped entirely for coarse
   items — that machinery is precision-driven (brute-force pack-size combinations against a
   precise required quantity), which is exactly what "coarse" means opting out of.
 

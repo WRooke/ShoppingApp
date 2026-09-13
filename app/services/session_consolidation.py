@@ -30,6 +30,7 @@ from app.services import (
     ingredient_aliases,
     purchase_units,
     scaling,
+    session_pack_resolution,
     unit_synonyms,
 )
 from app.services.sessions import get_session
@@ -39,12 +40,6 @@ logger = logging.getLogger(__name__)
 # 1=Monday..7=Sunday (CLAUDE.md > Data Model > session_recipes). Only used to disambiguate
 # _recipe_label() below when the same recipe is slotted into a session more than once.
 _DAY_ABBR = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
-
-# Pack-unit strings we know how to normalise, grouped by dimension — mirrors
-# consolidation._G_PER / _ML_PER so pack sizes line up with consolidated quantities.
-_PACK_G = {"g": 1.0, "kg": 1000.0}
-_PACK_ML = {"ml": 1.0, "l": 1000.0, "tsp": 5.0, "tbsp": 20.0, "cup": 250.0}
-_PACK_COUNT = {"each", "ea", "unit", "count", ""}
 
 
 def _norm(name: str) -> str:
@@ -282,63 +277,6 @@ def _scaled_lines(
     return lines
 
 
-def _pack_options_for(
-    item: consolidation.ConsolidatedItem, rows: list[ProductUnit]
-) -> tuple[float, list[purchase_units.PackOption], str]:
-    """(required_in_base, [PackOption in the same base], base_kind). base_kind is
-    'mass' | 'volume' | 'count' | 'unit:<x>'. Rows whose unit doesn't match the item's
-    dimension are dropped."""
-    unit = (item.unit or "").strip().lower()
-    if unit in _PACK_G or unit in ("g", "kg"):
-        base_kind, factor = "mass", (1000.0 if unit == "kg" else 1.0)
-        required = (item.quantity or 0.0) * factor
-        opts = [
-            purchase_units.PackOption(r.purchase_label, r.purchase_qty * _PACK_G[(r.purchase_unit or "").lower()])
-            for r in rows
-            if (r.purchase_unit or "").lower() in _PACK_G
-        ]
-        return required, opts, base_kind
-    if unit in _PACK_ML:
-        base_kind = "volume"
-        required = (item.quantity or 0.0) * _PACK_ML[unit]
-        opts = [
-            purchase_units.PackOption(r.purchase_label, r.purchase_qty * _PACK_ML[(r.purchase_unit or "").lower()])
-            for r in rows
-            if (r.purchase_unit or "").lower() in _PACK_ML
-        ]
-        return required, opts, base_kind
-    if item.unit is None:  # bare count
-        required = item.quantity or 0.0
-        opts = [
-            purchase_units.PackOption(r.purchase_label, r.purchase_qty)
-            for r in rows
-            if (r.purchase_unit or "").lower() in _PACK_COUNT
-        ]
-        return required, opts, "count"
-    # free-text unit — only match pack rows carrying the same unit string
-    required = item.quantity or 0.0
-    opts = [
-        purchase_units.PackOption(r.purchase_label, r.purchase_qty)
-        for r in rows
-        if (r.purchase_unit or "").lower() == unit
-    ]
-    return required, opts, f"unit:{unit}"
-
-
-def _overage_note(overage_base: float, item: consolidation.ConsolidatedItem) -> str:
-    """overage is in the consolidation base (g/ml/count); render it in the item's unit."""
-    u = (item.unit or "").strip().lower()
-    if u == "kg":
-        return f"{consolidation._fmt_qty(overage_base / 1000)} kg spare"
-    if u == "l":
-        return f"{consolidation._fmt_qty(overage_base / 1000)} L spare"
-    if u in ("g", "ml"):
-        return f"{consolidation._fmt_qty(overage_base)} {u} spare"
-    if item.unit is None:
-        return f"{consolidation._fmt_qty(overage_base)} spare"
-    return f"{consolidation._fmt_qty(overage_base)} {item.unit} spare"
-
-
 def consolidate_session(
     db: Session, session_id: int, *, overrides: list[SessionOverride] | None = None
 ) -> list[SessionChecklistItem]:
@@ -445,7 +383,7 @@ def _consolidate_session_impl(
                 .filter(ProductUnit.ingredient_name == item.name)
                 .all()
             )
-            required, opts, _kind = _pack_options_for(item, rows)
+            required, opts, _kind = session_pack_resolution.pack_options_for(item, rows)
             resolution = purchase_units.resolve_packs(required, opts) if opts else None
             if resolution is not None:
                 row.display_qty = resolution.display_qty
@@ -456,7 +394,7 @@ def _consolidate_session_impl(
                     else resolution.display_qty
                 )
                 if resolution.show_overage:
-                    row.note = _overage_note(resolution.overage, item)
+                    row.note = session_pack_resolution.overage_note(resolution.overage, item)
             if item.also_to_taste:
                 row.note = f"{row.note} (+ to taste)" if row.note else "(+ to taste)"
 

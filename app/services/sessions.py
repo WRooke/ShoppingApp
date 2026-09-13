@@ -29,12 +29,6 @@ from app.services.scaling import DEFAULT_TARGET_SERVINGS
 
 logger = logging.getLogger(__name__)
 
-# Pack-unit strings we know how to normalise, grouped by dimension — mirrors
-# consolidation._G_PER / _ML_PER so pack sizes line up with consolidated quantities.
-_PACK_G = {"g": 1.0, "kg": 1000.0}
-_PACK_ML = {"ml": 1.0, "l": 1000.0, "tsp": 5.0, "tbsp": 20.0, "cup": 250.0}
-_PACK_COUNT = {"each", "ea", "unit", "count", ""}
-
 
 class SessionNotFoundError(Exception):
     def __init__(self, session_id: int) -> None:
