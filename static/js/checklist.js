@@ -46,16 +46,8 @@
     return n === Math.round(n) ? String(Math.round(n)) : String(Math.round(n * 100) / 100);
   }
 
-  function parseNoteParts(note) {
-    // "100 g + 200 ml" -> [{label:"100 g", qty:100, unit:"g"}, ...]
-    return (note || "")
-      .split(" + ")
-      .map(function (p) {
-        var m = p.trim().match(/^([0-9]*\.?[0-9]+)\s*(.*)$/);
-        if (!m) return null;
-        return { label: p.trim(), qty: parseFloat(m[1]), unit: m[2].trim() || null };
-      })
-      .filter(Boolean);
+  function optionLabel(opt) {
+    return opt.unit ? fmtNum(opt.quantity) + " " + opt.unit : fmtNum(opt.quantity);
   }
 
   function mount(root, sessionId) {
@@ -138,11 +130,16 @@
         var row = el("div", "settings-row");
         row.appendChild(el("div", "recipe-row-name", item.ingredient_name));
         row.appendChild(el("div", "recipe-row-meta muted", item.note || "mixed units"));
-        parseNoteParts(item.note).forEach(function (part) {
-          var btn = el("button", null, "use " + part.label);
+        // 2026-09-13 code review — quick-picks now come straight from the structured
+        // review_options the backend computed (services/consolidation.py > ReviewOption),
+        // not by regex-parsing `item.note` back apart. `note` can carry extra appended text
+        // (e.g. an Ingredient Aliases conversion fragment) alongside the review breakdown,
+        // which a regex had no reliable way to tell apart from the breakdown itself.
+        (item.review_options || []).forEach(function (opt) {
+          var btn = el("button", null, "use " + optionLabel(opt));
           btn.addEventListener("click", function () {
             api.checklist
-              .resolveItem(sessionId, item.id, { total_quantity: part.qty, total_unit: part.unit })
+              .resolveItem(sessionId, item.id, { total_quantity: opt.quantity, total_unit: opt.unit })
               .then(load)
               .catch(function (err) { global.alert(err.message); });
           });

@@ -26,6 +26,7 @@ from app.models.history import ShoppingHistory
 from app.models.queue import CaptureQueueItem
 from app.services import ai_call_log
 from app.services import anylist_client
+from app.services import capture_queue
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,14 @@ def status(db: Session = Depends(get_db)) -> dict:
         )
         ai["queue"] = {
             "depth": db.query(CaptureQueueItem).count(),
+            # 2026-09-13 code review — run_once() never drops/caps a retry (never silently
+            # lose a household's capture), so a permanently-broken item just keeps
+            # re-attempting hourly forever with nothing to distinguish it from one still
+            # working through transient quota exhaustion. Flag it once attempt_count crosses
+            # STALLED_AFTER_ATTEMPTS instead — surfaced here, not acted on.
+            "stalled_count": sum(
+                1 for q in queued if q.attempt_count >= capture_queue.STALLED_AFTER_ATTEMPTS
+            ),
             "items": [
                 {
                     "task": q.task,
@@ -100,6 +109,7 @@ def status(db: Session = Depends(get_db)) -> dict:
                     "queued_at": q.queued_at.isoformat(timespec="seconds"),
                     "attempt_count": q.attempt_count,
                     "last_error": q.last_error,
+                    "stalled": q.attempt_count >= capture_queue.STALLED_AFTER_ATTEMPTS,
                 }
                 for q in queued
             ],

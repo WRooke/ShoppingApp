@@ -126,6 +126,14 @@ def test_mass_plus_volume_flagged_not_merged():
     assert sorted(item.review_parts) == ["100 g", "200 ml"]
 
 
+def test_needs_review_review_options_matches_review_parts_numerically():
+    """2026-09-13 code review: review_options is the structured twin of review_parts (same
+    order, same values) — added so the frontend's "use X" quick-picks read real numbers
+    instead of regex-parsing the display string back apart."""
+    item = one([L("cream", 100, "g"), L("cream", 200, "ml")])
+    assert [(o.quantity, o.unit) for o in item.review_options] == [(100, "g"), (200, "ml")]
+
+
 def test_count_plus_mass_flagged():
     item = one([L("onion", 2, None), L("onion", 200, "g")])
     assert item.needs_review is True

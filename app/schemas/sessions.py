@@ -167,6 +167,11 @@ class ChecklistItemRead(BaseModel):
     display_qty: str | None
     needs_review: bool
     note: str | None
+    # 2026-09-13 code review — structured resolve-candidates for a needs_review line's "use X"
+    # buttons; read from the SessionChecklistItem.review_options model property (parsed JSON),
+    # always [] when the line isn't (or is no longer) needs_review. Replaces frontend regex-
+    # parsing of `note` — see services/consolidation.py > ReviewOption.
+    review_options: list["ReviewOptionRead"] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     # 2026-09-11 — NOT a session_checklist_items column; always [] straight out of
@@ -174,6 +179,14 @@ class ChecklistItemRead(BaseModel):
     # attribute). The consolidate endpoint fills this in per-item afterwards via model_copy —
     # see routers/sessions.py and CLAUDE.md > "Which recipe is this ingredient from".
     recipe_breakdown: list["RecipeContribution"] = Field(default_factory=list)
+
+
+class ReviewOptionRead(BaseModel):
+    """One structured resolve-candidate — the API-facing twin of
+    services.consolidation.ReviewOption. See ChecklistItemRead.review_options."""
+
+    quantity: float
+    unit: str | None = None
 
 
 class RecipeContribution(BaseModel):
@@ -195,4 +208,4 @@ class ConsolidateResponse(BaseModel):
     items: list[ChecklistItemRead]
 
 
-ChecklistItemRead.model_rebuild()  # resolves the forward ref to RecipeContribution, defined below it
+ChecklistItemRead.model_rebuild()  # resolves the forward refs to ReviewOptionRead/RecipeContribution, both defined below it

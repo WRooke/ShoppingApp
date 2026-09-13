@@ -93,6 +93,23 @@ class RecipeContribution:
     is_no_scale: bool = False  # a "to taste" contribution — quantity/unit are meaningless
 
 
+@dataclass(frozen=True)
+class ReviewOption:
+    """One structured resolve-candidate for a `needs_review` line's "use X" quick-picks
+    (2026-09-13 code review) — the numeric twin of one `review_parts` display string, e.g.
+    `review_parts=["100 g", "200 ml"]` pairs with `review_options=[ReviewOption(100, "g"),
+    ReviewOption(200, "ml")]`. Exists because the frontend used to regex-parse the display
+    string back apart to build these buttons (checklist.js > parseNoteParts()), which broke
+    whenever `note` carried extra appended text alongside the review breakdown (e.g. an
+    Ingredient Aliases conversion fragment) — the regex had no reliable way to tell that text
+    apart from the breakdown it was meant to parse. Persisted as
+    session_checklist_items.review_options_json; see CLAUDE.md > Scaling Logic > Rounding &
+    unit rules > Irreconcilable."""
+
+    quantity: float
+    unit: str | None
+
+
 @dataclass
 class ConsolidatedItem:
     name: str  # resolved (post-substitution) name
@@ -102,6 +119,8 @@ class ConsolidatedItem:
     also_to_taste: bool = False  # has a real quantity AND a "to taste" contribution
     needs_review: bool = False  # mass + volume mix — not merged
     review_parts: list[str] = field(default_factory=list)  # ["100 g", "200 ml"]
+    # The structured twin of review_parts, same order — see ReviewOption's docstring.
+    review_options: list[ReviewOption] = field(default_factory=list)
     # 2026-09-10 — summed (source_name, source_unit) contributions from any lines an alias
     # transform changed, formatted for display, e.g. ["3 tbsp lemon juice"]. Empty when no
     # line in this group went through an alias quantity/unit conversion.
@@ -152,14 +171,23 @@ def _fmt_qty(value: float) -> str:
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
-def _summarise_bucket(dimension: str, total: float) -> str:
+def _bucket_qty_unit(dimension: str, total: float) -> tuple[float, str | None]:
+    """The (quantity, unit) pair a needs_review bucket resolves to for display AND for a
+    resolve-candidate (`ReviewOption`) — the single source of truth `_summarise_bucket()`'s
+    display string and `_resolve_group()`'s `review_options` are both derived from, so they
+    can never drift apart the way a display string + a regex re-parsing it could."""
     if dimension == "mass":
-        return f"{_fmt_qty(total)} g" if total < 1000 else f"{_fmt_qty(total / 1000)} kg"
+        return (total, "g") if total < 1000 else (round(total / 1000, 2), "kg")
     if dimension == "volume":
-        return f"{_fmt_qty(total)} ml" if total < 1000 else f"{_fmt_qty(total / 1000)} L"
+        return (total, "ml") if total < 1000 else (round(total / 1000, 2), "L")
     if dimension == "count":
-        return _fmt_qty(total)
-    return f"{_fmt_qty(total)} {dimension.split(':', 1)[1]}"
+        return (total, None)
+    return (total, dimension.split(":", 1)[1])
+
+
+def _summarise_bucket(dimension: str, total: float) -> str:
+    qty, unit = _bucket_qty_unit(dimension, total)
+    return f"{_fmt_qty(qty)} {unit}" if unit else _fmt_qty(qty)
 
 
 def _conversion_notes(lines: list[IngredientLine]) -> list[str]:
@@ -232,8 +260,13 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
             buckets[dim] = buckets.get(dim, 0.0) + ln.quantity
 
     if len(buckets) > 1:
-        parts = [_summarise_bucket(dim, total) for dim, total in sorted(buckets.items())]
-        return _item(None, None, needs_review=True, review_parts=parts, also_to_taste=has_to_taste)
+        sorted_buckets = sorted(buckets.items())
+        parts = [_summarise_bucket(dim, total) for dim, total in sorted_buckets]
+        options = [ReviewOption(*_bucket_qty_unit(dim, total)) for dim, total in sorted_buckets]
+        return _item(
+            None, None, needs_review=True, review_parts=parts, review_options=options,
+            also_to_taste=has_to_taste,
+        )
 
     (dim, total), = buckets.items()
     if dim == "mass":

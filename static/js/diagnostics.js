@@ -74,7 +74,7 @@
           body.appendChild(linkWrap);
         }
 
-        var q = d.queue || { depth: 0, items: [] };
+        var q = d.queue || { depth: 0, items: [], stalled_count: 0 };
         if (q.depth) {
           body.appendChild(
             el(
@@ -85,11 +85,29 @@
                 " item(s) waiting on quota — " +
                 q.items
                   .map(function (it) {
-                    return it.task + (it.attempt_count ? " (×" + it.attempt_count + ")" : "");
+                    // 2026-09-13 code review — run_once() never drops a permanently-broken
+                    // item (a deleted photo file, a now-dead URL), so it just keeps retrying
+                    // hourly forever; flag one that's clearly stuck rather than let it read
+                    // the same as a task still working through transient quota exhaustion.
+                    var label = it.task + (it.attempt_count ? " (×" + it.attempt_count + ")" : "");
+                    return it.stalled ? label + " ⚠ stalled" : label;
                   })
                   .join(", ")
             )
           );
+          if (q.stalled_count) {
+            body.appendChild(
+              el(
+                "div",
+                "status-msg",
+                "⚠ " +
+                  q.stalled_count +
+                  " item(s) have failed repeatedly and may need attention (e.g. a deleted " +
+                  "photo, or a URL that no longer works) — they'll keep retrying hourly, but " +
+                  "won't succeed on their own if the underlying problem hasn't changed."
+              )
+            );
+          }
         }
 
         var recent = d.recent_calls || [];

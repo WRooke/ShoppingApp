@@ -195,6 +195,7 @@ def resolve_item(
     row.total_unit = total_unit
     row.needs_review = False
     row.note = None
+    row.review_options_json = None  # resolved -- no more quick-picks to offer for this line
     row.review_resolved_by_user = True
     db.commit()
     db.refresh(row)

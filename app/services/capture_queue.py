@@ -41,6 +41,16 @@ logger = logging.getLogger(__name__)
 # Provider Migration deliberately does NOT tie retries to an assumed quota reset time.
 POLL_INTERVAL_SECONDS = 3600
 
+# 2026-09-13 code review — run_once() deliberately never drops or caps a retry (never
+# silently lose a household's capture), but a permanently-broken item (a stored photo file
+# deleted before its retry, a URL that will now always 404) would otherwise just accumulate
+# hourly ERROR-level log noise forever with nothing distinguishing it, in the diagnostics
+# queue view, from a task that's genuinely still working through transient quota exhaustion.
+# Past this many attempts (~a day of hourly retries), routers/diagnostics.py flags the item
+# as "stalled" instead of silently blending into the raw queue-depth count — purely a
+# diagnostics surface, run_once()'s own retry behaviour is unchanged.
+STALLED_AFTER_ATTEMPTS = 5
+
 
 def enqueue(
     db: Session, *, task: str, payload: dict, recipe_id: int | None = None

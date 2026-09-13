@@ -157,7 +157,37 @@ def test_status_ai_block_reports_capture_queue(client):
 
         ai = client.get("/api/v1/diagnostics/status").json()["data"]["ai_extraction"]
         assert ai["queue"]["depth"] >= 1
-        assert any(it["task"] == "extract_url" for it in ai["queue"]["items"])
+        item = next(it for it in ai["queue"]["items"] if it["task"] == "extract_url")
+        assert item["attempt_count"] == 2 and item["stalled"] is False
+    finally:
+        db.query(CaptureQueueItem).filter(CaptureQueueItem.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+def test_status_ai_block_flags_a_stalled_queue_item(client):
+    """2026-09-13 code review: run_once() never drops a permanently-broken item, so
+    /diagnostics must at least flag one that's clearly stuck (many failed attempts) instead of
+    blending it into the raw queue depth."""
+    from app.models.queue import CaptureQueueItem
+    from app.services import capture_queue
+
+    db = SessionLocal()
+    ids = []
+    try:
+        row = CaptureQueueItem(
+            task="extract_photo",
+            payload_json='{"image_path": "gone.jpg"}',
+            attempt_count=capture_queue.STALLED_AFTER_ATTEMPTS,
+        )
+        db.add(row)
+        db.commit()
+        ids.append(row.id)
+
+        ai = client.get("/api/v1/diagnostics/status").json()["data"]["ai_extraction"]
+        assert ai["queue"]["stalled_count"] >= 1
+        item = next(it for it in ai["queue"]["items"] if it["task"] == "extract_photo")
+        assert item["stalled"] is True
     finally:
         db.query(CaptureQueueItem).filter(CaptureQueueItem.id.in_(ids)).delete(synchronize_session=False)
         db.commit()

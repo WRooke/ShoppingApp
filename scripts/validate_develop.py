@@ -35,8 +35,11 @@ def _fail(message: str) -> None:
     print(f"\n{message}\n")
 
 
-def _run_pytest() -> bool:
-    """Run the test suite and return True if all tests pass."""
+def run_pytest() -> bool:
+    """Run the test suite and return True if all tests pass. Public (no leading underscore,
+    matching git_utils.run_git's naming) — 2026-09-13 code review: scripts/deploy.py imports
+    this directly rather than duplicating the subprocess invocation, so a build whose test
+    suite is currently red can't be tagged and pushed to production."""
     logger.info("Running test suite...")
     print("\n--- Running tests ---\n")
 
@@ -101,7 +104,7 @@ def main() -> int:
     print("OK: origin remote is configured\n")
 
     # Run tests
-    if not _run_pytest():
+    if not run_pytest():
         _fail("Tests failed - fix them before pushing.")
         return 1
 

@@ -712,6 +712,29 @@ def test_consolidate_preserves_a_manually_resolved_review_line(db):
     assert cream.total_quantity == 200 and cream.total_unit == "ml"  # recomputed from recipe B alone
 
 
+def test_consolidate_persists_structured_review_options_and_clears_on_resolve(db):
+    """2026-09-13 code review: session_checklist_items.review_options_json is the structured
+    twin of `note` for a needs_review line — populated by consolidate_session(), read back via
+    SessionChecklistItem.review_options, and cleared once the user resolves the conflict."""
+    from app.services import checklist as checklist_service
+
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r1 = _recipe_with(db, "A", [{"name": "cream", "quantity": 100, "unit": "g"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    r2 = _recipe_with(db, "B", [{"name": "cream", "quantity": 200, "unit": "ml"}])
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+    items = sessions_service.consolidate_session(db, s.id)
+
+    cream = next(i for i in items if i.ingredient_name == "cream")
+    assert cream.review_options == [
+        {"quantity": 100, "unit": "g"}, {"quantity": 200, "unit": "ml"},
+    ]
+
+    checklist_service.resolve_item(db, s.id, cream.id, total_quantity=300, total_unit="ml")
+    db.refresh(cream)
+    assert cream.review_options == []
+
+
 def test_consolidate_removes_lines_no_longer_needed(db):
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "A", [{"name": "onion", "quantity": 2, "unit": None}])

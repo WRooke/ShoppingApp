@@ -15,6 +15,7 @@ rounding/unit rules themselves live in ``consolidation.py``. See CLAUDE.md > Sca
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 
@@ -417,6 +418,7 @@ def _consolidate_session_impl(
         row.display_qty = None
         row.needs_review = item.needs_review
         row.note = None
+        row.review_options_json = None
 
         if item.is_coarse:
             # Ingredient Unit Handling Layer D (2026-09-12) — no quantity/unit math at all;
@@ -428,6 +430,13 @@ def _consolidate_session_impl(
                 row.purchase_qty = float(item.coarse_packs_needed)
         elif item.needs_review:
             row.note = " + ".join(item.review_parts)
+            # 2026-09-13 code review — structured twin of the note breakdown above, read
+            # verbatim by the frontend's "use X" quick-resolve buttons instead of regex-
+            # parsing `note` back apart (which broke once a conversion-notes fragment could
+            # get appended to the same string below). See consolidation.ReviewOption.
+            row.review_options_json = json.dumps(
+                [{"quantity": o.quantity, "unit": o.unit} for o in item.review_options]
+            )
         elif item.is_no_scale:
             row.note = "to taste"
         else:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 
@@ -83,7 +85,28 @@ class SessionChecklistItem(Base):
     # doesn't clobber it while the same ingredient still conflicts. Cleared once the conflict
     # is gone. See CLAUDE.md > Scaling Logic > re-running consolidation.
     review_resolved_by_user = Column(Boolean, nullable=False, default=False)
+    # 2026-09-13 code review — JSON array of {"quantity": float, "unit": str|None}, one per
+    # `needs_review` conflict part (e.g. [{"quantity": 100, "unit": "g"}, {"quantity": 200,
+    # "unit": "ml"}]); NULL when the line isn't (or is no longer) needs_review. Replaces
+    # frontend regex-parsing of `note` (checklist.js > parseNoteParts()) to build the
+    # "use 100 g" quick-resolve buttons — `note` can carry extra appended text (an alias
+    # conversion fragment) alongside the review breakdown, which the regex had no reliable way
+    # to tell apart from the breakdown itself. See services/consolidation.py > ReviewOption
+    # and CLAUDE.md > Scaling Logic > Rounding & unit rules > Irreconcilable.
+    review_options_json = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     session = relationship("PlanningSession", back_populates="checklist_items")
+
+    @property
+    def review_options(self) -> list[dict]:
+        """Parsed review_options_json, always a list (never None) — same pattern as
+        Recipe.ai_pending_tasks. Read by ChecklistItemRead via from_attributes."""
+        if not self.review_options_json:
+            return []
+        try:
+            value = json.loads(self.review_options_json)
+            return value if isinstance(value, list) else []
+        except (ValueError, TypeError):
+            return []
