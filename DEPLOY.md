@@ -115,7 +115,16 @@ everything else in SETUP.md (static IP, Task Scheduler, backups) is unchanged.
 
 **On the dev PC**, on `develop`, once your change is committed to git as normal (`git add`
 / `git commit` — `deploy.bat` doesn't do this for you, on purpose, so you always know
-exactly what you're about to ship):
+exactly what you're about to ship). Optionally, run the pre-push gate first:
+
+```
+validate-develop.bat
+```
+
+This checks you're on `develop`, the tree is clean, `origin` is configured, and runs the
+full test suite (`scripts/validate_develop.py`) — a cheap way to catch a broken test before
+`deploy.bat` ships it. It doesn't push anything itself; `deploy.bat` still does its own
+independent clean/branch/behind-origin checks regardless of whether you ran this first.
 
 ```
 deploy.bat
@@ -178,6 +187,8 @@ then next `update.bat` will fast-forward from wherever `production` currently is
 | `update.bat` says "alembic upgrade head failed" | A schema migration in the pulled commit errored against the NUC's DB | Old server is still running. Read the alembic output; run `alembic current` / `alembic history` on the NUC. Fix the migration (or restore a backup), then re-run `update.bat` |
 | A feature works on the dev PC but silently does nothing on the NUC after a deploy | The release renamed/added an `.env` key and the NUC's `.env` wasn't updated (a deploy can't touch `.env`) | Diff `.env.example` against the NUC's `.env`; add/rename the keys, restart with `stop.bat` + `start.bat`. See the `.env` note near the top of this file |
 | Weekly backup push fails after a deploy | Backup ran before you deployed and its push raced with yours, or vice versa | Not fatal — the backup is still saved locally in `backups/`; `backup.py` will rebase and push cleanly next week. Check `logs/app.log` if it keeps happening |
+| Running a `scripts/*.py` file directly (not via its `.bat`) fails with `ModuleNotFoundError: No module named 'dotenv'` (or similar) | The bare `python`/`python3` on `PATH` isn't the project's venv — its packages aren't visible to the system interpreter | Use the venv's own interpreter explicitly: `.venv\Scripts\python.exe -m scripts.<name>` (or activate first: `.venv\Scripts\activate.bat`). The `.bat` wrappers always do this correctly already — this only bites when invoking a script's Python module directly |
+| `validate-develop.bat` (or a future script) runs the test suite but tests fail in confusing ways that don't reproduce when running `pytest` directly | A module-level `from app.log_config import setup_logging` (or any other import that touches `app.config`) runs *before* the script spawns pytest as a subprocess. `app.config`'s `load_dotenv()` sets `DATABASE_PATH`/`LOGS_PATH`/`IMAGES_PATH` from `.env` into that process's environment; `subprocess.run` inherits it by default, so `tests/conftest.py`'s `os.environ.setdefault(...)` becomes a no-op and the "isolated" suite silently runs against the real `data/mealplanner.db` | Don't import `app.config`/`app.log_config` at module scope in any script that shells out to pytest — use plain `logging.basicConfig()` instead (see `scripts/validate_develop.py`'s own fix, and the warning in `tests/conftest.py`'s docstring) |
 
 ---
 

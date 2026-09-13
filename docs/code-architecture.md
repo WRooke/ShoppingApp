@@ -61,6 +61,14 @@ data. The same applies to anything else with an external dependency added later.
   spend real API budget — that's what the Phase 1.5 spike and manual verification are for.
 - `pytest` is a dev dependency from Phase 2 onward (the first phase with real logic to test);
   add it to `requirements.txt` when that work starts, not before.
+- **Test-DB isolation is fragile to a specific mistake — read `tests/conftest.py`'s
+  docstring before writing any script that shells out to `pytest`.** A wrapper script that
+  imports `app.config`/`app.log_config` at module scope *before* spawning the pytest
+  subprocess leaks the real `DATABASE_PATH`/`LOGS_PATH`/`IMAGES_PATH` into that subprocess's
+  inherited environment, silently defeating `conftest.py`'s redirect to a temp DB — the
+  suite then runs against the real `data/mealplanner.db` with no error, just confusing
+  failures. Bit `scripts/validate_develop.py` this way once (fixed by switching it to plain
+  `logging.basicConfig()`) — see DEPLOY.md > Things that can go wrong.
 
 ### File size and scope discipline
 - One feature or table group per file, as the directory structure already lays out. A file
