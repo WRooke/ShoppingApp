@@ -69,6 +69,39 @@ data. The same applies to anything else with an external dependency added later.
   suite then runs against the real `data/mealplanner.db` with no error, just confusing
   failures. Bit `scripts/validate_develop.py` this way once (fixed by switching it to plain
   `logging.basicConfig()`) — see DEPLOY.md > Things that can go wrong.
+- **Router tests get their own fresh SQLite file per test (2026-09-13 code review).** Every
+  router test used to share ONE on-disk DB for the whole pytest session (`app/database.py`'s
+  `engine`/`SessionLocal` are module-level singletons) — nothing stopped one test's leftover
+  rows silently reaching another test's assertions. `tests/conftest.py`'s `client` fixture now
+  monkeypatches `app.database.engine`/`SessionLocal` to a brand-new engine on a per-test
+  `tmp_path` file, torn down with the test. **If a test file needs the live DB session
+  directly, `import app.database as database` and call `database.SessionLocal()` at the call
+  site — never `from app.database import SessionLocal` at module import time.** The latter
+  binds a separate name frozen to whatever `SessionLocal` was at collection, before any
+  test's monkeypatch runs, and silently reads/writes a stale, never-initialised database
+  instead (bit `tests/routers/test_diagnostics.py` and `test_recipe_capture.py` this exact
+  way when this fixture change first landed).
+- **`pytest.ini` enforces a zero-warnings suite.** `filterwarnings = error` turns any warning
+  this suite doesn't already know about into a hard failure — a new warning (from our own
+  code, or a future dependency bump) can never again pass silently. The file carries two
+  narrowly-scoped `ignore:` lines for the only two current warnings, both third-party library
+  internals (`starlette.testclient`'s `anyio.abc.BlockingPortal` alias,
+  `google.genai.types`'s `_UnionGenericAlias`) — if either library's next version removes the
+  warning, remove the matching line too (a stale `ignore:` for a warning that can no longer
+  fire is exactly the kind of comment/config drift ["keep comments true"](#documentation--comments--thorough-and-judicious-set-2026-09-06)
+  warns against). Turning this on once surfaced a real, previously-invisible bug: 13
+  `tests/services/test_*.py` `db()` fixtures created an in-memory SQLite engine but only
+  closed the session, never the engine — the underlying connection leaked until Python's GC
+  happened to collect it, which pytest's own unraisable-exception check turned into a
+  `ResourceWarning` blamed on some unrelated, later test. Every such fixture now calls
+  `engine.dispose()` alongside `session.close()`.
+- **`tests/frontend/` — automated headless-browser regression tests (2026-09-13 code
+  review).** Built on `scripts/cdp.py`, same as manual `HEADLESS_VERIFY.md` sessions — no
+  Node/Playwright, see that file and `tests/frontend/README.md` for when a check belongs here
+  (a locked-in regression, run with the rest of `tests/`) versus a one-off manual `cdp.py`
+  session while a feature is still being built. This is the one part of `tests/` that needs a
+  real Edge/Chrome installed; `scripts/cdp.py`'s own `_find_browser()` raises a plain error if
+  neither is found, which surfaces as a normal test failure, not a silent skip.
 
 ### File size and scope discipline
 - One feature or table group per file, as the directory structure already lays out. A file
@@ -106,6 +139,27 @@ data. The same applies to anything else with an external dependency added later.
     test changes needed. Suite 481 pass; live-smoke-tested against the real dev server in
     fake mode (`capture_recipe()` end-to-end: extraction + section suggestion + substitution
     flagging all correct), `/diagnostics/recent-errors` clean.
+  - ✅ `app/main.py` (721 → 497), split at the **2026-09-13 code review**: ~30
+    near-identical hand-written `@app.exception_handler` functions replaced with two small
+    factories (`_domain_error_handler`, `_external_error_handler`) covering the two shapes
+    almost all of them actually are, registered from two lookup tables
+    (`_DOMAIN_ERROR_HANDLERS`, `_EXTERNAL_ERROR_HANDLERS`) mapping exception type → status
+    code/error code/message. Only handlers with a genuinely different shape (a dynamic status
+    code, a non-`None` `detail`, or conditional logging) stayed bespoke. Every status code,
+    error code, and message is unchanged — verified by the full test suite (already asserts
+    on these) plus a direct diff of the set of error-code string literals before/after.
+  - ✅ `services/session_consolidation.py` (485 → 423), split at the **2026-09-13 code
+    review**: the pack-resolution adapter (`pack_options_for`/`overage_note`, formerly
+    `_pack_options_for`/`_overage_note`) moved to a new `services/session_pack_resolution.py`
+    alongside `purchase_units.py` — the DB-shaped layer between the orchestrator and the pure
+    pack-counting arithmetic underneath it.
+  - ✅ `services/anylist_client.py` (635 → 477), split at the **2026-09-13 code review**: the
+    protobuf wire codec (encode/decode primitives, `AnyListItem`, `_item_from_wire`/
+    `_item_to_wire`, `_WireList`, `_parse_user_data`, `_build_operation*`) moved to a new
+    `services/anylist_wire.py` — pure, no network/`settings` dependency.
+    `anylist_client.py` re-exports everything from it (same re-export precedent as the
+    `ai_extraction/` package split above), so no call site — including the existing test
+    suite's direct imports of several of these names — needed to change.
 
 ### Documentation & comments — thorough and judicious (set 2026-09-06)
 Every file, function and non-obvious block must be documented well enough that a session
@@ -160,6 +214,26 @@ build safe (see the intro to this section).
   NUC — `scripts/update.py` runs `alembic upgrade head` between `pip install` and the
   restart, and aborts the restart (leaving the old version running) if it fails; wired up in
   Chunk 3.7b alongside the first real migration.
+- **`update.py`'s migration runs BEFORE `stop.bat`, deliberately (2026-09-13 code review).**
+  `update.bat`'s ordering means a SQLite batch-mode ALTER can execute while the *previous*
+  server process is still alive holding open connections against the table being rewritten.
+  Considered and rejected: reordering so the migration runs after `stop.bat` — that trades
+  today's "a failed update leaves the old version running" guarantee for "a failed migration
+  leaves nothing running," a worse failure mode at this app's real (very low, two-household-
+  member) concurrency risk. Instead, `update.py` detects whether the server is currently
+  running (the same `Get-CimInstance`/`app.main`-or-`uvicorn` pattern `stop.bat` already
+  uses) and logs a clear warning if so, rather than silently migrating against a live
+  process — a human can then judge whether to stop it by hand first. See `scripts/update.py`'s
+  own `_server_is_running()`/`main()` docstrings for the full reasoning.
+- **Dev DB drift is possible and worth checking for.** The real dev `data/mealplanner.db` was
+  found 4 migrations behind `alembic head` during the 2026-09-13 code review — including
+  genuinely missing a column the running code actively read (silently returning `None` for
+  it via SQLAlchemy's lazy column loading rather than erroring, which is how it went
+  unnoticed). If `create_all()`'s whole-table fast path has already created a table
+  Alembic's chain would also create (because the table itself is new since the DB was last
+  upgraded), `alembic upgrade head` fails on "table already exists" — resolve with `alembic
+  stamp head` for the already-current tables, verified column-by-column via `PRAGMA
+  table_info` first, never blind.
 
 ### Keep this document and the code pointing at each other
 - Keep doing what Phase 1 already does: a docstring or comment that names the relevant CLAUDE.md

@@ -25,9 +25,12 @@ session's diagnostics/backup work, since getting the pipeline right early is che
 only gets more annoying to retrofit once there's more to ship — see `DEPLOY.md` for the full
 walkthrough and one-time git/GitHub setup):
 - `deploy.bat` — runs `scripts/deploy.py` on the **dev PC**, from the `develop` branch:
-  verifies the working tree is clean and current, tags the commit, pushes `develop` + the
-  tag to the private GitHub repo, then fast-forwards the remote `production` branch to
-  match.
+  runs the full test suite first and refuses to tag/push if it fails (this is this project's
+  CI — no GitHub Actions or other hosted pipeline; the answer to "would this have been
+  caught" is "does `pytest tests/` catch it", and `scripts/validate_develop.py` is the same
+  check run by hand before that point), then verifies the working tree is clean and current,
+  tags the commit, pushes `develop` + the tag to the private GitHub repo, then fast-forwards
+  the remote `production` branch to match.
 - `update.bat` — runs `scripts/update.py` on the **NUC**, from the `production` branch:
   pulls the new commit (fast-forward only, never merges), reinstalls dependencies if
   `requirements.txt` changed, then stops and restarts the server. Aborts before touching the
@@ -86,6 +89,35 @@ the weekly backup are in `SETUP.md`.
   `--yes`; always saves a pre-restore copy of the current database first. **Actually tested
   during Phase 1** — run once end-to-end (list → dry run → `--yes` restore) rather than assumed
   to work when it's needed under pressure.
+
+### SQLite WAL mode and backup safety (2026-09-13 code review)
+
+- **WAL (write-ahead log) mode is on**, set via a `PRAGMA journal_mode=WAL` in
+  `app/database.py`'s connect-event listener (alongside the existing `PRAGMA foreign_keys=ON`).
+  Two reasons: readers no longer block behind a writer or vice versa (matters once more than
+  one household member's phone can be editing a checklist at the same time), and it de-risks
+  backup — WAL keeps in-flight changes in a separate `-wal` file the main `.db` is never
+  touched by until a checkpoint, closing the narrow window where a plain file copy under the
+  old rollback-journal mode could catch a commit half-done.
+- **Checked against the deploy workflow before enabling:** `data/` is already gitignored, so
+  the new `-wal`/`-shm` sidecar files never interact with the git-based deploy/backup-push
+  flow. The NUC's DB lives on local disk (not a network share), so WAL's shared-memory file
+  works fine. No `start.bat`/`stop.bat`/`update.bat` changes were needed.
+- **`scripts/backup.py` uses SQLite's own online backup API**
+  (`sqlite3.connect(db_path).backup(sqlite3.connect(dest_db))`) instead of a raw
+  `shutil.copy2` — safe against a concurrent writer under either journal mode, and folds any
+  WAL content into one consistent output file (no `-wal`/`-shm` sidecars in the backup
+  itself). A `PRAGMA integrity_check` runs against the copy immediately after; a bad result
+  raises (failing the Task Scheduler run visibly) and deletes the bad copy, rather than
+  discovering corruption later at restore time.
+- **`scripts/restore.py`** removes any stale `mealplanner.db-wal` / `mealplanner.db-shm` next
+  to the live path before copying a backup over it, so a leftover WAL from the pre-restore
+  state can never be replayed against the freshly-restored file. The pre-restore safety copy
+  still only needs to cover the main `.db` file, since the backup mechanism above never
+  leaves anything durable in a sidecar file.
+- **`scripts/update.py`'s migration step runs before the server is stopped** — see
+  [Code Architecture & Maintainability > Migrations](./code-architecture.md#migrations) for
+  the trade-off and why that ordering is deliberate, not an oversight.
 
 ---
 
