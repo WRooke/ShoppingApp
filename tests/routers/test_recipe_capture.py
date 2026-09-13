@@ -13,8 +13,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# 2026-09-13 code review — `import app.database as database` + `database.SessionLocal()` at
+# each call site, NOT `from app.database import SessionLocal`: see the identical note in
+# tests/routers/test_diagnostics.py.
+import app.database as database
 from app.config import settings
-from app.database import SessionLocal
 from app.models.diagnostics import AiCallLog
 from app.models.store import ProductSection
 from app.services.ai_extraction import AiQuotaExhaustedError
@@ -48,7 +51,7 @@ def test_capture_from_url_happy_path(client):
     assert body["data"]["source_url"] == "https://example.com/tacos"
     assert len(body["data"]["ingredients"]) > 0
     # Fake mode never writes usage rows — nothing was actually billed.
-    db = SessionLocal()
+    db = database.SessionLocal()
     try:
         assert db.query(AiCallLog).count() == 0
     finally:
@@ -133,7 +136,7 @@ def test_confirm_capture_saves_recipe_and_product_sections(client):
     assert body["data"]["name"] == "ZZ-Capture-Confirm-Test"
     assert body["data"]["ingredients"][0]["name"] == "zz-test-beef-mince"
 
-    db = SessionLocal()
+    db = database.SessionLocal()
     try:
         section = db.query(ProductSection).filter_by(ingredient_name="zz-test-beef-mince").one()
         assert section.section_name == "meat & seafood"
@@ -172,7 +175,7 @@ def test_capture_url_over_quota_is_queued(client):
     assert body["ok"] is True
     assert body["data"]["queued"] is True
 
-    db = SessionLocal()
+    db = database.SessionLocal()
     try:
         from app.models.queue import CaptureQueueItem
 

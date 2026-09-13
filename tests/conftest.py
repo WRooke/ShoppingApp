@@ -36,16 +36,66 @@ os.environ.setdefault("IMAGES_PATH", str(_TEST_TMP / "images"))
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import create_engine, event  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
 
+import app.database as database  # noqa: E402
+import app.main as main_module  # noqa: E402
 from app.main import app  # noqa: E402
 
 
 @pytest.fixture()
-def client():
-    """A TestClient against the real app (routes + error handlers + lifespan).
+def client(monkeypatch, tmp_path):
+    """A TestClient against the real app (routes + error handlers + lifespan), on its OWN
+    fresh SQLite file for this one test — not the single on-disk file the whole session used
+    to share.
 
-    Entering the context manager runs the app's lifespan, which calls
-    ``init_db()`` — so tables exist for any test that needs them.
+    2026-09-13 code review — every router test used to run against one on-disk DB shared for
+    the whole pytest session (only reset once, at collection, by the fresh `_TEST_TMP` dir
+    above), a known fragility: nothing stopped one test's leftover rows from silently
+    propagating into another's assertions, and nothing would have caught it if it had.
+    Repointing ``app.database.engine``/``SessionLocal`` at a brand-new ``tmp_path`` file per
+    test (torn down with the test automatically) makes each router test as isolated as the
+    services-layer tests already are (each with their own `sqlite:///:memory:` engine).
+
+    Two module references need patching, not one: ``app.main`` did
+    ``from app.database import SessionLocal`` at import time, which bound its own separate
+    name in ``app.main``'s namespace — patching only ``app.database.SessionLocal`` would
+    leave the lifespan's own ``seed_reference_data()`` call (and the capture-queue poller)
+    still reading/writing the OLD shared database. ``app.database.get_db()`` (what every
+    router's ``Depends(get_db)`` actually calls) is unaffected by that duplicate-import
+    problem — it looks up ``SessionLocal`` in its own module's globals at call time, so
+    patching ``app.database.SessionLocal`` alone is enough for it.
+
+    The connect-time PRAGMAs (foreign key enforcement, WAL) are SQLAlchemy event listeners
+    registered against the specific ``Engine`` object in ``app/database.py`` — they don't
+    carry over to a different ``Engine`` automatically, so this re-registers the same two
+    pragmas on the new one to keep test behaviour matching production (in particular, FK
+    enforcement matters for any test that depends on cascade/ON DELETE behaviour).
     """
-    with TestClient(app) as test_client:
-        yield test_client
+    test_engine = create_engine(
+        f"sqlite:///{tmp_path / 'router_test.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+
+    @event.listens_for(test_engine, "connect")
+    def _enable_sqlite_pragmas(dbapi_connection, connection_record):  # noqa: ANN001
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
+    test_session_local = sessionmaker(
+        bind=test_engine, autoflush=False, autocommit=False, future=True
+    )
+
+    monkeypatch.setattr(database, "engine", test_engine)
+    monkeypatch.setattr(database, "SessionLocal", test_session_local)
+    monkeypatch.setattr(main_module, "SessionLocal", test_session_local)
+
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        test_engine.dispose()

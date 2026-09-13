@@ -10,8 +10,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+# 2026-09-13 code review — `import app.database as database` + `database.SessionLocal()` at
+# each call site, NOT `from app.database import SessionLocal`: the `client` fixture now
+# monkeypatches `app.database.SessionLocal` to a fresh per-test engine (tests/conftest.py),
+# and a plain `from ... import SessionLocal` would bind this file's OWN name to the
+# original object at collection time, before any test's monkeypatch ever runs — silently
+# reading/writing the wrong (never-initialised) database instead of the one `client` is
+# actually using.
+import app.database as database
 from app.config import settings
-from app.database import SessionLocal
 from app.models.diagnostics import AiCallLog
 
 
@@ -86,7 +93,7 @@ def test_status_anylist_fake_mode_is_amber(client, monkeypatch):
 
 
 def test_status_quota_indicator_counts_todays_calls_by_model(client):
-    db = SessionLocal()
+    db = database.SessionLocal()
     ids = []
     try:
         for _ in range(3):
@@ -145,7 +152,7 @@ def test_recent_errors_returns_ok_envelope(client):
 def test_status_ai_block_reports_capture_queue(client):
     from app.models.queue import CaptureQueueItem
 
-    db = SessionLocal()
+    db = database.SessionLocal()
     ids = []
     try:
         row = CaptureQueueItem(
@@ -172,7 +179,7 @@ def test_status_ai_block_flags_a_stalled_queue_item(client):
     from app.models.queue import CaptureQueueItem
     from app.services import capture_queue
 
-    db = SessionLocal()
+    db = database.SessionLocal()
     ids = []
     try:
         row = CaptureQueueItem(
