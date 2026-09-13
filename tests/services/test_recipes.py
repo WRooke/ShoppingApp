@@ -220,6 +220,36 @@ def test_update_ingredient_clearing_swap_also_clears_the_transform(db):
     assert reverted.resolved_quantity is None and reverted.resolved_unit is None
 
 
+def test_update_ingredient_clearing_only_the_swap_unit_also_clears_the_quantity(db):
+    """2026-09-13 code review: clearing resolved_unit alone (leaving resolved_quantity set)
+    used to slip past both the schema validator (which only checks fields sent in THIS
+    request) and this service's own invariant repair (which only fired when resolved_quantity
+    was missing) — leaving a real quantity with unit=None, which session_consolidation would
+    silently treat as a bare count. The fix must be symmetric: clearing EITHER half drops the
+    whole transform."""
+    recipe = recipes_service.create_recipe(
+        db,
+        _make_recipe(
+            ingredients=[
+                RecipeIngredientCreate(
+                    name="corn cobs", quantity=2, unit="cob",
+                    resolved_ingredient="canned corn",
+                    resolved_quantity=2, resolved_unit="can",
+                )
+            ]
+        ),
+    )
+    ing_id = recipe.ingredients[0].id
+
+    updated = recipes_service.update_ingredient(
+        db, recipe.id, ing_id, RecipeIngredientUpdate(resolved_unit=None)
+    )
+    # The name swap itself is untouched — only the amount/unit transform should drop.
+    assert updated.resolved_ingredient == "canned corn"
+    assert updated.resolved_quantity is None
+    assert updated.resolved_unit is None
+
+
 def test_update_ingredient_raises_when_ingredient_belongs_to_different_recipe(db):
     recipe1 = recipes_service.create_recipe(db, _make_recipe(name="Alpha Dish"))
     recipe2 = recipes_service.create_recipe(db, _make_recipe(name="Bravo Dish"))

@@ -132,7 +132,16 @@ def _coarse_items(
     what quantity/unit each line actually carries (that's the whole point — precision is
     pointless for these). `recipe_breakdown` is still built normally via the same helper
     `consolidate()` uses, since it's independent of how the total is computed and is exactly
-    the "why do I need this" transparency the breakdown feature exists for."""
+    the "why do I need this" transparency the breakdown feature exists for.
+
+    2026-09-13 code review fix: "number of contributing recipe SLOTS" is counted via each
+    line's `slot_id` (deduped with a set), not `len(group)` — a single recipe listing the same
+    coarse ingredient across two separate `recipe_ingredients` rows (e.g. "parsley, chopped"
+    + "parsley, to garnish") produces two IngredientLines for ONE slot, and `len(group)` used
+    to count that as 2 slots, inflating `coarse_packs_needed`. `slot_id` is set on every real
+    line and on `_apply_shared_extraction_adjustment`'s synthetic correction lines alike (see
+    that function), so this also correctly stays at 1 slot in the narrower case where a coarse
+    ingredient happens to also be a shared-extraction-adjustment target."""
     grouped: dict[str, list[consolidation.IngredientLine]] = {}
     normal: list[consolidation.IngredientLine] = []
     for ln in lines:
@@ -142,6 +151,13 @@ def _coarse_items(
         else:
             grouped.setdefault(_norm(ln.name), []).append(ln)
 
+    def _slot_count(group: list[consolidation.IngredientLine]) -> int:
+        slot_ids = {ln.slot_id for ln in group if ln.slot_id is not None}
+        # Fall back to a raw line count only for a line with no slot_id at all (shouldn't
+        # happen in practice — every real line is stamped by _scaled_lines() — but a missing
+        # slot_id is safer counted as its own contribution than silently dropped).
+        return len(slot_ids) + sum(1 for ln in group if ln.slot_id is None)
+
     coarse_items = [
         consolidation.ConsolidatedItem(
             name=name,
@@ -149,7 +165,7 @@ def _coarse_items(
             unit=None,
             recipe_breakdown=consolidation._recipe_breakdown(group),
             is_coarse=True,
-            coarse_packs_needed=math.ceil(len(group) / coarse_cfg[name].recipes_per_pack),
+            coarse_packs_needed=math.ceil(_slot_count(group) / coarse_cfg[name].recipes_per_pack),
             coarse_purchase_label=coarse_cfg[name].purchase_label,
         )
         for name, group in grouped.items()
@@ -174,12 +190,18 @@ def _apply_shared_extraction_adjustment(
     sum(group sums)` (always <= 0), `recipe_id`/`recipe_label` left `None` (so it never
     appears in the "which recipe" breakdown — it's not a real recipe contribution) and
     `source_name` left `None` (so it's never picked up by the conversion-notes aggregation).
+    `slot_id` IS carried through (unlike recipe_id/recipe_label) — it's not a "which recipe"
+    display concern, it's what lets `_coarse_items()` correctly recognise this correction line
+    as belonging to the same slot as the real lines it adjusts, rather than inflating a coarse
+    ingredient's slot count if its canonical name ever happens to also be a shared-extraction
+    target (CLAUDE.md > Ingredient Unit Handling > Layer D).
     Every real line this slot produced is returned completely untouched alongside it, so the
     breakdown and conversion notes keep showing the real, honest, per-source amounts; only
     the final summed total (computed later, in the pure `consolidation.consolidate()`, which
     needs no changes at all to make this work) comes out reduced to the max."""
     groups: dict[str, dict[str, float]] = {}  # canonical name -> {source_name: summed qty}
     unit_by_name: dict[str, str | None] = {}
+    slot_id = slot_lines[0].slot_id if slot_lines else None
     for ln in slot_lines:
         if ln.source_name is None:
             continue
@@ -194,7 +216,9 @@ def _apply_shared_extraction_adjustment(
         total = sum(by_source.values())
         peak = max(by_source.values())
         adjustments.append(
-            consolidation.IngredientLine(name=name, quantity=peak - total, unit=unit_by_name[name])
+            consolidation.IngredientLine(
+                name=name, quantity=peak - total, unit=unit_by_name[name], slot_id=slot_id
+            )
         )
     return slot_lines + adjustments
 
@@ -216,9 +240,11 @@ def _scaled_lines(
     final normalisation pass applied to whatever name/amount resulted from the steps before it
     (CLAUDE.md > Ingredient Aliases > Where it applies). `consolidation.consolidate()` itself
     does no substitution, aliasing, or unit-spelling resolution (Phase 3.9 M4/M8; 2026-09-10;
-    2026-09-12). Each line also carries which recipe slot it came from (2026-09-11, CLAUDE.md
-    > "Which recipe is this ingredient from"), purely for display — it plays no part in any of
-    the above resolution. Finally, each recipe slot's OWN lines get one more pass —
+    2026-09-12). Each line also carries which recipe slot it came from: `recipe_id`/
+    `recipe_label` (2026-09-11, CLAUDE.md > "Which recipe is this ingredient from"), purely for
+    display, and `slot_id` (2026-09-13), purely for `_coarse_items()`'s slot-counting — neither
+    plays any part in the resolution above. Finally, each recipe slot's OWN lines get one more
+    pass —
     `_apply_shared_extraction_adjustment()` (2026-09-12, CLAUDE.md > Ingredient Aliases >
     Shared-source combining) — collapsing 2+ different alias sources sharing a canonical name
     *within that one recipe* down to their max rather than their sum (e.g. lemon juice + lemon
@@ -248,7 +274,7 @@ def _scaled_lines(
                     source_qty=source[0] if source else None,
                     source_unit=source[1] if source else None,
                     source_name=source[2] if source else None,
-                    recipe_id=slot.recipe_id, recipe_label=label,
+                    recipe_id=slot.recipe_id, recipe_label=label, slot_id=slot.id,
                 )
             )
         lines.extend(_apply_shared_extraction_adjustment(slot_lines))

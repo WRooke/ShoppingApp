@@ -199,9 +199,14 @@ def update_slot(
     # scaled_servings is inert on a leftovers slot — keep it pinned at 0.
     if slot.slot_type == "leftovers":
         changes.pop("scaled_servings", None)
+    # No `if value is not None` guard here — `exclude_unset=True` already limits `changes` to
+    # fields the caller actually sent, so an explicit `{"day_of_week": null}` must apply (it's
+    # how a slot gets un-scheduled back to "no day"). A None-guard on top of exclude_unset would
+    # silently make that impossible — found as a real bug during the 2026-09-13 code review
+    # (CLAUDE.md > Code Architecture & Maintainability describes the exclude_unset convention
+    # every other update_* function follows without this guard).
     for field, value in changes.items():
-        if value is not None:
-            setattr(slot, field, value)
+        setattr(slot, field, value)
     db.commit()
     db.refresh(slot)
     logger.info(

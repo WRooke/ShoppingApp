@@ -163,6 +163,21 @@ def test_update_slot_on_recipe_changes_servings(db):
     assert updated.scaled_servings == 2
 
 
+def test_update_slot_can_explicitly_clear_day_of_week(db):
+    """2026-09-13 code review: update_slot() used to guard every assignment with
+    `if value is not None`, which silently discarded an explicit `{"day_of_week": null}` meant
+    to un-schedule a slot back to "no day" — exclude_unset=True already limits `changes` to
+    fields actually sent, so that guard was pure data loss, not a safety net."""
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    r = _recipe(db)
+    slot = sessions_service.add_session_recipe(
+        db, s.id, SessionRecipeCreate(recipe_id=r.id, day_of_week=3)
+    )
+    assert slot.day_of_week == 3
+    updated = sessions_service.update_slot(db, s.id, slot.id, SessionSlotUpdate(day_of_week=None))
+    assert updated.day_of_week is None
+
+
 def test_remove_slot(db):
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe(db)
@@ -412,6 +427,53 @@ def test_consolidate_coarse_ingredient_scales_pack_count_with_recipe_count(db):
         sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
 
     items = sessions_service.consolidate_session(db, s.id)
+    assert items[0].display_qty == "2 × bunch"
+
+
+def test_consolidate_coarse_ingredient_counts_slots_not_lines(db):
+    """2026-09-13 code review: one recipe listing the same coarse ingredient across TWO
+    separate recipe_ingredients rows (e.g. "parsley, chopped" + "parsley, to garnish") must
+    still count as ONE contributing slot, not two — recipes_per_pack divides by slots, per
+    CLAUDE.md > Ingredient Unit Handling > Layer D, not by however many lines happen to
+    mention the ingredient."""
+    from app.services import coarse_ingredients as ci_service
+    from app.schemas.coarse_ingredients import CoarseIngredientCreate
+
+    ci_service.create_coarse_ingredient(
+        db, CoarseIngredientCreate(name="basil", purchase_label="bunch", recipes_per_pack=3)
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    # One recipe, two separate ingredient rows both resolving to "basil" -- one real slot.
+    r = _recipe_with(
+        db,
+        "Two-Basil-Lines Dish",
+        [
+            {"name": "basil", "quantity": 10, "unit": "g"},
+            {"name": "basil", "quantity": 1, "unit": "tbsp"},
+        ],
+    )
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    # ceil(1 slot / 3 recipes_per_pack) = 1 pack -- would have been ceil(2/3) = 1 too by
+    # coincidence at this exact count, so also check the 4-recipe scaling case below still
+    # gives the documented 2-packs answer once every recipe contributes 2 lines each.
+    assert items[0].display_qty == "1 × bunch"
+
+    for i in range(4):
+        r2 = _recipe_with(
+            db,
+            f"Two-Line Basil Dish {i}",
+            [
+                {"name": "basil", "quantity": 5, "unit": "g"},
+                {"name": "basil", "quantity": 1, "unit": "tsp"},
+            ],
+        )
+        sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+
+    items = sessions_service.consolidate_session(db, s.id)
+    # 5 real slots now (the original + 4 more), each contributing 2 lines -> ceil(5/3) = 2
+    # packs. A line-counting bug would instead see 10 lines -> ceil(10/3) = 4 packs.
     assert items[0].display_qty == "2 × bunch"
 
 

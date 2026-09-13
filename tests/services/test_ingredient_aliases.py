@@ -194,6 +194,23 @@ def test_update_can_set_and_clear_the_pair(db):
     assert row.alias_qty is None and row.canonical_qty is None
 
 
+def test_update_clearing_just_alias_qty_also_clears_canonical_qty(db):
+    """2026-09-13 code review: AliasResolution.has_pair requires BOTH alias_qty and
+    canonical_qty — clearing just one via PATCH already correctly disables the transform, but
+    the leftover half used to stay stale on the row. Tidy up: clear both together."""
+    row = ia.create_alias(db, _c("lime juice", "lime"))
+    ia.update_alias(
+        db, row.id,
+        IngredientAliasUpdate(alias_qty=2, alias_unit="tbsp", canonical_qty=1, canonical_unit=None),
+    )
+    assert row.canonical_qty == 1
+
+    ia.update_alias(db, row.id, IngredientAliasUpdate(alias_qty=None))
+    assert (row.alias_qty, row.alias_unit, row.canonical_qty, row.canonical_unit) == (
+        None, None, None, None,
+    )
+
+
 def test_note_is_stored_and_trimmed(db):
     create = IngredientAliasCreate(
         alias_name="lemon juice", canonical_name="lemon", note="  roughly 3 tbsp per lemon  "

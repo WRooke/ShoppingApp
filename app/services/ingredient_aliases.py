@@ -207,6 +207,19 @@ def update_alias(db: Session, alias_id: int, data: IngredientAliasUpdate) -> Ing
         row.canonical_qty = changes["canonical_qty"]
     if "canonical_unit" in changes:
         row.canonical_unit = _clean_unit(changes["canonical_unit"])
+    # 2026-09-13 code review — AliasResolution.has_pair (session_consolidation.py's consumer)
+    # already requires BOTH alias_qty and canonical_qty to be non-None, so a PATCH clearing
+    # just one of those two alone already correctly disables the transform (unlike the
+    # equivalent recipe_ingredients/remembered_substitutions cases, `alias_unit`/
+    # `canonical_unit` are deliberately allowed to stay blank even with a complete qty pair —
+    # see _validate_alias_pair's docstring — so they're not part of this invariant). This just
+    # tidies up the leftover, now-unused half of the pair rather than leaving it stale in the
+    # row (and confusingly half-populated in the Settings UI) once the other half is cleared.
+    if (row.alias_qty is None) != (row.canonical_qty is None):
+        row.alias_qty = None
+        row.alias_unit = None
+        row.canonical_qty = None
+        row.canonical_unit = None
     db.commit()
     db.refresh(row)
     logger.info("Ingredient alias updated: id=%s -> %r", alias_id, row.canonical_name)

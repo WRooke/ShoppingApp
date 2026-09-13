@@ -101,6 +101,27 @@ def test_update_and_delete_slot(client):
     assert dele.json()["data"]["deleted"] is True
 
 
+def test_update_slot_can_explicitly_clear_day_of_week(client):
+    """2026-09-13 code review — see services/sessions.py > update_slot()'s docstring history:
+    a PATCH sending an explicit `null` for a nullable field must actually clear it."""
+    s = _session(client, "ZZ-ClearDay")
+    r = _recipe(client, "ZZ-ClearDay-Recipe")
+    slot = client.post(
+        f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r["id"], "day_of_week": 3}
+    ).json()["data"]
+    assert slot["day_of_week"] == 3
+
+    cleared = client.patch(
+        f"/api/v1/sessions/{s['id']}/slots/{slot['id']}", json={"day_of_week": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["data"]["day_of_week"] is None
+
+    refetched = client.get(f"/api/v1/sessions/{s['id']}").json()["data"]
+    row = next(x for x in refetched["recipes"] if x["id"] == slot["id"])
+    assert row["day_of_week"] is None
+
+
 def test_update_slot_not_found_structured_404(client):
     s = _session(client, "ZZ-SlotMiss")
     resp = client.patch(

@@ -276,6 +276,22 @@ def test_create_substitution_half_equivalence_pair_returns_422(client):
 # --- "the usuals" (Phase 5 Chunk 5.4) --------------------------------------------------
 
 
+def test_usuals_patch_can_explicitly_clear_notes(client):
+    """2026-09-13 code review — see services/usuals.py > update_usual()'s docstring history:
+    a PATCH sending an explicit `null` for a nullable field must actually clear it."""
+    created = client.post(
+        "/api/v1/settings/usuals",
+        json={"name": "ZZ Clear Notes Usual", "cadence_days": 14, "notes": "the good brand"},
+    )
+    uid = created.json()["data"]["id"]
+    patched = client.patch(f"/api/v1/settings/usuals/{uid}", json={"notes": None})
+    assert patched.status_code == 200
+    assert patched.json()["data"]["notes"] is None
+    refetched = client.get("/api/v1/settings/usuals").json()["data"]["items"]
+    row = next(i for i in refetched if i["id"] == uid)
+    assert row["notes"] is None
+
+
 def test_usuals_crud_roundtrip(client):
     created = client.post(
         "/api/v1/settings/usuals",

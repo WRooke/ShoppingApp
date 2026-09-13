@@ -170,6 +170,24 @@ def update_substitution(
     if "substitute_unit" in changes:
         row.substitute_unit = _clean_unit(changes["substitute_unit"])
 
+    # 2026-09-13 code review — the schema validator (validate_equivalence_pair) only compares
+    # the fields actually present in THIS request, not the row's resulting merged state, so a
+    # PATCH touching only one of the four pair fields (e.g. {"original_unit": null} alone,
+    # leaving the other three as whatever they were before) could leave a half-pair on the row.
+    # A half-pair is meaningless to every reader of this table (quick-pick pre-fill logic only
+    # ever trusts a fully-set pair) — clear all four whenever any one of them is now missing.
+    # No-op when the row already had no pair (all four already None) or still has a complete one.
+    if (
+        row.original_qty is None
+        or not row.original_unit
+        or row.substitute_qty is None
+        or not row.substitute_unit
+    ):
+        row.original_qty = None
+        row.original_unit = None
+        row.substitute_qty = None
+        row.substitute_unit = None
+
     try:
         db.commit()
     except IntegrityError:

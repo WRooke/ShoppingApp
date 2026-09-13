@@ -47,11 +47,17 @@ class SubstitutionFlag:
 
 @dataclass
 class ExtractionResult:
+    """2026-09-13 code review: this used to also carry `input_tokens`/`output_tokens`, hardcoded
+    to 0 in every branch of `extract_recipe()` and never actually read by anything (confirmed by
+    a repo-wide grep) — the real per-call token counts are computed inside `client.py >
+    _call_gemini()` and logged straight to `ai_call_log` (§0b), which is the single source of
+    truth for usage/diagnostics. Removed rather than wired through, since nothing needs a second
+    copy of that data riding on this object. If a future feature wants a capture's own token
+    cost, read it from `ai_call_log` by `context_id`, don't resurrect these fields."""
+
     cuisine: str | None
     protein: str | None
     ingredients: list[ExtractedIngredient]
-    input_tokens: int
-    output_tokens: int
     # Capture-Fixes-Staged.md issues 1 & 2 (2026-09-07) — title/servings were never
     # extracted at all; the review screen showed a blank name box and a hardcoded "4". Both
     # are AI-prefilled here but stay fully editable on the review screen (CLAUDE.md >

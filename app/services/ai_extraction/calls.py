@@ -107,8 +107,6 @@ def extract_recipe(
                 )
                 for i in fixture["ingredients"]
             ],
-            input_tokens=0,
-            output_tokens=0,
             title=fixture.get("title"),
             servings=fixture.get("servings"),
         )
@@ -159,8 +157,6 @@ def extract_recipe(
         cuisine=data.get("cuisine"),
         protein=data.get("protein"),
         ingredients=ingredients,
-        input_tokens=0,
-        output_tokens=0,
         title=_clean_title(data.get("title")),
         servings=_clean_servings(data.get("servings")),
     )

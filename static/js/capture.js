@@ -35,6 +35,29 @@
     return err.message || "Something went wrong.";
   }
 
+  // 2026-09-13 code review — the capture endpoints return {"ok": true, "data": {"queued":
+  // true, "message": ...}} (see routers/recipes.py > _QUEUED) when every Gemini model is over
+  // quota; the capture has been parked on the retry queue (services/capture_queue.py) rather
+  // than failed outright. This used to be handed straight to CaptureReviewView.mount() like a
+  // real extraction, landing the user on a blank ingredient form with no ingredients, no title,
+  // and no explanation. Show the backend's own message instead.
+  function showQueuedMessage(root, message) {
+    root.innerHTML = "";
+    root.appendChild(backLink());
+    var card = el("div", "card");
+    card.appendChild(el("h2", null, "Capture queued"));
+    card.appendChild(el("div", "muted", message));
+    card.appendChild(
+      el(
+        "div",
+        "muted",
+        "No need to do anything — check back in the recipe library in a while, or watch the " +
+          "capture queue on the Diagnostics page."
+      )
+    );
+    root.appendChild(card);
+  }
+
   function mountUrl(root) {
     root.innerHTML = "";
     root.appendChild(backLink());
@@ -75,6 +98,10 @@
       api.recipes
         .captureUrl(url, allowDuplicate)
         .then(function (result) {
+          if (result && result.queued) {
+            showQueuedMessage(root, result.message);
+            return;
+          }
           global.CaptureReviewView.mount(root, result);
         })
         .catch(function (err) {
@@ -151,6 +178,10 @@
       api.recipes
         .capturePhoto(file)
         .then(function (result) {
+          if (result && result.queued) {
+            showQueuedMessage(root, result.message);
+            return;
+          }
           global.CaptureReviewView.mount(root, result);
         })
         .catch(function (err) {

@@ -170,3 +170,26 @@ def test_update_can_set_and_clear_the_pair(db):
         ),
     )
     assert row.original_qty is None and row.substitute_unit is None
+
+
+def test_update_clearing_one_pair_field_alone_clears_the_whole_pair(db):
+    """2026-09-13 code review: the schema validator only checks fields sent in THIS request, so
+    a PATCH clearing just one of the four pair fields (e.g. original_unit alone) used to leave
+    a half-pair on the row instead of dropping the whole equivalence."""
+    row = subs.create_substitution(
+        db,
+        _c("corn cobs", "canned corn"),
+    )
+    subs.update_substitution(
+        db,
+        row.id,
+        RememberedSubstitutionUpdate(
+            original_qty=2, original_unit="cob", substitute_qty=2, substitute_unit="can"
+        ),
+    )
+    assert row.original_qty == 2
+
+    subs.update_substitution(db, row.id, RememberedSubstitutionUpdate(original_unit=None))
+    assert (row.original_qty, row.original_unit, row.substitute_qty, row.substitute_unit) == (
+        None, None, None, None,
+    )

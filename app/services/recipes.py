@@ -368,7 +368,21 @@ def update_ingredient(
     # M8 invariant on the merged row: the quantity/unit transform only means anything
     # alongside a name swap, and is both-or-neither. Clearing resolved_ingredient (or leaving
     # a half-pair) drops the transform rather than erroring — reverting is always safe.
-    if not ingredient.resolved_ingredient or ingredient.resolved_quantity is None:
+    #
+    # 2026-09-13 code review: this check used to only look at resolved_quantity, so a PATCH
+    # sending `{"resolved_unit": null}` alone (leaving a previously-set resolved_quantity
+    # untouched) slipped past both this and the schema's own both-or-neither validator (which
+    # only compares fields actually present in THIS request, not the merged row) — leaving a
+    # half-pair on the row: a real quantity with unit=None. Downstream,
+    # session_consolidation._effective_source() has no completeness check of its own and would
+    # treat that as a bare count, silently turning e.g. "2 can" into a plain "2" on the
+    # shopping list. Checking both halves here closes the gap regardless of which one a future
+    # client clears alone.
+    if (
+        not ingredient.resolved_ingredient
+        or ingredient.resolved_quantity is None
+        or not ingredient.resolved_unit
+    ):
         ingredient.resolved_quantity = None
         ingredient.resolved_unit = None
     db.commit()

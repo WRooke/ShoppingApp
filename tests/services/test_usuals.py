@@ -59,6 +59,17 @@ def test_update_and_rename_collision(db):
         u.update_usual(db, b.id, UsualItemUpdate(name="A"))
 
 
+def test_update_can_explicitly_clear_notes(db):
+    """2026-09-13 code review: update_usual() used to guard every assignment with
+    `if value is not None`, which silently discarded an explicit `{"notes": null}` meant to
+    clear a previously-set note — exclude_unset=True already limits `changes` to fields
+    actually sent, so that guard was pure data loss, not a safety net."""
+    item = u.create_usual(db, _c("dish soap", notes="the good brand"))
+    assert item.notes == "the good brand"
+    updated = u.update_usual(db, item.id, UsualItemUpdate(notes=None))
+    assert updated.notes is None
+
+
 def test_delete(db):
     item = u.create_usual(db, _c("bin bags"))
     u.delete_usual(db, item.id)

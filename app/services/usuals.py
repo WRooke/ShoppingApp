@@ -83,9 +83,13 @@ def update_usual(db: Session, usual_id: int, data: UsualItemUpdate) -> UsualItem
     changes = data.model_dump(exclude_unset=True)
     if "name" in changes and changes["name"] is not None:
         changes["name"] = _normalise_name(changes["name"])
+    # No `if value is not None` guard here — `exclude_unset=True` already limits `changes` to
+    # fields the caller actually sent, so an explicit `{"notes": null}` must apply (it's how a
+    # usual item's note gets cleared). A None-guard on top of exclude_unset would silently make
+    # that impossible — found as a real bug during the 2026-09-13 code review; see the identical
+    # fix + rationale in services/sessions.py > update_slot().
     for field, value in changes.items():
-        if value is not None:
-            setattr(item, field, value)
+        setattr(item, field, value)
     try:
         db.commit()
     except IntegrityError:

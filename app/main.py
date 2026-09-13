@@ -549,13 +549,18 @@ async def ai_extraction_disabled_handler(request: Request, exc: AiExtractionDisa
 async def ai_extraction_error_handler(request: Request, exc: AiExtractionError):
     # Already logged at ERROR with exc_info=True inside ai_extraction.py at the point of
     # failure (CLAUDE.md > Diagnostics & Logging) — this is just the envelope translation.
+    # 2026-09-13 code review — `detail` no longer echoes str(exc) to the client: this is a
+    # LAN-only app with no login (CLAUDE.md > Security §4), so any device that can reach the
+    # API could otherwise read raw internal exception text. Full detail is already captured
+    # server-side by the logging above; the diagnostics page's error log is the place to read
+    # it, not the API response.
     logger.warning("AI extraction failed: %s %s (%s)", request.method, request.url.path, exc)
     return JSONResponse(
         status_code=502,
         content=_error_body(
             "EXTRACTION_FAILED",
             "Couldn't extract ingredients from that. Try again, or add the recipe manually.",
-            str(exc),
+            None,
         ),
     )
 
@@ -637,13 +642,16 @@ async def anylist_disabled_handler(request: Request, exc: AnyListDisabledError):
 
 @app.exception_handler(AnyListAuthError)
 async def anylist_auth_error_handler(request: Request, exc: AnyListAuthError):
+    # 2026-09-13 code review — see the identical `detail=None` rationale on
+    # ai_extraction_error_handler above: no raw exception text to an unauthenticated LAN
+    # client. Full detail is already in this WARNING log line.
     logger.warning("AnyList auth failed: %s %s (%s)", request.method, request.url.path, exc)
     return JSONResponse(
         status_code=502,
         content=_error_body(
             "ANYLIST_AUTH_FAILED",
             "Couldn't sign in to AnyList. Check the credentials (see Security §2).",
-            str(exc),
+            None,
         ),
     )
 
@@ -656,7 +664,7 @@ async def anylist_error_handler(request: Request, exc: AnyListError):
         content=_error_body(
             "ANYLIST_FAILED",
             "Couldn't reach AnyList — check your connection and try again.",
-            str(exc),
+            None,
         ),
     )
 
@@ -671,7 +679,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         content=_error_body(
             "INTERNAL_ERROR",
             "Something went wrong on the server. Check the diagnostics log for details.",
-            str(exc),
+            None,
         ),
     )
 

@@ -71,6 +71,14 @@ class IngredientLine:
     # optional rather than assumed, matching source_qty/unit/name's own optionality).
     recipe_id: int | None = None
     recipe_label: str | None = None
+    # 2026-09-13 code review fix — the *session_recipes row id* this line came from (distinct
+    # from recipe_id, which identifies the recipe itself and is shared by two different slots
+    # using the same recipe). Purely for `session_consolidation._coarse_items()` to count
+    # distinct contributing SLOTS rather than raw IngredientLine entries — a recipe listing a
+    # coarse ingredient across two separate `recipe_ingredients` rows must count as one slot,
+    # not two. Opaque to this module, same treatment as recipe_id/recipe_label: consolidate()
+    # never reads it.
+    slot_id: int | None = None
 
 
 @dataclass(frozen=True)

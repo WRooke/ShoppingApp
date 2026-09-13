@@ -281,6 +281,26 @@ def test_learn_new_units_classifies_a_new_discrete_unit_only_once(db, monkeypatc
     assert called == []
 
 
+def test_learn_new_units_recognises_a_new_singular_after_only_the_plural_was_used(db, monkeypatch):
+    """2026-09-13 code review: the novelty check used to be asymmetric — a new *plural* typed
+    after the singular was already used got caught (stripping the new plural finds the old
+    singular), but a new *singular* typed after only the plural had ever been used did not
+    (strip_plural() on an already-singular word is a no-op, so it never produced the plural to
+    search for). "wugs" used first, then "wug" typed for the first time must NOT be classified
+    a second time — it's the same discrete unit, already established."""
+    _recipe_with(db, "R1", [{"name": "widget", "quantity": 3, "unit": "wugs"}])
+
+    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
+    called = []
+    import app.services.ai_extraction as ai_extraction_module
+
+    monkeypatch.setattr(
+        ai_extraction_module, "classify_units", lambda *a, **k: called.append(1) or {}
+    )
+    us.learn_new_units(db, ["wug"])
+    assert called == []
+
+
 def test_learn_new_units_swallows_classification_failure(db, monkeypatch):
     monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_enabled", True)
     monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", False)

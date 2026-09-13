@@ -268,14 +268,21 @@ def learn_new_units(
     if not candidates:
         return
 
-    novel: list[str] = []
-    for unit in candidates:
-        forms = list({unit, strip_plural(unit)})
-        query = db.query(RecipeIngredient.id).filter(func.lower(RecipeIngredient.unit).in_(forms))
-        if exclude:
-            query = query.filter(RecipeIngredient.id.notin_(list(exclude)))
-        if query.first() is None:
-            novel.append(unit)
+    # 2026-09-13 code review fix: this used to check only `{unit, strip_plural(unit)}` against
+    # existing rows, which is asymmetric — typing a NEW plural after the singular was already
+    # used is caught (stripping the new plural finds the old singular), but typing a NEW
+    # singular after only the plural was ever used was NOT (strip_plural() on an
+    # already-singular word is a no-op, so it never produces the plural to search for).
+    # Contradicted the module's own "classified once, ever" guarantee. Fixed by canonicalising
+    # BOTH sides through strip_plural() before comparing, so either typing order matches.
+    existing_query = db.query(RecipeIngredient.unit).filter(RecipeIngredient.unit.isnot(None))
+    if exclude:
+        existing_query = existing_query.filter(RecipeIngredient.id.notin_(list(exclude)))
+    existing_canonical = {
+        strip_plural(u) for (u,) in existing_query.distinct().all() if u and u.strip()
+    }
+
+    novel = [unit for unit in candidates if strip_plural(unit) not in existing_canonical]
     if not novel:
         return
 
