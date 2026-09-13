@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -170,10 +171,205 @@ app.add_middleware(
 
 
 # --- error handling: every response uses the CLAUDE.md envelope -----------
+#
+# 2026-09-13 code review — this section used to be ~30 individually hand-written
+# `@app.exception_handler` functions, each a near-verbatim copy of the same 10-line
+# "log a line, build the envelope, return a JSONResponse" template with different field names
+# substituted in (main.py had grown to 721 lines, well past the project's own ~300-400 line
+# guideline — CLAUDE.md > Code Architecture > File size and scope discipline). Replaced with
+# two small factories covering the two shapes almost all of them actually are (see each
+# factory's own docstring for which), registered from the tables below; only the handlers
+# with a genuinely different shape (a dynamic status code, a non-None `detail`, or
+# conditional logging) stay as their own explicit functions. Every status code, error code,
+# message and log line is unchanged from before this refactor — verified against the full
+# test suite, which already asserts on the ones that matter.
 
 
 def _error_body(code: str, message: str, detail=None) -> dict:
     return {"ok": False, "error": {"code": code, "message": message, "detail": detail}}
+
+
+def _domain_error_handler(
+    status_code: int, code: str, message: Callable[[Exception], str], *, log_level: int = logging.INFO
+) -> Callable:
+    """Factory for the common shape: an internal domain exception (NotFound / Duplicate /
+    Invalid / a disabled §0c-or-§2 gate) whose message is entirely safe to both log and return
+    to the client — it's built from OUR OWN exception's own attributes, never wraps arbitrary
+    external error text (contrast `_external_error_handler` below, which is exactly for that
+    case). `detail` is always None for this shape. Logs one consistent
+    `"<message> (<method> <path>)"` line at `log_level` — a deliberate small normalisation
+    versus the handlers this replaces (a couple, e.g. UsualItemNotFoundError's, previously
+    logged no request context at all; the "disabled" gates previously used a differently-
+    worded but equivalent log line) — every simple error now logs at least as much as before.
+    """
+
+    async def handler(request: Request, exc: Exception) -> JSONResponse:
+        text = message(exc)
+        logger.log(log_level, "%s (%s %s)", text, request.method, request.url.path)
+        return JSONResponse(status_code=status_code, content=_error_body(code, text, None))
+
+    return handler
+
+
+def _external_error_handler(status_code: int, code: str, message: str, *, log_prefix: str) -> Callable:
+    """Factory for a call into an external system (Gemini/AnyList) whose own exception text
+    can carry detail we don't control — CLAUDE.md > Security §4: this is a LAN-only app with
+    no login, so raw internal/external exception text must never cross the wire to an
+    unauthenticated client. The client always gets a fixed, safe `message` with `None`
+    detail; the raw exception is still logged in full server-side for diagnostics."""
+
+    async def handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.warning("%s: %s %s (%s)", log_prefix, request.method, request.url.path, exc)
+        return JSONResponse(status_code=status_code, content=_error_body(code, message, None))
+
+    return handler
+
+
+# exception type -> (status_code, error_code, message-builder, [log_level])
+_DOMAIN_ERROR_HANDLERS: dict[type[Exception], Callable] = {
+    RecipeNotFoundError: _domain_error_handler(
+        404, "RECIPE_NOT_FOUND", lambda e: f"Recipe {e.recipe_id} not found."
+    ),
+    IngredientNotFoundError: _domain_error_handler(
+        404,
+        "INGREDIENT_NOT_FOUND",
+        lambda e: f"Ingredient {e.ingredient_id} not found on recipe {e.recipe_id}.",
+    ),
+    StapleNotFoundError: _domain_error_handler(
+        404, "STAPLE_NOT_FOUND", lambda e: f"Staple {e.staple_id} not found."
+    ),
+    DuplicateStapleNameError: _domain_error_handler(
+        409, "DUPLICATE_STAPLE_NAME", lambda e: f'"{e.name}" is already on the staples list.'
+    ),
+    UsualItemNotFoundError: _domain_error_handler(
+        404, "USUAL_ITEM_NOT_FOUND", lambda e: f"Usual item {e.usual_id} not found."
+    ),
+    DuplicateUsualItemNameError: _domain_error_handler(
+        409, "DUPLICATE_USUAL_ITEM_NAME", lambda e: f'"{e.name}" is already in the usuals list.'
+    ),
+    ProductUnitNotFoundError: _domain_error_handler(
+        404, "PRODUCT_UNIT_NOT_FOUND", lambda e: f"Product unit {e.product_unit_id} not found."
+    ),
+    DuplicateProductUnitNameError: _domain_error_handler(
+        409,
+        "DUPLICATE_PRODUCT_UNIT_NAME",
+        lambda e: f'A purchase unit for "{e.ingredient_name}" already exists.',
+    ),
+    SubstitutionNotFoundError: _domain_error_handler(
+        404, "SUBSTITUTION_NOT_FOUND", lambda e: f"Substitution {e.substitution_id} not found."
+    ),
+    DuplicateSubstitutionError: _domain_error_handler(
+        409,
+        "DUPLICATE_SUBSTITUTION",
+        lambda e: f'A rule for "{e.original_name}" → "{e.substitute_name}" already exists.',
+    ),
+    InvalidSubstitutionError: _domain_error_handler(
+        422, "INVALID_SUBSTITUTION", lambda e: e.reason
+    ),
+    IngredientAliasNotFoundError: _domain_error_handler(
+        404, "INGREDIENT_ALIAS_NOT_FOUND", lambda e: f"Ingredient alias {e.alias_id} not found."
+    ),
+    DuplicateIngredientAliasError: _domain_error_handler(
+        409,
+        "DUPLICATE_INGREDIENT_ALIAS",
+        lambda e: f'"{e.alias_name}" is already grouped under another name.',
+    ),
+    InvalidIngredientAliasError: _domain_error_handler(
+        422, "INVALID_INGREDIENT_ALIAS", lambda e: e.reason
+    ),
+    UnitSynonymNotFoundError: _domain_error_handler(
+        404, "UNIT_SYNONYM_NOT_FOUND", lambda e: f"Unit synonym {e.synonym_id} not found."
+    ),
+    DuplicateUnitSynonymError: _domain_error_handler(
+        409,
+        "DUPLICATE_UNIT_SYNONYM",
+        lambda e: f'"{e.alias_unit}" is already mapped to another unit.',
+    ),
+    InvalidUnitSynonymError: _domain_error_handler(
+        422, "INVALID_UNIT_SYNONYM", lambda e: e.reason
+    ),
+    CoarseIngredientNotFoundError: _domain_error_handler(
+        404, "COARSE_INGREDIENT_NOT_FOUND", lambda e: f"Coarse ingredient {e.coarse_id} not found."
+    ),
+    DuplicateCoarseIngredientError: _domain_error_handler(
+        409, "DUPLICATE_COARSE_INGREDIENT", lambda e: f'"{e.name}" is already a coarse ingredient.'
+    ),
+    SessionNotFoundError: _domain_error_handler(
+        404, "SESSION_NOT_FOUND", lambda e: f"Planning session {e.session_id} not found."
+    ),
+    SessionSlotNotFoundError: _domain_error_handler(
+        404,
+        "SESSION_SLOT_NOT_FOUND",
+        lambda e: f"Slot {e.slot_id} not found on session {e.session_id}.",
+    ),
+    SlotOrderMismatchError: _domain_error_handler(
+        422,
+        "SLOT_ORDER_MISMATCH",
+        lambda e: "The reorder request must list exactly this session's current slot ids.",
+    ),
+    AiExtractionDisabledError: _domain_error_handler(
+        503,
+        "AI_EXTRACTION_DISABLED",
+        lambda e: "Recipe capture is currently switched off. Ask the maintainer to enable it.",
+        log_level=logging.WARNING,  # the highest-priority §0c gate working as designed, not a failure
+    ),
+    InvalidImageError: _domain_error_handler(422, "INVALID_IMAGE", lambda e: e.reason),
+    ChecklistNotReadyError: _domain_error_handler(
+        409,
+        "CHECKLIST_NOT_CONSOLIDATED",
+        lambda e: "This session has no shopping list yet — review and consolidate it first.",
+    ),
+    ChecklistItemNotFoundError: _domain_error_handler(
+        404,
+        "CHECKLIST_ITEM_NOT_FOUND",
+        lambda e: f"Checklist item {e.item_id} not found on session {e.session_id}.",
+    ),
+    SessionAlreadyPushedError: _domain_error_handler(
+        409,
+        "SESSION_ALREADY_PUSHED",
+        lambda e: (
+            "This session was already pushed to AnyList. Push again only if you're sure "
+            "(it will re-add items)."
+        ),
+    ),
+    AnyListDisabledError: _domain_error_handler(
+        503,
+        "ANYLIST_DISABLED",
+        lambda e: "AnyList sync is currently switched off. Ask the maintainer to enable it.",
+        log_level=logging.WARNING,  # the §2 gate working as designed, not a failure
+    ),
+}
+
+_EXTERNAL_ERROR_HANDLERS: dict[type[Exception], Callable] = {
+    AiExtractionError: _external_error_handler(
+        502,
+        "EXTRACTION_FAILED",
+        "Couldn't extract ingredients from that. Try again, or add the recipe manually.",
+        log_prefix="AI extraction failed",
+        # Already logged at ERROR with exc_info=True inside ai_extraction.py at the point of
+        # failure too (CLAUDE.md > Diagnostics & Logging) — this WARNING is just the envelope
+        # translation's own record of which request it surfaced on.
+    ),
+    AnyListAuthError: _external_error_handler(
+        502,
+        "ANYLIST_AUTH_FAILED",
+        "Couldn't sign in to AnyList. Check the credentials (see Security §2).",
+        log_prefix="AnyList auth failed",
+    ),
+    AnyListError: _external_error_handler(
+        502,
+        "ANYLIST_FAILED",
+        "Couldn't reach AnyList — check your connection and try again.",
+        log_prefix="AnyList call failed",
+    ),
+}
+
+for _exc_type, _handler in {**_DOMAIN_ERROR_HANDLERS, **_EXTERNAL_ERROR_HANDLERS}.items():
+    app.exception_handler(_exc_type)(_handler)
+
+
+# --- the handlers below are genuinely bespoke: a dynamic status code, a non-None `detail`,
+# or conditional logging that doesn't fit either factory shape above. ----------------------
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -195,110 +391,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "VALIDATION_ERROR",
             "The request was not in the expected format.",
             jsonable_encoder(exc.errors()),
-        ),
-    )
-
-
-@app.exception_handler(RecipeNotFoundError)
-async def recipe_not_found_handler(request: Request, exc: RecipeNotFoundError):
-    logger.info("Recipe not found: id=%s (%s %s)", exc.recipe_id, request.method, request.url.path)
-    return JSONResponse(
-        status_code=404,
-        content=_error_body("RECIPE_NOT_FOUND", f"Recipe {exc.recipe_id} not found.", None),
-    )
-
-
-@app.exception_handler(IngredientNotFoundError)
-async def ingredient_not_found_handler(request: Request, exc: IngredientNotFoundError):
-    logger.info(
-        "Ingredient not found: recipe_id=%s ingredient_id=%s (%s %s)",
-        exc.recipe_id,
-        exc.ingredient_id,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "INGREDIENT_NOT_FOUND",
-            f"Ingredient {exc.ingredient_id} not found on recipe {exc.recipe_id}.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(StapleNotFoundError)
-async def staple_not_found_handler(request: Request, exc: StapleNotFoundError):
-    logger.info("Staple not found: id=%s (%s %s)", exc.staple_id, request.method, request.url.path)
-    return JSONResponse(
-        status_code=404,
-        content=_error_body("STAPLE_NOT_FOUND", f"Staple {exc.staple_id} not found.", None),
-    )
-
-
-@app.exception_handler(DuplicateStapleNameError)
-async def duplicate_staple_name_handler(request: Request, exc: DuplicateStapleNameError):
-    logger.info("Duplicate staple name: %r (%s %s)", exc.name, request.method, request.url.path)
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "DUPLICATE_STAPLE_NAME", f'"{exc.name}" is already on the staples list.', None
-        ),
-    )
-
-
-@app.exception_handler(UsualItemNotFoundError)
-async def usual_item_not_found_handler(request: Request, exc: UsualItemNotFoundError):
-    logger.info("Usual item not found: id=%s", exc.usual_id)
-    return JSONResponse(
-        status_code=404,
-        content=_error_body("USUAL_ITEM_NOT_FOUND", f"Usual item {exc.usual_id} not found.", None),
-    )
-
-
-@app.exception_handler(DuplicateUsualItemNameError)
-async def duplicate_usual_item_name_handler(request: Request, exc: DuplicateUsualItemNameError):
-    logger.info("Duplicate usual item name: %r", exc.name)
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "DUPLICATE_USUAL_ITEM_NAME", f'"{exc.name}" is already in the usuals list.', None
-        ),
-    )
-
-
-@app.exception_handler(ProductUnitNotFoundError)
-async def product_unit_not_found_handler(request: Request, exc: ProductUnitNotFoundError):
-    logger.info(
-        "Product unit not found: id=%s (%s %s)",
-        exc.product_unit_id,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "PRODUCT_UNIT_NOT_FOUND", f"Product unit {exc.product_unit_id} not found.", None
-        ),
-    )
-
-
-@app.exception_handler(DuplicateProductUnitNameError)
-async def duplicate_product_unit_name_handler(
-    request: Request, exc: DuplicateProductUnitNameError
-):
-    logger.info(
-        "Duplicate product unit ingredient_name: %r (%s %s)",
-        exc.ingredient_name,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "DUPLICATE_PRODUCT_UNIT_NAME",
-            f'A purchase unit for "{exc.ingredient_name}" already exists.',
-            None,
         ),
     )
 
@@ -333,238 +425,6 @@ async def possible_duplicate_recipe_handler(request: Request, exc: PossibleDupli
     )
 
 
-@app.exception_handler(SubstitutionNotFoundError)
-async def substitution_not_found_handler(request: Request, exc: SubstitutionNotFoundError):
-    logger.info(
-        "Substitution not found: id=%s (%s %s)",
-        exc.substitution_id,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "SUBSTITUTION_NOT_FOUND", f"Substitution {exc.substitution_id} not found.", None
-        ),
-    )
-
-
-@app.exception_handler(DuplicateSubstitutionError)
-async def duplicate_substitution_handler(request: Request, exc: DuplicateSubstitutionError):
-    logger.info(
-        "Duplicate substitution: %r -> %r (%s %s)",
-        exc.original_name,
-        exc.substitute_name,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "DUPLICATE_SUBSTITUTION",
-            f'A rule for "{exc.original_name}" → "{exc.substitute_name}" already exists.',
-            None,
-        ),
-    )
-
-
-@app.exception_handler(InvalidSubstitutionError)
-async def invalid_substitution_handler(request: Request, exc: InvalidSubstitutionError):
-    logger.info("Invalid substitution: %s (%s %s)", exc.reason, request.method, request.url.path)
-    return JSONResponse(
-        status_code=422,
-        content=_error_body("INVALID_SUBSTITUTION", exc.reason, None),
-    )
-
-
-@app.exception_handler(IngredientAliasNotFoundError)
-async def ingredient_alias_not_found_handler(request: Request, exc: IngredientAliasNotFoundError):
-    logger.info(
-        "Ingredient alias not found: id=%s (%s %s)", exc.alias_id, request.method, request.url.path
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "INGREDIENT_ALIAS_NOT_FOUND", f"Ingredient alias {exc.alias_id} not found.", None
-        ),
-    )
-
-
-@app.exception_handler(DuplicateIngredientAliasError)
-async def duplicate_ingredient_alias_handler(request: Request, exc: DuplicateIngredientAliasError):
-    logger.info(
-        "Duplicate ingredient alias: %r (%s %s)", exc.alias_name, request.method, request.url.path
-    )
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "DUPLICATE_INGREDIENT_ALIAS",
-            f'"{exc.alias_name}" is already grouped under another name.',
-            None,
-        ),
-    )
-
-
-@app.exception_handler(InvalidIngredientAliasError)
-async def invalid_ingredient_alias_handler(request: Request, exc: InvalidIngredientAliasError):
-    logger.info("Invalid ingredient alias: %s (%s %s)", exc.reason, request.method, request.url.path)
-    return JSONResponse(
-        status_code=422,
-        content=_error_body("INVALID_INGREDIENT_ALIAS", exc.reason, None),
-    )
-
-
-@app.exception_handler(UnitSynonymNotFoundError)
-async def unit_synonym_not_found_handler(request: Request, exc: UnitSynonymNotFoundError):
-    logger.info(
-        "Unit synonym not found: id=%s (%s %s)", exc.synonym_id, request.method, request.url.path
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "UNIT_SYNONYM_NOT_FOUND", f"Unit synonym {exc.synonym_id} not found.", None
-        ),
-    )
-
-
-@app.exception_handler(DuplicateUnitSynonymError)
-async def duplicate_unit_synonym_handler(request: Request, exc: DuplicateUnitSynonymError):
-    logger.info(
-        "Duplicate unit synonym: %r (%s %s)", exc.alias_unit, request.method, request.url.path
-    )
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "DUPLICATE_UNIT_SYNONYM",
-            f'"{exc.alias_unit}" is already mapped to another unit.',
-            None,
-        ),
-    )
-
-
-@app.exception_handler(InvalidUnitSynonymError)
-async def invalid_unit_synonym_handler(request: Request, exc: InvalidUnitSynonymError):
-    logger.info("Invalid unit synonym: %s (%s %s)", exc.reason, request.method, request.url.path)
-    return JSONResponse(
-        status_code=422,
-        content=_error_body("INVALID_UNIT_SYNONYM", exc.reason, None),
-    )
-
-
-@app.exception_handler(CoarseIngredientNotFoundError)
-async def coarse_ingredient_not_found_handler(request: Request, exc: CoarseIngredientNotFoundError):
-    logger.info(
-        "Coarse ingredient not found: id=%s (%s %s)", exc.coarse_id, request.method, request.url.path
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "COARSE_INGREDIENT_NOT_FOUND", f"Coarse ingredient {exc.coarse_id} not found.", None
-        ),
-    )
-
-
-@app.exception_handler(DuplicateCoarseIngredientError)
-async def duplicate_coarse_ingredient_handler(request: Request, exc: DuplicateCoarseIngredientError):
-    logger.info("Duplicate coarse ingredient: %r (%s %s)", exc.name, request.method, request.url.path)
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "DUPLICATE_COARSE_INGREDIENT", f'"{exc.name}" is already a coarse ingredient.', None
-        ),
-    )
-
-
-@app.exception_handler(SessionNotFoundError)
-async def session_not_found_handler(request: Request, exc: SessionNotFoundError):
-    logger.info(
-        "Planning session not found: id=%s (%s %s)",
-        exc.session_id,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "SESSION_NOT_FOUND", f"Planning session {exc.session_id} not found.", None
-        ),
-    )
-
-
-@app.exception_handler(SessionSlotNotFoundError)
-async def session_slot_not_found_handler(request: Request, exc: SessionSlotNotFoundError):
-    logger.info(
-        "Session slot not found: session_id=%s slot_id=%s (%s %s)",
-        exc.session_id,
-        exc.slot_id,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "SESSION_SLOT_NOT_FOUND",
-            f"Slot {exc.slot_id} not found on session {exc.session_id}.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(SlotOrderMismatchError)
-async def slot_order_mismatch_handler(request: Request, exc: SlotOrderMismatchError):
-    logger.info(
-        "Slot reorder id-list mismatch: session_id=%s (%s %s)",
-        exc.session_id,
-        request.method,
-        request.url.path,
-    )
-    return JSONResponse(
-        status_code=422,
-        content=_error_body(
-            "SLOT_ORDER_MISMATCH",
-            "The reorder request must list exactly this session's current slot ids.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(AiExtractionDisabledError)
-async def ai_extraction_disabled_handler(request: Request, exc: AiExtractionDisabledError):
-    # Not logged as an error — this is the highest-priority §0c gate working as designed,
-    # not a failure. See CLAUDE.md > Security > §0c.
-    logger.warning(
-        "AI extraction call refused (disabled): %s %s", request.method, request.url.path
-    )
-    return JSONResponse(
-        status_code=503,
-        content=_error_body(
-            "AI_EXTRACTION_DISABLED",
-            "Recipe capture is currently switched off. Ask the maintainer to enable it.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(AiExtractionError)
-async def ai_extraction_error_handler(request: Request, exc: AiExtractionError):
-    # Already logged at ERROR with exc_info=True inside ai_extraction.py at the point of
-    # failure (CLAUDE.md > Diagnostics & Logging) — this is just the envelope translation.
-    # 2026-09-13 code review — `detail` no longer echoes str(exc) to the client: this is a
-    # LAN-only app with no login (CLAUDE.md > Security §4), so any device that can reach the
-    # API could otherwise read raw internal exception text. Full detail is already captured
-    # server-side by the logging above; the diagnostics page's error log is the place to read
-    # it, not the API response.
-    logger.warning("AI extraction failed: %s %s (%s)", request.method, request.url.path, exc)
-    return JSONResponse(
-        status_code=502,
-        content=_error_body(
-            "EXTRACTION_FAILED",
-            "Couldn't extract ingredients from that. Try again, or add the recipe manually.",
-            None,
-        ),
-    )
-
-
 @app.exception_handler(RecipeFetchError)
 async def recipe_fetch_error_handler(request: Request, exc: RecipeFetchError):
     logger.warning("Recipe URL fetch failed: %s (%s)", exc.url, exc.reason)
@@ -573,97 +433,6 @@ async def recipe_fetch_error_handler(request: Request, exc: RecipeFetchError):
         content=_error_body(
             "RECIPE_FETCH_FAILED",
             f"Couldn't fetch that page — {exc.reason}. Check the URL and try again.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(InvalidImageError)
-async def invalid_image_error_handler(request: Request, exc: InvalidImageError):
-    logger.info("Recipe photo upload rejected: %s", exc.reason)
-    return JSONResponse(
-        status_code=422,
-        content=_error_body("INVALID_IMAGE", exc.reason, None),
-    )
-
-
-@app.exception_handler(ChecklistNotReadyError)
-async def checklist_not_ready_handler(request: Request, exc: ChecklistNotReadyError):
-    logger.info("Checklist requested before consolidation: session %s", exc.session_id)
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "CHECKLIST_NOT_CONSOLIDATED",
-            "This session has no shopping list yet — review and consolidate it first.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(ChecklistItemNotFoundError)
-async def checklist_item_not_found_handler(request: Request, exc: ChecklistItemNotFoundError):
-    return JSONResponse(
-        status_code=404,
-        content=_error_body(
-            "CHECKLIST_ITEM_NOT_FOUND",
-            f"Checklist item {exc.item_id} not found on session {exc.session_id}.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(SessionAlreadyPushedError)
-async def session_already_pushed_handler(request: Request, exc: SessionAlreadyPushedError):
-    logger.info("Re-push refused (already pushed): session %s", exc.session_id)
-    return JSONResponse(
-        status_code=409,
-        content=_error_body(
-            "SESSION_ALREADY_PUSHED",
-            "This session was already pushed to AnyList. Push again only if you're sure "
-            "(it will re-add items).",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(AnyListDisabledError)
-async def anylist_disabled_handler(request: Request, exc: AnyListDisabledError):
-    # The §2 gate working as designed, not a failure — same treatment as AI_EXTRACTION_DISABLED.
-    logger.warning("AnyList call refused (disabled): %s %s", request.method, request.url.path)
-    return JSONResponse(
-        status_code=503,
-        content=_error_body(
-            "ANYLIST_DISABLED",
-            "AnyList sync is currently switched off. Ask the maintainer to enable it.",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(AnyListAuthError)
-async def anylist_auth_error_handler(request: Request, exc: AnyListAuthError):
-    # 2026-09-13 code review — see the identical `detail=None` rationale on
-    # ai_extraction_error_handler above: no raw exception text to an unauthenticated LAN
-    # client. Full detail is already in this WARNING log line.
-    logger.warning("AnyList auth failed: %s %s (%s)", request.method, request.url.path, exc)
-    return JSONResponse(
-        status_code=502,
-        content=_error_body(
-            "ANYLIST_AUTH_FAILED",
-            "Couldn't sign in to AnyList. Check the credentials (see Security §2).",
-            None,
-        ),
-    )
-
-
-@app.exception_handler(AnyListError)
-async def anylist_error_handler(request: Request, exc: AnyListError):
-    logger.warning("AnyList call failed: %s %s (%s)", request.method, request.url.path, exc)
-    return JSONResponse(
-        status_code=502,
-        content=_error_body(
-            "ANYLIST_FAILED",
-            "Couldn't reach AnyList — check your connection and try again.",
             None,
         ),
     )

@@ -27,7 +27,16 @@ def db():
     try:
         yield session
     finally:
+        # 2026-09-13 code review — engine.dispose() (not just session.close()) is
+        # required for an in-memory SQLite engine: SQLAlchemy's SingletonThreadPool
+        # keeps the underlying sqlite3.Connection open until the engine itself is
+        # disposed, so without this it's only released whenever the garbage collector
+        # happens to run -- which pytest's own unraisable-exception check (via an
+        # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
+        # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
+        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
         session.close()
+        engine.dispose()
 
 
 def test_create_defaults_recipes_per_pack_to_3(db):
