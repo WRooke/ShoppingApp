@@ -1,0 +1,158 @@
+# Checklist, AnyList Push & Shopping List Layout
+
+## Checklist Screen Logic
+
+At checklist screen load:
+1. Fetch current AnyList items (names + quantities)
+2. For each consolidated ingredient in `session_checklist_items`:
+   a. Check if it appears in current AnyList list (fuzzy name match — normalised lowercase,
+      strip plurals if needed)
+   b. If found: set `already_on_anylist = True`, `have_it = 'yes'` by default
+   c. Check if it is in `staples` table: set `is_staple = True`
+3. Present checklist to user:
+   - Items already on AnyList: pre-ticked, shown in a distinct style (user can untick)
+   - Staples (only if used in this session's recipes): shown with a checkbox
+   - All other items: unchecked by default
+4. User taps each item: cycles through have_it states: unknown → yes → no → (partial if
+   applicable)
+5. Items marked 'no' or where `add_to_list` is True get pushed to AnyList
+
+### "The usuals" — household recurring items
+
+Raised 2026-09-05, **designed at the Phase 5 kickoff (2026-09-07)**: alongside the
+recipe-driven checklist above, a pass over recurring non-recipe household items — laundry
+powder, dishwashing liquid, and similar things bought periodically regardless of what's being
+cooked. Distinct from [`staples`](./data-model.md#staples) — staples are recipe ingredients assumed on-hand,
+surfaced only when a recipe in the session needs them; "the usuals" have no recipe link at
+all and are offered on their own schedule.
+
+**Resolved design** (Decision Dialogue → option 2, day-based cadence, checklist group):
+- **Own table** — [`usual_items`](./data-model.md#usual_items) (`name` / `notes` / `cadence_days` /
+  `last_added_at`), not a flag on `staples`.
+- **Day-based cadence.** Each item carries `cadence_days` ("buy roughly every N days"). It is
+  *due* when `last_added_at IS NULL` or `last_added_at + cadence_days` has passed. Days rather
+  than "every N sessions" because ad-hoc single-recipe sessions make a session an unreliable
+  clock. `last_added_at` is stamped when the item is actually pushed to AnyList (Chunk 5.6),
+  not merely offered.
+- **Checklist group, not a separate screen.** Due usuals render as the final group on the
+  existing checklist screen, each with a checkbox; ticked ones ride the same push as the
+  recipe items. Non-due items don't appear.
+- **Managed in Settings** (`settings-usuals.js`), same CRUD shape as staples/product-units.
+  Seeded empty — no pre-guessing, same call as the [Staples Starter List](./data-model.md#staples-starter-list).
+
+Built in [Phase 5 Chunks 5.4 / 5.5 / 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration).
+
+---
+
+## AnyList Push Logic
+
+Built in [Phase 5 Chunk 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration) —
+`services/checklist.py > push_to_anylist()`.
+
+On push:
+1. Collect `session_checklist_items` where `add_to_list = True` **OR** `have_it = 'no'`
+   (the checklist tap sets `add_to_list` when you tap to "need it", so in practice these
+   coincide), plus any ticked **due "usuals"**.
+   - If `already_on_anylist = True` AND `anylist_item_id` is set: **update the existing item
+     in place** (`set-list-item-quantity`) rather than adding a duplicate. Note "increment"
+     from the original plan can't be literal — AnyList's quantity field holds a freetext
+     display string, not a number, so our computed quantity replaces it. The household may
+     also edit that item by hand between pushes; this is accepted (our list is the derived
+     shopping quantity).
+   - Otherwise: add as a new item (client-generated UUID identifier, per the spike).
+2. Item name: `ingredient_name` `.title()`-cased; a usual uses its own name.
+3. **Item quantity and note (reworked at Chunk 5.7 live-verification, 2026-09-12, per the
+   maintainer's request).** `services/checklist.py > _anylist_quantity()` sends the plain
+   "need" total (`total_quantity`/`total_unit`) as AnyList's quantity — the amount to
+   actually buy, not a sentence describing how it's packed — falling back to the pack-count
+   string only when there's no numeric total at all (a coarse ingredient). `_anylist_note()`
+   sends the pack breakdown (e.g. "2 × 500g pack") *plus* whatever the checklist's own `note`
+   already carries (an overage hint, "to taste", a needs_review breakdown, an alias
+   conversion), combined with " · ". Example: `passata — 2 × 750 g jars · need ~1.05 kg` on
+   the app's own checklist becomes AnyList quantity `"1050 g"`, note
+   `"2 × 750g jars · 450 g spare"`.
+   **Known limitation, confirmed live, not solved:** a note only lands correctly on an item's
+   *first* push. Updating an existing AnyList item's note (`set-list-item-details`) was tried
+   and reverted — it reliably breaks that same item's quantity on every future update
+   (confirmed reproducible against the real API; full finding recorded on the
+   [Phase 5 Chunk 5.7](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration) entry). So a note that
+   changes between two pushes of the same still-listed ingredient (e.g. a different overage
+   next week) will **not** refresh on the real list — only the quantity does. Revisit only if
+   AnyList's behaviour here is ever independently re-verified as safe.
+4. **One operation per HTTP request — never batched, even across different items**
+   (`services/anylist_client.py > add_or_increment_items()`, reworked at the same
+   Chunk 5.7 pass). AnyList's server was found to silently drop an operation whenever a
+   single request touched more than one distinct list item — confirmed reproducible, and
+   matching the reference `codetheweb/anylist` client's own behaviour (it never batches
+   either). A push of N items is therefore N sequential requests, each individually
+   **re-fetch + diff**-confirmed together at the end (an HTTP 200 alone is not proof — spike
+   finding #3). `confirmed` / `discrepancies` are recorded and returned.
+5. On completion: set `planning_sessions.status = 'pushed'` + `pushed_at`, stamp
+   `usual_items.last_added_at` for any pushed usuals, and write one `shopping_history` row
+   (`items_json` snapshot + `anylist_response_json` = the raw response summary +
+   discrepancies). The session is marked `pushed` **even if the diff wasn't fully confirmed**
+   — otherwise a retry would re-add the items that *did* land as duplicates. A re-push of an
+   already-`pushed` session is refused (`409 SESSION_ALREADY_PUSHED`) unless `?force=true`.
+
+---
+
+## Shopping List Store Layout
+
+**Status: in scope** (folded in from the Shop Layout Reorganisation addendum). Originally
+listed as a deferred item ("Shop layout reorganisation" — Phase 6 or post-MVP) and,
+separately, "Multi-shop support" was Post-MVP/descoped. Both are now active scope — a
+fixed single-store layout doesn't match the actual use case, so the descope was reversed.
+Schema lands in Phase 1 (see [Data Model](./data-model.md#data-model)); the setup and rendering UI lands in
+Phase 6 (see [Build Phases](./build-status/process.md#build-phases)).
+
+### Use case
+The shopping list should render in a walking order that matches whichever store the trip is
+actually happening at — not one fixed layout, and not alphabetical or list-order. Each store
+has its own section layout, defined once and reused on every future trip to that store.
+
+### Scope decisions (confirmed)
+- **Multi-store**: in scope. Each store is a distinct entity with its own section order.
+- **Ordering data source**: no learning/inference from behaviour. The user sets a fixed section
+  order per store, once, and edits it manually if a store's layout changes.
+- **AnyList relationship**: AnyList stays untouched. This is a separate, app-native sorted
+  view/printout generated from the same underlying list data — not a write-back into AnyList's
+  own categories/sections. This keeps AnyList as the single source of truth for list state and
+  avoids depending on what AnyList's API does or doesn't expose for section control.
+- **Section assignment**: mixed — AI suggests a section for each item at capture time, user
+  confirms/corrects (see the Phase 3 extraction prompt extension above).
+
+### Key simplification
+A product's *section* (e.g. "dairy", "produce", "frozen") is a property of the product, assigned
+once, store-independent. A store's *section order* (which section comes first when walking that
+store) is a property of the store, assigned once, product-independent. Sorting a list for a given
+store is then just: group items by section → order groups by that store's section order → render.
+This avoids a per-product-per-store mapping (which would require re-tagging every product for
+every store) in favour of two small, independent tables that combine at render time — see the
+`stores` / `store_sections` / `product_sections` tables in the Data Model.
+
+### Store setup flow (new, small UI — Phase 6)
+One-time per store: user adds a store by name, then drags the section vocabulary into their
+preferred walking order. Editable later if a store rearranges. No per-product interaction here —
+this screen only touches `store_sections`.
+
+### List rendering flow (Phase 6)
+1. User selects a store for the current shopping trip (defaults to last-used store).
+2. App pulls the current checklist (from the existing planning engine output — unchanged).
+3. Items are grouped by `section_name` via `product_sections`.
+4. Groups are ordered using that store's `store_sections.sort_order`.
+5. Any item with no section yet (never tagged) falls into an "other" group at the end, surfaced
+   for tagging next time it comes up in capture.
+6. Rendered as a sorted view/printout in-app. The AnyList list itself is not modified.
+
+### Cost/complexity profile
+Low. Two new small tables, one new one-time setup screen, one additional field in an extraction
+prompt that's already being called per recipe, and a grouping/sort operation at render time. No
+new AI calls beyond the existing per-recipe extraction (section suggestion piggybacks on it).
+
+### Open items
+- Store deletion/merge is not designed — low priority, add if it comes up (see
+  [Deferred Decisions](./deferred-decisions.md#deferred-decisions)).
+- Never-tagged items fall into an "other" group at render time — fine for MVP, not revisited.
+
+---
+
