@@ -1,0 +1,169 @@
+# AnyList fault-finding spike (2026-09-18)
+
+Triggered by two household-reported symptoms when pushing the checklist to AnyList: notes
+rarely land, and a quantity AnyList clearly *has* (the item-detail "+" jumps from the true
+value, not from 0) shows as "Not set" in AnyList's own list view (see the Zucchini screenshots
+from the 2026-09-18 report). This spike set out to explain those two specifically, then — per
+the maintainer's request — was widened to exercise every use case of the AnyList integration,
+not just the two already reported, on the theory that other issues could be hiding behind the
+same class of gap: things the app's own tests/diagnostics can't see because they only check what
+*our* code thinks happened, not what AnyList's server (or AnyList's own app UI) actually does
+with it.
+
+**Authorization.** `.env` pins `ANYLIST_TARGET_LIST_NAME=TestList` with `ANYLIST_ENABLED=true` /
+`ANYLIST_FAKE_MODE=false`. The maintainer authorized autonomous live testing against AnyList for
+the remainder of the 2026-09-18 session on that basis, scoped strictly to TestList — the real
+household list was never targeted, read, or written. That authorization does not carry into a
+future session (standing rule, unchanged).
+
+**Tooling.** `spike/anylist_fault_finding_probe.py` (committed, throwaway — matches the Phase
+1.5 `spike/anylist_spike.py` precedent) drives the *real* production code
+(`app.services.anylist_client` / `anylist_wire`), not a reimplementation, so every finding below
+reflects the actual app behaviour. It reaches past the connector's public functions into raw
+wire inspection on purpose — decoding protobuf field 21 (`quantityPb`) and field 18
+(`deprecatedQuantity`) directly — because the connector's own `get_items()` always merges them,
+which is exactly the mechanism under investigation. Every probe item was named with an `FF-`
+prefix; probe 10 removed them all again via the wire-level `remove-shopping-list-item` handler
+(present in the original derisking spike, never carried into the production connector — see
+"Other findings" below). Two illustrative items were deliberately left behind afterward for a
+manual phone check — see "What's left for you to check" at the end.
+
+## Headline: three confirmed mechanisms, one of them new
+
+| # | Symptom | Status | Mechanism |
+|---|---|---|---|
+| 1 | Quantity shows "Not set" in AnyList's list view, "+" jumps from the true value | **Confirmed, live** | Updating an existing item's quantity always clears protobuf field 21 (`quantityPb`) and writes only the legacy field 18 (`deprecatedQuantity`). Our own reads merge both (21 preferred, 18 fallback) so the app never notices — but if AnyList's own list-view chip renders from field 21 specifically, this is exactly what would produce "Not set" with the real number still recoverable underneath. |
+| 2 | Notes rarely come through | **Confirmed, live — and confirmed as the *common* case, not an edge case** | A note only ever reaches AnyList on an item's first-ever add; every subsequent push to an item already on the list sends *no* note update at all (accepted, documented limitation — `anylist_client.py:294-308`). Since most household items are recurring staples already on the list every week, most pushes hit this path. |
+| 3 | **New** — re-pushing a session duplicates any ingredient that was brand-new on the *first* push | **Confirmed, live and in the code** | `push_to_anylist()` never writes back `already_on_anylist`/`anylist_item_id` onto the checklist row after a successful ADD. A second push before the next `load_checklist()` call (exactly what the UI's "already pushed, push again?" retry does — see `static/js/checklist.js:273-305`) re-adds that same ingredient as a brand-new item instead of updating the one just created. Not a rare edge case: reproduces on every retry, for every ingredient that wasn't already on the list at the time of the first push. |
+
+## Probe-by-probe findings
+
+**Probe 1 — connectivity.** `check_auth()` succeeded. One `/data/user-data/get` call during this
+probe (and one later, in probe 9) timed out after 15s with no response — AnyList's server was
+simply slow that moment; the retry immediately after succeeded. Not something the app's fixed
+15s `httpx` timeout (`anylist_client.py:_TIMEOUT`) can distinguish from a real outage — worth
+knowing this happens even outside any of the bugs below, since a transient timeout mid-push
+looks identical to a real failure to whoever's watching the checklist screen.
+
+**Probe 2 — fresh add, 9-item field/value matrix.** Every case landed exactly as sent, confirmed
+by our own diff: integer quantity, quantity+unit, decimal quantity (`"1.5 kg"` — the field
+carries a plain string, so a decimal is no different from an integer to AnyList's storage; probe
+2's own `FF-decimal-qty` item held `f21_value='1.5 kg'` verbatim), quantity+note together, note
+only, bare name (mirrors a "usual" — no field 21 written at all when quantity is `None`, which
+is correct and matches what "Stain Remover"/"Washing Up Liquid" look like on the real list),
+Unicode name+note, a 520-character note, and a punctuation-heavy name. A follow-up standalone
+check (not printed to the console, to avoid a Windows-codepage display artifact — the log output
+for the Unicode case showed mojibake, e.g. `Cr�me Fra�che`, purely because this session's
+terminal isn't UTF-8; the actual bytes were compared programmatically) confirmed the Unicode
+note round-trips **byte-for-byte correct** — 39 bytes sent, 39 bytes back, exact string match.
+**Not a bug** — logging artifact only, noted here so it isn't mistaken for data corruption.
+
+**Probe 3 — update, same items pushed a second time.** Confirms mechanism #1 directly: every
+updated item lost field 21 entirely. Notes were never touched on update (mechanism #2), confirmed
+again explicitly through the connector (not just the checklist-level test added in Part A).
+**Also surfaced update flakiness**: 2 of the 3 updates in this probe failed to persist *any*
+quantity value at all (field 21 and 18 both empty afterward, `confirmed=False`,
+`"quantity is None, expected '1200 g'"`), while the third succeeded normally. A dedicated
+follow-up (5 consecutive quantity updates on one fresh item, back-to-back) then landed 5-for-5.
+This is consistent with — and re-confirms, on live data, the same day — the deferred-decisions
+row **"`set-list-item-quantity` reliability on an already-listed item"**: "worked once, early in
+the testing session, then failed... consistent with something cumulative across a long
+live-testing session... not a fixed code defect." Today's pattern (fail, fail, then succeed, then
+5/5 clean on retry) doesn't cleanly fit "works once then always fails" either — it looks more
+like intermittent flakiness with no fully understood trigger yet, not a deterministic bug in
+this app's request construction (the wire bytes sent were correct in every case). Recommend
+leaving this exactly where the deferred-decisions table already has it: known, unconfirmed
+mechanism, watch for recurrence.
+
+**Probe 4 — checked-state interference.** Inconclusive by design (this app's connector has no
+checked-state write path at all to test properly — see "What's left for you to check").
+A guessed `set-list-item-checked` op returned HTTP 200 but produced no visible change
+(`before_checked=False, after_checked=False`), so it's unconfirmed whether the handler name
+guess was wrong or the op is simply a no-op for another reason. What *is* now confirmed: a
+normal quantity update through the real connector does **not** disturb the checked field either
+way (`checked_after_update=False`, matching the untouched value) — consistent with the
+`_build_operation` code-level fact that an update op carries no item message at all (Part A's
+`test_update_op_never_carries_a_checked_field`), so there's no mechanism in this app by which a
+routine push could silently un-tick something a household member already checked off by hand.
+
+**Probe 5 — confirm/diff robustness (two ops, one item each, one HTTP request).** Both ops
+landed. This **does not reproduce** the 2026-09-12 Chunk 5.7 finding ("AnyList's server silently
+drops the second op whenever a request's operation list touches more than one distinct
+`list_item_id`"). Unofficial, reverse-engineered APIs can change behaviour without notice, and
+one non-reproduction six months later isn't strong enough evidence to relax anything — **the
+connector's existing one-op-per-request discipline should stay exactly as it is**; this is
+recorded as new information, not a recommendation.
+
+**Probe 6 — empty-quantity update.** Pushing `quantity=None` against an item with no prior
+quantity (`existing_id` set, `PushItem.quantity=None` → the real connector sends
+`updated_value=""`) left the item with field 18 **absent** afterward (not an empty string) —
+i.e. AnyList appears to treat an empty `set-list-item-quantity` value as "no-op" rather than
+"set to blank." This probe's target never had a quantity to begin with, so it doesn't settle the
+scarier version of the question — whether an empty update would *clear* an item that already had
+a real value — but probe 3's much higher-impact finding (a plain, non-empty update failing to
+persist anything at all, 2 of 3 times) already covers that risk surface and then some.
+
+**Probe 7 — live name-matching / pre-tick.** Both directions confirmed on a real list, not just
+the offline `test_names_match` parametrised cases: an ingredient named `ff-tomato` correctly
+pre-ticked against `FF-Tomatoes` (plural→singular fuzzy match), and did **not** false-positive
+match against a separately-added `FF-Cherry Tomatoes` — `checklist.py`'s whole-string `_norm`
+comparison (not a last-word match) held up exactly as designed.
+
+**Probe 8 — full round trip via the real app endpoints.** This is where mechanism #3 (the
+duplicate-on-repush bug) surfaced. `load_checklist → update_item → push_to_anylist` (first push)
+added a brand-new ingredient and updated one already on the list, both confirmed correctly. A
+second `push_to_anylist(force=True)` — the exact call the UI's retry dialog makes, with **no**
+`load_checklist()` re-run in between, matching `static/js/checklist.js:273-305` precisely — added
+the *same* "new" ingredient a second time (`matches_on_list=2`) instead of updating the item it
+had just created, while correctly updating the one that had been on the list from the start.
+Traced to `checklist.py`'s `push_to_anylist()`: it never writes the new AnyList-assigned id (or
+`already_on_anylist=True`) back onto the checklist row after a successful add, so the next push
+— without an intervening reload — has no way to know that ingredient is already there. The UI's
+own retry-confirmation dialog text ("anything it can no longer match will be added as a new
+line, which could be a duplicate") describes a narrower, rarer case (an item renamed/removed by
+hand since the last push) and doesn't mention this one, which is not an edge case at all — it
+reproduces on **every** retry, for **every** ingredient that was new at the time of the first
+push.
+
+**Probe 9 — usuals push.** A bare-name, no-quantity item landed cleanly, matching the real
+screenshot's "Stain Remover" / "Washing Up Liquid" shape.
+
+**Probe 10 — cleanup.** All 14 `FF-`-prefixed items created across probes 2-9 were removed via
+`remove-shopping-list-item` (list-item wire, full item message required — same shape the
+original Phase 1.5 spike used in `remove_item()`). Confirmed clean afterward
+(`still_on_list=[]`). **Other finding, not a bug:** the production `anylist_client.py` has no
+delete/remove function at all — every spike (this one included) has to reach past its public API
+to clean up after itself. Worth adding a real `remove_item()` to the connector if AnyList spikes
+are going to keep happening; not urgent since nothing in the actual app ever needs to remove an
+AnyList item today.
+
+## What's left for you to check
+
+Two items were deliberately left on **TestList** (not the household list) after the probe run,
+reproducing both original symptoms exactly, for the one visual check that genuinely needs a
+human — I have no way to view the AnyList app myself:
+
+1. **`FF-CHECK-quantity`** — added with quantity 2, then updated to quantity 5 (server-confirmed:
+   field 21 absent, field 18 = `"5"`). Open it in the AnyList app: does the list view / item
+   detail show "Not set"? Does tapping "+" land on 6 (confirming the real value is 5 underneath,
+   exactly like the Zucchini screenshots)?
+2. **`FF-CHECK-note`** — added with quantity 1 and note "Original note A", then updated to
+   quantity 3 with an attempted note "Attempted note B" (server-confirmed: note is still
+   "Original note A", the update never touched it). Does the AnyList app show "Original note A"
+   still, never B?
+
+Optional third check, only if you feel like it: tick `FF-CHECK-quantity` as checked in the
+AnyList app and tell me — I can then push one more quantity update to it and confirm live
+whether checked survives a push (probe 4 above only ruled out this app ever *writing* a checked
+change; it couldn't confirm what AnyList does when a human has already ticked something).
+
+Let me know what you see and I'll record it here, plus clean up both test items afterward (or
+leave them if you'd rather look again later).
+
+## What this spike does not do
+
+No production code changes were made — this was fault-finding only, per the plan. Whether/how
+to fix any of the three confirmed mechanisms (and whether #1 is fixable at all without AnyList's
+own delete+re-add side-effect — see `anylist_client.py`'s docstring on why a note update was
+reverted for exactly that reason) is a separate decision for the maintainer once this write-up
+has been read.

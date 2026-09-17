@@ -396,6 +396,91 @@ def test_real_update_sends_only_quantity_never_details(monkeypatch):
     assert res.updated == ["Milk"]
 
 
+def test_real_update_clears_field_21_and_our_confirm_still_passes(monkeypatch):
+    """Fault-finding spike (2026-09-18): pins down, as a named test rather than only a code
+    comment, the exact gap between "our app thinks this succeeded" and "the field AnyList's own
+    UI needs is gone". An item that starts with BOTH field 21 (quantityPb, what a fresh add
+    writes) and field 18 (deprecatedQuantity) gets updated via set-list-item-quantity; the
+    server's post-update state (as this connector has always found it — spike/FINDINGS.md,
+    Chunk 5.7) carries field 18 only. Our own merge-on-read (field 21 preferred, 18 fallback)
+    means `confirmed` still comes back True — that's not a bug in the confirm logic, it's the
+    reason nothing caught this sooner. See docs/build-status/anylist-fault-finding-spike.md for
+    whether AnyList's own app also needs field 21 to render its list-view quantity chip (that
+    part can only be settled live, against TestList)."""
+    item_before = (
+        _field_string(1, "existing1") + _field_string(4, "Milk")
+        + _field_string(18, "2L") + _field_message(21, _field_string(1, "2L"))
+    )
+    item_after = _field_string(1, "existing1") + _field_string(4, "Milk") + _field_string(18, "3L")
+    # sanity on the fixtures themselves: "after" really has lost field 21, "before" has both
+    assert 21 not in _decode_message(item_after)
+    assert 21 in _decode_message(item_before) and 18 in _decode_message(item_before)
+
+    def _wrap(item_bytes: bytes) -> bytes:
+        wire_list = _field_string(1, "L1") + _field_string(3, "TestList") + _field_message(4, item_bytes)
+        return _field_message(1, _field_message(1, wire_list))
+
+    state = {"gets": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            state["gets"] += 1
+            return httpx.Response(200, content=_wrap(item_before if state["gets"] == 1 else item_after))
+        if request.url.path == "/data/shopping-lists/update":
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    res = ac.add_or_increment_items(
+        [PushItem(name="Milk", quantity="3L", existing_id="existing1")], list_name="TestList"
+    )
+    assert res.confirmed is True and not res.discrepancies  # our merge-on-read masks the loss
+
+    again = ac.get_items("TestList")
+    assert again[0].quantity == "3L"  # still correct via the field-18 fallback...
+    assert 21 not in _decode_message(item_after)  # ...but the field AnyList's UI may need is gone
+
+
+def test_update_with_no_quantity_sends_empty_string_value(monkeypatch):
+    """checklist.py:292 sends `it.quantity or ""` — an already-on-the-list item that resolves to
+    no quantity string (e.g. a coarse ingredient with neither a numeric total nor a pack string)
+    pushes an explicit empty-string update rather than leaving the item's quantity untouched.
+    Pinning down today's actual wire behaviour rather than assuming it (see fault-finding spike
+    Part B, probe 6, for what AnyList's server actually does with an empty update)."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", "2L")]))
+        if request.url.path == "/data/shopping-lists/update":
+            assert _updated_value_from_multipart(request.content) == ""
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    ac.add_or_increment_items(
+        [PushItem(name="Milk", quantity=None, existing_id="existing1")], list_name="TestList"
+    )
+
+
+def test_update_op_never_carries_a_checked_field():
+    """The connector's update path only ever calls `_build_operation` with `updated_value`, never
+    `item_wire` — so a quantity-update op has no way to touch the item's checked state at all.
+    Made explicit as a test (rather than left implicit in the code) because it's the fact that
+    rules out one plausible explanation for "did pushing a quantity update un-tick something a
+    household member already checked off on their phone" (fault-finding spike Part B, probe 4)."""
+    from app.services.anylist_wire import _build_operation
+
+    op = _build_operation(
+        handler_id="set-list-item-quantity", list_id="L1", list_item_id="i1", updated_value="3",
+    )
+    fields = _decode_message(op)
+    assert 4 in fields  # the quantity value itself
+    assert 6 not in fields  # no embedded item message -> no checked bit, no name, nothing else
+
+
 def test_real_get_items_unknown_list_raises(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/auth/token":

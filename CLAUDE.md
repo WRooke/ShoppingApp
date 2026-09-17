@@ -122,6 +122,7 @@ table before assuming something went missing.
 | [build-status/phase-3.9-ai-provider-migration.md](./docs/build-status/phase-3.9-ai-provider-migration.md) | Phase 3.9 (M0–M8 + M-review) execution log, plus the migration section's own original chunk plan | Build Phases > Phase 3.9 — AI Provider Migration; AI Provider Migration > Phase 3.9 chunks (M0–M8) |
 | [build-status/phase-4-planning-engine.md](./docs/build-status/phase-4-planning-engine.md) | Phase 4 chunk list and review | Build Phases > Phase 4 — Planning Engine |
 | [build-status/phase-5-checklist-anylist.md](./docs/build-status/phase-5-checklist-anylist.md) | Phase 5 chunk list (review still open) | Build Phases > Phase 5 — Checklist & AnyList Integration |
+| [build-status/anylist-fault-finding-spike.md](./docs/build-status/anylist-fault-finding-spike.md) | 2026-09-18 live fault-finding spike: confirms the "Not set" quantity display and dropped-note symptoms, plus a newly found duplicate-on-repush bug | (new — not in the original planning document) |
 | [build-status/phase-6-polish.md](./docs/build-status/phase-6-polish.md) | Phase 6 placeholder (not yet chunked) | Build Phases > Phase 6 — Polish |
 | [build-status/ingredient-unit-handling-chunks.md](./docs/build-status/ingredient-unit-handling-chunks.md) | The Ingredient Unit Handling feature's own build-chunk checklist | Ingredient Unit Handling > Build chunks |
 
