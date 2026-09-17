@@ -25,16 +25,49 @@ wire inspection on purpose — decoding protobuf field 21 (`quantityPb`) and fie
 which is exactly the mechanism under investigation. Every probe item was named with an `FF-`
 prefix; probe 10 removed them all again via the wire-level `remove-shopping-list-item` handler
 (present in the original derisking spike, never carried into the production connector — see
-"Other findings" below). Two illustrative items were deliberately left behind afterward for a
-manual phone check — see "What's left for you to check" at the end.
+"Other findings" below). Two illustrative items were left behind afterward for a manual phone
+check — see "The phone check — what actually happened" at the end; that check disproved this
+spike's original leading theory for symptom #1, so read the "Correction" section right after the
+headline table before trusting anything probe 3 concludes about field 21.
 
-## Headline: three confirmed mechanisms, one of them new
+## Headline: two confirmed mechanisms, one still open, one new
 
 | # | Symptom | Status | Mechanism |
 |---|---|---|---|
-| 1 | Quantity shows "Not set" in AnyList's list view, "+" jumps from the true value | **Confirmed, live** | Updating an existing item's quantity always clears protobuf field 21 (`quantityPb`) and writes only the legacy field 18 (`deprecatedQuantity`). Our own reads merge both (21 preferred, 18 fallback) so the app never notices — but if AnyList's own list-view chip renders from field 21 specifically, this is exactly what would produce "Not set" with the real number still recoverable underneath. |
-| 2 | Notes rarely come through | **Confirmed, live — and confirmed as the *common* case, not an edge case** | A note only ever reaches AnyList on an item's first-ever add; every subsequent push to an item already on the list sends *no* note update at all (accepted, documented limitation — `anylist_client.py:294-308`). Since most household items are recurring staples already on the list every week, most pushes hit this path. |
+| 1 | Quantity shows "Not set" in AnyList's list view, "+" jumps from the true value | **Leading theory FALSIFIED by the phone check — see the correction below. Still unexplained.** | The field-21/18 theory below turned out wrong: a field-18-only item displays its quantity *correctly* on the real AnyList app. The true cause is still open — the best remaining candidate is the update-write failure in probe 3 (a fraction of updates leave the item with **no** quantity in either field), not yet reproduced on demand for a phone check. |
+| 2 | Notes rarely come through | **Confirmed, live AND visually on the phone** | A note only ever reaches AnyList on an item's first-ever add; every subsequent push to an item already on the list sends *no* note update at all (accepted, documented limitation — `anylist_client.py:294-308`). Since most household items are recurring staples already on the list every week, most pushes hit this path. |
 | 3 | **New** — re-pushing a session duplicates any ingredient that was brand-new on the *first* push | **Confirmed, live and in the code** | `push_to_anylist()` never writes back `already_on_anylist`/`anylist_item_id` onto the checklist row after a successful ADD. A second push before the next `load_checklist()` call (exactly what the UI's "already pushed, push again?" retry does — see `static/js/checklist.js:273-305`) re-adds that same ingredient as a brand-new item instead of updating the one just created. Not a rare edge case: reproduces on every retry, for every ingredient that wasn't already on the list at the time of the first push. |
+
+### Correction (2026-09-18, after the phone check)
+
+The original write-up below (probe 3, and the original "What's left for you to check" section)
+proposed that AnyList's list-view quantity chip specifically needs protobuf field 21
+(`quantityPb`), and that losing it on every update explains "Not set". **The maintainer's phone
+check disproves this**: `FF-CHECK-quantity` (updated to quantity 5, server-confirmed field 21
+absent / field 18 = `"5"`) displayed **`(5)`** correctly in the AnyList app's list view — not
+"Not set". `FF-CHECK-note` likewise showed its correct quantity (`(3)`) alongside the untouched
+"Original note A", confirming mechanism #2 but not #1's theory.
+
+So field 18 *is* readable by AnyList's own UI just fine — the field-21/18 split is not, by
+itself, what produces "Not set". What's left standing as the best explanation is the *other*
+thing probe 3 found: on a minority of update calls (2 of 3 in that probe's original run), the
+item comes back with **no quantity in either field at all** — a genuine write failure, not a
+stale-field issue. A `(blank)` item would plausibly render as "Not set", and a phone's locally
+cached last-known value (from before the failed write) could plausibly explain the "+" landing
+on `true_value + 1` rather than `0 + 1`. This fits the existing
+[deferred-decisions](../deferred-decisions.md#deferred-decisions) row on
+`set-list-item-quantity` reliability better than the field-21 theory ever did.
+
+**Not yet confirmed live**, though: a follow-up run of ~35 further quantity-update calls today
+(tight back-to-back and spaced out) reproduced this "both fields empty" failure **zero** more
+times — it's real (directly observed once, with raw wire evidence, in probe 3) but rare and not
+reliably triggerable on demand. The three `FF-CHECK-*` items were cleaned up from TestList after
+the phone check confirmed/disproved what they could; there is currently no live repro sitting on
+TestList for a further phone check. **Next step, whenever it's convenient:** the next time a
+real household push comes back `confirmed: false` (the frontend alerts "NOT fully confirmed" —
+`static/js/checklist.js:281`), that is the moment to check that specific item in the AnyList app
+before pushing again — if it shows "Not set" at that point, mechanism #1 is confirmed as the
+write-failure theory rather than the field-21 theory.
 
 ## Probe-by-probe findings
 
@@ -58,10 +91,13 @@ terminal isn't UTF-8; the actual bytes were compared programmatically) confirmed
 note round-trips **byte-for-byte correct** — 39 bytes sent, 39 bytes back, exact string match.
 **Not a bug** — logging artifact only, noted here so it isn't mistaken for data corruption.
 
-**Probe 3 — update, same items pushed a second time.** Confirms mechanism #1 directly: every
-updated item lost field 21 entirely. Notes were never touched on update (mechanism #2), confirmed
-again explicitly through the connector (not just the checklist-level test added in Part A).
-**Also surfaced update flakiness**: 2 of the 3 updates in this probe failed to persist *any*
+**Probe 3 — update, same items pushed a second time.** Every updated item lost field 21 entirely
+— true, but **see the correction above: this alone does not explain "Not set"**, since a
+field-18-only item was confirmed to display correctly on the real AnyList app. Notes were never
+touched on update (mechanism #2), confirmed again explicitly through the connector (not just the
+checklist-level test added in Part A) and later visually on the phone.
+**Also surfaced update flakiness, which turned out to be the more important finding of this
+probe**: 2 of the 3 updates in this probe failed to persist *any*
 quantity value at all (field 21 and 18 both empty afterward, `confirmed=False`,
 `"quantity is None, expected '1200 g'"`), while the third succeeded normally. A dedicated
 follow-up (5 consecutive quantity updates on one fresh item, back-to-back) then landed 5-for-5.
@@ -137,33 +173,35 @@ to clean up after itself. Worth adding a real `remove_item()` to the connector i
 are going to keep happening; not urgent since nothing in the actual app ever needs to remove an
 AnyList item today.
 
-## What's left for you to check
+## The phone check — what actually happened
 
-Two items were deliberately left on **TestList** (not the household list) after the probe run,
-reproducing both original symptoms exactly, for the one visual check that genuinely needs a
-human — I have no way to view the AnyList app myself:
+Two items were left on **TestList** (not the household list) after the probe run for the one
+visual check that genuinely needed a human (I have no way to view the AnyList app myself), plus
+a third added afterward while chasing the correction above:
 
-1. **`FF-CHECK-quantity`** — added with quantity 2, then updated to quantity 5 (server-confirmed:
-   field 21 absent, field 18 = `"5"`). Open it in the AnyList app: does the list view / item
-   detail show "Not set"? Does tapping "+" land on 6 (confirming the real value is 5 underneath,
-   exactly like the Zucchini screenshots)?
-2. **`FF-CHECK-note`** — added with quantity 1 and note "Original note A", then updated to
-   quantity 3 with an attempted note "Attempted note B" (server-confirmed: note is still
-   "Original note A", the update never touched it). Does the AnyList app show "Original note A"
-   still, never B?
+1. **`FF-CHECK-quantity`** (added qty 2, updated to qty 5 — field 21 absent, field 18 = `"5"`)
+   — showed **`(5)`** in the AnyList app's list view. **Not** "Not set". Falsified the field-21
+   theory (see the correction above).
+2. **`FF-CHECK-note`** (added qty 1 + note "Original note A", updated to qty 3 + attempted note
+   "Attempted note B") — showed **`(3)`** and **"Original note A"**, confirming mechanism #2
+   both server-side and visually: the attempted note update never took.
+3. **`FF-CHECK-blank`** — added afterward to try to reproduce probe 3's "both fields end up
+   empty" write failure on demand (~35 further quantity-update calls, tight and spaced). Did not
+   reproduce; no phone check was useful for it, so it was cleaned up along with the other two.
 
-Optional third check, only if you feel like it: tick `FF-CHECK-quantity` as checked in the
-AnyList app and tell me — I can then push one more quantity update to it and confirm live
-whether checked survives a push (probe 4 above only ruled out this app ever *writing* a checked
-change; it couldn't confirm what AnyList does when a human has already ticked something).
+All three `FF-CHECK-*` items have been removed from TestList — nothing left over from this spike.
 
-Let me know what you see and I'll record it here, plus clean up both test items afterward (or
-leave them if you'd rather look again later).
+The optional checked-state check (tick an item in-app, then push an update and see if it
+survives) was not run — probe 4's write-side finding (an update op has no way to touch checked
+at all) already covers the only thing this app's own code could break; whether AnyList's *server*
+independently resets checked state on any write remains unconfirmed and is low-priority given
+that.
 
 ## What this spike does not do
 
-No production code changes were made — this was fault-finding only, per the plan. Whether/how
-to fix any of the three confirmed mechanisms (and whether #1 is fixable at all without AnyList's
-own delete+re-add side-effect — see `anylist_client.py`'s docstring on why a note update was
-reverted for exactly that reason) is a separate decision for the maintainer once this write-up
-has been read.
+No production code changes were made — this was fault-finding only, per the plan. Mechanism #1
+(the original "Not set" symptom) is **not fully explained yet** — the field-21 theory is
+falsified, the write-failure theory is plausible but not caught in the act on a phone. Whether
+that's worth chasing further (it's rare, per probe 3 and the ~35 unsuccessful repro attempts
+today), and how to fix mechanisms #2 and #3, are separate decisions for the maintainer once this
+write-up has been read.
