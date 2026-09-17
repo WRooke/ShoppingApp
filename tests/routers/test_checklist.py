@@ -104,6 +104,38 @@ def test_push_marks_session_pushed_and_refuses_re_push(client, fake_anylist):
     assert forced.status_code == 200
 
 
+def test_load_survives_malformed_review_options_json(client, fake_anylist):
+    """2026-09-17 prod bug reproduction — a needs_review row whose review_options_json was
+    written by an earlier/different shape (here: an element missing 'quantity') used to 500
+    the whole checklist load at the router's ChecklistItemRead.model_validate(row) step,
+    since ReviewOptionRead.quantity is required with no default. Every subsequent load of
+    that same session failed identically until the row was fixed by hand — matching the
+    diagnostics log signature (repeated "Unhandled exception on GET /api/v1/checklist/{id}").
+    """
+    sid = _session_with_checklist(
+        client, [{"name": "zz-router-malformed", "quantity": 100, "unit": "g"},
+                 {"name": "zz-router-malformed", "quantity": 200, "unit": "ml"}]
+    )
+    item = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]
+    assert item["needs_review"] is True
+
+    import app.database as database
+    from app.models.planning import SessionChecklistItem
+
+    db = database.SessionLocal()
+    try:
+        row = db.get(SessionChecklistItem, item["id"])
+        row.review_options_json = '[{"unit": "g"}]'  # malformed: no 'quantity'
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get(f"/api/v1/checklist/{sid}")
+    assert resp.status_code == 200
+    reloaded = next(i for i in resp.json()["data"]["items"] if i["id"] == item["id"])
+    assert reloaded["review_options"] == []  # malformed element dropped, not raised
+
+
 def test_resolve_needs_review_item(client, fake_anylist):
     sid = _session_with_checklist(
         client, [{"name": "zz-router-cream", "quantity": 100, "unit": "g"},

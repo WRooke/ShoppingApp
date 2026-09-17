@@ -200,6 +200,19 @@ select, input[type="text"] {
 .log-level.ERROR,
 .log-level.CRITICAL { color: var(--red); }
 
+.log-trace {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 0.85em;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+}
+
 .errors-box {
   border: 1px solid var(--red);
   border-radius: 6px;

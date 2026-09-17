@@ -110,6 +110,19 @@ def test_cadence_elapsed_is_due(db):
     assert u.is_due(item, as_of=now) is True
 
 
+def test_is_due_tolerates_a_null_cadence():
+    """Defensive hardening, not a confirmed live path — cadence_days is nullable=False in the
+    schema, so a NULL can't be committed through normal means. But is_due() is a plain
+    function with no DB access of its own; guarding it costs nothing and matches the same
+    "never trust a row's shape past the DB boundary" caution applied to
+    SessionChecklistItem.review_options (app/models/planning.py) after the 2026-09-17
+    checklist-500 investigation."""
+    from app.models.catalog import UsualItem
+
+    item = UsualItem(name="mystery", cadence_days=None)
+    assert u.is_due(item) is True
+
+
 def test_due_items_filters_and_orders(db):
     now = datetime(2026, 9, 7, 12, 0, 0)
     fresh = u.create_usual(db, _c("zebra cleaner", cadence=30))

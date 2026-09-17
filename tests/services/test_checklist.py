@@ -124,6 +124,30 @@ def test_pretick_never_overrides_a_user_choice(db):
     assert items[0].have_it == "no"  # but the user's 'no' is respected
 
 
+def test_review_options_drops_malformed_elements(db):
+    """2026-09-17 prod bug — session_checklist_items.review_options_json is free-form Text
+    with no shape validation at the DB level. A row whose JSON parses fine as a list but has
+    an element missing/mis-typed 'quantity' used to pass straight through to the router's
+    ChecklistItemRead.model_validate(row), where ReviewOptionRead (quantity: float, no
+    default) raised an uncaught pydantic.ValidationError -> 500 on every load of that session.
+    The `review_options` property must filter those out instead of passing them through."""
+    from app.models.planning import SessionChecklistItem
+
+    item = SessionChecklistItem(session_id=1, ingredient_name="flour")
+
+    item.review_options_json = '[{"quantity": 100, "unit": "g"}, {"unit": "ml"}]'
+    assert item.review_options == [{"quantity": 100, "unit": "g"}]
+
+    item.review_options_json = '[{"quantity": "not a number", "unit": "g"}]'
+    assert item.review_options == []
+
+    item.review_options_json = '[{"quantity": true, "unit": "g"}]'  # bool is an int subclass
+    assert item.review_options == []
+
+    item.review_options_json = '["just a string"]'
+    assert item.review_options == []
+
+
 def test_load_when_anylist_disabled_does_not_wipe_match_state(db):
     s = _session_with_items(db, [{"name": "milk", "quantity": 1, "unit": "L"}])
     checklist_service.load_checklist(db, s.id)  # fake mode: sets already_on_anylist + id
@@ -247,6 +271,17 @@ def test_anylist_quantity_prefers_total_then_pack_then_none(db):
     assert checklist_service._anylist_quantity(CI(display_qty="2 × bunch", total_quantity=None)) == "2 × bunch"
 
 
+def test_anylist_quantity_formats_decimals_without_trailing_zero_noise(db):
+    """Fault-finding spike (2026-09-18): pins down exactly what string a non-integer total
+    produces before it reaches AnyList — Part B checks live whether AnyList's own app/stepper
+    handles a decimal quantity string cleanly; this pins down our side of that question."""
+    from app.models.planning import SessionChecklistItem as CI
+
+    assert checklist_service._anylist_quantity(CI(total_quantity=1.5, total_unit="kg")) == "1.5 kg"
+    assert checklist_service._anylist_quantity(CI(total_quantity=0.25, total_unit="kg")) == "0.25 kg"
+    assert checklist_service._anylist_quantity(CI(total_quantity=2.0, total_unit="kg")) == "2 kg"  # whole -> no ".0"
+
+
 def test_anylist_note_folds_in_the_pack_breakdown(db):
     """The pack breakdown that used to be the AnyList quantity now rides in the note instead,
     alongside whatever the checklist's own note already says (overage / to taste / review)."""
@@ -270,3 +305,56 @@ def test_anylist_note_folds_in_the_pack_breakdown(db):
     ) == "to taste"
     # nothing at all
     assert checklist_service._anylist_note(CI(display_qty=None, total_quantity=100, note=None)) is None
+
+
+# --- fault-finding spike (2026-09-18) — push edge cases, end-to-end -------------------
+
+
+def test_push_to_an_existing_item_drops_its_note(db):
+    """Root-cause candidate #2 (fault-finding spike, docs/build-status/
+    anylist-fault-finding-spike.md): a note only lands on an item's first-ever add
+    (anylist_client.py:294-308, a documented/accepted AnyList server limitation) — an update to
+    an item already on the list never sends a note at all. Proven here through the REAL call
+    chain (router-equivalent -> checklist service -> connector), not just the connector's own
+    unit tests, using an ingredient ("milk") that matches the fake-mode seeded AnyList item so
+    the push takes the update path, not the add path."""
+    s = _session_with_items(db, [{"name": "milk", "quantity": 1, "unit": "L"}])
+    checklist_service.load_checklist(db, s.id)  # pre-ticks milk as already_on_anylist
+    row = s.checklist_items[0]
+    row.note = "to taste"
+    db.commit()
+    checklist_service.update_item(db, s.id, row.id, have_it="no")
+
+    result = checklist_service.push_to_anylist(db, s.id)
+    assert "Milk" in result["updated"]
+
+    milk = next(i for i in anylist_client.get_items() if i.name == "milk")
+    assert milk.note is None  # the note never reached AnyList -- the known limitation
+
+
+def test_push_updates_an_item_with_no_quantity_string(db):
+    """An item that resolves to no quantity string at all (neither a numeric total nor a
+    pack-breakdown display string, e.g. a coarse ingredient the consolidation step couldn't
+    size) still reaches `push_to_anylist` as an update -- `PushItem.quantity=None` goes through
+    to the connector as-is. At THIS layer that means the fake connector's stored quantity ends
+    up None, matching what it was handed (fake mode mirrors the connector's own field, not the
+    real HTTP payload). The real connector's `_RealAnyList` additionally turns a None quantity
+    into an explicit `updated_value=""` wire value for `set-list-item-quantity` -- see
+    `test_update_with_no_quantity_sends_empty_string_value` in test_anylist_client.py for that,
+    and docs/build-status/anylist-fault-finding-spike.md (Part B, probe 6) for what AnyList's
+    real server actually does with that empty value."""
+    s = _session_with_items(db, [{"name": "milk", "quantity": 1, "unit": "L"}])
+    checklist_service.load_checklist(db, s.id)
+    row = s.checklist_items[0]
+    row.total_quantity = None
+    row.display_qty = None
+    db.commit()
+    assert checklist_service._anylist_quantity(row) is None  # confirms the precondition
+    checklist_service.update_item(db, s.id, row.id, have_it="no")
+
+    result = checklist_service.push_to_anylist(db, s.id)
+    assert "Milk" in result["updated"]
+    assert result["confirmed"] is True  # fake mode always confirms; see connector docstring
+
+    milk = next(i for i in anylist_client.get_items() if i.name == "milk")
+    assert milk.quantity is None  # PushItem.quantity=None passed straight through

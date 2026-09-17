@@ -127,7 +127,7 @@ def load_checklist(db: Session, session_id: int) -> tuple[list[SessionChecklistI
 
     db.commit()
     db.refresh(session)
-    ordered = sorted(session.checklist_items, key=lambda c: c.ingredient_name)
+    ordered = sorted(session.checklist_items, key=lambda c: c.ingredient_name or "")
     logger.info(
         "Checklist loaded: session_id=%s items=%d anylist_ok=%s on_list=%d",
         session_id,

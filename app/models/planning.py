@@ -102,11 +102,23 @@ class SessionChecklistItem(Base):
     @property
     def review_options(self) -> list[dict]:
         """Parsed review_options_json, always a list (never None) — same pattern as
-        Recipe.ai_pending_tasks. Read by ChecklistItemRead via from_attributes."""
+        Recipe.ai_pending_tasks. Read by ChecklistItemRead via from_attributes.
+
+        Also drops any element that doesn't match the current {"quantity": float, "unit":
+        str|None} shape (e.g. a row written by an earlier iteration of this feature, or
+        hand-edited data) — ReviewOptionRead requires ``quantity`` with no default, so an
+        unvalidated malformed element would otherwise raise a pydantic.ValidationError inside
+        the router's model_validate(row) and 500 the whole checklist load for that session."""
         if not self.review_options_json:
             return []
         try:
             value = json.loads(self.review_options_json)
-            return value if isinstance(value, list) else []
         except (ValueError, TypeError):
             return []
+        if not isinstance(value, list):
+            return []
+        return [
+            o for o in value
+            if isinstance(o, dict) and isinstance(o.get("quantity"), (int, float))
+            and not isinstance(o.get("quantity"), bool)
+        ]

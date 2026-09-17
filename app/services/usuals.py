@@ -41,7 +41,7 @@ def _normalise_name(name: str) -> str:
 
 
 def is_due(item: UsualItem, *, as_of: datetime | None = None) -> bool:
-    if item.last_added_at is None:
+    if item.last_added_at is None or item.cadence_days is None:
         return True
     now = as_of or utcnow()
     return item.last_added_at + timedelta(days=item.cadence_days) <= now

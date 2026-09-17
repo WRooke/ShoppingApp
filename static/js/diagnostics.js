@@ -187,6 +187,9 @@
       line.appendChild(el("span", "log-time", fmtTime(e.time)));
       line.appendChild(el("span", "log-level " + e.level, e.level));
       line.appendChild(el("span", "log-msg", e.logger + ": " + e.message));
+      if (e.traceback) {
+        line.appendChild(el("pre", "log-trace", e.traceback));
+      }
       container.appendChild(line);
     });
   }

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import traceback
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,11 @@ from pathlib import Path
 from app.config import settings
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+# Cap on how much of a traceback the ring buffer keeps per entry, so one huge traceback
+# can't blow out the in-memory buffer's size — full tracebacks are still written to
+# logs/app.log unbounded via the file handler below.
+_MAX_TRACEBACK_CHARS = 4000
 
 _LEVEL_ORDER = {
     "DEBUG": 10,
@@ -34,14 +40,23 @@ class RingBufferHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            _ring.append(
-                {
-                    "time": datetime.fromtimestamp(record.created).isoformat(timespec="seconds"),
-                    "level": record.levelname,
-                    "logger": record.name,
-                    "message": record.getMessage(),
-                }
-            )
+            entry = {
+                "time": datetime.fromtimestamp(record.created).isoformat(timespec="seconds"),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            }
+            # The file handler gets the full traceback via exc_info=True, but until now the
+            # ring buffer (and so the /diagnostics UI) silently dropped it, only ever showing
+            # the one-line summary — undiagnosable without NUC filesystem access. Attach a
+            # capped traceback here so an unhandled-exception entry is actually actionable
+            # from the diagnostics page itself.
+            if record.exc_info:
+                tb = "".join(traceback.format_exception(*record.exc_info))
+                if len(tb) > _MAX_TRACEBACK_CHARS:
+                    tb = tb[:_MAX_TRACEBACK_CHARS] + "\n... (truncated)"
+                entry["traceback"] = tb
+            _ring.append(entry)
         except Exception:  # noqa: BLE001 — logging must never raise
             self.handleError(record)
 
