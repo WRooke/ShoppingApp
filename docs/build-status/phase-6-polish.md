@@ -67,10 +67,20 @@ change chunk order and scope, not just because they happened.
    groundwork in 6.1).
 10. **Four UI decisions:** bottom nav icons → **emoji** (🏠 📖 📋 ⚙️ 📊), replacing the current
     `<span class="nav-icon">home</span>`-style text-caption placeholders (confirmed a literal
-    placeholder, not a design choice); accent colour → **muted blue** (~#2f5f8f), replacing the
-    current dark green (#2f6f4f); Settings navigation → **index + drill-down sub-pages** (tabs
-    and accordion considered, declined); weekly calendar interaction → **tap-to-assign**, not
-    drag-and-drop (touch-drag reliability at <400px was the concern).
+    placeholder, not a design choice); accent colour → **muted blue** (~#2f5f8f) *(superseded —
+    see the Chunk 6.1 mockup-review note below: blue tested poorly in light mode, teal replaced
+    it there)*; Settings navigation → **index + drill-down sub-pages** (tabs and accordion
+    considered, declined); weekly calendar interaction → **tap-to-assign**, not drag-and-drop
+    (touch-drag reliability at <400px was the concern).
+    **Chunk 6.1 mockup review (2026-09-19), resolving the accent colour properly per-theme
+    rather than one colour for both:** a live mockup (Artifact, with a click-through swatch
+    picker) found the originally-picked blue read poorly against the light theme's warm ground —
+    replaced there with **teal (#1f6b63)**, chosen from six real candidates compared side by
+    side. Blue (#7db0e0) was re-compared against five dark-mode alternatives and confirmed as the
+    better fit for dark specifically — **kept for dark mode only**. Typeface confirmed as
+    **IBM Plex Sans + IBM Plex Mono** (compared against four other pairings live in the same
+    mockup). This is the final palette — tokens.css implements exactly this, not the single
+    "muted blue" pick above.
 11. **Two more trust/resilience additions**, motivated by the real AnyList bugs the 2026-09-18
     fault-finding spike found (see `anylist-fault-finding-spike.md`): a "Last synced with
     AnyList" indicator on the checklist screen itself, not just Diagnostics (6.3b — re-check
@@ -123,9 +133,10 @@ change chunk order and scope, not just because they happened.
 
 #### Chunk list
 
-- [ ] **Chunk 6.1 — Design system foundation + Home tab.** Formalise `static/css/app.css` into a
-      real token system (colour — accent = muted blue ~#2f5f8f, replacing #2f6f4f; spacing; type
-      scale) per [UI/UX](../ui-ux.md)'s design direction, plus a dark-mode token variant and a
+- [x] **Chunk 6.1 — Design system foundation + Home tab.** Formalise `static/css/app.css` into a
+      real token system (colour — **teal `#1f6b63` in light mode, blue `#7db0e0` in dark**, see
+      the mockup-review note above; spacing; type scale — **IBM Plex Sans + IBM Plex Mono**,
+      self-hosted) per [UI/UX](../ui-ux.md)'s design direction, plus a dark-mode token variant and a
       `data-theme` override mechanism (applied before first paint). Rebuild core shared
       components once: bottom nav (emoji icons 🏠📖📋⚙️📊 replacing the text-caption
       placeholders, plus nav-badges — a dot on "Plan" when active/unpushed, on "Recipes" for
@@ -140,6 +151,46 @@ change chunk order and scope, not just because they happened.
       passes ~300–400 lines. Verify at phone width (~390–430px) and desktop via
       `scripts/cdp.py`/`HEADLESS_VERIFY.md`, plus `pytest tests/frontend/` for anything it
       touches.
+
+      **Done 2026-09-20 (commits `8811614`, `1192a75`).** New `static/css/tokens.css` +
+      `components.css` (app.css trimmed from 427 to a header comment + the not-yet-migrated
+      feature sections — recipe/ingredient rows, settings rows, dup-warn, pending-AI badge,
+      have-toggle, log tail — which keep working unchanged via the legacy token names
+      `--bg`/`--surface`/`--border`/`--text`/`--text-dim`/`--accent`/`--green`/`--amber`/`--red`/
+      `--grey` tokens.css keeps defined for exactly that reason). IBM Plex Sans/Mono self-hosted
+      (`static/fonts/*.woff2` + `OFL.txt`, ~76 KB total — fetched the real latin-subset files
+      from Google's CDN rather than linking it live, since this app shouldn't need internet
+      access to render its own UI). New `static/js/toast.js`, `back-link.js`, `nav-badges.js`,
+      `home.js` — infrastructure Chunks 6.2–6.4 consume, not yet wired into any existing screen's
+      hardcoded back-links/deletes (that's each of those chunks' own job).
+      **One real bug found and fixed doing the verification, not just a visual check**:
+      `api.js`'s `request()` already unwraps the `{ok, data}` envelope (returns `body.data`), so
+      `home.js`/`nav-badges.js`'s `res.data.items` was always `undefined` and the Continue-session
+      card silently never rendered — caught by actually creating a session and checking the live
+      DOM via `scripts/cdp.py`, not by assuming the API shape. Also fixed in passing:
+      `.primary` was previously scoped as `button.primary` in app.css, which never matched
+      `<a class="btn primary">` (recipes.js's "+ Add recipe" link) — an existing, unnoticed gap,
+      fixed by dropping the tag qualifier. Suite **535 pass** (532 backend + 3 frontend
+      regression, unaffected by this chunk). Live headless-CDP verification at phone width
+      (390×896) and desktop (1280×900), explicit light and dark: emoji icons render, nav badges
+      show/hide correctly, the Continue card shows both a real label and the null-label
+      `Session #<id>` fallback, dark resolves to `#7db0e0` / light to `#1f6b63` with zero console
+      errors, and recipes/plan/settings/diagnostics all still render cleanly (confirms the
+      app.css trim broke nothing outside this chunk's scope).
+      **Known, expected gaps, not bugs**: dark mode has no toggle UI yet (ships in Chunk 6.4);
+      a handful of not-yet-migrated `app.css` sections (dup-warn, pending-AI badge, have-toggle,
+      log tail) still use hardcoded light-only hex, so they won't look right in dark mode until
+      their own chunk migrates them — not user-reachable yet since there's no toggle. The
+      "Recipes" nav-badge slot exists in markup but is deliberately unwired (pending-AI-processing
+      detection is Chunk 6.2's own job, a recipes-domain question).
+      **Process note, worth recording**: this chunk's files were found already committed as a WIP
+      checkpoint (`8811614`) by a concurrent session working on unrelated deploy-script changes
+      in the same working directory, which needed a clean git tree for its own testing and
+      committed this session's in-progress work rather than losing it. Confirmed via diff that
+      nothing diverged — the checkpoint was this session's own pre-verification code, continued
+      normally. Flagging because it's a real, repeatable gotcha for this project's workflow (see
+      memory `anylist-fault-finding-spike-2026-09-18.md`'s "concurrent sessions" note), not
+      because anything here needed reconciling.
 - [ ] **Chunk 6.2 — Recipe & capture screens.** Apply the Chunk 6.1 design across `recipes.js`,
       `recipe-form.js`, `recipe-edit.js`, `capture.js`, `capture-review.js`. A visible
       progress/step indicator during the AI capture calls (extraction → substitution flagging →
