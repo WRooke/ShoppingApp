@@ -50,6 +50,22 @@ are load-bearing here, the last two from live-verification against the real API 
     add's own item message — safe, and the mechanism this finding doesn't touch) but does
     **not** update on a later push to an item that's already on the list — a real, accepted
     limitation, not a bug left unfixed by oversight. See CLAUDE.md > AnyList Push Logic.
+  * **The field-21/18 split above does NOT explain AnyList's own app showing "Not set."**
+    2026-09-18 fault-finding (docs/build-status/anylist-fault-finding-spike.md) live-tested the
+    theory that AnyList's list-view quantity chip specifically needs field 21 — a phone check
+    falsified it: a field-18-only item displayed its quantity correctly. What's real instead:
+    a fraction of ``set-list-item-quantity``/``add-shopping-list-item`` calls intermittently
+    persist **nothing at all** (both fields empty afterward, HTTP 200 either way) — see
+    ``add_or_increment_items()``'s retry loop below (``_MAX_RETRIES``), added 2026-09-19 once
+    this was characterized at realistic scale (see the spike doc's reliability-investigation
+    addendum for the measured rate and what triggers it).
+  * **A successful add must write its new identifier back onto the caller's own state.**
+    2026-09-18 fault-finding, mechanism #3: without this, a checklist row that was just freshly
+    added has no way to know it's now on the list, so a same-session re-push (in particular the
+    checklist screen's own "already pushed, push again?" retry, which never reloads first) adds
+    it a second time as a duplicate. Fixed 2026-09-19: every add's identifier is returned via
+    ``PushResult.added_ids`` (name -> new id); ``checklist.push_to_anylist()`` writes it back
+    onto the checklist row immediately. See CLAUDE.md > AnyList Push Logic.
 
 Safety (CLAUDE.md > Security §2, mirrors §0c for the AI): every real call is gated on
 ``settings.anylist_enabled`` (default off — no agent flips it). ``settings.anylist_fake_mode``
@@ -63,6 +79,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -88,6 +105,16 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.anylist.com"
 _TIMEOUT = 15.0
+
+# 2026-09-18/19 fault-finding (docs/build-status/anylist-fault-finding-spike.md): a fraction of
+# set-list-item-quantity/add-shopping-list-item calls intermittently persist nothing at all -- a
+# real AnyList-side failure, HTTP 200 either way, no reliably identified trigger. A bounded
+# retry-on-discrepancy turns this from a silent, user-visible data loss into either a
+# self-healing no-op or a clearly surfaced discrepancy -- see add_or_increment_items(). See the
+# spike doc's 2026-09-19 reliability-investigation addendum for the retry's measured
+# effectiveness at realistic scale.
+_MAX_RETRIES = 2
+_RETRY_BACKOFF_S = 1.0
 
 
 # --- public types ---------------------------------------------------------------------
@@ -118,6 +145,17 @@ class PushResult:
     confirmed: bool = False                            # re-fetch + diff matched intent
     discrepancies: list[str] = field(default_factory=list)
     raw_response: str | None = None                    # for shopping_history / diagnostics
+    added_ids: dict[str, str] = field(default_factory=dict)
+    # name -> the new AnyList-assigned identifier, for every item added this call. checklist.py
+    # writes this back onto the checklist row (already_on_anylist/anylist_item_id) so a later
+    # push -- in particular the UI's own "already pushed, push again?" retry, which doesn't
+    # reload first -- updates that item instead of re-adding it as a duplicate. See the
+    # 2026-09-18 fault-finding spike's mechanism #3 (docs/build-status/
+    # anylist-fault-finding-spike.md).
+    retried: list[str] = field(default_factory=list)
+    # names that needed at least one retry (see _MAX_RETRIES above) before confirming -- kept
+    # here rather than only logged so real-world frequency is visible through
+    # shopping_history/diagnostics without needing another spike.
 
 
 @dataclass(frozen=True)
@@ -272,8 +310,9 @@ class _RealAnyList:
         target = self._resolve_list(list_name)
         before = {i.identifier: i for i in target.items}
         result = PushResult()
-        # (op_kind, identifier, expected_qty, expected_note) — note checked too now (Chunk 5.7).
-        planned: list[tuple[str, str, str | None, str | None]] = []
+        # (op_kind, identifier, expected_qty, expected_note, name, rebuild) — `rebuild` recreates
+        # this exact op's bytes, used both for the initial send and any retry (see below).
+        planned: list[tuple[str, str, str | None, str | None, str, "Callable[[], bytes]"]] = []
         raw_responses: list[str] = []
 
         def _post_one(op: bytes) -> None:
@@ -285,12 +324,14 @@ class _RealAnyList:
 
         for it in items:
             if it.existing_id and it.existing_id in before:
-                _post_one(_build_operation(
-                    handler_id="set-list-item-quantity",
-                    list_id=target.identifier,
-                    list_item_id=it.existing_id,
-                    updated_value=it.quantity or "",
-                ))
+                def rebuild(it=it):
+                    return _build_operation(
+                        handler_id="set-list-item-quantity",
+                        list_id=target.identifier,
+                        list_item_id=it.existing_id,
+                        updated_value=it.quantity or "",
+                    )
+                _post_one(rebuild())
                 # NOT syncing details here — reverted after live-verification found a second,
                 # nastier bug: once ANY set-list-item-details op has touched an item, every
                 # subsequent set-list-item-quantity op for that SAME item silently fails
@@ -306,21 +347,25 @@ class _RealAnyList:
                 # push (still embedded in the add's own item message, safe and confirmed
                 # working) but does NOT update on a later push to the same still-listed item —
                 # documented limitation, not solved. See CLAUDE.md > AnyList Push Logic.
-                planned.append(("update", it.existing_id, it.quantity or "", None))
+                planned.append(("update", it.existing_id, it.quantity or "", None, it.name, rebuild))
                 result.updated.append(it.name)
             else:
                 new_id = uuid.uuid4().hex
-                _post_one(_build_operation(
-                    handler_id="add-shopping-list-item",
-                    list_id=target.identifier,
-                    list_item_id=new_id,
-                    item_wire=_item_to_wire(
-                        identifier=new_id, list_id=target.identifier,
-                        name=it.name, quantity=it.quantity, details=it.note,
-                    ),
-                ))
-                planned.append(("add", new_id, it.quantity, it.note))
+
+                def rebuild(it=it, new_id=new_id):
+                    return _build_operation(
+                        handler_id="add-shopping-list-item",
+                        list_id=target.identifier,
+                        list_item_id=new_id,
+                        item_wire=_item_to_wire(
+                            identifier=new_id, list_id=target.identifier,
+                            name=it.name, quantity=it.quantity, details=it.note,
+                        ),
+                    )
+                _post_one(rebuild())
+                planned.append(("add", new_id, it.quantity, it.note, it.name, rebuild))
                 result.added.append(it.name)
+                result.added_ids[it.name] = new_id
 
         if not planned:
             result.confirmed = True
@@ -328,23 +373,49 @@ class _RealAnyList:
 
         result.raw_response = "; ".join(raw_responses)
 
-        after = {i.identifier: i for i in self._resolve_list(list_name).items}
-        for kind, ident, expected_qty, expected_note in planned:
-            got = after.get(ident)
-            if got is None:
-                result.discrepancies.append(f"{kind} {ident} did not land")
-                continue
-            if expected_qty and got.quantity != expected_qty:
-                result.discrepancies.append(
-                    f"{kind} {ident}: quantity is {got.quantity!r}, expected {expected_qty!r}"
-                )
-            if expected_note and got.note != expected_note:
-                result.discrepancies.append(
-                    f"{kind} {ident}: note is {got.note!r}, expected {expected_note!r}"
-                )
+        def _check(subset) -> dict[str, str]:
+            """ident -> discrepancy string, for `subset` entries still wrong after a fresh
+            fetch. A full-list re-fetch either way (matches the pre-retry behaviour) — the
+            `subset` only narrows which entries are checked, not what's fetched."""
+            after = {i.identifier: i for i in self._resolve_list(list_name).items}
+            bad: dict[str, str] = {}
+            for kind, ident, expected_qty, expected_note, _name, _rebuild in subset:
+                got = after.get(ident)
+                if got is None:
+                    bad[ident] = f"{kind} {ident} did not land"
+                    continue
+                if expected_qty and got.quantity != expected_qty:
+                    bad[ident] = f"{kind} {ident}: quantity is {got.quantity!r}, expected {expected_qty!r}"
+                    continue
+                if expected_note and got.note != expected_note:
+                    bad[ident] = f"{kind} {ident}: note is {got.note!r}, expected {expected_note!r}"
+            return bad
+
+        bad = _check(planned)
+        outstanding = [p for p in planned if p[1] in bad]
+        # 2026-09-18/19 fault-finding: a fraction of ops silently persist nothing at all (real
+        # AnyList-side flakiness, not a bug in what this app sends — see _MAX_RETRIES' comment
+        # above). Retry just the still-wrong items, each with its own fresh confirm, before
+        # giving up — turns a silent loss into either a self-heal or a clearly surfaced
+        # discrepancy, never both invisible and wrong.
+        for attempt in range(_MAX_RETRIES):
+            if not outstanding:
+                break
+            logger.warning(
+                "AnyList push: retry %d/%d for %d item(s): %s",
+                attempt + 1, _MAX_RETRIES, len(outstanding), [p[4] for p in outstanding],
+            )
+            time.sleep(_RETRY_BACKOFF_S)
+            for p in outstanding:
+                _post_one(p[5]())
+                result.retried.append(p[4])
+            bad = _check(outstanding)
+            outstanding = [p for p in outstanding if p[1] in bad]
+
+        result.discrepancies = list(bad.values())
         result.confirmed = not result.discrepancies
         if not result.confirmed:
-            logger.error("AnyList push not fully confirmed: %s", result.discrepancies)
+            logger.error("AnyList push not fully confirmed after retries: %s", result.discrepancies)
         return result
 
 
@@ -394,8 +465,12 @@ class _FakeAnyList:
                 new_id = f"fake-{uuid.uuid4().hex[:8]}"
                 lst[new_id] = AnyListItem(new_id, it.name, it.quantity, False, it.note)
                 result.added.append(it.name)
+                result.added_ids[it.name] = new_id
         result.confirmed = True
         result.raw_response = "FAKE MODE"
+        # never fails, so `retried` stays empty -- fake mode doesn't model the real connector's
+        # intermittent-silent-failure quirk (see _MAX_RETRIES' comment), only its confirmed
+        # behaviour.
         return result
 
 

@@ -197,11 +197,111 @@ at all) already covers the only thing this app's own code could break; whether A
 independently resets checked state on any write remains unconfirmed and is low-priority given
 that.
 
+## 2026-09-19 reliability investigation — the real mechanism, at realistic scale
+
+Follow-up to the correction above, per the maintainer's request to fully understand and fix all
+three mechanisms, "however long it takes." Session-wide live-testing authorization from
+2026-09-18 carried into this continuation (same session), still strictly TestList-only.
+
+**Method.** `spike/anylist_reliability_investigation.py` (committed, throwaway) drove the real
+app pipeline (recipe → session → consolidate → `load_checklist` → `push_to_anylist`) through 10
+simulated "weekly" cycles over a ~28-item synthetic grocery list (20 "core" items present every
+cycle, 8 "occasional" items alternating in/out), instrumenting the live connector to log full
+HTTP forensics (status, headers, body length, timing) on **every** call, not just non-200s.
+A separate controlled experiment (A3) then re-tested the Chunk 5.7 "`set-list-item-details`
+permanently corrupts quantity" finding: a details-touched group vs. a quantity-only control
+group, same volume each. Total: 939 real HTTP calls in ~12 minutes.
+
+### The failures are neither random nor batch-wide — they're per-item and (so far) permanent
+
+Every cycle from cycle 2 onward, the **exact same 13 of 20 core items** (`Rx-Bread`,
+`Rx-Broccoli`, `Rx-Butter`, `Rx-Cheddar Cheese`, `Rx-Chicken Breast`, `Rx-Garlic`, `Rx-Ginger`,
+`Rx-Greek Yoghurt`, `Rx-Milk`, `Rx-Olive Oil`, `Rx-Pasta`, `Rx-Soy Sauce`, `Rx-Spinach`) came
+back with **no quantity in either protobuf field at all** — while the other 7 core items
+(`Rx-Onion`, `Rx-Brown Rice`, `Rx-Carrot`, `Rx-Eggs`, `Rx-Tomato`, `Rx-Capsicum`, `Rx-Lemon`)
+updated correctly **every single cycle, 9/9**. Several "occasional" items showed the same
+split. This is not the "rare, ~5%" impression the original spike gave from 3 data points — at
+realistic volume it's closer to **65% of items, and once an item starts failing it never
+recovers on its own**: cycle 1 (every item's first-ever touch, an ADD) was 100% clean; cycle 2
+(every core item's FIRST update) is where the split first appears, and it holds identically for
+every cycle after that. Fresh adds were 100% reliable throughout the entire run — every
+single failure was on `set-list-item-quantity`, never on `add-shopping-list-item`.
+
+**Confirmed with a dedicated follow-up, directly targeting one of the caught items
+(`Rx-Milk`):**
+- **Retrying the identical op does not help.** 4 separate calls, each with the app's own new
+  retry logic (Phase B1 below) attempting up to 2 retries per call — **12 total write attempts,
+  12 failures, 0 successes.** This item is not intermittently flaky; `set-list-item-quantity`
+  is completely non-functional for it.
+- **Delete + re-add under a brand-new id recovers it — but only for one call.** Removing the
+  item and re-adding it worked immediately (quantity landed correctly, field 21 present, clean
+  state) — consistent with adds being 100% reliable throughout. But the very next
+  `set-list-item-quantity` call against that **brand-new identifier** failed immediately too.
+  Whatever determines "cursed," it isn't tied to the old identifier alone — it reappeared
+  instantly under a new one, for the same item name, in the same account, in the same live
+  session.
+
+**What's still genuinely unresolved: is "cursed" permanent (tied to the item's name/account
+state), or is the whole account currently sitting in a rate-limited/degraded state from an
+unusually dense burst of testing (939 calls in ~12 minutes, then dozens more in the immediate
+follow-ups)?** Both explanations fit the data collected so far equally well, and only time (a
+low-volume re-test well after this session, ideally the next day) can tell them apart — a
+same-session re-test can't, since the account may still be in whatever state it's in right now.
+Two observations lean toward *some* form of rate/load sensitivity rather than a purely static
+per-item property: read timeouts (previously rare — 2 across the whole 2026-09-18 spike) became
+frequent during and after the densest part of this run (16 timeouts total, clustered around
+cycle 10 and the A3 experiment's start), and A3's controlled comparison — run immediately after
+the worst of the cycle simulation — came back **clean: 0 failures in 90 calls for the
+details-touched group AND 0 failures in 90 calls for the control group.** If failures were a
+fixed property of specific items regardless of load, A3's control group (quantity-only updates
+on brand-new items) should have shown some failures too, roughly matching the ~65% rate seen
+moments earlier — it didn't. That's consistent with the account having been in an active
+degraded window specifically during the cycle simulation's densest stretch, not a permanent
+per-item curse — but it's also consistent with A3's specific items simply not being among
+whichever subset is "cursed" (a real possibility given the deterministic-looking item split).
+**Not resolved either way yet.**
+
+A3's clean result does mean: **no evidence survives that `set-list-item-details` specifically
+corrupts quantity** — the control and detail-touched groups behaved identically. Combined with
+how closely this matches the pattern of the 2026-09-10 finding this project already knows was a
+misdiagnosis of a different bug, the Chunk 5.7 "details corrupts quantity forever" finding
+looks like it was very likely **also** a misdiagnosis of this same general update-reliability
+issue, encountered by coincidence right after testing details. Not proven beyond doubt (see the
+unresolved question above), but the balance of evidence no longer supports treating it as an
+established, permanent AnyList behaviour.
+
+### Fixes implemented 2026-09-19 (see `app/services/anylist_client.py`, `app/services/checklist.py`)
+
+- **B3 — duplicate-on-repush (mechanism #3): fixed.** `PushResult.added_ids` (name → new AnyList
+  identifier) is now populated on every add; `checklist.push_to_anylist()` writes it back onto
+  the checklist row immediately. Covered by new offline tests
+  (`test_force_repush_does_not_duplicate_a_freshly_added_item` and others).
+- **B1 — retry-with-reconfirm: implemented, but demonstrably insufficient on its own for the
+  dominant failure mode above.** `add_or_increment_items()` now retries a still-wrong item's
+  exact op up to twice more before surfacing a discrepancy. This *is* real, tested, and does no
+  harm — but per the `Rx-Milk` follow-up, a cursed item fails all 3 attempts (initial + 2
+  retries) every time. It will help if any of the observed failures turn out to be genuinely
+  transient once the account is retested at a calmer load; it will not, on its own, fix an item
+  that's actually in the "cursed" state.
+- **B2 — notes on update: not yet changed.** Blocked on the same open question above — sending
+  `set-list-item-details` on every update is reasonable **if** the corruption finding really was
+  a misdiagnosis, but risky to ship while that's still not fully settled.
+
+### Open decision for the maintainer
+
+The only mechanism confirmed (twice, live) to reliably restore a cursed item's quantity is
+**delete + re-add under a new identifier** — which was deliberately avoided for routine pushes
+back at Chunk 5.7 because it resets `checked` to false and would silently discard any note a
+future fix might set, i.e. it can undo a household member's own manual edits on that AnyList
+item. Given how common "cursed" items turned out to be at realistic scale, this tradeoff is worth
+revisiting rather than assuming: this needs the maintainer's call, not a unilateral choice —
+see the chat for the specific question and options.
+
 ## What this spike does not do
 
-No production code changes were made — this was fault-finding only, per the plan. Mechanism #1
-(the original "Not set" symptom) is **not fully explained yet** — the field-21 theory is
-falsified, the write-failure theory is plausible but not caught in the act on a phone. Whether
-that's worth chasing further (it's rare, per probe 3 and the ~35 unsuccessful repro attempts
-today), and how to fix mechanisms #2 and #3, are separate decisions for the maintainer once this
-write-up has been read.
+Mechanism #2 (notes on update) is unchanged from the accepted, documented limitation — still not
+fixed, pending the open question above. Mechanism #1's exact trigger (permanent per-item state
+vs. temporary account-wide load sensitivity) is still not fully settled — the next concrete step
+is a low-volume live re-test well after this session, once whatever state the account is
+currently in has had time to change, rather than more testing right now while that state itself
+is the open question.

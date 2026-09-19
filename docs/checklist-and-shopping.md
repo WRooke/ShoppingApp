@@ -59,7 +59,16 @@ On push:
      display string, not a number, so our computed quantity replaces it. The household may
      also edit that item by hand between pushes; this is accepted (our list is the derived
      shopping quantity).
-   - Otherwise: add as a new item (client-generated UUID identifier, per the spike).
+   - Otherwise: add as a new item (client-generated UUID identifier, per the spike). **Fixed
+     2026-09-19** (fault-finding spike mechanism #3,
+     [docs/build-status/anylist-fault-finding-spike.md](./build-status/anylist-fault-finding-spike.md)):
+     `push_to_anylist()` now writes the new identifier straight back onto the checklist row
+     (`already_on_anylist = True`, `anylist_item_id = <new id>`) as soon as the add is sent.
+     Before this fix, that write-back never happened, so a re-push of the same session before
+     its next `load_checklist()` call — exactly what the checklist screen's own "already
+     pushed, push again?" retry does — had no way to know the ingredient was already there and
+     added it a second time. Reproduces every time an ingredient is new on the first push,
+     confirmed live; not an edge case.
 2. Item name: `ingredient_name` `.title()`-cased; a usual uses its own name.
 3. **Item quantity and note (reworked at Chunk 5.7 live-verification, 2026-09-12, per the
    maintainer's request).** `services/checklist.py > _anylist_quantity()` sends the plain
@@ -87,6 +96,16 @@ On push:
    either). A push of N items is therefore N sequential requests, each individually
    **re-fetch + diff**-confirmed together at the end (an HTTP 200 alone is not proof — spike
    finding #3). `confirmed` / `discrepancies` are recorded and returned.
+   **Retry added 2026-09-19** (fault-finding spike mechanism #1,
+   [docs/build-status/anylist-fault-finding-spike.md](./build-status/anylist-fault-finding-spike.md)):
+   a fraction of `set-list-item-quantity`/`add-shopping-list-item` calls were found to
+   intermittently persist nothing at all — a real AnyList-side failure, HTTP 200 either way,
+   with no identified trigger on our side. Any item still wrong after the initial confirm-diff
+   now gets its exact op resent up to `_MAX_RETRIES` (2) more times, each with its own fresh
+   confirm, before it's allowed to become a real discrepancy — see the spike doc's 2026-09-19
+   reliability-investigation addendum for what this looked like at realistic scale. `retried`
+   (names that needed at least one retry) is recorded on the result alongside
+   `confirmed`/`discrepancies` so real-world frequency stays visible without another spike.
 5. On completion: set `planning_sessions.status = 'pushed'` + `pushed_at`, stamp
    `usual_items.last_added_at` for any pushed usuals, and write one `shopping_history` row
    (`items_json` snapshot + `anylist_response_json` = the raw response summary +

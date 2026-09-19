@@ -141,6 +141,19 @@ def test_fake_mode_add_and_update(monkeypatch):
     assert sum(1 for i in ac.get_items() if i.name == "milk") == 1
 
 
+def test_fake_mode_add_populates_added_ids(monkeypatch):
+    """2026-09-19 fix (Phase B3): `added_ids` must be populated in fake mode too, since
+    checklist.py reads it regardless of real/fake -- and most of the test suite runs fake."""
+    _fake_mode(monkeypatch)
+    monkeypatch.setattr(ac.settings, "anylist_target_list_name", "TestList", raising=False)
+
+    res = ac.add_or_increment_items([PushItem(name="passata", quantity="400g")])
+    assert res.added_ids.keys() == {"passata"}
+    new_id = res.added_ids["passata"]
+    assert next(i for i in ac.get_items() if i.name == "passata").identifier == new_id
+
+
+
 # --- real client over a mock transport ----------------------------------
 
 
@@ -479,6 +492,70 @@ def test_update_op_never_carries_a_checked_field():
     fields = _decode_message(op)
     assert 4 in fields  # the quantity value itself
     assert 6 not in fields  # no embedded item message -> no checked bit, no name, nothing else
+
+
+def test_real_update_retries_once_and_recovers(monkeypatch):
+    """2026-09-19 fix (Phase B1, docs/build-status/anylist-fault-finding-spike.md): a fraction
+    of set-list-item-quantity calls silently persist nothing at all (confirmed live, real
+    AnyList-side flakiness). The connector now retries a still-wrong item instead of surfacing
+    a discrepancy on the first confirm-refetch. This mock server rejects the first attempt
+    (state doesn't change) and accepts the retry -- proves the retry both fires and stops once
+    the item is actually correct."""
+    calls = {"gets": 0, "posts": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            calls["gets"] += 1
+            # call 1: pre-push state. call 2: after the FIRST post -- simulate the silent
+            # failure (quantity unchanged). call 3+: after the retry -- now correct.
+            qty = "5L" if calls["gets"] >= 3 else "2L"
+            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", qty)]))
+        if request.url.path == "/data/shopping-lists/update":
+            calls["posts"] += 1
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)  # don't slow the test down
+    res = ac.add_or_increment_items(
+        [PushItem(name="Milk", quantity="5L", existing_id="existing1")], list_name="TestList"
+    )
+
+    assert res.confirmed is True and not res.discrepancies
+    assert res.retried == ["Milk"]
+    assert res.updated == ["Milk"]
+    assert calls["posts"] == 2  # initial attempt + exactly one retry, no more
+    assert calls["gets"] == 3  # pre-push + post-initial-check + post-retry-check
+
+
+def test_real_update_gives_up_after_exhausting_retries(monkeypatch):
+    """The mirror case: the mock server never accepts the update at all. Confirms the retry
+    loop is bounded (_MAX_RETRIES) and still ends with a real, surfaced discrepancy -- never
+    silently drops it just because a retry was attempted."""
+    calls = {"posts": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", "2L")]))
+        if request.url.path == "/data/shopping-lists/update":
+            calls["posts"] += 1
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)
+    res = ac.add_or_increment_items(
+        [PushItem(name="Milk", quantity="5L", existing_id="existing1")], list_name="TestList"
+    )
+
+    assert res.confirmed is False
+    assert res.retried == ["Milk"] * ac._MAX_RETRIES
+    assert res.discrepancies and "quantity is" in res.discrepancies[0]
+    assert calls["posts"] == 1 + ac._MAX_RETRIES  # initial + every retry attempted
 
 
 def test_real_get_items_unknown_list_raises(monkeypatch):

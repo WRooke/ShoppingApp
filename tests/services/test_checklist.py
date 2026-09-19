@@ -241,6 +241,40 @@ def test_push_refuses_a_second_push_without_force(db):
     # force overrides
     again = checklist_service.push_to_anylist(db, s.id, force=True)
     assert again["session_id"] == s.id
+    # 2026-09-18 fault-finding, mechanism #3: the force-repush above must have UPDATED the same
+    # AnyList item the first push created, not added a second "Passata" — see the dedicated
+    # test below for the full trace of why this used to fail.
+    assert "Passata" in again["updated"] and "Passata" not in again["added"]
+    assert sum(1 for i in anylist_client.get_items() if i.name == "Passata") == 1
+
+
+def test_force_repush_does_not_duplicate_a_freshly_added_item(db):
+    """2026-09-18 fault-finding, mechanism #3 (docs/build-status/anylist-fault-finding-spike.md):
+    push_to_anylist() used to never write already_on_anylist/anylist_item_id back onto a
+    checklist row after a successful add, so a force-repush BEFORE the next load_checklist()
+    call -- exactly what the UI's own "already pushed, push again?" retry does
+    (static/js/checklist.js:273-305), no reload in between -- had no way to know the ingredient
+    was already there and added it again as a duplicate. Reproduces the exact sequence probe 8
+    of the live spike caught: push, force-repush, no intervening load_checklist()."""
+    s = _session_with_items(
+        db, [{"name": "brand new ingredient", "quantity": 2, "unit": "kg"},
+             {"name": "milk", "quantity": 1, "unit": "L"}]  # already on the fake list from the start
+    )
+    checklist_service.load_checklist(db, s.id)
+    for ci in s.checklist_items:
+        checklist_service.update_item(db, s.id, ci.id, have_it="no")
+
+    first = checklist_service.push_to_anylist(db, s.id)
+    assert "Brand New Ingredient" in first["added"] and "Milk" in first["updated"]
+
+    second = checklist_service.push_to_anylist(db, s.id, force=True)  # no reload in between
+    assert "Brand New Ingredient" in second["updated"]  # now recognised, not re-added
+    assert "Brand New Ingredient" not in second["added"]
+    assert "Milk" in second["updated"]
+
+    on_list = [i.name for i in anylist_client.get_items()]
+    assert on_list.count("Brand New Ingredient") == 1
+    assert on_list.count("milk") == 1
 
 
 def test_push_includes_and_stamps_selected_usuals(db):

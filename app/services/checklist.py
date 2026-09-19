@@ -294,6 +294,18 @@ def push_to_anylist(
     added_ingredients = [n for n in result.added if n not in usual_names]
     updated_ingredients = [n for n in result.updated if n not in usual_names]
 
+    # 2026-09-18 fault-finding, mechanism #3 (docs/build-status/anylist-fault-finding-spike.md):
+    # without this, a checklist row that was just freshly ADDED stays already_on_anylist=False
+    # (load_checklist() only ever sets it from an AnyList fetch that happened BEFORE this push),
+    # so any push after this one -- in particular the UI's own "already pushed, push again?"
+    # retry (static/js/checklist.js), which never reloads first -- treats it as new again and
+    # duplicates it. `push_items[: len(to_push)]` lines up 1:1 with `to_push` (usuals are always
+    # appended after); only entries that were a fresh add (`existing_id is None`) need this.
+    for ci, pi in zip(to_push, push_items[: len(to_push)]):
+        if pi.existing_id is None and pi.name in result.added_ids:
+            ci.already_on_anylist = True
+            ci.anylist_item_id = result.added_ids[pi.name]
+
     session.status = "pushed"
     session.pushed_at = utcnow()
     if due_usuals:
