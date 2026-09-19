@@ -417,6 +417,43 @@ make a deterministically-rejected value succeed. What ships next — a different
 workaround, the delete+re-add fallback, or documenting this as an accepted, understood
 limitation — is an open conversation with the maintainer, not a unilateral engineering choice.
 
+## 2026-09-20 — Phase A: the unexplored fields (`packageSizePb` / `priceQuantityPb` / `ingredients`)
+
+Given the UPDATE path is a confirmed dead end, the maintainer asked to check three fields in
+AnyList's real schema (found via the reference package's own `lib/definitions.json`) this app
+had never tried at all, before falling back to a delete+re-add strategy.
+
+**`packageSizePb` — genuinely promising for display, a dead end for update.**
+`ListItem.packageSizePb` (`PBItemPackageSize`: `size`/`unit`/`packageType`/`rawPackageSize`,
+the same "raw text + parsed parts" shape as the fixed `quantityPb`) was set on a fresh add with
+*no* `quantityPb` at all. **Phone-confirmed: it displays on the main list view exactly like a
+normal quantity chip** — `UF-PackageSizeOnly (2 x 500g pack)`, the literal `rawPackageSize`
+text, in the same parenthetical slot quantity normally occupies. This is a real, previously
+unknown display mechanism.
+
+It does not solve the update problem, though. No handler for it exists anywhere in the
+reference library (checked every `.js` file, not just `item.js`'s `OP_MAPPING`) — three
+approaches were tried live, 4 reps each: a guessed handler (`set-list-item-package-size`) with
+a flat value, the same guessed handler with a full item-message embed, and reusing the existing
+`set-list-item-quantity` handler with a `packageSizePb`-carrying item embed (testing whether
+that handler processes *any* embedded field generically, not just `quantityPb`). **All three:
+0/4, clean and consistent — no HTTP errors, just no effect.** A `PBItemQuantityAndPackageSize`
+combined message type also exists in the schema but is never referenced as a field anywhere in
+the item/operation structures — it's not a hidden update mechanism, almost certainly a
+request/response shape for some unrelated endpoint (a barcode/product-lookup guess, unconfirmed
+and not worth chasing further). `packageSizePb` has the *exact same* limitation shape as
+`quantityPb`: fine on add, no known way to update — doesn't change Phase B's design at all,
+since quantity already works fine on add too.
+
+**`priceQuantityPb` — ruled out.** Set on a fresh add with no `quantityPb`, phone-confirmed to
+show **nothing** anywhere in the app. Explicitly a price-tracking field, not a display one, as
+expected going in. Not pursued further.
+
+**`ingredients` (`PBItemIngredient`, repeated)** — not yet tested live; its own fields
+(`ingredient`, `recipeId`) confirm it's AnyList's recipe-linking structure, not a general
+shopping-list quantity mechanism. Per the plan, only worth pursuing if there's still appetite
+after `packageSizePb` and `priceQuantityPb` both came up empty for update reliability.
+
 ## What this spike does not do
 
 Mechanism #2 (notes on update) is unchanged from the accepted, documented limitation — still not
