@@ -53,22 +53,35 @@ On push:
 1. Collect `session_checklist_items` where `add_to_list = True` **OR** `have_it = 'no'`
    (the checklist tap sets `add_to_list` when you tap to "need it", so in practice these
    coincide), plus any ticked **due "usuals"**.
-   - If `already_on_anylist = True` AND `anylist_item_id` is set: **update the existing item
-     in place** (`set-list-item-quantity`) rather than adding a duplicate. Note "increment"
-     from the original plan can't be literal — AnyList's quantity field holds a freetext
-     display string, not a number, so our computed quantity replaces it. The household may
-     also edit that item by hand between pushes; this is accepted (our list is the derived
-     shopping quantity).
-   - Otherwise: add as a new item (client-generated UUID identifier, per the spike). **Fixed
-     2026-09-19** (fault-finding spike mechanism #3,
-     [docs/build-status/anylist-fault-finding-spike.md](./build-status/anylist-fault-finding-spike.md)):
-     `push_to_anylist()` now writes the new identifier straight back onto the checklist row
-     (`already_on_anylist = True`, `anylist_item_id = <new id>`) as soon as the add is sent.
-     Before this fix, that write-back never happened, so a re-push of the same session before
-     its next `load_checklist()` call — exactly what the checklist screen's own "already
-     pushed, push again?" retry does — had no way to know the ingredient was already there and
-     added it a second time. Reproduces every time an ingredient is new on the first push,
-     confirmed live; not an edge case.
+   - If `already_on_anylist = True` AND `anylist_item_id` is set, and the computed quantity is a
+     **bare AnyList-native count** (no unit, e.g. `"3"`): **update the existing item in place**
+     (`set-list-item-quantity`) — proven reliable for this shape, both live and at realistic
+     scale.
+   - If the same is true but the quantity has a **unit** (`"500 g"`, `"1.5 L"`, or a
+     non-numeric coarse-ingredient string) — the common case, since most ingredients here have
+     a unit: **replace the item** instead — delete it and add a fresh one under a new
+     identifier. **Fixed 2026-09-20** (fault-finding spike, full trail in
+     [docs/build-status/anylist-fault-finding-spike.md](./build-status/anylist-fault-finding-spike.md)'s
+     2026-09-19/20 addenda): `set-list-item-quantity` was root-caused as a genuine AnyList
+     server-side limitation for anything but a bare number or the literal tokens `"kg"`/`"lb"`
+     — confirmed via an exhaustive live investigation and, decisively, by running the real
+     unmodified reference `anylist` npm package against the identical case (it fails
+     identically, ruling out a bug in this app's own implementation). ADD is 100% reliable for
+     any quantity shape, so replacing is the fix. **Checked-state and the note both carry
+     across the replace explicitly** — checked from the item's state just before the push,
+     note from the freshly computed value (an improvement over the bare-count path below, which
+     still never syncs notes). Live-confirmed (wire-level and phone-checked) that quantity,
+     note, and checked all survive intact, and re-validated at realistic scale (8 simulated
+     weekly cycles, ~24 items, zero discrepancies).
+   - Otherwise (genuinely new): add as a new item (client-generated UUID identifier, per the
+     spike). **Fixed 2026-09-19** (fault-finding spike mechanism #3): `push_to_anylist()` writes
+     the new identifier straight back onto the checklist row (`already_on_anylist = True`,
+     `anylist_item_id = <new id>`) as soon as the add — or a replace, which is also a real add
+     under the hood — is confirmed. Before this fix, that write-back never happened for a fresh
+     add, so a re-push of the same session before its next `load_checklist()` call — exactly
+     what the checklist screen's own "already pushed, push again?" retry does — had no way to
+     know the ingredient was already there and added it a second time. Reproduces every time an
+     ingredient is new on the first push, confirmed live; not an edge case.
 2. Item name: `ingredient_name` `.title()`-cased; a usual uses its own name.
 3. **Item quantity and note (reworked at Chunk 5.7 live-verification, 2026-09-12, per the
    maintainer's request).** `services/checklist.py > _anylist_quantity()` sends the plain
@@ -80,14 +93,14 @@ On push:
    conversion), combined with " · ". Example: `passata — 2 × 750 g jars · need ~1.05 kg` on
    the app's own checklist becomes AnyList quantity `"1050 g"`, note
    `"2 × 750g jars · 450 g spare"`.
-   **Known limitation, confirmed live, not solved:** a note only lands correctly on an item's
-   *first* push. Updating an existing AnyList item's note (`set-list-item-details`) was tried
-   and reverted — it reliably breaks that same item's quantity on every future update
-   (confirmed reproducible against the real API; full finding recorded on the
-   [Phase 5 Chunk 5.7](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration) entry). So a note that
-   changes between two pushes of the same still-listed ingredient (e.g. a different overage
-   next week) will **not** refresh on the real list — only the quantity does. Revisit only if
-   AnyList's behaviour here is ever independently re-verified as safe.
+   **Known limitation, still standing for bare-count items only:** a note only lands correctly
+   on an item's *first* push via the simple update path. Updating an existing AnyList item's
+   note (`set-list-item-details`) was tried and reverted — it was found (Chunk 5.7) to reliably
+   break that same item's quantity on every future update (a 2026-09-19 controlled A/B found no
+   differential failure rate on this specific claim, casting some doubt, but it hasn't been
+   re-verified enough to act on). **This limitation no longer applies to unit-bearing items** —
+   those go through the replace path above, which syncs the note as a normal side effect of a
+   real add. Only a bare-count item's note stays frozen at whatever it was on first add.
 4. **One operation per HTTP request — never batched, even across different items**
    (`services/anylist_client.py > add_or_increment_items()`, reworked at the same
    Chunk 5.7 pass). AnyList's server was found to silently drop an operation whenever a

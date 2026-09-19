@@ -50,15 +50,30 @@ are load-bearing here, the last two from live-verification against the real API 
     add's own item message — safe, and the mechanism this finding doesn't touch) but does
     **not** update on a later push to an item that's already on the list — a real, accepted
     limitation, not a bug left unfixed by oversight. See CLAUDE.md > AnyList Push Logic.
-  * **The field-21/18 split above does NOT explain AnyList's own app showing "Not set."**
-    2026-09-18 fault-finding (docs/build-status/anylist-fault-finding-spike.md) live-tested the
-    theory that AnyList's list-view quantity chip specifically needs field 21 — a phone check
-    falsified it: a field-18-only item displayed its quantity correctly. What's real instead:
-    a fraction of ``set-list-item-quantity``/``add-shopping-list-item`` calls intermittently
-    persist **nothing at all** (both fields empty afterward, HTTP 200 either way) — see
-    ``add_or_increment_items()``'s retry loop below (``_MAX_RETRIES``), added 2026-09-19 once
-    this was characterized at realistic scale (see the spike doc's reliability-investigation
-    addendum for the measured rate and what triggers it).
+  * **RESOLVED 2026-09-20 — "Not set" is a confirmed, permanent AnyList server-side limitation
+    of ``set-list-item-quantity`` for anything but a bare number.** The field-21/18 split
+    doesn't explain it (falsified by phone check, 2026-09-18: a field-18-only item displayed
+    correctly). Exhaustive live testing (a 36-cell shape×mechanism factorial, then a targeted
+    format/unit sweep, ~80 calls) found no value format survives an update except the literal
+    tokens ``"kg"``/``"lb"`` — nowhere near enough to build a fix on. Neither of AnyList's other
+    quantity-shaped fields (``packageSizePb``, ``priceQuantityPb``) offers a working update
+    path either (no handler exists for either; three tried approaches each failed cleanly).
+    **Decisive**: the real, unmodified reference ``anylist`` npm package (real ``protobufjs``
+    encoding, not this connector's hand-rolled one) fails identically on the same case, ruling
+    out a bug in this app's own wire encoding. See the fault-finding spike's 2026-09-19/20
+    addenda for the full trail. **Fix**: see the "replace" branch in
+    ``add_or_increment_items()`` below.
+  * **The fix: unit-bearing updates go through delete + re-add, not ``set-list-item-quantity``,
+    at all.** A bare AnyList-native count (no unit) stays on the original, reliable
+    ``set-list-item-quantity`` path. Anything else — the common case, since most ingredients
+    here have a unit — deletes the existing item and adds a fresh one under a new id instead,
+    since ADD is 100% reliable for any quantity shape. Checked-state and the note both carry
+    across explicitly (never silently dropped, per the maintainer's hard requirement): checked
+    from the pre-push snapshot, note from the freshly computed value (an improvement over the
+    bare-count path, which still never syncs notes — see the point above). Live-confirmed (both
+    wire-level and phone-checked) that quantity, note, and checked all survive the cycle intact,
+    and re-validated at realistic scale (8 simulated weekly cycles, ~24 items, zero
+    discrepancies — see ``spike/anylist_replace_fix_revalidation.py``).
   * **A successful add must write its new identifier back onto the caller's own state.**
     2026-09-18 fault-finding, mechanism #3: without this, a checklist row that was just freshly
     added has no way to know it's now on the list, so a same-session re-push (in particular the
@@ -100,6 +115,7 @@ from app.services.anylist_wire import (  # noqa: F401 -- re-exported, see anylis
     _item_from_wire,
     _item_to_wire,
     _parse_user_data,
+    _split_quantity,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,7 +204,9 @@ class AnyListDisabledError(Exception):
 class _PlannedOp:
     """One op `add_or_increment_items` has sent (or is about to retry) — what to check for on
     the next re-fetch, and how to resend the exact same op if it's still wrong. `kind` is
-    "add" or "update"."""
+    "add", "update" (a bare-count quantity change via `set-list-item-quantity`), or "replace"
+    (a unit-bearing quantity change, via delete + re-add under a new id — see the "replace"
+    branch below for why)."""
 
     kind: str
     ident: str
@@ -196,6 +214,7 @@ class _PlannedOp:
     rebuild: Callable[[], bytes]
     expected_qty: str | None = None
     expected_note: str | None = None
+    expected_checked: bool | None = None
 
 
 # --- real connector ---------------------------------------------------------------------
@@ -356,27 +375,77 @@ class _RealAnyList:
                 # 2026-09-20 fault-finding (Stage 1 of the reliability investigation, plus a
                 # live parity check against the real, unmodified reference `anylist` npm
                 # package — see docs/build-status/anylist-fault-finding-spike.md): no
-                # request-shape fixes this. A full item-message embed on this handler does no
-                # better than a plain value; no quantity *format* survives an update except two
-                # literal unit tokens ("kg"/"lb") that don't cover this app's actual units; and
-                # the real reference client, using real `protobufjs` encoding (not this app's
-                # hand-rolled one), fails identically on the exact same case — ruling out a bug
-                # in this app's own wire encoding. This is a confirmed AnyList server-side
-                # limitation of the `set-list-item-quantity` handler, not something any client
-                # can work around by sending it differently. Two name/note-based workarounds
-                # were prototyped and shown to the maintainer live; both rejected (cluttered
-                # name text / redundant note, and a preference for a real fix over reformatting
-                # around the bug) — no display-level workaround is applied here. The retry above
-                # remains the only mitigation actually shipped for this.
-                def rebuild(it=it):
-                    return _build_operation(
-                        handler_id="set-list-item-quantity",
-                        list_id=target.identifier,
-                        list_item_id=it.existing_id,
-                        updated_value=it.quantity or "",
-                    )
-                _post_one(rebuild())
-                planned.append(_PlannedOp("update", it.existing_id, it.name, rebuild, expected_qty=it.quantity or ""))
+                # request-shape fixes `set-list-item-quantity` for a unit-bearing value. A full
+                # item-message embed on this handler does no better than a plain value; no
+                # quantity *format* survives an update except two literal unit tokens
+                # ("kg"/"lb") that don't cover this app's actual units; the real reference
+                # client, using real `protobufjs` encoding, fails identically on the exact same
+                # case (ruling out a bug in this app's own wire encoding); and neither of
+                # AnyList's other quantity-shaped fields (`packageSizePb`, `priceQuantityPb`)
+                # offers a working update path either (Phase A of the same investigation — no
+                # handler exists for either, three live approaches each 0/4 or ruled out by
+                # what they display). Confirmed AnyList server-side limitation, not something
+                # any client can work around by sending it differently.
+                #
+                # A bare AnyList-native count (no unit, e.g. "3") is unaffected by any of the
+                # above and stays on the simple, reliable `set-list-item-quantity` path.
+                raw_q, amount, unit = _split_quantity(it.quantity or "")
+                is_bare_count = not it.quantity or (unit is None and amount == raw_q)
+                if is_bare_count:
+                    def rebuild(it=it):
+                        return _build_operation(
+                            handler_id="set-list-item-quantity",
+                            list_id=target.identifier,
+                            list_item_id=it.existing_id,
+                            updated_value=it.quantity or "",
+                        )
+                    _post_one(rebuild())
+                    planned.append(_PlannedOp("update", it.existing_id, it.name, rebuild, expected_qty=it.quantity or ""))
+                else:
+                    # 2026-09-20 fix (Phase B of the same investigation): for anything
+                    # unit-bearing, delete the old item and add a fresh one under a new id
+                    # instead — ADD is 100% reliable for any quantity shape (unlike UPDATE),
+                    # including the checked state and note, both live-confirmed (6/6) to land
+                    # correctly when set on add. The old item's checked state and note are
+                    # carried across explicitly (never silently dropped) — checked from
+                    # `before` (already known, no extra fetch), note from `it.note` (the
+                    # freshly computed value for this push, matching what a working update
+                    # would have shown rather than leaving last week's stale text). The
+                    # checklist row's own `anylist_item_id` gets updated to the new id via
+                    # `added_ids` below, same mechanism the duplicate-on-repush fix already
+                    # uses, or the *next* push would look for the now-deleted old id.
+                    old = before[it.existing_id]
+                    new_id = uuid.uuid4().hex
+
+                    def rebuild_remove(it=it):
+                        return _build_operation(
+                            handler_id="remove-shopping-list-item",
+                            list_id=target.identifier,
+                            list_item_id=it.existing_id,
+                            item_wire=_item_to_wire(
+                                identifier=it.existing_id, list_id=target.identifier,
+                                name=it.name, quantity=None,
+                            ),
+                        )
+                    _post_one(rebuild_remove())
+
+                    def rebuild_add(it=it, new_id=new_id, was_checked=bool(old.checked)):
+                        return _build_operation(
+                            handler_id="add-shopping-list-item",
+                            list_id=target.identifier,
+                            list_item_id=new_id,
+                            item_wire=_item_to_wire(
+                                identifier=new_id, list_id=target.identifier,
+                                name=it.name, quantity=it.quantity, details=it.note,
+                                checked=was_checked,
+                            ),
+                        )
+                    _post_one(rebuild_add())
+                    planned.append(_PlannedOp(
+                        "replace", new_id, it.name, rebuild_add,
+                        expected_qty=it.quantity, expected_note=it.note, expected_checked=bool(old.checked),
+                    ))
+                    result.added_ids[it.name] = new_id
                 result.updated.append(it.name)
             else:
                 new_id = uuid.uuid4().hex
@@ -417,6 +486,9 @@ class _RealAnyList:
                     continue
                 if p.expected_qty and got.quantity != p.expected_qty:
                     bad[p.ident] = f"{p.kind} {p.ident}: quantity is {got.quantity!r}, expected {p.expected_qty!r}"
+                    continue
+                if p.expected_checked is not None and got.checked != p.expected_checked:
+                    bad[p.ident] = f"{p.kind} {p.ident}: checked is {got.checked!r}, expected {p.expected_checked!r}"
                     continue
                 if p.expected_note and got.note != p.expected_note:
                     bad[p.ident] = f"{p.kind} {p.ident}: note is {got.note!r}, expected {p.expected_note!r}"
@@ -480,17 +552,25 @@ class _FakeAnyList:
         return AuthStatus(True, "FAKE MODE — no real AnyList call", utcnow())
 
     def add_or_increment_items(self, list_name: str, items: list[PushItem]) -> PushResult:
-        # Mirrors the REAL connector's confirmed behaviour (Chunk 5.7), not an idealised one:
-        # a note lands correctly on add, but an update only ever touches quantity — the note
-        # a pre-existing item already carries is left as-is. See the module docstring's
-        # set-list-item-details finding for why (a real, reproducible AnyList server bug, not
-        # an oversight here).
+        # Mirrors the REAL connector's confirmed behaviour, not an idealised one. A bare count
+        # (no unit) updates in place, note untouched (Chunk 5.7 — set-list-item-details on an
+        # existing item permanently breaks its quantity on the real API). A unit-bearing
+        # quantity instead replaces the item under a new id (2026-09-20, Phase B) — the note
+        # and checked state both carry across, since that's what the real "replace" does too.
         lst = self._list(list_name)
         result = PushResult()
         for it in items:
             if it.existing_id and it.existing_id in lst:
                 old = lst[it.existing_id]
-                lst[it.existing_id] = AnyListItem(old.identifier, old.name, it.quantity, old.checked, old.note)
+                raw_q, amount, unit = _split_quantity(it.quantity or "")
+                is_bare_count = not it.quantity or (unit is None and amount == raw_q)
+                if is_bare_count:
+                    lst[it.existing_id] = AnyListItem(old.identifier, old.name, it.quantity, old.checked, old.note)
+                else:
+                    del lst[it.existing_id]
+                    new_id = f"fake-{uuid.uuid4().hex[:8]}"
+                    lst[new_id] = AnyListItem(new_id, it.name, it.quantity, old.checked, it.note)
+                    result.added_ids[it.name] = new_id
                 result.updated.append(it.name)
             else:
                 new_id = f"fake-{uuid.uuid4().hex[:8]}"

@@ -184,10 +184,16 @@ def _item_to_wire(
     name: str | None,
     quantity: str | None,
     details: str | None = None,
+    checked: bool = False,
 ) -> bytes:
     out = _field_string(1, identifier) + _field_string(3, list_id) + _field_string(4, name)
     out += _field_string(5, details)  # AnyList's free-text "details"/notes field on an item
-    out += _field_bool(6, False)  # new items land unchecked
+    # `checked` defaults to False (a genuinely new item lands unchecked) but is overridable —
+    # 2026-09-20 fix (fault-finding spike, Phase B): the lossless delete+re-add path for
+    # unit-bearing quantity updates needs to preserve a checked item's checked state across the
+    # cycle, not silently un-tick it. Live-confirmed reliable (6/6): checked=True on add lands
+    # as checked on re-fetch.
+    out += _field_bool(6, checked)
     # 2026-09-20 fix (fault-finding spike, "Stage 1" addendum): writing quantityPb.amount alone
     # (the whole "500 g" string, non-numeric) left AnyList's own app showing "Not set" for any
     # freshly-added item with a unit — live phone-confirmed against both shapes. AnyList's apps

@@ -274,7 +274,35 @@ def test_force_repush_does_not_duplicate_a_freshly_added_item(db):
 
     on_list = [i.name for i in anylist_client.get_items()]
     assert on_list.count("Brand New Ingredient") == 1
-    assert on_list.count("milk") == 1
+    # Both ingredients resolve to a unit-bearing quantity ("2 kg" / "1 L"), so each push here
+    # goes through the "replace" path (delete + re-add under a new id, 2026-09-20 Phase B) --
+    # this is exactly what makes this test a real exercise of the anylist_item_id write-back
+    # fix above: without it, the SECOND push wouldn't know about the id the FIRST push's
+    # replace assigned, and would either fail to find it or duplicate it. "milk" (the fake
+    # seed's original lowercase name) is replaced by "Milk" (checklist.py's title-cased name)
+    # on its very first push here, same as any other freshly-replaced item.
+    assert on_list.count("Milk") == 1
+
+
+def test_replace_updates_anylist_item_id_not_just_freshly_added_items(db):
+    """2026-09-20 fix (Phase B): the anylist_item_id write-back above used to be gated on
+    `pi.existing_id is None` (a fresh add only) -- a unit-bearing update now goes through
+    "replace" under a genuinely new id too (existing_id is NOT None going in), and without
+    this fix the checklist row would keep pointing at the old, now-deleted id forever."""
+    s = _session_with_items(db, [{"name": "milk", "quantity": 1, "unit": "L"}])
+    checklist_service.load_checklist(db, s.id)  # pre-ticks milk, records the ORIGINAL fake id
+    row = s.checklist_items[0]
+    original_id = row.anylist_item_id
+    assert row.already_on_anylist is True and original_id is not None
+    checklist_service.update_item(db, s.id, row.id, have_it="no")
+
+    checklist_service.push_to_anylist(db, s.id)
+    db.refresh(row)
+
+    assert row.already_on_anylist is True
+    assert row.anylist_item_id != original_id  # moved to the replace's new id, not left stale
+    milk = next(i for i in anylist_client.get_items() if i.name == "Milk")
+    assert row.anylist_item_id == milk.identifier  # the DB row and AnyList agree on the real id
 
 
 def test_push_includes_and_stamps_selected_usuals(db):
@@ -351,8 +379,11 @@ def test_push_to_an_existing_item_drops_its_note(db):
     an item already on the list never sends a note at all. Proven here through the REAL call
     chain (router-equivalent -> checklist service -> connector), not just the connector's own
     unit tests, using an ingredient ("milk") that matches the fake-mode seeded AnyList item so
-    the push takes the update path, not the add path."""
-    s = _session_with_items(db, [{"name": "milk", "quantity": 1, "unit": "L"}])
+    the push takes the update path, not the add path. Uses a bare-count quantity (no unit)
+    deliberately -- a unit-bearing quantity now goes through the "replace" path instead
+    (2026-09-20, Phase B), which DOES sync the note; this test is specifically about the
+    still-standing limitation on the simple bare-count update path."""
+    s = _session_with_items(db, [{"name": "milk", "quantity": 3, "unit": None}])
     checklist_service.load_checklist(db, s.id)  # pre-ticks milk as already_on_anylist
     row = s.checklist_items[0]
     row.note = "to taste"

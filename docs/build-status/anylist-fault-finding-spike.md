@@ -1,5 +1,11 @@
 # AnyList fault-finding spike (2026-09-18)
 
+> **RESOLVED 2026-09-20.** All three mechanisms below have a final, live-verified fix or
+> explanation — jump to "2026-09-20 — Phase B: the fix, built, verified, and RESOLVED" near the
+> end for the outcome, or keep reading from here for the full investigative trail that got
+> there (several theories were tested and falsified along the way — that's expected, not a sign
+> anything below is wrong, just not where the story ends).
+
 Triggered by two household-reported symptoms when pushing the checklist to AnyList: notes
 rarely land, and a quantity AnyList clearly *has* (the item-detail "+" jumps from the true
 value, not from 0) shows as "Not set" in AnyList's own list view (see the Zucchini screenshots
@@ -454,11 +460,63 @@ expected going in. Not pursued further.
 shopping-list quantity mechanism. Per the plan, only worth pursuing if there's still appetite
 after `packageSizePb` and `priceQuantityPb` both came up empty for update reliability.
 
+## 2026-09-20 — Phase B: the fix, built, verified, and RESOLVED
+
+The maintainer's direction after Phase A came up empty (per the section above, `ingredients`
+was not pursued — low odds, `packageSizePb`/`priceQuantityPb` already ruled out): fall back to
+delete+re-add ("replace") scoped to unit-bearing items only, with a hard constraint —
+checked-state and notes must never be lost, not just accepted as a tradeoff.
+
+**Design.** `_RealAnyList.add_or_increment_items()`'s update branch now checks whether the
+computed quantity is a bare AnyList-native count (no unit) or not:
+- **Bare count** (`"3"`): unchanged — `set-list-item-quantity`, proven reliable, note untouched
+  (the still-standing part of mechanism #2).
+- **Unit-bearing** (`"500 g"`, `"2 × bunch"`, etc.): **replace**. Remove the existing item,
+  then add a fresh one under a new id — carrying the *new* quantity (built the `rawQuantity`
+  way, same as any other add), the *new* note (a deliberate improvement — the replace is a real
+  add under the hood, and adds sync notes correctly), and the *preserved* `checked` state read
+  from the item's state immediately before the push. `checklist.push_to_anylist()`'s existing
+  `anylist_item_id` write-back (built for mechanism #3) needed a small fix of its own here — it
+  was gated on "this was a fresh add," which a replace technically isn't (`existing_id` was set
+  going in) even though it produces a new id the same way; without the fix a replaced item's
+  checklist row would keep pointing at the now-deleted old id forever.
+
+**Verified, in order:**
+1. **Load-bearing assumption checked first, not assumed**: does `add-shopping-list-item` with
+   `checked=true` actually land as checked? Live-tested, 6/6 — yes.
+2. **Offline regression coverage**: the bare-count/replace branch decision, the confirm-diff
+   extended with a `checked` comparison (previously only quantity/note were ever checked), the
+   retry mechanism working identically for the replace path's add half, `added_ids` populated
+   for a replace the same as a fresh add, and the `anylist_item_id` write-back fix — in both
+   `tests/services/test_anylist_client.py` and `tests/services/test_checklist.py`, fake mode
+   updated to mirror the same bare-count/replace split so these are real exercises of the
+   production decision logic, not idealised approximations. Full suite: 527 pass.
+3. **Live round-trip on TestList** (`spike/anylist_replace_roundtrip_test.py`): an item added
+   with a note and `checked=true`, then pushed through a simulated "next week, different
+   unit-bearing amount" cycle. Wire-level re-fetch confirmed quantity, note, **and** checked all
+   landed correctly — **then phone-confirmed** the same three things render correctly in the
+   real AnyList app. This is the actual proof the hard constraint holds, not an assumption from
+   the design.
+4. **Realistic-scale re-validation** (`spike/anylist_replace_fix_revalidation.py`): the same
+   ~24-item synthetic grocery list and cycle style as the 2026-09-19 investigation that found
+   ~65% of items entering a permanently-broken state — re-run against the fixed connector, 8
+   simulated weekly cycles. **Zero discrepancies, every single cycle, `confirmed: true`
+   throughout** — a direct, dramatic contrast with the pre-fix baseline.
+
+**Status: RESOLVED.** All three mechanisms from the original 2026-09-18 report now have a
+final, live-verified answer:
+1. "Not set" quantity — fixed for ADD (`rawQuantity`) and, for UPDATE, worked around by design
+   (replace) since no server-side fix exists — verified end to end.
+2. Notes rarely landing — fixed for unit-bearing items (now sync via the replace's real add);
+   the accepted limitation stands only for bare-count items, unchanged and documented.
+3. Duplicate items on re-push — fixed, and the fix now also correctly covers the replace path.
+
 ## What this spike does not do
 
-Mechanism #2 (notes on update) is unchanged from the accepted, documented limitation — still not
-fixed, pending the open question above. Mechanism #1's exact trigger (permanent per-item state
-vs. temporary account-wide load sensitivity) is still not fully settled — the next concrete step
-is a low-volume live re-test well after this session, once whatever state the account is
-currently in has had time to change, rather than more testing right now while that state itself
-is the open question.
+The bare-count update path's note limitation (the surviving half of mechanism #2) is unchanged
+— still not fixed, still accepted, per the module docstring and
+[AnyList Push Logic](./checklist-and-shopping.md#anylist-push-logic). Mechanism #1's exact
+server-side trigger (why AnyList's `set-list-item-quantity` handler behaves this way at all) was
+never going to be answerable from outside AnyList's own closed-source backend — what this spike
+answers instead, definitively, is that no client-side request shape changes the outcome, and
+that the app now works around it losslessly rather than needing to know why.

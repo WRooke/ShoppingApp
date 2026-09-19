@@ -168,7 +168,7 @@ def test_fake_mode_seeds_the_target_list(monkeypatch):
     assert {"milk", "eggs", "butter"} <= names
 
 
-def test_fake_mode_add_and_update(monkeypatch):
+def test_fake_mode_add_and_bare_count_update(monkeypatch):
     _fake_mode(monkeypatch)
     monkeypatch.setattr(ac.settings, "anylist_target_list_name", "TestList", raising=False)
     existing = next(i for i in ac.get_items() if i.name == "milk")
@@ -176,7 +176,7 @@ def test_fake_mode_add_and_update(monkeypatch):
     res = ac.add_or_increment_items(
         [
             PushItem(name="passata", quantity="400g", note="to taste"),
-            PushItem(name="milk", quantity="3 x 2L", existing_id=existing.identifier, note="new note"),
+            PushItem(name="milk", quantity="3", existing_id=existing.identifier, note="new note"),
         ]
     )
     assert res.added == ["passata"] and res.updated == ["milk"]
@@ -185,12 +185,41 @@ def test_fake_mode_add_and_update(monkeypatch):
     now = {i.name: i for i in ac.get_items()}
     assert now["passata"].quantity == "400g"
     assert now["passata"].note == "to taste"  # a note lands correctly on add
-    assert now["milk"].quantity == "3 x 2L"  # updated in place, no duplicate
-    # Chunk 5.7: an update deliberately does NOT touch the note — see the module docstring's
-    # set-list-item-details finding (doing so permanently breaks that item's quantity on the
-    # real API). Fake mode mirrors this real limitation rather than an idealised behaviour.
+    assert now["milk"].quantity == "3"  # updated in place (same id), no duplicate
+    assert existing.identifier not in res.added_ids.values()  # in-place -- no new id assigned
+    # Chunk 5.7: a bare-count update deliberately does NOT touch the note — see the module
+    # docstring's set-list-item-details finding (doing so permanently breaks that item's
+    # quantity on the real API). Fake mode mirrors this real limitation rather than an
+    # idealised behaviour. A unit-bearing update goes through the "replace" path instead (see
+    # test_fake_mode_unit_bearing_update_replaces_under_a_new_id below), which DOES sync the
+    # note, since it's built on a real re-add under the hood, not this update handler.
     assert now["milk"].note is None
     assert sum(1 for i in ac.get_items() if i.name == "milk") == 1
+
+
+def test_fake_mode_unit_bearing_update_replaces_under_a_new_id(monkeypatch):
+    """2026-09-20 fix (Phase B): a unit-bearing quantity change goes through delete + re-add
+    under a new id (fake mode mirrors this, not just the real connector) — checked state
+    carries across, and unlike a bare-count update, the note DOES sync, since this is a real
+    add under the hood, not the update handler that's confirmed to never touch it."""
+    _fake_mode(monkeypatch)
+    monkeypatch.setattr(ac.settings, "anylist_target_list_name", "TestList", raising=False)
+    existing = next(i for i in ac.get_items() if i.name == "butter")  # fake-seeded pre-checked
+    assert existing.checked is True
+
+    res = ac.add_or_increment_items(
+        [PushItem(name="butter", quantity="250 g", existing_id=existing.identifier, note="soft")]
+    )
+    assert res.updated == ["butter"]
+    assert res.added_ids["butter"] != existing.identifier  # a genuinely new id
+    assert res.confirmed is True
+
+    now = next(i for i in ac.get_items() if i.name == "butter")
+    assert now.identifier == res.added_ids["butter"]
+    assert now.quantity == "250 g"
+    assert now.note == "soft"  # synced, unlike the bare-count path
+    assert now.checked is True  # preserved from the old item, never silently un-ticked
+    assert sum(1 for i in ac.get_items() if i.name == "butter") == 1  # old one is gone, not duplicated
 
 
 def test_fake_mode_add_populates_added_ids(monkeypatch):
@@ -427,15 +456,14 @@ def test_real_multi_item_push_sends_one_operation_per_post(monkeypatch):
     assert res.confirmed is True
 
 
-def test_real_update_sends_only_quantity_never_details(monkeypatch):
-    """Chunk 5.7 live-verification found a second, nastier bug behind a first attempt to fix
-    the stale-note-on-update issue: once set-list-item-details touches an item, every later
-    set-list-item-quantity op for that SAME item silently fails (confirmed reproducible —
-    field 21 AND the legacy field 18 both come back completely absent, not stale). Reverted:
-    the update path sends ONLY set-list-item-quantity, one POST, and does not attempt to sync
-    the note at all -- an accepted, documented limitation (see the module docstring), not an
-    oversight. A note still lands correctly on an item's first ADD (untouched by this)."""
-    captured = {"posts": [], "quantity": "2L"}
+def test_real_update_of_bare_count_sends_only_quantity_never_details(monkeypatch):
+    """A bare AnyList-native count (no unit) still goes through the original
+    set-list-item-quantity path — proven reliable, no need for anything heavier — and, same as
+    always, never syncs the note on that path (Chunk 5.7: set-list-item-details touching an
+    already-listed item was found to permanently corrupt its quantity). A note still lands
+    correctly on an item's first ADD (untouched by this), and — for anything unit-bearing —
+    via the replace path below, which is where note-syncing on update actually happens now."""
+    captured = {"posts": [], "quantity": "2"}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/auth/token":
@@ -455,62 +483,15 @@ def test_real_update_sends_only_quantity_never_details(monkeypatch):
 
     _real_client(monkeypatch, handler)
     res = ac.add_or_increment_items(
-        [PushItem(name="Milk", quantity="3L", existing_id="existing1", note="new note")],
+        [PushItem(name="Milk", quantity="3", existing_id="existing1", note="new note")],
         list_name="TestList",
     )
 
     assert len(captured["posts"]) == 1  # quantity only, never a details op too
     assert [ops[0][0] for ops in captured["posts"]] == ["set-list-item-quantity"]
-    assert captured["quantity"] == "3L"
+    assert captured["quantity"] == "3"
     assert res.confirmed is True
     assert res.updated == ["Milk"]
-
-
-def test_real_update_clears_field_21_and_our_confirm_still_passes(monkeypatch):
-    """Fault-finding spike (2026-09-18): pins down, as a named test rather than only a code
-    comment, the exact gap between "our app thinks this succeeded" and "the field AnyList's own
-    UI needs is gone". An item that starts with BOTH field 21 (quantityPb, what a fresh add
-    writes) and field 18 (deprecatedQuantity) gets updated via set-list-item-quantity; the
-    server's post-update state (as this connector has always found it — spike/FINDINGS.md,
-    Chunk 5.7) carries field 18 only. Our own merge-on-read (field 21 preferred, 18 fallback)
-    means `confirmed` still comes back True — that's not a bug in the confirm logic, it's the
-    reason nothing caught this sooner. See docs/build-status/anylist-fault-finding-spike.md for
-    whether AnyList's own app also needs field 21 to render its list-view quantity chip (that
-    part can only be settled live, against TestList)."""
-    item_before = (
-        _field_string(1, "existing1") + _field_string(4, "Milk")
-        + _field_string(18, "2L") + _field_message(21, _field_string(1, "2L"))
-    )
-    item_after = _field_string(1, "existing1") + _field_string(4, "Milk") + _field_string(18, "3L")
-    # sanity on the fixtures themselves: "after" really has lost field 21, "before" has both
-    assert 21 not in _decode_message(item_after)
-    assert 21 in _decode_message(item_before) and 18 in _decode_message(item_before)
-
-    def _wrap(item_bytes: bytes) -> bytes:
-        wire_list = _field_string(1, "L1") + _field_string(3, "TestList") + _field_message(4, item_bytes)
-        return _field_message(1, _field_message(1, wire_list))
-
-    state = {"gets": 0}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/auth/token":
-            return httpx.Response(200, json={"access_token": "tok"})
-        if request.url.path == "/data/user-data/get":
-            state["gets"] += 1
-            return httpx.Response(200, content=_wrap(item_before if state["gets"] == 1 else item_after))
-        if request.url.path == "/data/shopping-lists/update":
-            return httpx.Response(200, content=b"")
-        return httpx.Response(404)
-
-    _real_client(monkeypatch, handler)
-    res = ac.add_or_increment_items(
-        [PushItem(name="Milk", quantity="3L", existing_id="existing1")], list_name="TestList"
-    )
-    assert res.confirmed is True and not res.discrepancies  # our merge-on-read masks the loss
-
-    again = ac.get_items("TestList")
-    assert again[0].quantity == "3L"  # still correct via the field-18 fallback...
-    assert 21 not in _decode_message(item_after)  # ...but the field AnyList's UI may need is gone
 
 
 def test_update_with_no_quantity_sends_empty_string_value(monkeypatch):
@@ -567,7 +548,7 @@ def test_real_update_retries_once_and_recovers(monkeypatch):
             calls["gets"] += 1
             # call 1: pre-push state. call 2: after the FIRST post -- simulate the silent
             # failure (quantity unchanged). call 3+: after the retry -- now correct.
-            qty = "5L" if calls["gets"] >= 3 else "2L"
+            qty = "5" if calls["gets"] >= 3 else "2"
             return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", qty)]))
         if request.url.path == "/data/shopping-lists/update":
             calls["posts"] += 1
@@ -577,7 +558,7 @@ def test_real_update_retries_once_and_recovers(monkeypatch):
     _real_client(monkeypatch, handler)
     monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)  # don't slow the test down
     res = ac.add_or_increment_items(
-        [PushItem(name="Milk", quantity="5L", existing_id="existing1")], list_name="TestList"
+        [PushItem(name="Milk", quantity="5", existing_id="existing1")], list_name="TestList"
     )
 
     assert res.confirmed is True and not res.discrepancies
@@ -597,7 +578,7 @@ def test_real_update_gives_up_after_exhausting_retries(monkeypatch):
         if request.url.path == "/auth/token":
             return httpx.Response(200, json={"access_token": "tok"})
         if request.url.path == "/data/user-data/get":
-            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", "2L")]))
+            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", "2")]))
         if request.url.path == "/data/shopping-lists/update":
             calls["posts"] += 1
             return httpx.Response(200, content=b"")
@@ -606,13 +587,115 @@ def test_real_update_gives_up_after_exhausting_retries(monkeypatch):
     _real_client(monkeypatch, handler)
     monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)
     res = ac.add_or_increment_items(
-        [PushItem(name="Milk", quantity="5L", existing_id="existing1")], list_name="TestList"
+        [PushItem(name="Milk", quantity="5", existing_id="existing1")], list_name="TestList"
     )
 
     assert res.confirmed is False
     assert res.retried == ["Milk"] * ac._MAX_RETRIES
     assert res.discrepancies and "quantity is" in res.discrepancies[0]
     assert calls["posts"] == 1 + ac._MAX_RETRIES  # initial + every retry attempted
+
+
+def test_real_update_of_unit_bearing_quantity_uses_replace_not_quantity_op(monkeypatch):
+    """2026-09-20 fix (Phase B, docs/build-status/anylist-fault-finding-spike.md): a unit-bearing
+    quantity change goes through delete + re-add under a new id instead of the (confirmed
+    unreliable) set-list-item-quantity path. Confirms: a remove op for the old id, then an add
+    op for a new id — not a quantity-update op at all — and that the note IS synced this time
+    (a deliberate improvement over the bare-count path, since the replace is a real add under
+    the hood and adds always sync notes correctly)."""
+    captured = {"posts": [], "added": None, "sent_note": None}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            if captured["added"] is None:
+                return httpx.Response(
+                    200, content=_user_data_bytes([("existing1", "Milk", "2 L", "old note")])
+                )
+            return httpx.Response(200, content=_user_data_bytes([captured["added"]]))
+        if request.url.path == "/data/shopping-lists/update":
+            ops = _operations_from_multipart(request.content)
+            captured["posts"].append(ops)
+            handler_id, item_id = ops[0]
+            if handler_id == "add-shopping-list-item":
+                added = _added_items_from_multipart(request.content)[0]
+                captured["added"] = (item_id, added[1], added[2], "new note")
+                # decode the note (field 5) straight off the wire, not just trust it matches
+                marker = b'name="operations"'
+                i = request.content.index(marker)
+                start = request.content.index(b"\r\n\r\n", i) + 4
+                end = request.content.index(b"\r\n--", start)
+                op_fields = _decode_message(bytes(_decode_message(request.content[start:end])[1][0]))
+                item_fields = _decode_message(bytes(op_fields[6][0]))
+                captured["sent_note"] = item_fields.get(5, [b""])[0].decode("utf-8")
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    res = ac.add_or_increment_items(
+        [PushItem(name="Milk", quantity="3 L", existing_id="existing1", note="new note")],
+        list_name="TestList",
+    )
+
+    assert [ops[0][0] for ops in captured["posts"]] == ["remove-shopping-list-item", "add-shopping-list-item"]
+    assert captured["posts"][0][0][1] == "existing1"  # removed the OLD id
+    new_id = captured["posts"][1][0][1]
+    assert new_id != "existing1"  # added under a NEW id
+    assert captured["sent_note"] == "new note"  # the fresh note really is embedded in the add
+    assert res.confirmed is True
+    assert res.updated == ["Milk"]
+    assert res.added_ids == {"Milk": new_id}  # so checklist.py can move anylist_item_id
+
+
+def test_real_replace_preserves_checked_state():
+    """The hard constraint from the maintainer: checked-state must never be lost. A checked
+    item going through the replace path must be re-added with checked=True, not silently
+    un-ticked -- verified at the wire-building level (the live equivalent, add-with-checked
+    landing correctly, was confirmed 6/6 against the real API before this was built)."""
+    from app.services.anylist_wire import _b, _decode_message as _dm
+
+    wire = _item_to_wire(identifier="new1", list_id="L1", name="Milk", quantity="3 L", checked=True)
+    assert _b(_dm(wire), 6) is True
+
+
+def test_real_replace_retries_and_recovers(monkeypatch):
+    """Retry applies to the replace path's add half too, same discipline as the bare-count
+    path — the remove already happened once; only the add gets retried."""
+    captured = {"posts": [], "add_attempts": 0, "new_id": None}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth/token":
+            return httpx.Response(200, json={"access_token": "tok"})
+        if request.url.path == "/data/user-data/get":
+            # the first add "fails" (server accepts it but it doesn't land); the retry "lands".
+            if captured["add_attempts"] >= 2:
+                return httpx.Response(200, content=_user_data_bytes([(captured["new_id"], "Milk", "3 L")]))
+            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", "2 L")]))
+        if request.url.path == "/data/shopping-lists/update":
+            ops = _operations_from_multipart(request.content)
+            captured["posts"].append(ops)
+            handler_id, item_id = ops[0]
+            if handler_id == "add-shopping-list-item":
+                captured["add_attempts"] += 1
+                captured["new_id"] = item_id
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    _real_client(monkeypatch, handler)
+    monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)
+    res = ac.add_or_increment_items(
+        [PushItem(name="Milk", quantity="3 L", existing_id="existing1")], list_name="TestList"
+    )
+
+    assert res.confirmed is True
+    assert res.retried == ["Milk"]
+    # remove, add (fails to land), retry-add (lands) — never a second remove
+    assert [ops[0][0] for ops in captured["posts"]] == [
+        "remove-shopping-list-item", "add-shopping-list-item", "add-shopping-list-item",
+    ]
+    # both add attempts used the SAME new id (retry rebuilds the identical op, not a fresh uuid)
+    assert captured["posts"][1][0][1] == captured["posts"][2][0][1]
 
 
 def test_real_get_items_unknown_list_raises(monkeypatch):

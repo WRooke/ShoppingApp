@@ -300,9 +300,14 @@ def push_to_anylist(
     # so any push after this one -- in particular the UI's own "already pushed, push again?"
     # retry (static/js/checklist.js), which never reloads first -- treats it as new again and
     # duplicates it. `push_items[: len(to_push)]` lines up 1:1 with `to_push` (usuals are always
-    # appended after); only entries that were a fresh add (`existing_id is None`) need this.
+    # appended after). Deliberately NOT gated on `pi.existing_id is None` (a fresh add) alone —
+    # 2026-09-20 fix (Phase B, same spike doc): a unit-bearing quantity update now goes through
+    # delete+re-add under a *new* id too (see anylist_client.py's "replace" branch), and
+    # `result.added_ids` covers that case exactly the same way. Without this, a replaced item's
+    # row would keep pointing at the now-deleted old id, and every future push would look for a
+    # phantom item forever.
     for ci, pi in zip(to_push, push_items[: len(to_push)]):
-        if pi.existing_id is None and pi.name in result.added_ids:
+        if pi.name in result.added_ids:
             ci.already_on_anylist = True
             ci.anylist_item_id = result.added_ids[pi.name]
 
