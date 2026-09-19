@@ -1,9 +1,11 @@
 """Package + push a release from the dev PC (git-based deploy).
 
-"Packaging" here just means: run the full test suite, verify the working tree is clean and
-up to date with origin, tag the commit, and push branch + tag to origin. Git itself is the
+"Packaging" here just means: verify the working tree is clean and up to date with origin,
+run the full test suite, tag the commit, and push branch + tag to origin. Git itself is the
 transport - there is no zip/copy step and nothing is sent directly to the NUC. Run the
 NUC-side counterpart (update.bat) afterwards to actually pull it down and restart the server.
+The cheap git checks run before the (slow) test suite so a trivial local mistake is reported
+immediately instead of after paying for a full test run - see the ordering note in main().
 
 2026-09-13 code review: this project deliberately has no CI pipeline (private, solo-maintainer
 repo; see CLAUDE.md > Deferred Decisions) — this script's test run IS the enforced gate. Before
@@ -58,15 +60,13 @@ def main() -> int:
     # 2026-09-13 code review — the CI-substitute decision: no GitHub Actions (private,
     # solo-maintainer repo with a git-based deploy that doesn't run through it anyway), so
     # this script itself is the enforced gate instead of the test suite passing being purely a
-    # manual habit (scripts/validate_develop.py, previously never actually invoked here).
-    # Runs first, before any git state checks, so a red suite is refused before anything else
-    # is even inspected.
-    print("\n--- Running test suite before deploying ---\n")
-    if not run_pytest():
-        _fail("Tests failed - refusing to deploy. Fix them first, then re-run deploy.bat.")
-        return 1
-    print("\nOK: all tests passed\n")
-
+    # manual habit (scripts/validate_develop.py, previously never actually invoked here). That
+    # decision is about *whether* a red suite can ever reach production (never) - it does not
+    # require tests to run first chronologically. They used to run first here, which meant a
+    # trivial local mistake (uncommitted file, wrong branch) was only caught after paying for
+    # the full (slow) test run. So: all of the free/local git sanity checks run first below,
+    # then the test suite, then the actual pushes - a red suite still can't reach the push
+    # calls, it's just that a git problem no longer has to wait behind one to be reported.
     is_repo, repo_out = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
     if not is_repo:
         _fail(
@@ -116,6 +116,14 @@ def main() -> int:
             f"pull before deploying (git pull --ff-only origin {branch})."
         )
         return 1
+
+    # All the free/local (and one quick network) checks passed - only now pay for the slow
+    # part. A red suite still blocks every push below; it just no longer hides behind them.
+    print("\n--- Running test suite before deploying ---\n")
+    if not run_pytest():
+        _fail("Tests failed - refusing to deploy. Fix them first, then re-run deploy.bat.")
+        return 1
+    print("\nOK: all tests passed\n")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     tag = f"release-{stamp}"
