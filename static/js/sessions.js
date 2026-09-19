@@ -30,6 +30,34 @@
     return sel;
   }
 
+  // Chunk 6.3 kickoff decision #12 — adding a recipe/leftovers slot suggests the next day
+  // not already used in this session, instead of leaving the dropdown blank. Undated slots
+  // (day_of_week null) don't count as "using" a day; null itself means "every day is taken"
+  // or there simply are no slots yet to avoid conflicting with, either way a reasonable
+  // fallback to leave blank rather than force.
+  function nextEmptyDay(slots) {
+    var used = {};
+    (slots || []).forEach(function (s) {
+      if (s.day_of_week) used[s.day_of_week] = true;
+    });
+    for (var d = 1; d <= 7; d++) {
+      if (!used[d]) return d;
+    }
+    return null;
+  }
+
+  // Shared Plan -> Review -> Checklist -> Push indicator (Chunk 6.3). The last two stay
+  // inactive placeholders here — checklist.js's own matching indicator is Chunk 6.3b's job.
+  function stepIndicator(activeLabel) {
+    var labels = ["Plan", "Review", "Checklist", "Push"];
+    var wrap = el("div", "step-list");
+    labels.forEach(function (label, i) {
+      wrap.appendChild(el("span", label === activeLabel ? "on" : null, label));
+      if (i < labels.length - 1) wrap.appendChild(el("span", "sep", "→"));
+    });
+    return wrap;
+  }
+
   function servingsSelect(value, onChange) {
     var sel = el("select");
     for (var n = 1; n <= 12; n++) {
@@ -106,13 +134,16 @@
 
   function renderWorkspace(root, sessionId) {
     root.innerHTML = "";
-
-    var back = el("a", "btn", "← All sessions");
-    back.href = "#/plan";
-    root.appendChild(back);
+    root.appendChild(global.BackLink.render("plan"));
+    root.appendChild(stepIndicator("Plan"));
 
     var card = el("div", "card");
-    card.textContent = "Loading...";
+    var skel = el("div", "skel-row");
+    var skelLine = el("div", "skeleton skel-line");
+    skelLine.style.width = "100%";
+    skelLine.style.height = "60px";
+    skel.appendChild(skelLine);
+    card.appendChild(skel);
     root.appendChild(card);
 
     function load() {
@@ -159,7 +190,7 @@
 
     var slots = session.recipes || [];
     if (slots.length === 0) {
-      card.appendChild(el("div", "muted", "No recipes added yet."));
+      card.appendChild(el("div", "empty-state", "No recipes added yet."));
     }
     if (slots.length > 1) {
       // Requested 2026-09-10 hand-testing: assigning a day (the dropdown per row, below)
@@ -202,20 +233,20 @@
     card.appendChild(pickerSlot);
 
     addRecipeBtn.addEventListener("click", function () {
-      renderRecipePicker(pickerSlot, session.id, reload);
+      global.SessionRecipePicker.render(pickerSlot, session.id, nextEmptyDay(slots), reload);
     });
     addLeftoversBtn.addEventListener("click", function () {
       api.sessions
-        .addLeftovers(session.id, {})
+        .addLeftovers(session.id, { day_of_week: nextEmptyDay(slots) })
         .then(reload)
         .catch(function (err) {
           global.alert("Couldn't add leftovers: " + err.message);
         });
     });
 
-    // --- review ---
-    var reviewRow = el("div", "log-controls");
-    reviewRow.style.marginTop = "20px";
+    // --- review --- (sticky — kickoff decision #12, the primary forward action on a
+    // screen that can get long once several recipes are slotted in)
+    var reviewRow = el("div", "log-controls sticky-actions");
     var reviewBtn = el("button", "primary", "Review ingredients & shopping list →");
     reviewBtn.disabled = slots.length === 0;
     reviewBtn.addEventListener("click", function () {
@@ -230,7 +261,12 @@
     var row = el("div", "settings-row");
 
     var isLeftovers = slot.slot_type === "leftovers";
-    var name = el("div", "recipe-row-name", isLeftovers ? "Leftovers" : slot.recipe_name || "Recipe #" + slot.recipe_id);
+    // Chunk 6.3 kickoff decision #9 — a slot's recipe name links to its own page, matching
+    // what session-review.js's "which recipe" breakdown already does further down the flow.
+    var name = isLeftovers
+      ? el("div", "recipe-row-name", "Leftovers")
+      : el("a", "recipe-row-name", slot.recipe_name || "Recipe #" + slot.recipe_id);
+    if (!isLeftovers) name.href = "#/recipes/" + slot.recipe_id;
     name.style.flex = "2 1 140px";
     row.appendChild(name);
 
@@ -263,7 +299,51 @@
 
     var removeBtn = el("button", null, "Remove");
     removeBtn.addEventListener("click", function () {
-      api.sessions.removeSlot(session.id, slot.id).then(reload).catch(barf);
+      removeBtn.disabled = true;
+      var snapshot = {
+        slot_type: slot.slot_type,
+        recipe_id: slot.recipe_id,
+        day_of_week: slot.day_of_week,
+        scaled_servings: slot.scaled_servings,
+      };
+      var label = isLeftovers ? "Leftovers" : slot.recipe_name || "Recipe #" + slot.recipe_id;
+      api.sessions
+        .removeSlot(session.id, slot.id)
+        .then(function () {
+          global.Toast.show('Removed "' + label + '"', {
+            actionLabel: "Undo",
+            onAction: function () {
+              // removeSlot has no undo of its own — re-add from the snapshot, then a
+              // follow-up update for the day/servings addRecipe/addLeftovers' own create
+              // payload already covers (day_of_week), or doesn't (scaled_servings on an
+              // existing recipe slot needs its own call once the id is known).
+              var re =
+                snapshot.slot_type === "leftovers"
+                  ? api.sessions.addLeftovers(session.id, { day_of_week: snapshot.day_of_week })
+                  : api.sessions.addRecipe(session.id, {
+                      recipe_id: snapshot.recipe_id,
+                      day_of_week: snapshot.day_of_week,
+                    });
+              re.then(function (created) {
+                if (snapshot.slot_type === "leftovers" || !snapshot.scaled_servings) {
+                  return null;
+                }
+                return api.sessions.updateSlot(session.id, created.id, {
+                  scaled_servings: snapshot.scaled_servings,
+                });
+              })
+                .then(reload)
+                .catch(function (err) {
+                  global.alert("Couldn't undo: " + err.message);
+                });
+            },
+          });
+          reload();
+        })
+        .catch(function (err) {
+          removeBtn.disabled = false;
+          barf(err);
+        });
     });
     row.appendChild(removeBtn);
 
@@ -284,58 +364,6 @@
     api.sessions.reorder(session.id, ids).then(reload).catch(function (err) {
       global.alert("Couldn't reorder: " + err.message);
     });
-  }
-
-  function renderRecipePicker(slot, sessionId, reload) {
-    slot.innerHTML = "";
-    var box = el("div", "card");
-    box.appendChild(el("h2", null, "Add a recipe"));
-    var search = el("input");
-    search.type = "text";
-    search.placeholder = "Search the library...";
-    box.appendChild(search);
-    var results = el("div");
-    results.style.marginTop = "8px";
-    box.appendChild(results);
-    slot.appendChild(box);
-
-    function load() {
-      api.recipes
-        .list({ search: search.value, limit: 50 })
-        .then(function (data) {
-          results.innerHTML = "";
-          if (!data.items.length) {
-            results.appendChild(el("div", "muted", "No matches."));
-            return;
-          }
-          data.items.forEach(function (r) {
-            var b = el("button", null, r.name + "  (" + r.base_servings + " serv)");
-            b.style.display = "block";
-            b.style.marginBottom = "4px";
-            b.addEventListener("click", function () {
-              api.sessions
-                .addRecipe(sessionId, { recipe_id: r.id })
-                .then(function () {
-                  slot.innerHTML = "";
-                  reload();
-                })
-                .catch(function (err) {
-                  global.alert("Couldn't add: " + err.message);
-                });
-            });
-            results.appendChild(b);
-          });
-        })
-        .catch(function (err) {
-          results.textContent = "Couldn't search: " + err.message;
-        });
-    }
-    var t = null;
-    search.addEventListener("input", function () {
-      if (t) global.clearTimeout(t);
-      t = global.setTimeout(load, 200);
-    });
-    load();
   }
 
   // --- entry point -----------------------------------------------

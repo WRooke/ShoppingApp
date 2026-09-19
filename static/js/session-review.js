@@ -21,6 +21,27 @@
     return node;
   }
 
+  function miniField(labelText, inputEl) {
+    var wrap = el("div", "mini-field");
+    wrap.appendChild(el("label", null, labelText));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+
+  // Shared Plan -> Review -> Checklist -> Push indicator (Chunk 6.3) — matches sessions.js's
+  // copy (own small helper, not a shared module, per this file family's existing
+  // self-contained-feature-file precedent). The last two stay inactive placeholders here;
+  // checklist.js's own matching indicator is Chunk 6.3b's job.
+  function stepIndicator(activeLabel) {
+    var labels = ["Plan", "Review", "Checklist", "Push"];
+    var wrap = el("div", "step-list");
+    labels.forEach(function (label, i) {
+      wrap.appendChild(el("span", label === activeLabel ? "on" : null, label));
+      if (i < labels.length - 1) wrap.appendChild(el("span", "sep", "→"));
+    });
+    return wrap;
+  }
+
   function fmtQty(item) {
     if (item.needs_review) return "needs review";
     if (item.total_quantity == null) return item.note || "";
@@ -34,9 +55,8 @@
     var overrides = []; // [{ original_name, substitute_name, ...equivalence pair }] — session-only
     var knownSubs = {}; // original_name -> [full saved-swap row, ...]
 
-    var back = el("a", "btn", "← Back to session");
-    back.href = "#/plan/" + sessionId;
-    root.appendChild(back);
+    root.appendChild(global.BackLink.render("plan"));
+    root.appendChild(stepIndicator("Review"));
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Shopping list"));
@@ -48,9 +68,19 @@
       )
     );
     var body = el("div");
-    body.textContent = "Consolidating...";
+    showSkeleton(body);
     card.appendChild(body);
     root.appendChild(card);
+
+    function showSkeleton(container) {
+      container.innerHTML = "";
+      var skel = el("div", "skel-row");
+      var skelLine = el("div", "skeleton skel-line");
+      skelLine.style.width = "100%";
+      skelLine.style.height = "60px";
+      skel.appendChild(skelLine);
+      container.appendChild(skel);
+    }
 
     api.settings.substitutions
       .list()
@@ -63,21 +93,22 @@
       .then(runConsolidate);
 
     function runConsolidate() {
-      body.textContent = "Consolidating...";
+      showSkeleton(body);
       api.sessions
         .consolidate(sessionId, overrides)
         .then(function (data) {
           renderItems(data.items || []);
         })
         .catch(function (err) {
-          body.textContent = "Couldn't consolidate: " + err.message;
+          body.innerHTML = "";
+          body.appendChild(el("div", "error-state", "Couldn't consolidate: " + err.message));
         });
     }
 
     function renderItems(items) {
       body.innerHTML = "";
       if (items.length === 0) {
-        body.appendChild(el("div", "muted", "Nothing to buy — the session has no recipe ingredients."));
+        body.appendChild(el("div", "empty-state", "Nothing to buy — the session has no recipe ingredients."));
         return;
       }
       var list = el("div", "settings-list");
@@ -87,11 +118,13 @@
       body.appendChild(list);
 
       // Phase 5 — proceed to the checklist ("do you have this?" + push to AnyList).
+      // Sticky (kickoff decision #12) — the primary forward action on a screen that's
+      // often the longest one in the whole flow once a session has several recipes.
+      var nextRow = el("div", "sticky-actions");
       var next = el("a", "btn primary", "Next: checklist →");
       next.href = "#/checklist/" + sessionId;
-      next.style.marginTop = "12px";
-      next.style.display = "inline-block";
-      body.appendChild(next);
+      nextRow.appendChild(next);
+      body.appendChild(nextRow);
     }
 
     // 2026-09-11 — "which recipe is this ingredient from": one row per contributing recipe
@@ -184,46 +217,52 @@
 
     function renderSwapForm(slot, item) {
       slot.innerHTML = "";
-      var wrap = el("div");
-      wrap.style.marginTop = "6px";
-      wrap.appendChild(el("span", "muted", "Use instead: "));
+      var wrap = el("div", "swap-panel");
+      wrap.appendChild(el("div", "hdr", "Session-only swap"));
 
       var input = el("input");
       input.type = "text";
       input.placeholder = "e.g. regular feta";
       input.className = "settings-name-input";
-      wrap.appendChild(input);
+      wrap.appendChild(miniField("Use instead", input));
 
       // M8 — optional "N unit ≈ M unit" so a swap can change the amount as well as the name.
       // Left blank => a straight rename. The "from" unit defaults to this line's unit.
-      wrap.appendChild(el("span", "muted", " amount (optional): "));
       var oQty = el("input");
       oQty.type = "number";
       oQty.step = "any";
-      oQty.placeholder = "amt";
+      oQty.inputMode = "decimal";
+      oQty.placeholder = "e.g. " + (item.total_quantity != null ? fmtQty(item).split(" ")[0] : "2");
       oQty.className = "ingredient-qty-input";
       var oUnit = el("input");
       oUnit.type = "text";
-      oUnit.placeholder = "unit";
+      oUnit.placeholder = "e.g. can";
       oUnit.className = "ingredient-unit-input";
       oUnit.value = item.total_unit || "";
       var sQty = el("input");
       sQty.type = "number";
       sQty.step = "any";
-      sQty.placeholder = "amt";
+      sQty.inputMode = "decimal";
+      sQty.placeholder = "e.g. 350";
       sQty.className = "ingredient-qty-input";
       var sUnit = el("input");
       sUnit.type = "text";
-      sUnit.placeholder = "unit";
+      sUnit.placeholder = "e.g. g";
       sUnit.className = "ingredient-unit-input";
-      [oQty, oUnit, el("span", "muted", "≈"), sQty, sUnit].forEach(function (n) {
-        wrap.appendChild(n);
-      });
 
-      var applyBtn = el("button", "primary", "Apply");
-      wrap.appendChild(applyBtn);
+      var amtGrid = el("div", "ing-grid");
+      amtGrid.style.gridTemplateColumns = "1fr 1fr";
+      amtGrid.appendChild(miniField("This recipe's amount", oQty));
+      amtGrid.appendChild(miniField("Unit", oUnit));
+      wrap.appendChild(amtGrid);
+      var subGrid = el("div", "ing-grid");
+      subGrid.style.gridTemplateColumns = "1fr 1fr";
+      subGrid.appendChild(miniField("Substitute amount", sQty));
+      subGrid.appendChild(miniField("Substitute unit", sUnit));
+      wrap.appendChild(subGrid);
+
+      var applyBtn = el("button", "btn-sm primary", "Apply swap");
       var errSpan = el("span", "form-error");
-      wrap.appendChild(errSpan);
 
       (knownSubs[item.ingredient_name] || []).forEach(function (row) {
         var label = row.substitute_name;
@@ -231,7 +270,8 @@
           label += " (" + row.original_qty + " " + (row.original_unit || "") + " ≈ " +
             row.substitute_qty + " " + (row.substitute_unit || "") + ")";
         }
-        var pick = el("button", null, label);
+        var pick = el("button", "btn-sm", label);
+        pick.style.marginRight = "4px";
         pick.addEventListener("click", function () {
           input.value = row.substitute_name;
           oQty.value = row.original_qty != null ? row.original_qty : "";
@@ -242,6 +282,8 @@
         wrap.appendChild(pick);
       });
 
+      wrap.appendChild(applyBtn);
+      wrap.appendChild(errSpan);
       slot.appendChild(wrap);
 
       applyBtn.addEventListener("click", function () {

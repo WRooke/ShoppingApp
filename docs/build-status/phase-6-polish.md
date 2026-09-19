@@ -246,12 +246,35 @@ change chunk order and scope, not just because they happened.
       stubbed at the `api.recipes.captureUrl` boundary, same technique
       `tests/frontend/test_frontend_regressions.py` already uses for its queued-capture test,
       rather than depending on a real network fetch) — 27 checks, zero console errors anywhere.
-- [ ] **Chunk 6.3 — Planning screens (`sessions.js` + `session-review.js` only — no AnyList
+- [x] **Chunk 6.3 — Planning screens (`sessions.js` + `session-review.js` only — no AnyList
       dependency).** Apply the design; fix the identical bare-placeholder swap-field problem as
       6.2's. Undo toast on removing a session slot. Session slot recipe name linked to
       `#/recipes/<id>`. Shared Back component applied. Step indicator across session→review; the
       sticky primary-action button on review; adding a recipe suggests the next empty day.
       Verify at phone width + `pytest tests/frontend/`.
+
+      **Done 2026-09-20 (mockup approved unchanged, then implemented + verified).** A slot's
+      recipe name is now a real link (`sessions.js`'s `renderSlotRow`), matching what
+      session-review's own "which recipe" breakdown already did further down the flow.
+      Adding a recipe/leftovers slot now suggests the next day not already used in the
+      session (`nextEmptyDay()`) — the backend already accepted `day_of_week` at creation
+      (`SessionRecipeCreate`/`LeftoversSlotCreate`), so this needed no backend change, just
+      the frontend actually sending it. Undo on "Remove" re-creates the slot from a snapshot
+      (add, then a follow-up `updateSlot` for `scaled_servings` on a recipe slot — the create
+      payload only covers `day_of_week`). The session-review swap form got the identical
+      Chunk 6.2 treatment (`.swap-panel`/`.mini-field`, labelled "This recipe's amount" /
+      "Substitute amount" etc. instead of four bare inputs). A shared `Plan → Review →
+      Checklist → Push` step indicator (own small copy per file, matching this file family's
+      self-contained-feature-file precedent) — the last two steps are inactive placeholders
+      here since checklist.js's matching indicator is Chunk 6.3b's own job. Skeleton loading
+      + `.empty-state`/`.error-state` applied to both screens. File-size guideline: split
+      `session-recipe-picker.js` out of `sessions.js` (446→394 lines) once the new additions
+      pushed it over. Verified: full suite **535 pass**; live headless-CDP pass at phone
+      width — 18 checks covering the Back link, step indicator on both screens, the empty
+      state, the next-empty-day default (confirmed server-side: a first recipe added to an
+      empty session lands on day 1), the recipe-name link, remove+Undo (confirmed server-side
+      that exactly one slot survives the round trip), and the labelled swap panel — zero
+      console errors anywhere.
 - [ ] **Chunk 6.3b — Checklist & AnyList push UI (`checklist.js` only).** Gate lifted (see
       cross-cutting risks above) — **re-read `checklist.py`/`anylist_client.py`'s current state
       before starting**, don't trust this document's description of them. Apply the design.

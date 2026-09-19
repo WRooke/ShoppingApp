@@ -443,6 +443,21 @@ input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 }
 .draft-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 
+/* --- step indicator (sessions.js, session-review.js) — Chunk 6.3. Plan -> Review ->
+   Checklist -> Push; the last two stay inactive placeholders here since checklist.js's own
+   matching indicator is Chunk 6.3b's job (gated separately, see phase-6-polish.md). --- */
+.step-list {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  margin-bottom: var(--sp-4);
+}
+.step-list .on { color: var(--accent); font-weight: 700; }
+.step-list .sep { color: var(--border-strong); }
+
 /* --- Home screen (static/js/home.js) --- */
 .continue-card {
   background: var(--accent-tint);
