@@ -81,6 +81,7 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -181,6 +182,20 @@ class AnyListAuthError(AnyListError):
 class AnyListDisabledError(Exception):
     """A real AnyList call was attempted with settings.anylist_enabled False. 503 in
     app/main.py — same shape as AiExtractionDisabledError."""
+
+
+@dataclass(frozen=True)
+class _PlannedOp:
+    """One op `add_or_increment_items` has sent (or is about to retry) — what to check for on
+    the next re-fetch, and how to resend the exact same op if it's still wrong. `kind` is
+    "add" or "update"."""
+
+    kind: str
+    ident: str
+    name: str
+    rebuild: Callable[[], bytes]
+    expected_qty: str | None = None
+    expected_note: str | None = None
 
 
 # --- real connector ---------------------------------------------------------------------
@@ -310,9 +325,7 @@ class _RealAnyList:
         target = self._resolve_list(list_name)
         before = {i.identifier: i for i in target.items}
         result = PushResult()
-        # (op_kind, identifier, expected_qty, expected_note, name, rebuild) — `rebuild` recreates
-        # this exact op's bytes, used both for the initial send and any retry (see below).
-        planned: list[tuple[str, str, str | None, str | None, str, "Callable[[], bytes]"]] = []
+        planned: list[_PlannedOp] = []
         raw_responses: list[str] = []
 
         def _post_one(op: bytes) -> None:
@@ -322,8 +335,39 @@ class _RealAnyList:
             )
             raw_responses.append(f"HTTP {resp.status_code}")
 
+        # NOT syncing details on any update path below — reverted after live-verification found
+        # a second, nastier bug: once ANY set-list-item-details op has touched an item, every
+        # subsequent set-list-item-quantity op for that SAME item silently fails (confirmed
+        # reproducible: real push, reordering quantity/details, and a clean from-scratch repro
+        # all landed the item with NO quantity value at all, field 21 and field 18 both absent —
+        # not stale, gone). Re-sending add-shopping-list-item for the existing id doesn't
+        # recover it either (that handler is add-only; it silently no-ops once the id exists).
+        # The only recovery found was delete + re-add under a brand-new id — not something the
+        # app can do on every push without surprising the household (it would orphan any manual
+        # edits/checks on that AnyList item). A note is set correctly on an item's first push
+        # (still embedded in the add's own item message, safe and confirmed working) but does
+        # NOT update on a later push to the same still-listed item — documented limitation, not
+        # solved. See CLAUDE.md > AnyList Push Logic. (A 2026-09-19 controlled A/B found no
+        # differential failure rate between details-touched and untouched items, casting doubt
+        # on this finding — but not yet re-verified enough to act on, see the fault-finding
+        # spike's 2026-09-19 addendum.)
         for it in items:
             if it.existing_id and it.existing_id in before:
+                # 2026-09-20 fault-finding (Stage 1 of the reliability investigation, plus a
+                # live parity check against the real, unmodified reference `anylist` npm
+                # package — see docs/build-status/anylist-fault-finding-spike.md): no
+                # request-shape fixes this. A full item-message embed on this handler does no
+                # better than a plain value; no quantity *format* survives an update except two
+                # literal unit tokens ("kg"/"lb") that don't cover this app's actual units; and
+                # the real reference client, using real `protobufjs` encoding (not this app's
+                # hand-rolled one), fails identically on the exact same case — ruling out a bug
+                # in this app's own wire encoding. This is a confirmed AnyList server-side
+                # limitation of the `set-list-item-quantity` handler, not something any client
+                # can work around by sending it differently. Two name/note-based workarounds
+                # were prototyped and shown to the maintainer live; both rejected (cluttered
+                # name text / redundant note, and a preference for a real fix over reformatting
+                # around the bug) — no display-level workaround is applied here. The retry above
+                # remains the only mitigation actually shipped for this.
                 def rebuild(it=it):
                     return _build_operation(
                         handler_id="set-list-item-quantity",
@@ -332,22 +376,7 @@ class _RealAnyList:
                         updated_value=it.quantity or "",
                     )
                 _post_one(rebuild())
-                # NOT syncing details here — reverted after live-verification found a second,
-                # nastier bug: once ANY set-list-item-details op has touched an item, every
-                # subsequent set-list-item-quantity op for that SAME item silently fails
-                # (confirmed reproducible: real push, reordering quantity/details, and a
-                # clean from-scratch repro all landed the item with NO quantity value at all,
-                # field 21 and field 18 both absent — not stale, gone). Re-sending
-                # add-shopping-list-item for the existing id doesn't recover it either (that
-                # handler is add-only; it silently no-ops once the id exists). The only
-                # recovery found was delete + re-add under a brand-new id — not something the
-                # app can do on every push without surprising the household (it would orphan
-                # any manual edits/checks on that AnyList item). Quantity correctness matters
-                # more than note freshness, so: a note is set correctly on an item's first
-                # push (still embedded in the add's own item message, safe and confirmed
-                # working) but does NOT update on a later push to the same still-listed item —
-                # documented limitation, not solved. See CLAUDE.md > AnyList Push Logic.
-                planned.append(("update", it.existing_id, it.quantity or "", None, it.name, rebuild))
+                planned.append(_PlannedOp("update", it.existing_id, it.name, rebuild, expected_qty=it.quantity or ""))
                 result.updated.append(it.name)
             else:
                 new_id = uuid.uuid4().hex
@@ -363,7 +392,9 @@ class _RealAnyList:
                         ),
                     )
                 _post_one(rebuild())
-                planned.append(("add", new_id, it.quantity, it.note, it.name, rebuild))
+                planned.append(_PlannedOp(
+                    "add", new_id, it.name, rebuild, expected_qty=it.quantity, expected_note=it.note,
+                ))
                 result.added.append(it.name)
                 result.added_ids[it.name] = new_id
 
@@ -373,26 +404,26 @@ class _RealAnyList:
 
         result.raw_response = "; ".join(raw_responses)
 
-        def _check(subset) -> dict[str, str]:
+        def _check(subset: list[_PlannedOp]) -> dict[str, str]:
             """ident -> discrepancy string, for `subset` entries still wrong after a fresh
             fetch. A full-list re-fetch either way (matches the pre-retry behaviour) — the
             `subset` only narrows which entries are checked, not what's fetched."""
             after = {i.identifier: i for i in self._resolve_list(list_name).items}
             bad: dict[str, str] = {}
-            for kind, ident, expected_qty, expected_note, _name, _rebuild in subset:
-                got = after.get(ident)
+            for p in subset:
+                got = after.get(p.ident)
                 if got is None:
-                    bad[ident] = f"{kind} {ident} did not land"
+                    bad[p.ident] = f"{p.kind} {p.ident} did not land"
                     continue
-                if expected_qty and got.quantity != expected_qty:
-                    bad[ident] = f"{kind} {ident}: quantity is {got.quantity!r}, expected {expected_qty!r}"
+                if p.expected_qty and got.quantity != p.expected_qty:
+                    bad[p.ident] = f"{p.kind} {p.ident}: quantity is {got.quantity!r}, expected {p.expected_qty!r}"
                     continue
-                if expected_note and got.note != expected_note:
-                    bad[ident] = f"{kind} {ident}: note is {got.note!r}, expected {expected_note!r}"
+                if p.expected_note and got.note != p.expected_note:
+                    bad[p.ident] = f"{p.kind} {p.ident}: note is {got.note!r}, expected {p.expected_note!r}"
             return bad
 
         bad = _check(planned)
-        outstanding = [p for p in planned if p[1] in bad]
+        outstanding = [p for p in planned if p.ident in bad]
         # 2026-09-18/19 fault-finding: a fraction of ops silently persist nothing at all (real
         # AnyList-side flakiness, not a bug in what this app sends — see _MAX_RETRIES' comment
         # above). Retry just the still-wrong items, each with its own fresh confirm, before
@@ -403,14 +434,14 @@ class _RealAnyList:
                 break
             logger.warning(
                 "AnyList push: retry %d/%d for %d item(s): %s",
-                attempt + 1, _MAX_RETRIES, len(outstanding), [p[4] for p in outstanding],
+                attempt + 1, _MAX_RETRIES, len(outstanding), [p.name for p in outstanding],
             )
             time.sleep(_RETRY_BACKOFF_S)
             for p in outstanding:
-                _post_one(p[5]())
-                result.retried.append(p[4])
+                _post_one(p.rebuild())
+                result.retried.append(p.name)
             bad = _check(outstanding)
-            outstanding = [p for p in outstanding if p[1] in bad]
+            outstanding = [p for p in outstanding if p.ident in bad]
 
         result.discrepancies = list(bad.values())
         result.confirmed = not result.discrepancies

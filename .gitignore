@@ -30,3 +30,10 @@ Thumbs.db
 # local-only (previously untracked by hand in commit ee46a32; gitignored here so it stops
 # tripping scripts/deploy.py's clean-working-tree check).
 comprehensive-code-review-prompt.md
+
+# Node.js scratch spikes (e.g. spike/node-anylist-check — 2026-09-20 reference-implementation
+# parity check): npm's own artifacts, never committed, and never the real AnyList session token
+# cache (any script here should point credentialsFile at something matching this pattern).
+node_modules/
+package-lock.json
+*.anylist_credentials*
