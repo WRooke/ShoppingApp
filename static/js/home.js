@@ -74,7 +74,9 @@
     global.api.sessions
       .list({ status: "active" })
       .then(function (res) {
-        var items = (res && res.data && res.data.items) || [];
+        // api.js's request() already unwraps the {ok, data} envelope (returns body.data) —
+        // res here IS the data payload, not a second .data to dig through.
+        var items = (res && res.items) || [];
         wrap.innerHTML = "";
         wrap.appendChild(el("h3", null, "Home"));
         renderContinueCards(wrap, items);

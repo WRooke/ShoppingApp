@@ -156,15 +156,37 @@ button:disabled, .btn:disabled { opacity: .55; cursor: default; transform: none;
   font-weight: 700;
 }
 .muted { color: var(--text-dim); }
-.stub {
+
+/* --- standard loading / empty / error pattern (the other two-thirds of it — skeleton
+   loading is above). Chunks 6.2-6.4 apply these in place of each screen's current ad-hoc
+   "Loading...", "No X yet", "Couldn't load X: " + err.message text swaps and alert() calls;
+   this chunk only defines the pattern. `.stub` (the old Phase 1 route-placeholder class) is
+   removed here — confirmed dead, nothing renders it since Home became a real view. --- */
+.empty-state {
   text-align: center;
   color: var(--text-dim);
   padding: var(--sp-6) var(--sp-4);
 }
+.error-state {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--danger-tint);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
 
 /* --- form fields: label + input, the pattern Chunk 6.2/6.4 apply to the bare-placeholder
    rows found in the maintainer's screenshots (that markup change is those chunks' own job —
-   this chunk only carries the shared pattern's styling forward) --- */
+   this chunk only carries the shared pattern's styling forward).
+
+   Convention for any quantity/servings input built from here on (kickoff decision #3): give it
+   inputmode="decimal" (or "numeric" for a whole-number-only field) in the markup — a phone then
+   shows a number pad instead of the full keyboard. CSS can't set inputmode, so this is a
+   markup-side rule for whichever chunk adds the input, not something enforced here. --- */
 .field {
   margin-bottom: var(--sp-3);
   display: flex;

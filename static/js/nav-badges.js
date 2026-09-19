@@ -30,7 +30,8 @@
     global.api.sessions
       .list({ status: "active" })
       .then(function (res) {
-        var items = (res && res.data && res.data.items) || [];
+        // api.js's request() already unwraps {ok, data} — res IS the payload.
+        var items = (res && res.items) || [];
         setBadge("plan", items.length > 0);
       })
       .catch(function () {
@@ -44,7 +45,7 @@
     global.api.diagnostics
       .recentErrors()
       .then(function (res) {
-        var entries = (res && res.data && res.data.entries) || [];
+        var entries = (res && res.entries) || [];
         setBadge("diagnostics", entries.length > 0);
       })
       .catch(function () {});

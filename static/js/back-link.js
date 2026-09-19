@@ -11,7 +11,12 @@
    both go through location.hash), so this correctly returns to the actual previous screen
    instead of one hardcoded guess. Falls back to Home only for a cold deep-link with no prior
    entry in this tab's history, which history.back() alone can't detect — window.history.length
-   is the best available signal (1 means this is the first entry in the tab). */
+   is the best available signal (1 means this is the first entry in the tab).
+
+   Scroll/list-state on the screen being returned to (kickoff decision #12) rides on the
+   browser's own native scroll restoration for a real history.back() navigation — this is
+   distinct from the separate Settings scroll-position bug (Chunk 6.4), which is a Save/Delete
+   full-list-rebuild resetting scroll to the top *within* the same screen, not a navigation. */
 
 (function (global) {
   "use strict";
