@@ -1,7 +1,7 @@
-/* Settings — "The usuals" card (Phase 5 Chunk 5.4). Recurring non-recipe household items
-   (laundry powder, dish soap) with a day-based cadence. Distinct from staples: these have no
-   recipe link and surface on the checklist only when due. Managed here; seeded empty.
-   See CLAUDE.md > Checklist Screen Logic > "The usuals".
+/* Settings — "Staples" card (see CLAUDE.md > Build Phases > Phase 2 > Chunk 2.5). Split out
+   of settings.js per CLAUDE.md > Code Architecture & Maintainability > file size discipline
+   — settings.js was pushing well past 400 lines once the Chunk 6.4 index/Appearance/staples/
+   product-units all landed in one file.
 
    Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
    delete instead of confirm(), and in-place DOM updates instead of a full list rebuild on
@@ -24,31 +24,18 @@
     return wrap;
   }
 
-  function renderRow(row, listBody) {
-    var wrap = el("div", "settings-row");
+  function renderStapleRow(staple, listBody) {
+    var row = el("div", "settings-row");
 
     var nameInput = el("input");
     nameInput.type = "text";
-    nameInput.value = row.name;
+    nameInput.value = staple.name;
     nameInput.className = "settings-name-input";
 
     var notesInput = el("input");
     notesInput.type = "text";
-    notesInput.value = row.notes || "";
+    notesInput.value = staple.notes || "";
     notesInput.className = "settings-notes-input";
-
-    var cadenceInput = el("input");
-    cadenceInput.type = "number";
-    cadenceInput.min = "1";
-    cadenceInput.inputMode = "numeric";
-    cadenceInput.value = row.cadence_days;
-    cadenceInput.className = "ingredient-qty-input";
-
-    var dueTag = el(
-      "span",
-      row.is_due ? "sub-group-heading" : "muted",
-      row.is_due ? "due now" : "not due"
-    );
 
     var saveBtn = el("button", "btn-sm primary", "Save");
     var deleteBtn = el("button", "btn-sm", "Delete");
@@ -56,21 +43,15 @@
 
     saveBtn.addEventListener("click", function () {
       rowErr.textContent = "";
-      var cadence = parseInt(cadenceInput.value, 10);
-      if (isNaN(cadence) || cadence < 1) {
-        rowErr.textContent = "Cadence must be a whole number of days (1 or more).";
-        return;
-      }
-      api.settings.usuals
-        .update(row.id, {
+      api.settings.staples
+        .update(staple.id, {
           name: nameInput.value.trim(),
           notes: notesInput.value.trim() || null,
-          cadence_days: cadence,
         })
         .then(function (updated) {
-          row.name = updated.name;
-          row.notes = updated.notes;
-          row.cadence_days = updated.cadence_days;
+          staple.name = updated.name;
+          staple.notes = updated.notes;
+          // No rebuild needed — the inputs already show what was just saved.
         })
         .catch(function (err) {
           rowErr.textContent = err.message;
@@ -78,20 +59,16 @@
     });
 
     global.SettingsRowActions.wireDelete(deleteBtn, {
-      label: row.name,
-      row: wrap,
+      label: staple.name,
+      row: row,
       doDelete: function () {
-        return api.settings.usuals.delete(row.id);
+        return api.settings.staples.delete(staple.id);
       },
       recreate: function () {
-        return api.settings.usuals.create({
-          name: row.name,
-          notes: row.notes,
-          cadence_days: row.cadence_days,
-        });
+        return api.settings.staples.create({ name: staple.name, notes: staple.notes });
       },
       onRestored: function (created) {
-        listBody.appendChild(renderRow(created, listBody));
+        listBody.appendChild(renderStapleRow(created, listBody));
       },
       onError: function (err) {
         rowErr.textContent = err.message;
@@ -99,28 +76,29 @@
     });
 
     var grid = el("div", "ing-grid");
-    grid.appendChild(miniField("Item name", nameInput));
-    grid.appendChild(miniField("Every N days", cadenceInput));
+    grid.style.gridTemplateColumns = "1fr 1fr";
+    grid.appendChild(miniField("Name", nameInput));
     grid.appendChild(miniField("Notes", notesInput));
-    wrap.appendChild(grid);
+    row.appendChild(grid);
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
-    actions.appendChild(dueTag);
     actions.appendChild(saveBtn);
     actions.appendChild(deleteBtn);
     actions.appendChild(rowErr);
-    wrap.appendChild(actions);
-    return wrap;
+    row.appendChild(actions);
+    return row;
   }
 
   function renderCard(root) {
+    root.innerHTML = "";
+    root.appendChild(global.BackLink.render("settings"));
     var card = el("div", "card");
-    card.appendChild(el("h2", null, "The usuals"));
+    card.appendChild(el("h2", null, "Staples"));
     card.appendChild(
       el(
         "div",
         "muted",
-        "Household items you buy on a schedule regardless of what you're cooking. They appear on the checklist as their own group only when they're due."
+        "Assumed to already be on hand — only shown on the checklist when a recipe in the session needs them."
       )
     );
 
@@ -134,24 +112,18 @@
 
     var nameInput = el("input");
     nameInput.type = "text";
-    nameInput.placeholder = "e.g. laundry powder";
+    nameInput.placeholder = "e.g. garlic";
     var notesInput = el("input");
     notesInput.type = "text";
     notesInput.placeholder = "optional";
-    var cadenceInput = el("input");
-    cadenceInput.type = "number";
-    cadenceInput.min = "1";
-    cadenceInput.inputMode = "numeric";
-    cadenceInput.placeholder = "e.g. 21";
-    var addBtn = el("button", "btn-sm primary", "Add usual");
+    var addBtn = el("button", "btn-sm primary", "Add");
     var addErr = el("span", "form-error");
-
+    var addGrid = el("div", "ing-grid");
+    addGrid.style.gridTemplateColumns = "1fr 1fr";
+    addGrid.appendChild(miniField("New staple name", nameInput));
+    addGrid.appendChild(miniField("Notes", notesInput));
     var addWrap = el("div");
     addWrap.style.marginTop = "12px";
-    var addGrid = el("div", "ing-grid");
-    addGrid.appendChild(miniField("Item name", nameInput));
-    addGrid.appendChild(miniField("Every N days", cadenceInput));
-    addGrid.appendChild(miniField("Notes", notesInput));
     addWrap.appendChild(addGrid);
     var addActions = el("div", "log-controls");
     addActions.style.marginTop = "6px";
@@ -164,43 +136,41 @@
     addBtn.addEventListener("click", function () {
       addErr.textContent = "";
       var name = nameInput.value.trim();
-      var cadence = parseInt(cadenceInput.value, 10);
-      if (!name || isNaN(cadence) || cadence < 1) {
-        addErr.textContent = "Name and a cadence in days (1 or more) are required.";
+      if (!name) {
+        addErr.textContent = "Name is required.";
         return;
       }
-      api.settings.usuals
-        .create({ name: name, notes: notesInput.value.trim() || null, cadence_days: cadence })
+      api.settings.staples
+        .create({ name: name, notes: notesInput.value.trim() || null })
         .then(function (created) {
           if (listBody.querySelector(".empty-state")) listBody.innerHTML = "";
-          listBody.appendChild(renderRow(created, listBody));
+          listBody.appendChild(renderStapleRow(created, listBody));
           nameInput.value = "";
           notesInput.value = "";
-          cadenceInput.value = "";
         })
         .catch(function (err) {
           addErr.textContent = err.message;
         });
     });
 
-    api.settings.usuals
+    api.settings.staples
       .list()
       .then(function (data) {
         listBody.innerHTML = "";
         var items = data.items || [];
         if (items.length === 0) {
-          listBody.appendChild(el("div", "empty-state", "No usuals yet — add one below."));
+          listBody.appendChild(el("div", "empty-state", "No staples yet."));
         } else {
-          items.forEach(function (row) {
-            listBody.appendChild(renderRow(row, listBody));
+          items.forEach(function (s) {
+            listBody.appendChild(renderStapleRow(s, listBody));
           });
         }
       })
       .catch(function (err) {
         listBody.innerHTML = "";
-        listBody.appendChild(el("div", "error-state", "Couldn't load the usuals: " + err.message));
+        listBody.appendChild(el("div", "error-state", "Couldn't load staples: " + err.message));
       });
   }
 
-  global.SettingsUsualsView = { renderCard: renderCard };
+  global.SettingsStaplesView = { renderCard: renderCard };
 })(window);

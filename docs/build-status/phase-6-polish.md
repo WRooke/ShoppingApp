@@ -283,7 +283,7 @@ change chunk order and scope, not just because they happened.
       against whichever AnyList strategy has actually shipped. Step indicator continuing from
       6.3; sticky Push button. Verify at phone width, the tap cycle, the needs-review resolve
       control, + `pytest tests/frontend/`.
-- [ ] **Chunk 6.4 — Settings & Diagnostics.** Restructure Settings into an index + one
+- [x] **Chunk 6.4 — Settings & Diagnostics.** Restructure Settings into an index + one
       `#/settings/<section>` sub-page per card (staples, product units, substitutions, usuals,
       ingredient aliases, unit synonyms, coarse ingredients); shared Back returns to the index. A
       new "Appearance" section with the Light/Dark/System toggle (persisted `localStorage`) atop
@@ -294,6 +294,62 @@ change chunk order and scope, not just because they happened.
       card's row delete. Verify at phone width with a ~20-row list to confirm the scroll fix
       holds, + `pytest tests/frontend/` (the suite navigates straight to `#/settings` today —
       update it for the new sub-page shape in this same chunk).
+
+      **Done 2026-09-20 (mockup approved unchanged — "All looks and works excellently!" —
+      then implemented + verified).** `#/settings` is now an index card (`section-list`) listing
+      all 8 rows (Appearance + the 7 existing sections) with a live count per row; each row links
+      to its own `#/settings/<section>` route, which `router.js` already passed the hash's
+      `param` through to `SettingsView.mount(root, param)` unchanged — no router change needed.
+      Appearance is a new Light/Dark/System button group (`aria-pressed`) writing straight to
+      `localStorage["theme"]` and the `data-theme` attribute Chunk 6.1's tokens.css already
+      switches on; the index's own Appearance row reads the same value back via
+      `SettingsAppearanceView.label()` so the two never drift.
+
+      **The scroll-position bug is fixed for every card, not just staples/product-units**: every
+      Settings row's Save now mutates the in-memory object and leaves the existing `<input>`s
+      alone (no rebuild at all), and every delete uses the shared `settings-row-actions.js` —
+      `row.remove()` plus an Undo toast that re-`POST`s from a snapshot and appends the restored
+      row in place — replacing the old `listBody.innerHTML = "" ` + full re-fetch on every single
+      mutation. The three flat-list cards (staples, product units, usuals — plus
+      coarse-ingredients) get full in-place add too; the three grouped-list cards
+      (substitutions, ingredient aliases, unit-synonyms) keep in-place delete but a full rebuild
+      on add — a deliberate, documented simplification (add always happens at the page bottom,
+      where a rebuild doesn't disrupt scroll position, whereas delete commonly happens after
+      scrolling down to find a row). Bare product-units/staples inputs now have real
+      `<label>`s via a shared `mini-field` pattern, matching Chunk 6.2/6.3's ingredient/swap rows.
+      Diagnostics got a skeleton-loading treatment for its status panel; otherwise confirmed
+      already compatible with the design system from Chunk 6.1 with no changes needed. The
+      Diagnostics nav-badge (red dot on a recent unresolved error) was already wired in Chunk
+      6.1's `nav-badges.js` — re-confirmed working here, no new code required.
+
+      **File-size split** (same pattern as every prior chunk): `settings.js` reached 550 lines
+      once the index, Appearance, and the 7 sections' worth of new labelled-field/Undo-toast
+      logic first landed in one file. Split into `settings-appearance.js` (`renderCard`,
+      `label()`), `settings-staples.js`, and `settings-product-units.js` (each self-contained,
+      `renderCard` clearing `root` and adding the Back link itself); `settings.js` is now just
+      the index + a `SECTION_MOUNTS` dispatch table (100 lines) — the other five sections'
+      `renderCard()`s don't self-contain the Back link, so the dispatch wraps those five with a
+      small `withBack()` helper instead of duplicating that wrapping five times. `components.css`
+      also passed the same guideline (522 lines after four chunks' worth of additions) — split
+      into `components.css` (333 lines, core shell/nav/buttons/cards/forms/status/skeleton/toast/
+      back-link) and a new `components-screens.css` (199 lines, everything screen-specific:
+      capture progress, filter chips, ing-grid/swap-panel, step-list, Settings index/theme-switch,
+      Home's continue-card) — mirrors the existing tokens.css/components.css split precedent.
+      `index.html` updated with all four new `<script>`/`<link>` tags.
+
+      **One test fixed, not just added**: `tests/frontend/test_frontend_regressions.py`'s
+      `test_clearing_a_usual_items_note_persists_after_reload` navigated straight to `#/settings`
+      and expected the usuals card's rows immediately — exactly the cross-cutting risk flagged at
+      this phase's kickoff. Fixed in the same commit by navigating to `#/settings/usuals` instead
+      (the usuals card's own new route), not deferred. Verified: full suite **535 pass**; a
+      throwaway phone-width (414×896) headless-CDP script — **28/28 checks pass**: the index's 8
+      rows, tap-to-navigate into a sub-page, the Light/Dark toggle (sets `data-theme`, persists to
+      `localStorage`, survives navigating away and back within the same browser instance), adding
+      6 staples in place, deleting the middle one with **scroll position unchanged**
+      (`window.scrollY` identical before/after — the actual bug this chunk fixes) and an Undo
+      toast that restores it, product-units' labelled fields, all five remaining sub-pages
+      rendering with their Back link, and Diagnostics' status panel — zero console errors
+      throughout.
 - [ ] **Chunk 6.5 — Weekly planner calendar view.** A 7-day grid on the session workspace,
       visual-layer-only (`day_of_week` already set/stored, Phase 4 Chunk 4.4 — no data-model
       change here). Tap-to-assign interaction (kickoff decision #10) — tap a slot, then tap the

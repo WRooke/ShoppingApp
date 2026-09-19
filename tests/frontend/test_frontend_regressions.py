@@ -86,10 +86,9 @@ def test_clearing_a_usual_items_note_persists_after_reload(browser, api, server_
         json={"name": name, "cadence_days": 14, "notes": "clear me"},
     ).json()["data"]
 
-    browser.navigate(f"{server_url}/#/settings")
-    # The usuals card's own list loads asynchronously alongside several other settings cards
-    # that share the same input classes (staples, product units, ...) — wait for OUR row by
-    # value, not just for "some .settings-name-input exists".
+    # Phase 6 Chunk 6.4: Settings is now an index + drill-down sub-page per section — the
+    # usuals card only renders at its own #/settings/usuals route, not on #/settings itself.
+    browser.navigate(f"{server_url}/#/settings/usuals")
     _wait_for_value_match(browser, "settings-name-input", name)
 
     result = browser.eval(
@@ -122,7 +121,7 @@ def test_clearing_a_usual_items_note_persists_after_reload(browser, api, server_
         time.sleep(0.2)
     assert cleared, "usual item's notes were not cleared via the UI"
 
-    browser.navigate(f"{server_url}/#/settings")
+    browser.navigate(f"{server_url}/#/settings/usuals")
     _wait_for_value_match(browser, "settings-name-input", name)
     notes_value = browser.eval(
         "(function(name){"

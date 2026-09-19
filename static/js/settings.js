@@ -1,10 +1,13 @@
-/* Settings view: view/add/edit/delete for the `staples` and `product_units`
-   reference catalogue (see CLAUDE.md > Build Phases > Phase 2 > Chunk 2.5).
-   This is what makes the seeded data from Chunk 2.1 actually editable. Two
-   independent cards, each following the same list-of-editable-rows + add-row
-   pattern already established in recipes.js for ingredients — kept as its
-   own file per CLAUDE.md > Code Architecture & Maintainability (own feature
-   area, own DOM/state, never reaches into recipes.js). */
+/* Settings — index + drill-down sub-pages (Phase 6 Chunk 6.4, kickoff decisions #9/#10).
+   Used to be one long scroll through 7 cards; `#/settings` is now a menu, and each section
+   (including the new Appearance one) lives at its own `#/settings/<section>` route —
+   router.js's existing key/param hash shape already supports this, no router changes needed
+   beyond passing the param through. Each section's own renderCard() lives in its own file
+   (settings-appearance.js, settings-staples.js, settings-product-units.js,
+   settings-substitutions.js, settings-usuals.js, settings-ingredient-aliases.js,
+   settings-unit-synonyms.js, settings-coarse-ingredients.js) — this file is just the index
+   and the dispatch between them, split out once the combined file passed the ~400 line
+   guideline. */
 
 (function (global) {
   "use strict";
@@ -16,322 +19,77 @@
     return node;
   }
 
-  // --- staples ---------------------------------------------------------
+  var SECTIONS = [
+    { slug: "staples", name: "Staples", count: function () { return api.settings.staples.list(); } },
+    { slug: "product-units", name: "Product units", count: function () { return api.settings.productUnits.list(); } },
+    { slug: "substitutions", name: "Substitutions", count: function () { return api.settings.substitutions.list(); } },
+    { slug: "usuals", name: "The usuals", count: function () { return api.settings.usuals.list(); } },
+    { slug: "ingredient-aliases", name: "Ingredient groups", count: function () { return api.settings.ingredientAliases.list(); } },
+    { slug: "unit-synonyms", name: "Unit spellings", count: function () { return api.settings.unitSynonyms.list(); } },
+    { slug: "coarse-ingredients", name: "Coarse ingredients", count: function () { return api.settings.coarseIngredients.list(); } },
+  ];
 
-  function renderStapleRow(staple, onChanged) {
-    var row = el("div", "settings-row");
-
-    var nameInput = el("input");
-    nameInput.type = "text";
-    nameInput.value = staple.name;
-    nameInput.className = "settings-name-input";
-
-    var notesInput = el("input");
-    notesInput.type = "text";
-    notesInput.value = staple.notes || "";
-    notesInput.placeholder = "notes";
-    notesInput.className = "settings-notes-input";
-
-    var saveBtn = el("button", null, "Save");
-    var deleteBtn = el("button", null, "Delete");
-    var rowErr = el("span", "form-error");
-
-    saveBtn.addEventListener("click", function () {
-      rowErr.textContent = "";
-      api.settings.staples
-        .update(staple.id, {
-          name: nameInput.value.trim(),
-          notes: notesInput.value.trim() || null,
-        })
-        .then(onChanged)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    deleteBtn.addEventListener("click", function () {
-      if (!global.confirm('Remove "' + staple.name + '" from staples?')) return;
-      api.settings.staples
-        .delete(staple.id)
-        .then(onChanged)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    [nameInput, notesInput, saveBtn, deleteBtn, rowErr].forEach(function (n) {
-      row.appendChild(n);
-    });
-    return row;
-  }
-
-  function renderAddStapleRow(onAdded) {
-    var row = el("div", "settings-row");
-
-    var nameInput = el("input");
-    nameInput.type = "text";
-    nameInput.placeholder = "New staple name";
-
-    var notesInput = el("input");
-    notesInput.type = "text";
-    notesInput.placeholder = "notes";
-
-    var addBtn = el("button", "primary", "Add");
-    var rowErr = el("span", "form-error");
-
-    addBtn.addEventListener("click", function () {
-      rowErr.textContent = "";
-      var name = nameInput.value.trim();
-      if (!name) {
-        rowErr.textContent = "Name is required.";
-        return;
-      }
-      api.settings.staples
-        .create({ name: name, notes: notesInput.value.trim() || null })
-        .then(onAdded)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    [nameInput, notesInput, addBtn, rowErr].forEach(function (n) {
-      row.appendChild(n);
-    });
-    return row;
-  }
-
-  function renderStaplesCard(root) {
-    var card = el("div", "card");
-    card.appendChild(el("h2", null, "Staples"));
-    card.appendChild(
-      el(
-        "div",
-        "muted",
-        "Assumed to already be on hand — only shown on the checklist when a recipe in the session needs them."
-      )
-    );
-
-    var listBody = el("div", "settings-list");
-    listBody.textContent = "Loading...";
-    card.appendChild(listBody);
-    var addSlot = el("div");
-    card.appendChild(addSlot);
-    root.appendChild(card);
-
-    function load() {
-      listBody.textContent = "Loading...";
-      api.settings.staples
-        .list()
-        .then(function (data) {
-          listBody.innerHTML = "";
-          addSlot.innerHTML = "";
-          if (!data.items || data.items.length === 0) {
-            listBody.appendChild(el("div", "muted", "No staples yet."));
-          } else {
-            data.items.forEach(function (s) {
-              listBody.appendChild(renderStapleRow(s, load));
-            });
-          }
-          addSlot.appendChild(renderAddStapleRow(load));
-        })
-        .catch(function (err) {
-          listBody.textContent = "Couldn't load staples: " + err.message;
-        });
-    }
-
-    load();
-  }
-
-  // --- product units -----------------------------------------------------
-
-  function renderProductUnitRow(unit, onChanged) {
-    var row = el("div", "settings-row");
-
-    var nameInput = el("input");
-    nameInput.type = "text";
-    nameInput.value = unit.ingredient_name;
-    nameInput.className = "settings-name-input";
-    nameInput.placeholder = "ingredient";
-
-    var labelInput = el("input");
-    labelInput.type = "text";
-    labelInput.value = unit.purchase_label;
-    labelInput.placeholder = "pack label";
-
-    var qtyInput = el("input");
-    qtyInput.type = "number";
-    qtyInput.step = "any";
-    qtyInput.value = unit.purchase_qty;
-    qtyInput.className = "ingredient-qty-input";
-
-    var unitInput = el("input");
-    unitInput.type = "text";
-    unitInput.value = unit.purchase_unit || "";
-    unitInput.placeholder = "unit";
-    unitInput.className = "ingredient-unit-input";
-
-    var notesInput = el("input");
-    notesInput.type = "text";
-    notesInput.value = unit.notes || "";
-    notesInput.placeholder = "notes";
-    notesInput.className = "settings-notes-input";
-
-    var saveBtn = el("button", null, "Save");
-    var deleteBtn = el("button", null, "Delete");
-    var rowErr = el("span", "form-error");
-
-    if (unit.is_preseeded) {
-      row.appendChild(el("span", "muted", "seeded"));
-    }
-
-    saveBtn.addEventListener("click", function () {
-      rowErr.textContent = "";
-      var qty = parseFloat(qtyInput.value);
-      if (isNaN(qty) || qty <= 0) {
-        rowErr.textContent = "Purchase quantity must be a positive number.";
-        return;
-      }
-      api.settings.productUnits
-        .update(unit.id, {
-          ingredient_name: nameInput.value.trim(),
-          purchase_label: labelInput.value.trim(),
-          purchase_qty: qty,
-          purchase_unit: unitInput.value.trim() || null,
-          notes: notesInput.value.trim() || null,
-        })
-        .then(onChanged)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    deleteBtn.addEventListener("click", function () {
-      if (!global.confirm('Remove the purchase unit for "' + unit.ingredient_name + '"?')) return;
-      api.settings.productUnits
-        .delete(unit.id)
-        .then(onChanged)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    [nameInput, labelInput, qtyInput, unitInput, notesInput, saveBtn, deleteBtn, rowErr].forEach(
-      function (n) {
-        row.appendChild(n);
-      }
-    );
-    return row;
-  }
-
-  function renderAddProductUnitRow(onAdded) {
-    var row = el("div", "settings-row");
-
-    var nameInput = el("input");
-    nameInput.type = "text";
-    nameInput.placeholder = "ingredient";
-
-    var labelInput = el("input");
-    labelInput.type = "text";
-    labelInput.placeholder = "pack label, e.g. 500g pack";
-
-    var qtyInput = el("input");
-    qtyInput.type = "number";
-    qtyInput.step = "any";
-    qtyInput.placeholder = "qty";
-
-    var unitInput = el("input");
-    unitInput.type = "text";
-    unitInput.placeholder = "unit, e.g. g";
-
-    var notesInput = el("input");
-    notesInput.type = "text";
-    notesInput.placeholder = "notes";
-
-    var addBtn = el("button", "primary", "Add");
-    var rowErr = el("span", "form-error");
-
-    addBtn.addEventListener("click", function () {
-      rowErr.textContent = "";
-      var name = nameInput.value.trim();
-      var label = labelInput.value.trim();
-      var qty = parseFloat(qtyInput.value);
-      if (!name || !label || isNaN(qty) || qty <= 0) {
-        rowErr.textContent = "Ingredient, pack label, and a positive quantity are required.";
-        return;
-      }
-      api.settings.productUnits
-        .create({
-          ingredient_name: name,
-          purchase_label: label,
-          purchase_qty: qty,
-          purchase_unit: unitInput.value.trim() || null,
-          notes: notesInput.value.trim() || null,
-        })
-        .then(onAdded)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    [nameInput, labelInput, qtyInput, unitInput, notesInput, addBtn, rowErr].forEach(function (n) {
-      row.appendChild(n);
-    });
-    return row;
-  }
-
-  function renderProductUnitsCard(root) {
-    var card = el("div", "card");
-    card.appendChild(el("h2", null, "Product units"));
-    card.appendChild(
-      el(
-        "div",
-        "muted",
-        "How each ingredient is actually bought, e.g. eggs as a dozen. Used to turn a scaled quantity into a shopping-list amount."
-      )
-    );
-
-    var listBody = el("div", "settings-list");
-    listBody.textContent = "Loading...";
-    card.appendChild(listBody);
-    var addSlot = el("div");
-    card.appendChild(addSlot);
-    root.appendChild(card);
-
-    function load() {
-      listBody.textContent = "Loading...";
-      api.settings.productUnits
-        .list()
-        .then(function (data) {
-          listBody.innerHTML = "";
-          addSlot.innerHTML = "";
-          if (!data.items || data.items.length === 0) {
-            listBody.appendChild(el("div", "muted", "No product units yet."));
-          } else {
-            data.items.forEach(function (u) {
-              listBody.appendChild(renderProductUnitRow(u, load));
-            });
-          }
-          addSlot.appendChild(renderAddProductUnitRow(load));
-        })
-        .catch(function (err) {
-          listBody.textContent = "Couldn't load product units: " + err.message;
-        });
-    }
-
-    load();
-  }
-
-  // --- entry point -----------------------------------------------------
-
-  function mount(root) {
+  function renderIndex(root) {
     root.innerHTML = "";
-    renderStaplesCard(root);
-    renderProductUnitsCard(root);
-    global.SettingsSubstitutionsView.renderCard(root); // Phase 4, see settings-substitutions.js
-    global.SettingsUsualsView.renderCard(root); // Phase 5, see settings-usuals.js
-    global.SettingsIngredientAliasesView.renderCard(root); // 2026-09-10, see settings-ingredient-aliases.js
-    global.SettingsUnitSynonymsView.renderCard(root); // 2026-09-12, see settings-unit-synonyms.js
-    global.SettingsCoarseIngredientsView.renderCard(root); // 2026-09-12, see settings-coarse-ingredients.js
+    root.appendChild(el("h3", null, "Settings"));
+
+    var card = el("div", "card");
+    card.style.padding = "0";
+    var list = el("div", "section-list");
+    card.appendChild(list);
+    root.appendChild(card);
+
+    function row(name, countText, href) {
+      var a = el("a", null);
+      a.href = href;
+      a.appendChild(el("span", "name", name));
+      a.appendChild(el("span", "count muted", countText));
+      list.appendChild(a);
+      return a;
+    }
+
+    row("Appearance", global.SettingsAppearanceView.label(), "#/settings/appearance");
+
+    SECTIONS.forEach(function (s) {
+      var a = row(s.name, "…", "#/settings/" + s.slug);
+      var countEl = a.querySelector(".count");
+      s.count()
+        .then(function (data) {
+          var n = data.total != null ? data.total : (data.items || []).length;
+          countEl.textContent = n;
+        })
+        .catch(function () {
+          countEl.textContent = "";
+        });
+    });
+  }
+
+  // Appearance/staples/product-units clear root and add the Back link themselves; the other
+  // four sections' renderCard() only append a card (unchanged from their pre-6.4 shape), so
+  // this dispatch does that wrapping for them.
+  function withBack(renderFn) {
+    return function (root) {
+      root.innerHTML = "";
+      root.appendChild(global.BackLink.render("settings"));
+      renderFn(root);
+    };
+  }
+
+  var SECTION_MOUNTS = {
+    appearance: global.SettingsAppearanceView.renderCard,
+    staples: global.SettingsStaplesView.renderCard,
+    "product-units": global.SettingsProductUnitsView.renderCard,
+    substitutions: withBack(global.SettingsSubstitutionsView.renderCard),
+    usuals: withBack(global.SettingsUsualsView.renderCard),
+    "ingredient-aliases": withBack(global.SettingsIngredientAliasesView.renderCard),
+    "unit-synonyms": withBack(global.SettingsUnitSynonymsView.renderCard),
+    "coarse-ingredients": withBack(global.SettingsCoarseIngredientsView.renderCard),
+  };
+
+  function mount(root, param) {
+    var fn = param && SECTION_MOUNTS[param];
+    if (fn) fn(root);
+    else renderIndex(root);
   }
 
   function unmount() {

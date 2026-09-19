@@ -6,7 +6,14 @@
    cards look similar — that resolves two *ingredient names* being the same shopping item;
    this resolves a *unit* being spelled two ways. Plain plurals (clove/cloves) don't need a
    row here at all — services/unit_synonyms.py's strip_plural() handles those generically;
-   this card is only for genuine word-form differences (gram vs g, tablespoon vs tbsp). */
+   this card is only for genuine word-form differences (gram vs g, tablespoon vs tbsp).
+
+   Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
+   delete instead of confirm(), and in-place DOM removal on delete instead of a full list
+   rebuild (the scroll-position bug) — see settings-substitutions.js's header comment for
+   why Add still rebuilds the whole list (same reasoning applies here). This card's rows
+   have no editable fields besides delete (a unit spelling is either right or it's deleted
+   and re-added correctly) — no Save button needed. */
 
 (function (global) {
   "use strict";
@@ -16,6 +23,13 @@
     if (cls) node.className = cls;
     if (text != null) node.textContent = text;
     return node;
+  }
+
+  function miniField(labelText, inputEl) {
+    var wrap = el("div", "mini-field");
+    wrap.appendChild(el("label", null, labelText));
+    wrap.appendChild(inputEl);
+    return wrap;
   }
 
   function groupByCanonical(items) {
@@ -33,23 +47,31 @@
     });
   }
 
-  function renderSynonymRow(row, onChanged) {
+  function renderSynonymRow(row, reload) {
     var wrap = el("div", "settings-row");
     wrap.appendChild(el("span", "muted", row.alias_unit));
 
-    var deleteBtn = el("button", null, "Delete");
+    var deleteBtn = el("button", "btn-sm", "Delete");
     var rowErr = el("span", "form-error");
 
-    deleteBtn.addEventListener("click", function () {
-      if (!global.confirm('Stop treating "' + row.alias_unit + '" as "' + row.canonical_unit + '"?')) {
-        return;
-      }
-      api.settings.unitSynonyms
-        .delete(row.id)
-        .then(onChanged)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
+    global.SettingsRowActions.wireDelete(deleteBtn, {
+      label: row.alias_unit + " → " + row.canonical_unit,
+      row: wrap,
+      doDelete: function () {
+        return api.settings.unitSynonyms.delete(row.id);
+      },
+      recreate: function () {
+        return api.settings.unitSynonyms.create({
+          alias_unit: row.alias_unit,
+          canonical_unit: row.canonical_unit,
         });
+      },
+      onRestored: function () {
+        reload(); // see settings-substitutions.js's header comment — same reasoning
+      },
+      onError: function (err) {
+        rowErr.textContent = err.message;
+      },
     });
 
     wrap.appendChild(deleteBtn);
@@ -62,15 +84,15 @@
 
     var aliasInput = el("input");
     aliasInput.type = "text";
-    aliasInput.placeholder = "unit as typed, e.g. tablespoon";
+    aliasInput.placeholder = "e.g. tablespoon";
     aliasInput.className = "settings-name-input";
 
     var canonicalInput = el("input");
     canonicalInput.type = "text";
-    canonicalInput.placeholder = "same unit as, e.g. tbsp";
+    canonicalInput.placeholder = "e.g. tbsp";
     canonicalInput.className = "settings-name-input";
 
-    var addBtn = el("button", "primary", "Treat as the same unit");
+    var addBtn = el("button", "btn-sm primary", "Treat as the same unit");
     var rowErr = el("span", "form-error");
 
     addBtn.addEventListener("click", function () {
@@ -84,8 +106,6 @@
       api.settings.unitSynonyms
         .create({ alias_unit: alias, canonical_unit: canonical })
         .then(function () {
-          aliasInput.value = "";
-          canonicalInput.value = "";
           onAdded();
         })
         .catch(function (err) {
@@ -93,9 +113,14 @@
         });
     });
 
-    [aliasInput, el("span", "muted", "="), canonicalInput, addBtn, rowErr].forEach(function (n) {
-      wrap.appendChild(n);
-    });
+    wrap.appendChild(miniField("Unit as typed", aliasInput));
+    wrap.appendChild(el("span", "muted", "="));
+    wrap.appendChild(miniField("Same unit as", canonicalInput));
+    var actions = el("div", "log-controls");
+    actions.style.marginTop = "6px";
+    actions.appendChild(addBtn);
+    actions.appendChild(rowErr);
+    wrap.appendChild(actions);
     return wrap;
   }
 
@@ -114,14 +139,18 @@
     );
 
     var listBody = el("div", "settings-list");
-    listBody.textContent = "Loading...";
+    var skel = el("div", "skel-row");
+    var skelLine = el("div", "skeleton skel-line");
+    skelLine.style.width = "100%";
+    skel.appendChild(skelLine);
+    listBody.appendChild(skel);
     card.appendChild(listBody);
     var addSlot = el("div");
+    addSlot.style.marginTop = "12px";
     card.appendChild(addSlot);
     root.appendChild(card);
 
     function load() {
-      listBody.textContent = "Loading...";
       api.settings.unitSynonyms
         .list()
         .then(function (data) {
@@ -129,7 +158,7 @@
           addSlot.innerHTML = "";
           var groups = groupByCanonical(data.items);
           if (groups.length === 0) {
-            listBody.appendChild(el("div", "muted", "No custom spellings yet — add one below."));
+            listBody.appendChild(el("div", "empty-state", "No custom spellings yet — add one below."));
           } else {
             groups.forEach(function (group) {
               listBody.appendChild(el("div", "sub-group-heading", group.canonical_unit));
@@ -141,7 +170,8 @@
           addSlot.appendChild(renderAddRow(load));
         })
         .catch(function (err) {
-          listBody.textContent = "Couldn't load unit spellings: " + err.message;
+          listBody.innerHTML = "";
+          listBody.appendChild(el("div", "error-state", "Couldn't load unit spellings: " + err.message));
         });
     }
 

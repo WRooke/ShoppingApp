@@ -235,7 +235,11 @@
     statusCard.appendChild(el("h2", null, "Component status"));
     var statusPanel = el("div");
     statusPanel.id = "diag-status";
-    statusPanel.textContent = "Loading...";
+    var statusSkel = el("div", "skel-row");
+    var statusSkelLine = el("div", "skeleton skel-line");
+    statusSkelLine.style.width = "100%";
+    statusSkel.appendChild(statusSkelLine);
+    statusPanel.appendChild(statusSkel);
     statusCard.appendChild(statusPanel);
     root.appendChild(statusCard);
 

@@ -48,8 +48,8 @@
     },
     settings: {
       title: "Settings",
-      mount: function (root) {
-        global.SettingsView.mount(root);
+      mount: function (root, param) {
+        global.SettingsView.mount(root, param);
       },
       unmount: function () {
         global.SettingsView.unmount();

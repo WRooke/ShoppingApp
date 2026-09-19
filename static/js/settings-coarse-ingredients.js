@@ -4,7 +4,11 @@
    Handling > Layer D.
 
    Flat list, same CRUD shape as staples/usuals — no grouping needed, each row is one
-   ingredient with its own purchase label and "recipes per pack" divisor. */
+   ingredient with its own purchase label and "recipes per pack" divisor.
+
+   Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
+   delete instead of confirm(), and in-place DOM updates instead of a full list rebuild on
+   every Save/Add/Delete (the scroll-position bug). */
 
 (function (global) {
   "use strict";
@@ -16,26 +20,31 @@
     return node;
   }
 
-  function renderRow(row, onChanged) {
+  function miniField(labelText, inputEl) {
+    var wrap = el("div", "mini-field");
+    wrap.appendChild(el("label", null, labelText));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+
+  function renderRow(row, listBody) {
     var wrap = el("div", "settings-row");
-    wrap.appendChild(el("span", "muted", row.name));
 
     var labelInput = el("input");
     labelInput.type = "text";
-    labelInput.placeholder = "purchase label, e.g. bunch";
     labelInput.value = row.purchase_label || "";
-    labelInput.className = "settings-name-input";
 
     var perPackInput = el("input");
     perPackInput.type = "number";
     perPackInput.min = "1";
     perPackInput.step = "1";
+    perPackInput.inputMode = "numeric";
     perPackInput.value = row.recipes_per_pack;
     perPackInput.title = "How many recipes needing this one pack is assumed to cover";
     perPackInput.className = "ingredient-qty-input";
 
-    var saveBtn = el("button", null, "Save");
-    var deleteBtn = el("button", null, "Delete");
+    var saveBtn = el("button", "btn-sm primary", "Save");
+    var deleteBtn = el("button", "btn-sm", "Delete");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
@@ -50,43 +59,64 @@
           purchase_label: labelInput.value.trim() || null,
           recipes_per_pack: perPack,
         })
-        .then(onChanged)
+        .then(function (updated) {
+          row.purchase_label = updated.purchase_label;
+          row.recipes_per_pack = updated.recipes_per_pack;
+        })
         .catch(function (err) {
           rowErr.textContent = err.message;
         });
     });
 
-    deleteBtn.addEventListener("click", function () {
-      if (!global.confirm('Stop treating "' + row.name + '" as a coarse ingredient?')) return;
-      api.settings.coarseIngredients
-        .delete(row.id)
-        .then(onChanged)
-        .catch(function (err) {
-          rowErr.textContent = err.message;
+    global.SettingsRowActions.wireDelete(deleteBtn, {
+      label: row.name,
+      row: wrap,
+      doDelete: function () {
+        return api.settings.coarseIngredients.delete(row.id);
+      },
+      recreate: function () {
+        return api.settings.coarseIngredients.create({
+          name: row.name,
+          purchase_label: row.purchase_label,
         });
+      },
+      onRestored: function (created) {
+        listBody.appendChild(renderRow(created, listBody));
+      },
+      onError: function (err) {
+        rowErr.textContent = err.message;
+      },
     });
 
-    [labelInput, el("span", "muted", "per"), perPackInput, el("span", "muted", "recipe(s)"), saveBtn, deleteBtn, rowErr]
-      .forEach(function (n) {
-        wrap.appendChild(n);
-      });
+    var grid = el("div", "ing-grid");
+    grid.style.gridTemplateColumns = "2fr 1fr";
+    grid.appendChild(miniField("Purchase label", labelInput));
+    grid.appendChild(miniField("Recipes per pack", perPackInput));
+    wrap.appendChild(grid);
+    var actions = el("div", "log-controls");
+    actions.style.marginTop = "6px";
+    actions.appendChild(el("span", "muted", row.name));
+    actions.appendChild(saveBtn);
+    actions.appendChild(deleteBtn);
+    actions.appendChild(rowErr);
+    wrap.appendChild(actions);
     return wrap;
   }
 
-  function renderAddRow(onAdded) {
+  function renderAddRow(listBody) {
     var wrap = el("div", "settings-row");
 
     var nameInput = el("input");
     nameInput.type = "text";
-    nameInput.placeholder = "ingredient name, e.g. parsley";
+    nameInput.placeholder = "e.g. parsley";
     nameInput.className = "settings-name-input";
 
     var labelInput = el("input");
     labelInput.type = "text";
-    labelInput.placeholder = "purchase label, e.g. bunch (optional)";
+    labelInput.placeholder = "e.g. bunch (optional)";
     labelInput.className = "settings-name-input";
 
-    var addBtn = el("button", "primary", "Add");
+    var addBtn = el("button", "btn-sm primary", "Add");
     var rowErr = el("span", "form-error");
 
     addBtn.addEventListener("click", function () {
@@ -98,19 +128,27 @@
       }
       api.settings.coarseIngredients
         .create({ name: name, purchase_label: labelInput.value.trim() || null })
-        .then(function () {
+        .then(function (created) {
+          if (listBody.querySelector(".empty-state")) listBody.innerHTML = "";
+          listBody.appendChild(renderRow(created, listBody));
           nameInput.value = "";
           labelInput.value = "";
-          onAdded();
         })
         .catch(function (err) {
           rowErr.textContent = err.message;
         });
     });
 
-    [nameInput, labelInput, addBtn, rowErr].forEach(function (n) {
-      wrap.appendChild(n);
-    });
+    var grid = el("div", "ing-grid");
+    grid.style.gridTemplateColumns = "1fr 1fr";
+    grid.appendChild(miniField("Ingredient name", nameInput));
+    grid.appendChild(miniField("Purchase label", labelInput));
+    wrap.appendChild(grid);
+    var actions = el("div", "log-controls");
+    actions.style.marginTop = "6px";
+    actions.appendChild(addBtn);
+    actions.appendChild(rowErr);
+    wrap.appendChild(actions);
     return wrap;
   }
 
@@ -129,35 +167,35 @@
     );
 
     var listBody = el("div", "settings-list");
-    listBody.textContent = "Loading...";
+    var skel = el("div", "skel-row");
+    var skelLine = el("div", "skeleton skel-line");
+    skelLine.style.width = "100%";
+    skel.appendChild(skelLine);
+    listBody.appendChild(skel);
     card.appendChild(listBody);
     var addSlot = el("div");
+    addSlot.style.marginTop = "12px";
     card.appendChild(addSlot);
     root.appendChild(card);
 
-    function load() {
-      listBody.textContent = "Loading...";
-      api.settings.coarseIngredients
-        .list()
-        .then(function (data) {
-          listBody.innerHTML = "";
-          addSlot.innerHTML = "";
-          var items = data.items || [];
-          if (items.length === 0) {
-            listBody.appendChild(el("div", "muted", "No coarse ingredients yet — add one below."));
-          } else {
-            items.forEach(function (row) {
-              listBody.appendChild(renderRow(row, load));
-            });
-          }
-          addSlot.appendChild(renderAddRow(load));
-        })
-        .catch(function (err) {
-          listBody.textContent = "Couldn't load coarse ingredients: " + err.message;
-        });
-    }
-
-    load();
+    api.settings.coarseIngredients
+      .list()
+      .then(function (data) {
+        listBody.innerHTML = "";
+        var items = data.items || [];
+        if (items.length === 0) {
+          listBody.appendChild(el("div", "empty-state", "No coarse ingredients yet — add one below."));
+        } else {
+          items.forEach(function (row) {
+            listBody.appendChild(renderRow(row, listBody));
+          });
+        }
+        addSlot.appendChild(renderAddRow(listBody));
+      })
+      .catch(function (err) {
+        listBody.innerHTML = "";
+        listBody.appendChild(el("div", "error-state", "Couldn't load coarse ingredients: " + err.message));
+      });
   }
 
   global.SettingsCoarseIngredientsView = { renderCard: renderCard };
