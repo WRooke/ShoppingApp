@@ -7,6 +7,7 @@ requirements are installed.
 from __future__ import annotations
 
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -25,3 +26,31 @@ def run_git(cwd: Path, *args: str, timeout: int = 30) -> tuple[bool, str]:
         return False, "git executable not found on PATH"
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
+
+
+def run_git_network(
+    cwd: Path,
+    *args: str,
+    timeout: int = 30,
+    attempts: int = 3,
+    backoff_seconds: float = 3.0,
+) -> tuple[bool, str]:
+    """Like ``run_git``, but retries on failure — for fetch/push calls that hit the
+    remote over a flaky connection, where the repo itself isn't in question and a
+    dropped connection is worth a couple of automatic retries before giving up.
+
+    Not for local-only git calls (status, rev-parse, tag creation, etc.) — those fail
+    for reasons a retry can't fix, so callers should keep using ``run_git`` for those.
+    """
+    ok, out = False, ""
+    for attempt in range(1, attempts + 1):
+        ok, out = run_git(cwd, *args, timeout=timeout)
+        if ok:
+            return ok, out
+        if attempt < attempts:
+            print(
+                f"... git {' '.join(args)} failed (attempt {attempt}/{attempts}), "
+                f"retrying in {backoff_seconds:.0f}s: {out}"
+            )
+            time.sleep(backoff_seconds)
+    return ok, out

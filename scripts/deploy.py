@@ -29,7 +29,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.git_utils import run_git
+from scripts.git_utils import run_git, run_git_network
 from scripts.validate_develop import run_pytest
 
 # Deliberately NOT `from app.log_config import setup_logging` (2026-09-13 code review, adding
@@ -104,9 +104,9 @@ def main() -> int:
         )
         return 1
 
-    fetch_ok, fetch_out = run_git(BASE_DIR, "fetch", "origin")
+    fetch_ok, fetch_out = run_git_network(BASE_DIR, "fetch", "origin")
     if not fetch_ok:
-        _fail(f"git fetch failed: {fetch_out}")
+        _fail(f"git fetch failed after retries: {fetch_out}")
         return 1
 
     behind_ok, behind_out = run_git(BASE_DIR, "rev-list", "--count", f"HEAD..origin/{branch}")
@@ -124,17 +124,17 @@ def main() -> int:
         _fail(f"Could not create tag {tag}: {tag_out}")
         return 1
 
-    push_ok, push_out = run_git(BASE_DIR, "push", "origin", branch)
+    push_ok, push_out = run_git_network(BASE_DIR, "push", "origin", branch)
     if not push_ok:
         run_git(BASE_DIR, "tag", "-d", tag)
-        _fail(f"git push failed, tag rolled back locally: {push_out}")
+        _fail(f"git push failed after retries, tag rolled back locally: {push_out}")
         return 1
 
-    tag_push_ok, tag_push_out = run_git(BASE_DIR, "push", "origin", tag)
+    tag_push_ok, tag_push_out = run_git_network(BASE_DIR, "push", "origin", tag)
     if not tag_push_ok:
         _fail(
-            f"Branch pushed OK, but pushing tag {tag} failed (non-fatal, code is up to "
-            f"date on origin): {tag_push_out}"
+            f"Branch pushed OK, but pushing tag {tag} failed after retries (non-fatal, "
+            f"code is up to date on origin): {tag_push_out}"
         )
 
     # Fast-forward the remote production ref to wherever develop now is. No local
@@ -142,13 +142,14 @@ def main() -> int:
     # the remote branch. A plain (non-force) push only succeeds if that's actually a
     # fast-forward, so a production that has moved on its own (e.g. unmerged NUC
     # backup commits - see scripts/backup.py) is refused rather than clobbered.
-    prod_push_ok, prod_push_out = run_git(
+    prod_push_ok, prod_push_out = run_git_network(
         BASE_DIR, "push", "origin", f"{branch}:{PROD_BRANCH}"
     )
     if not prod_push_ok:
         _fail(
             f"{DEV_BRANCH} and its tag are pushed, but fast-forwarding {PROD_BRANCH} to "
-            f"match failed (not a fast-forward):\n{prod_push_out}\n"
+            f"match failed after retries (not necessarily a fast-forward issue - could "
+            f"still be the connection):\n{prod_push_out}\n"
             f"origin/{PROD_BRANCH} has commits {DEV_BRANCH} doesn't - most likely NUC "
             f"backup commits (see scripts/backup.py) that haven't been merged back. "
             f"Merge/rebase them into {DEV_BRANCH} first (`git fetch origin && git merge "
