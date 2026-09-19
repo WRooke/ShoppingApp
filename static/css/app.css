@@ -119,49 +119,18 @@
 }
 .detail-head-row h2 { margin: 0; }
 
-.field {
-  margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.field label {
-  font-size: 0.8rem;
-  color: var(--text-dim);
-}
-.field input,
-.field select,
-.field textarea {
-  font: inherit;
-  min-height: 44px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-}
-.field textarea { min-height: 72px; }
+/* .field itself removed here (Chunk 6.2 cleanup) — a duplicate of components.css's Chunk 6.1
+   rule that, thanks to load order (app.css loads last), had been silently overriding it since
+   Chunk 6.1 shipped. Found and fixed while touching this file for Chunk 6.2 — its own kind of
+   the exact "these two stylesheets fight over the same rule" bug the tokens.css/components.css
+   split exists to prevent. */
 
 .ingredient-edit-list { margin-bottom: 8px; }
-.ingredient-edit-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-}
-.ingredient-edit-row:first-child { border-top: none; }
-.ingredient-edit-row input,
-.ingredient-edit-row select {
-  font: inherit;
-  min-height: 40px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-}
+/* .ingredient-edit-row itself removed (Chunk 6.2) — confirmed dead, every consumer
+   (recipe-edit.js/recipe-form.js/capture-review.js) now uses .ing-row (components.css). The
+   -input classes below are still live: the labelled-field rewrite kept the same per-field
+   classes so UnitHints.attach() and other cross-file lookups by class name didn't need to
+   change, only the row wrapper's own class did. */
 .ingredient-name-input { flex: 2 1 140px; }
 .ingredient-qty-input { flex: 0 1 70px; }
 .ingredient-unit-input,
@@ -236,8 +205,8 @@
 /* --- per-ingredient substitution swap control (Phase 3.9 M4) --- */
 .ingredient-edit-wrap { border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px; }
 .ing-swap { margin: 2px 0 4px; font-size: 0.9rem; }
-.ing-swap-body { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
-.ing-swap-picks { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+/* .ing-swap-body removed Chunk 6.2 — the swap panel now uses .swap-panel (components.css) */
+.ing-swap-picks { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px; }
 .ing-swap-flag { font-size: 0.85rem; margin-top: 2px; }
 .ing-swap-remember { font-size: 0.85rem; }
 .link-btn { min-height: 0; padding: 2px 6px; font-size: 0.85rem; }

@@ -80,6 +80,8 @@
         if (params.limit) q.push("limit=" + params.limit);
         if (params.offset) q.push("offset=" + params.offset);
         if (params.includeArchived) q.push("include_archived=true");
+        if (params.cuisine) q.push("cuisine=" + encodeURIComponent(params.cuisine));
+        if (params.protein) q.push("protein=" + encodeURIComponent(params.protein));
         return api.get("/api/v1/recipes" + (q.length ? "?" + q.join("&") : ""));
       },
       get: function (id) {

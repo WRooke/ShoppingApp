@@ -24,6 +24,10 @@
     return wrap;
   }
 
+  // (The labelled mini-field + numeric-stepper helpers used to live here too, but only the
+  // ingredient rows ever used them — moved to recipe-edit-ingredients.js with the rows
+  // themselves when that file was split out for size, see CLAUDE.md > Code Architecture.)
+
   // card: the detail card element to render into (replaces its contents)
   // r: the recipe, as returned by the API
   // onCancel: called (with no reload) to drop back to view mode
@@ -44,6 +48,7 @@
     var servingsInput = el("input");
     servingsInput.type = "number";
     servingsInput.min = "1";
+    servingsInput.inputMode = "numeric";
     servingsInput.value = r.base_servings;
     card.appendChild(labeledField("Base servings", servingsInput));
 
@@ -91,10 +96,25 @@
     notesInput.value = r.notes || "";
     card.appendChild(labeledField("Notes", notesInput));
 
+    // Draft autosave (Chunk 6.2 kickoff decision #12) — keyed per-recipe so editing #5 never
+    // restores into #7's form. Recipe-level fields only, not the ingredient list below.
+    var draft = global.DraftAutosave.attach("recipe-edit-" + r.id, {
+      name: nameInput,
+      servings: servingsInput,
+      cuisine: cuisineInput,
+      protein: proteinInput,
+      sourceUrl: sourceUrlInput,
+      sourceBook: sourceBookInput,
+      sourcePage: sourcePageInput,
+      notes: notesInput,
+    });
+    draft.restore(); // silent here — re-opening edit mode with the same unsaved text you
+                      // left is expected, not a surprise worth calling out like a fresh form
+
     var saveErr = el("div", "form-error");
     card.appendChild(saveErr);
 
-    var actionsRow = el("div", "log-controls");
+    var actionsRow = el("div", "log-controls sticky-actions");
     var saveBtn = el("button", "primary", "Save");
     var cancelBtn = el("button", null, "Cancel");
     actionsRow.appendChild(saveBtn);
@@ -121,6 +141,7 @@
       api.recipes
         .update(r.id, payload)
         .then(function () {
+          draft.clear();
           onCancel(); // back to (now-updated) view mode, same as Cancel
         })
         .catch(function (err) {
@@ -152,187 +173,53 @@
     card.appendChild(ingList);
 
     (r.ingredients || []).forEach(function (ing) {
-      ingList.appendChild(renderIngredientEditRow(r.id, ing, refreshEdit));
+      ingList.appendChild(global.RecipeEditIngredients.renderRow(r.id, ing, refreshEdit));
     });
 
-    card.appendChild(renderAddIngredientRow(r.id, refreshEdit));
+    card.appendChild(global.RecipeEditIngredients.renderAddRow(r.id, refreshEdit));
 
     // --- archive ---------------------------------------------------
 
     var dangerRow = el("div", "danger-zone");
     var archiveBtn = el("button", null, "Delete recipe");
     archiveBtn.addEventListener("click", function () {
-      if (!global.confirm("Delete \"" + r.name + "\"? It can still be found via history later.")) {
-        return;
-      }
+      // Undo toast, not a confirm() dialog (Chunk 6.1 kickoff decision #2) — archive is
+      // already reversible (recipes.archive() is a soft-delete, api.recipes.restore()
+      // already existed for the duplicate-detection flow), so a blocking "are you sure?"
+      // has nothing left to protect against.
+      archiveBtn.disabled = true;
       api.recipes
         .archive(r.id)
         .then(function () {
-          onDeleted();
+          card.innerHTML = "";
+          card.appendChild(el("div", "muted", "Recipe deleted."));
+          // Navigating away (onDeleted -> Router.navigate) fires a hashchange, and the
+          // shared toast deliberately dies on navigation (kickoff decision #12) — so the
+          // navigate is deferred until just past the toast's own lifetime, rather than
+          // racing it. Undo cancels the deferred navigate and re-renders in place instead.
+          var leaveTimer = global.setTimeout(onDeleted, 5300);
+          global.Toast.show('Deleted "' + r.name + '"', {
+            actionLabel: "Undo",
+            onAction: function () {
+              global.clearTimeout(leaveTimer);
+              api.recipes
+                .restore(r.id)
+                .then(function () {
+                  render(card, r, onCancel, onDeleted);
+                })
+                .catch(function (err) {
+                  global.alert("Couldn't undo: " + err.message);
+                });
+            },
+          });
         })
         .catch(function (err) {
+          archiveBtn.disabled = false;
           saveErr.textContent = "Couldn't delete: " + err.message;
         });
     });
     dangerRow.appendChild(archiveBtn);
     card.appendChild(dangerRow);
-  }
-
-  function renderIngredientEditRow(recipeId, ing, reload) {
-    var row = el("div", "ingredient-edit-row");
-
-    var nameInput = el("input");
-    nameInput.type = "text";
-    nameInput.value = ing.name;
-    nameInput.className = "ingredient-name-input";
-
-    var qtyInput = el("input");
-    qtyInput.type = "number";
-    qtyInput.step = "any";
-    qtyInput.value = ing.quantity;
-    qtyInput.className = "ingredient-qty-input";
-
-    var unitInput = el("input");
-    unitInput.type = "text";
-    unitInput.value = ing.unit || "";
-    unitInput.placeholder = "unit";
-    unitInput.className = "ingredient-unit-input";
-
-    var prepInput = el("input");
-    prepInput.type = "text";
-    prepInput.value = ing.preparation || "";
-    prepInput.placeholder = "preparation";
-    prepInput.className = "ingredient-prep-input";
-
-    // Substitution (Phase 3.9 M4) — the swap this recipe uses. Blank clears it.
-    var resolvedInput = el("input");
-    resolvedInput.type = "text";
-    resolvedInput.value = ing.resolved_ingredient || "";
-    resolvedInput.placeholder = "use instead (optional)";
-    resolvedInput.className = "settings-name-input";
-
-    var subNoteInput = el("input");
-    subNoteInput.type = "text";
-    subNoteInput.value = ing.substitution_note || "";
-    subNoteInput.placeholder = "swap note";
-    subNoteInput.className = "settings-notes-input";
-
-    // Substitution quantity/unit transform (Phase 3.9 M8) — the swap's absolute amount when
-    // it isn't 1:1 in this recipe's unit ("2 cob" -> "2 can"). Blank = keep this row's own
-    // quantity/unit. Only meaningful with a resolved ingredient set.
-    var subQtyInput = el("input");
-    subQtyInput.type = "number";
-    subQtyInput.step = "any";
-    subQtyInput.value = ing.resolved_quantity != null ? ing.resolved_quantity : "";
-    subQtyInput.placeholder = "swap amount";
-    subQtyInput.className = "ingredient-qty-input";
-
-    var subUnitInput = el("input");
-    subUnitInput.type = "text";
-    subUnitInput.value = ing.resolved_unit || "";
-    subUnitInput.placeholder = "swap unit";
-    subUnitInput.className = "ingredient-unit-input";
-
-    var saveBtn = el("button", null, "Save");
-    var deleteBtn = el("button", null, "Delete");
-    var rowErr = el("span", "form-error");
-
-    saveBtn.addEventListener("click", function () {
-      rowErr.textContent = "";
-      var swapQty = parseFloat(subQtyInput.value);
-      var swapUnit = subUnitInput.value.trim();
-      var hasTransform = !isNaN(swapQty) && swapQty > 0 && !!swapUnit;
-      api.recipes
-        .updateIngredient(recipeId, ing.id, {
-          name: nameInput.value.trim(),
-          quantity: parseFloat(qtyInput.value),
-          unit: unitInput.value.trim() || null,
-          preparation: prepInput.value.trim() || null,
-          resolved_ingredient: resolvedInput.value.trim() || null,
-          substitution_note: subNoteInput.value.trim() || null,
-          resolved_quantity: hasTransform ? swapQty : null,
-          resolved_unit: hasTransform ? swapUnit : null,
-        })
-        .then(function () {
-          reload();
-        })
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    deleteBtn.addEventListener("click", function () {
-      if (!global.confirm("Remove this ingredient?")) return;
-      api.recipes
-        .deleteIngredient(recipeId, ing.id)
-        .then(function () {
-          reload();
-        })
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    [nameInput, qtyInput, unitInput, prepInput, resolvedInput, subNoteInput, subQtyInput, subUnitInput, saveBtn, deleteBtn, rowErr].forEach(
-      function (n) {
-        row.appendChild(n);
-      }
-    );
-    row.appendChild(global.UnitHints.attach(nameInput, unitInput)); // 2026-09-12, see unit-hints.js
-    return row;
-  }
-
-  function renderAddIngredientRow(recipeId, reload) {
-    var row = el("div", "ingredient-edit-row");
-
-    var nameInput = el("input");
-    nameInput.type = "text";
-    nameInput.placeholder = "New ingredient name";
-
-    var qtyInput = el("input");
-    qtyInput.type = "number";
-    qtyInput.step = "any";
-    qtyInput.placeholder = "qty";
-
-    var unitInput = el("input");
-    unitInput.type = "text";
-    unitInput.placeholder = "unit";
-
-    var prepInput = el("input");
-    prepInput.type = "text";
-    prepInput.placeholder = "preparation";
-
-    var addBtn = el("button", "primary", "Add");
-    var rowErr = el("span", "form-error");
-
-    addBtn.addEventListener("click", function () {
-      rowErr.textContent = "";
-      var name = nameInput.value.trim();
-      var qty = parseFloat(qtyInput.value);
-      if (!name || isNaN(qty)) {
-        rowErr.textContent = "Name and quantity are required.";
-        return;
-      }
-      api.recipes
-        .addIngredient(recipeId, {
-          name: name,
-          quantity: qty,
-          unit: unitInput.value.trim() || null,
-          preparation: prepInput.value.trim() || null,
-        })
-        .then(function () {
-          reload();
-        })
-        .catch(function (err) {
-          rowErr.textContent = err.message;
-        });
-    });
-
-    [nameInput, qtyInput, unitInput, prepInput, addBtn, rowErr].forEach(function (n) {
-      row.appendChild(n);
-    });
-    row.appendChild(global.UnitHints.attach(nameInput, unitInput)); // 2026-09-12, see unit-hints.js
-    return row;
   }
 
   global.RecipeEditView = { mount: mount };

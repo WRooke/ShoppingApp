@@ -10,6 +10,7 @@
 
   var state = {
     search: "",
+    cuisine: "", // Phase 6 Chunk 6.2 — quick-filter chips, "" = All
   };
 
   function el(tag, cls, text) {
@@ -119,6 +120,14 @@
 
     root.appendChild(actionsRow);
 
+    // Cuisine quick-filter chips (Chunk 6.2) — the chip set itself is derived once from
+    // the library's own unfiltered contents (below), not a fixed vocabulary, so it only
+    // ever shows cuisines this household has actually used.
+    var filterRow = el("div", "filter-row");
+    filterRow.setAttribute("role", "group");
+    filterRow.setAttribute("aria-label", "Filter by cuisine");
+    root.appendChild(filterRow);
+
     var listCard = el("div", "card");
     listCard.appendChild(el("h2", null, "Recipes"));
     var listBody = el("div");
@@ -127,12 +136,71 @@
     listCard.appendChild(listBody);
     root.appendChild(listCard);
 
+    var knownCuisines = null; // computed once; stays stable while a filter is applied so
+                               // the chip row itself never disappears out from under you
+
+    function renderChips(cuisines) {
+      filterRow.innerHTML = "";
+      if (!cuisines.length) return; // nothing to filter by yet
+      var allChip = el("button", "chip", "All");
+      allChip.type = "button";
+      allChip.setAttribute("aria-pressed", String(!state.cuisine));
+      allChip.addEventListener("click", function () {
+        state.cuisine = "";
+        load();
+      });
+      filterRow.appendChild(allChip);
+      cuisines.forEach(function (c) {
+        var chip = el("button", "chip", c);
+        chip.type = "button";
+        chip.setAttribute("aria-pressed", String(state.cuisine === c));
+        chip.addEventListener("click", function () {
+          state.cuisine = c;
+          load();
+        });
+        filterRow.appendChild(chip);
+      });
+    }
+
+    function cuisinesFrom(items) {
+      var seen = {};
+      var out = [];
+      items.forEach(function (r) {
+        if (r.cuisine && !seen[r.cuisine]) {
+          seen[r.cuisine] = true;
+          out.push(r.cuisine);
+        }
+      });
+      return out.sort();
+    }
+
     function load() {
       listBody.textContent = "Loading...";
       api.recipes
-        .list({ search: state.search, limit: 200 })
+        .list({ search: state.search, cuisine: state.cuisine, limit: 200 })
         .then(function (data) {
           renderListBody(listBody, data.items);
+          if (knownCuisines) {
+            renderChips(knownCuisines); // re-render so the pressed state stays in sync
+            return;
+          }
+          // First load only. An unfiltered result already shows the full cuisine set;
+          // a filtered one (e.g. a direct search) doesn't, so fetch once more, quietly,
+          // just to build the chip row — the only extra request this feature costs.
+          if (!state.search && !state.cuisine) {
+            knownCuisines = cuisinesFrom(data.items);
+            renderChips(knownCuisines);
+          } else {
+            api.recipes
+              .list({ limit: 200 })
+              .then(function (full) {
+                knownCuisines = cuisinesFrom(full.items);
+                renderChips(knownCuisines);
+              })
+              .catch(function () {
+                /* chips are a nicety — a failed background fetch just leaves them absent */
+              });
+          }
         })
         .catch(function (err) {
           listBody.textContent = "Couldn't load recipes: " + err.message;
@@ -173,6 +241,16 @@
       var rating = ratingLabel(r.rating);
       if (rating) row.appendChild(el("div", "recipe-row-rating", rating));
 
+      var addBtn = el("button", "btn-sm", "+ Add to session");
+      addBtn.addEventListener("click", function (ev) {
+        // Row is a full-card <a> — stop the click reaching it, or this both adds the
+        // recipe to a session AND navigates to the recipe's own detail page.
+        ev.preventDefault();
+        ev.stopPropagation();
+        global.AddToSession.run(r.id, addBtn);
+      });
+      row.appendChild(addBtn);
+
       container.appendChild(row);
     });
   }
@@ -181,10 +259,7 @@
 
   function renderDetail(root, id) {
     root.innerHTML = "";
-
-    var back = el("a", "btn", "← Back to recipes");
-    back.href = "#/recipes";
-    root.appendChild(back);
+    root.appendChild(global.BackLink.render("recipes"));
 
     var card = el("div", "card");
     card.textContent = "Loading...";
@@ -230,6 +305,11 @@
       );
     });
     headRow.appendChild(editBtn);
+    var addToSessionBtn = el("button", "btn-sm", "+ Add to session");
+    addToSessionBtn.addEventListener("click", function () {
+      global.AddToSession.run(r.id, addToSessionBtn);
+    });
+    headRow.appendChild(addToSessionBtn);
     card.appendChild(headRow);
 
     var metaBits = [fmtServings(r.base_servings)];

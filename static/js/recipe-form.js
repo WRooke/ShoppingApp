@@ -22,12 +22,36 @@
     return wrap;
   }
 
+  // Chunk 6.2 — the smaller labelled-field pattern for dense ingredient rows.
+  function miniField(labelText, inputEl) {
+    var wrap = el("div", "mini-field");
+    wrap.appendChild(el("label", null, labelText));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+
+  function numberStepper(input, step) {
+    step = step || 1;
+    var wrap = el("div", "stepper");
+    var minus = el("button", null, "−");
+    minus.type = "button";
+    var plus = el("button", null, "+");
+    plus.type = "button";
+    minus.addEventListener("click", function () {
+      input.value = Math.max(0, (parseFloat(input.value) || 0) - step);
+    });
+    plus.addEventListener("click", function () {
+      input.value = (parseFloat(input.value) || 0) + step;
+    });
+    wrap.appendChild(minus);
+    wrap.appendChild(input);
+    wrap.appendChild(plus);
+    return wrap;
+  }
+
   function mount(root) {
     root.innerHTML = "";
-
-    var back = el("a", "btn", "← Back to recipes");
-    back.href = "#/recipes";
-    root.appendChild(back);
+    root.appendChild(global.BackLink.render("recipes"));
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Add a recipe"));
@@ -44,6 +68,7 @@
     var servingsInput = el("input");
     servingsInput.type = "number";
     servingsInput.min = "1";
+    servingsInput.inputMode = "numeric";
     servingsInput.value = "4";
     card.appendChild(labeledField("Base servings", servingsInput));
 
@@ -72,6 +97,25 @@
     notesInput.rows = 3;
     card.appendChild(labeledField("Notes (optional)", notesInput));
 
+    // Draft autosave (Chunk 6.2 kickoff decision #12) — recipe-level fields only, not the
+    // dynamic ingredient list below (see draft-autosave.js's own header comment for why).
+    var draft = global.DraftAutosave.attach("recipe-new", {
+      name: nameInput,
+      servings: servingsInput,
+      cuisine: cuisineInput,
+      protein: proteinInput,
+      sourceUrl: sourceUrlInput,
+      sourceBook: sourceBookInput,
+      sourcePage: sourcePageInput,
+      notes: notesInput,
+    });
+    if (draft.restore()) {
+      var draftNote = el("div", "draft-note");
+      draftNote.appendChild(el("span", "draft-dot"));
+      draftNote.appendChild(document.createTextNode("Restored an unsaved draft"));
+      card.insertBefore(draftNote, card.firstChild.nextSibling);
+    }
+
     var ingHeading = el("h2", null, "Ingredients");
     ingHeading.style.marginTop = "16px";
     card.appendChild(ingHeading);
@@ -84,27 +128,35 @@
     function addIngredientRow() {
       var nameI = el("input");
       nameI.type = "text";
-      nameI.placeholder = "ingredient name";
+      nameI.placeholder = "e.g. beef mince";
 
       var qtyI = el("input");
       qtyI.type = "number";
       qtyI.step = "any";
-      qtyI.placeholder = "qty";
+      qtyI.inputMode = "decimal";
+      qtyI.placeholder = "e.g. 500";
 
       var unitI = el("input");
       unitI.type = "text";
-      unitI.placeholder = "unit";
+      unitI.placeholder = "e.g. g";
 
       var prepI = el("input");
       prepI.type = "text";
-      prepI.placeholder = "preparation";
+      prepI.placeholder = "e.g. finely diced";
 
-      var removeBtn = el("button", null, "Remove");
-      var rowEl = el("div", "ingredient-edit-row");
-      [nameI, qtyI, unitI, prepI, removeBtn].forEach(function (n) {
-        rowEl.appendChild(n);
-      });
+      var removeBtn = el("button", "btn-sm", "Remove");
+      var rowEl = el("div", "ing-row");
+      var grid = el("div", "ing-grid");
+      grid.appendChild(miniField("Name", nameI));
+      grid.appendChild(miniField("Qty", numberStepper(qtyI)));
+      grid.appendChild(miniField("Unit", unitI));
+      rowEl.appendChild(grid);
+      rowEl.appendChild(miniField("Preparation", prepI));
       rowEl.appendChild(global.UnitHints.attach(nameI, unitI)); // 2026-09-12, see unit-hints.js
+      var removeRow = el("div", "log-controls");
+      removeRow.style.marginTop = "8px";
+      removeRow.appendChild(removeBtn);
+      rowEl.appendChild(removeRow);
       ingList.appendChild(rowEl);
 
       var record = { nameInput: nameI, qtyInput: qtyI, unitInput: unitI, prepInput: prepI, rowEl: rowEl };
@@ -131,7 +183,7 @@
     var dupPanel = el("div"); // holds the 409 warn-with-override panel, if shown
     card.appendChild(dupPanel);
 
-    var actionsRow = el("div", "log-controls");
+    var actionsRow = el("div", "log-controls sticky-actions");
     var saveBtn = el("button", "primary", "Save recipe");
     actionsRow.appendChild(saveBtn);
     card.appendChild(actionsRow);
@@ -193,6 +245,7 @@
       api.recipes
         .create(payload)
         .then(function (created) {
+          draft.clear();
           global.Router.navigate("recipes", created.id);
         })
         .catch(function (err) {

@@ -21,10 +21,35 @@
     return wrap;
   }
 
-  function backLink() {
-    var back = el("a", "btn", "← Back to recipes");
-    back.href = "#/recipes";
-    return back;
+  // Rotating status label + spinner, not a checklist with checkmarks (Chunk 6.2) — the
+  // whole capture is one HTTP request (services/ai_extraction.py's capture_recipe() runs
+  // extraction, substitution flagging, and section suggestion server-side before responding
+  // at all), so there's no real per-step signal to check off. This only reassures the user
+  // something is happening — replacing the "looks hung" complaint with honest movement, not
+  // fake progress percentages Gemini doesn't report.
+  function startProgress(container, firstMessage) {
+    var messages = [
+      firstMessage,
+      "Extracting ingredients…",
+      "Checking substitutions…",
+      "Suggesting aisles…",
+    ];
+    var wrap = el("div", "capture-progress");
+    wrap.appendChild(el("span", "spinner"));
+    var label = el("span", null, messages[0]);
+    wrap.appendChild(label);
+    container.appendChild(wrap);
+    var i = 0;
+    var timer = global.setInterval(function () {
+      i = (i + 1) % messages.length;
+      label.textContent = messages[i];
+    }, 1800);
+    return {
+      stop: function () {
+        global.clearInterval(timer);
+        if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      },
+    };
   }
 
   // Errors from the capture endpoints (CLAUDE_API_DISABLED, EXTRACTION_FAILED,
@@ -43,7 +68,7 @@
   // and no explanation. Show the backend's own message instead.
   function showQueuedMessage(root, message) {
     root.innerHTML = "";
-    root.appendChild(backLink());
+    root.appendChild(global.BackLink.render("recipes"));
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Capture queued"));
     card.appendChild(el("div", "muted", message));
@@ -60,7 +85,7 @@
 
   function mountUrl(root) {
     root.innerHTML = "";
-    root.appendChild(backLink());
+    root.appendChild(global.BackLink.render("recipes"));
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Capture from a web page"));
@@ -94,10 +119,11 @@
       }
 
       goBtn.disabled = true;
-      goBtn.textContent = "Fetching & extracting...";
+      var progress = startProgress(card, "Fetching the page…");
       api.recipes
         .captureUrl(url, allowDuplicate)
         .then(function (result) {
+          progress.stop();
           if (result && result.queued) {
             showQueuedMessage(root, result.message);
             return;
@@ -105,8 +131,8 @@
           global.CaptureReviewView.mount(root, result);
         })
         .catch(function (err) {
+          progress.stop();
           goBtn.disabled = false;
-          goBtn.textContent = "Fetch & extract";
           // Exact source_url match — the backend short-circuited before any Claude call
           // (CLAUDE.md > Duplicate Recipe Prevention > URL capture short-circuit).
           if (err.code === "POSSIBLE_DUPLICATE_RECIPE" && Array.isArray(err.detail)) {
@@ -144,7 +170,7 @@
 
   function mountPhoto(root) {
     root.innerHTML = "";
-    root.appendChild(backLink());
+    root.appendChild(global.BackLink.render("recipes"));
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Capture from a photo"));
@@ -174,10 +200,11 @@
       }
 
       goBtn.disabled = true;
-      goBtn.textContent = "Uploading & extracting...";
+      var progress = startProgress(card, "Uploading the photo…");
       api.recipes
         .capturePhoto(file)
         .then(function (result) {
+          progress.stop();
           if (result && result.queued) {
             showQueuedMessage(root, result.message);
             return;
@@ -185,8 +212,8 @@
           global.CaptureReviewView.mount(root, result);
         })
         .catch(function (err) {
+          progress.stop();
           goBtn.disabled = false;
-          goBtn.textContent = "Upload & extract";
           formErr.textContent = describeError(err);
         });
     });

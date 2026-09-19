@@ -103,10 +103,18 @@ def list_recipes(
     offset: int = Query(0, ge=0),
     search: str | None = Query(None, description="Case-insensitive substring match on name"),
     include_archived: bool = Query(False),
+    cuisine: str | None = Query(None, description="Exact match, case-insensitive"),
+    protein: str | None = Query(None, description="Exact match, case-insensitive"),
     db: Session = Depends(get_db),
 ) -> dict:
     items, total = recipes_service.list_recipes(
-        db, limit=limit, offset=offset, search=search, include_archived=include_archived
+        db,
+        limit=limit,
+        offset=offset,
+        search=search,
+        include_archived=include_archived,
+        cuisine=cuisine,
+        protein=protein,
     )
     return {
         "ok": True,

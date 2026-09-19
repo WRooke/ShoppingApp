@@ -191,7 +191,7 @@ change chunk order and scope, not just because they happened.
       normally. Flagging because it's a real, repeatable gotcha for this project's workflow (see
       memory `anylist-fault-finding-spike-2026-09-18.md`'s "concurrent sessions" note), not
       because anything here needed reconciling.
-- [ ] **Chunk 6.2 — Recipe & capture screens.** Apply the Chunk 6.1 design across `recipes.js`,
+- [x] **Chunk 6.2 — Recipe & capture screens.** Apply the Chunk 6.1 design across `recipes.js`,
       `recipe-form.js`, `recipe-edit.js`, `capture.js`, `capture-review.js`. A visible
       progress/step indicator during the AI capture calls (extraction → substitution flagging →
       section suggestion) — no more silent hang. Visible field labels on the
@@ -201,6 +201,51 @@ change chunk order and scope, not just because they happened.
       quick-filter chips. Shared Back component swapped into all three files' hardcoded links.
       Draft autosave on the editable forms; numeric steppers; sticky Save/Confirm button. Verify
       at phone width + `pytest tests/frontend/`.
+
+      **Done 2026-09-20 (mockup approved unchanged, then implemented + verified).** Backend:
+      `?cuisine=`/`?protein=` exact-match filter on `GET /recipes`
+      (`services/recipes.py`/`routers/recipes.py`) — chips are built client-side from the
+      library's own already-loaded cuisines, not a fixed vocabulary, so no new "distinct
+      cuisines" endpoint was needed. Frontend: the capture progress indicator is a rotating
+      status label + spinner, deliberately **not** a checklist with checkmarks — the whole
+      capture is one HTTP request (`capture_recipe()` runs all three Gemini calls before
+      responding), so there's no real per-step signal to check off; claiming one was honest
+      per §0a/UI-UX tone. Ingredient rows (`recipe-edit.js`, `recipe-form.js`,
+      `capture-review.js`, and the substitution panel in `ingredient-swap.js`) now use a shared
+      labelled `.mini-field`/`.ing-grid` layout with `+`/`−` steppers, replacing the bare
+      placeholder-only inputs. "Add to session" split into its own `add-to-session.js` (one
+      active session → add directly; several → an inline `<select>` picker; none → confirm and
+      create one). Undo toast wired into both per-ingredient delete (re-`addIngredient` +
+      a follow-up `updateIngredient` for substitution fields, since `addIngredient`'s own
+      schema doesn't carry them) and whole-recipe delete — the latter needed real care: deleting
+      a recipe navigates away, and the shared toast dies on navigation (kickoff decision #12),
+      so the navigate is deliberately deferred ~5.3s (just past the toast's own auto-dismiss)
+      rather than racing it; Undo cancels the deferred navigate and re-renders in place via the
+      existing `restore()` endpoint. Draft autosave (`draft-autosave.js`, new shared module) on
+      recipe-level fields only, keyed per-recipe-id for edits and one global slot for capture
+      review (a household captures one recipe at a time in practice).
+      **Two real bugs found and fixed, not just new code**: (1) `.field`'s Chunk 6.1 rule in
+      `components.css` had been silently overridden the whole time by an identical-selector
+      leftover rule still in `app.css` (loads after components.css) — found while touching
+      these files again for Chunk 6.2, fixed by removing the stale copy; (2) the same
+      `button.primary`-only-matches-`<button>` gap flagged in Chunk 6.1 for recipes.js's own
+      "+ Add recipe" link turned out to have five more instances across the file family, all
+      fixed by the same `.primary` selector already shipped. File-size guideline: split
+      `add-to-session.js` out of `recipes.js` (467→396 lines) and `recipe-edit-ingredients.js`
+      out of `recipe-edit.js` (480→226); `capture-review.js` (412) and `components.css` (466)
+      are left slightly over ~400 as one cohesive concern each, not split further this chunk.
+      Verified: full suite **535 pass** (unchanged — this chunk touched no backend logic tests
+      exercise beyond the new filter, which has its own coverage via the live check below).
+      Live headless-CDP pass (phone width): cuisine chips filter correctly (confirmed against
+      the real `?cuisine=` query too), Add-to-session creates/attaches to a session and shows
+      its toast, the Back link renders on every screen it was added to, ingredient rows show
+      real labels with a working stepper, ingredient delete+Undo round-trips correctly (row
+      count restored), recipe delete+Undo does not navigate away prematurely and the recipe is
+      genuinely un-archived on Undo, draft autosave survives a navigate-away-and-back, and the
+      capture progress indicator + labelled review-screen rows render correctly (capture itself
+      stubbed at the `api.recipes.captureUrl` boundary, same technique
+      `tests/frontend/test_frontend_regressions.py` already uses for its queued-capture test,
+      rather than depending on a real network fetch) — 27 checks, zero console errors anywhere.
 - [ ] **Chunk 6.3 — Planning screens (`sessions.js` + `session-review.js` only — no AnyList
       dependency).** Apply the design; fix the identical bare-placeholder swap-field problem as
       6.2's. Undo toast on removing a session slot. Session slot recipe name linked to

@@ -22,6 +22,14 @@
     return Math.round(n * 10000) / 10000;
   }
 
+  // Chunk 6.2 — the smaller labelled-field pattern, matching recipe-edit.js/capture-review.js.
+  function miniField(labelText, inputEl) {
+    var wrap = el("div", "mini-field");
+    wrap.appendChild(el("label", null, labelText));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+
   // flag:  { original, suggested_substitute, note } | null   (AI's per-recipe suggestion)
   // picks: [{ substitute_name, note, original_qty, original_unit, substitute_qty,
   //           substitute_unit }]                             (this ingredient's saved swaps)
@@ -35,29 +43,30 @@
     var toggle = el("button", "link-btn", "Swap?");
     wrap.appendChild(toggle);
 
-    var body = el("div", "ing-swap-body");
+    var body = el("div", "swap-panel"); // Chunk 6.2 — was "ing-swap-body" (bare inputs)
     body.hidden = true;
 
     var subInput = el("input");
     subInput.type = "text";
-    subInput.placeholder = "use instead";
+    subInput.placeholder = "e.g. regular feta";
     subInput.className = "settings-name-input";
 
     var noteInput = el("input");
     noteInput.type = "text";
-    noteInput.placeholder = "note (optional)";
+    noteInput.placeholder = "optional — why this works";
     noteInput.className = "settings-notes-input";
 
     // M8 — optional amount + unit for a non-1:1 swap.
     var qtyInput = el("input");
     qtyInput.type = "number";
     qtyInput.step = "any";
-    qtyInput.placeholder = "amount";
+    qtyInput.inputMode = "decimal";
+    qtyInput.placeholder = "e.g. 2";
     qtyInput.className = "ingredient-qty-input";
 
     var unitInput = el("input");
     unitInput.type = "text";
-    unitInput.placeholder = "unit";
+    unitInput.placeholder = "e.g. can";
     unitInput.className = "ingredient-unit-input";
 
     var preview = el("div", "ing-swap-preview muted");
@@ -102,11 +111,14 @@
       refreshPreview();
     });
 
-    body.appendChild(el("span", "muted", "→"));
-    body.appendChild(subInput);
-    body.appendChild(noteInput);
-    body.appendChild(qtyInput);
-    body.appendChild(unitInput);
+    body.appendChild(el("div", "hdr", "Substitution"));
+    body.appendChild(miniField("Use instead", subInput));
+    var amtGrid = el("div", "ing-grid");
+    amtGrid.style.gridTemplateColumns = "1fr 1fr";
+    amtGrid.appendChild(miniField("Amount (optional)", qtyInput));
+    amtGrid.appendChild(miniField("Unit (optional)", unitInput));
+    body.appendChild(amtGrid);
+    body.appendChild(miniField("Note (optional)", noteInput));
     body.appendChild(preview);
 
     function applyPick(p) {

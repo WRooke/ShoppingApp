@@ -251,15 +251,26 @@ def list_recipes(
     offset: int = 0,
     search: str | None = None,
     include_archived: bool = False,
+    cuisine: str | None = None,
+    protein: str | None = None,
 ) -> tuple[list[Recipe], int]:
     """Returns (page of recipes, total matching count) for pagination
     (see CLAUDE.md > API Conventions). Default view filters archived_at IS
-    NULL, per CLAUDE.md > Data Model > recipes soft-delete."""
+    NULL, per CLAUDE.md > Data Model > recipes soft-delete.
+
+    cuisine/protein (Phase 6 Chunk 6.2) — exact, case-insensitive match, not a substring
+    search like `search` above: the frontend's quick-filter chips are built from the
+    library's own already-present values (see recipes.js), so a chip's value is always one
+    the household has actually used, not free text a user typed."""
     query = db.query(Recipe)
     if not include_archived:
         query = query.filter(Recipe.archived_at.is_(None))
     if search:
         query = query.filter(func.lower(Recipe.name).contains(search.strip().lower()))
+    if cuisine:
+        query = query.filter(func.lower(Recipe.cuisine) == cuisine.strip().lower())
+    if protein:
+        query = query.filter(func.lower(Recipe.protein) == protein.strip().lower())
 
     total = query.count()
     recipes = query.order_by(Recipe.name.asc()).offset(offset).limit(limit).all()

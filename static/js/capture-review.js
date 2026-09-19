@@ -24,6 +24,33 @@
     return wrap;
   }
 
+  // Chunk 6.2 — the smaller labelled-field pattern for dense ingredient rows.
+  function miniField(labelText, inputEl) {
+    var wrap = el("div", "mini-field");
+    wrap.appendChild(el("label", null, labelText));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+
+  function numberStepper(input, step) {
+    step = step || 1;
+    var wrap = el("div", "stepper");
+    var minus = el("button", null, "−");
+    minus.type = "button";
+    var plus = el("button", null, "+");
+    plus.type = "button";
+    minus.addEventListener("click", function () {
+      input.value = Math.max(0, (parseFloat(input.value) || 0) - step);
+    });
+    plus.addEventListener("click", function () {
+      input.value = (parseFloat(input.value) || 0) + step;
+    });
+    wrap.appendChild(minus);
+    wrap.appendChild(input);
+    wrap.appendChild(plus);
+    return wrap;
+  }
+
   function sectionSelect(sections, selected) {
     var select = el("select", "ingredient-section-select");
     var noneOpt = el("option", null, "No section");
@@ -41,9 +68,7 @@
   function mount(root, captureResult) {
     root.innerHTML = "";
 
-    var back = el("a", "btn", "← Start over");
-    back.href = "#/recipes";
-    root.appendChild(back);
+    root.appendChild(global.BackLink.render("recipes"));
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Review extracted recipe"));
@@ -70,6 +95,7 @@
     var servingsInput = el("input");
     servingsInput.type = "number";
     servingsInput.min = "1";
+    servingsInput.inputMode = "numeric";
     // AI-prefilled servings (Capture-Fixes-Staged.md issue 2) — falls back to the same "4"
     // default as before when the AI didn't return one.
     servingsInput.value = captureResult.servings || 4;
@@ -101,6 +127,28 @@
     notesInput.rows = 3;
     card.appendChild(labeledField("Notes (optional)", notesInput));
 
+    // Draft autosave (Chunk 6.2 kickoff decision #12) — one global slot, not per-capture:
+    // a household captures one recipe at a time in practice, and there's no stable id to
+    // key on until it's actually saved. Recipe-level fields only, same as recipe-form.js/
+    // recipe-edit.js — not the dynamic ingredient list built further down.
+    var draft = global.DraftAutosave.attach("capture-review", {
+      name: nameInput,
+      servings: servingsInput,
+      cuisine: cuisineInput,
+      protein: proteinInput,
+      sourceBook: sourceBookInput,
+      sourcePage: sourcePageInput,
+      notes: notesInput,
+    });
+    if (!captureResult.title && draft.restore()) {
+      // Only worth restoring over a fresh extraction's own values, not on top of them —
+      // a real title from this capture always wins over a stale draft from a previous one.
+      var draftNote = el("div", "draft-note");
+      draftNote.appendChild(el("span", "draft-dot"));
+      draftNote.appendChild(document.createTextNode("Restored an unsaved draft"));
+      card.insertBefore(draftNote, card.firstChild.nextSibling);
+    }
+
     var ingHeading = el("h2", null, "Ingredients");
     ingHeading.style.marginTop = "16px";
     card.appendChild(ingHeading);
@@ -119,7 +167,7 @@
     var dupPanel = el("div"); // holds the 409 warn-with-override panel, if shown
     card.appendChild(dupPanel);
 
-    var actionsRow = el("div", "log-controls");
+    var actionsRow = el("div", "log-controls sticky-actions");
     var saveBtn = el("button", "primary", "Save recipe");
     actionsRow.appendChild(saveBtn);
     card.appendChild(actionsRow);
@@ -162,28 +210,29 @@
           var lname = (ing.name || "").toLowerCase();
           var nameI = el("input", "ingredient-name-input");
           nameI.type = "text";
-          nameI.placeholder = "ingredient name";
+          nameI.placeholder = "e.g. beef mince";
           nameI.value = ing.name || "";
 
           var qtyI = el("input", "ingredient-qty-input");
           qtyI.type = "number";
           qtyI.step = "any";
-          qtyI.placeholder = "qty";
+          qtyI.inputMode = "decimal";
+          qtyI.placeholder = "e.g. 500";
           if (ing.quantity != null) qtyI.value = ing.quantity;
 
           var unitI = el("input", "ingredient-unit-input");
           unitI.type = "text";
-          unitI.placeholder = "unit";
+          unitI.placeholder = "e.g. g";
           unitI.value = ing.unit || "";
 
           var prepI = el("input", "ingredient-prep-input");
           prepI.type = "text";
-          prepI.placeholder = "preparation";
+          prepI.placeholder = "e.g. finely diced";
           prepI.value = ing.preparation || "";
 
           var sectionI = sectionSelect(sections, ing.suggested_section || "");
 
-          var removeBtn = el("button", null, "Remove");
+          var removeBtn = el("button", "btn-sm", "Remove");
           var swap = global.IngredientSwap.create(
             flagsByName[lname] || null,
             picksByName[lname] || [],
@@ -191,11 +240,19 @@
             ing.unit || null
           );
 
-          var rowEl = el("div", "ingredient-edit-row");
-          [nameI, qtyI, unitI, prepI, sectionI, removeBtn].forEach(function (n) {
-            rowEl.appendChild(n);
-          });
+          var rowEl = el("div", "ing-row");
+          var grid = el("div", "ing-grid");
+          grid.appendChild(miniField("Name", nameI));
+          grid.appendChild(miniField("Qty", numberStepper(qtyI)));
+          grid.appendChild(miniField("Unit", unitI));
+          rowEl.appendChild(grid);
+          rowEl.appendChild(miniField("Preparation", prepI));
+          rowEl.appendChild(miniField("Section", sectionI));
           rowEl.appendChild(global.UnitHints.attach(nameI, unitI)); // 2026-09-12, see unit-hints.js
+          var removeRow = el("div", "log-controls");
+          removeRow.style.marginTop = "8px";
+          removeRow.appendChild(removeBtn);
+          rowEl.appendChild(removeRow);
           var wrapEl = el("div", "ingredient-edit-wrap");
           wrapEl.appendChild(rowEl);
           wrapEl.appendChild(swap.el);
@@ -313,6 +370,7 @@
       api.recipes
         .confirmCapture(payload)
         .then(function (saved) {
+          draft.clear();
           // fire-and-forget the "save this swap" ticks — a duplicate is fine
           remembered.forEach(function (s) {
             api.settings.substitutions.create(s).catch(function () {});
