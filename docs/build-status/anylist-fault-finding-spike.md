@@ -297,6 +297,70 @@ item. Given how common "cursed" items turned out to be at realistic scale, this 
 revisiting rather than assuming: this needs the maintainer's call, not a unilateral choice —
 see the chat for the specific question and options.
 
+## 2026-09-20 — Stage 1 of the "resolve it" plan: the real trigger, found
+
+Follow-up to the 2026-09-19 addendum's open question, per the maintainer's "however long it
+takes, fully resolve it" instruction (see the plan-mode session that produced
+`C:\Users\User\.claude\plans\i-need-a-comprehensive-splendid-babbage.md`). Reference-library
+research (read-only, this session) found a directly relevant, never-merged upstream fix — PR #62
+on `kevdliu/anylist` (formerly `codetheweb/anylist`) — describing exactly this app's symptom:
+
+> "Item._encode was writing only quantityPb.amount. The AnyList apps display
+> quantityPb.rawQuantity (the full text the user typed, e.g. "500 g"); an item with a
+> non-numeric amount and no rawQuantity shows no quantity at all."
+
+Neither this connector nor the reference client (on ADD) ever sets `rawQuantity` — both cram
+the whole string into `amount` alone. The PR's fix was self-closed by its own author 2026-09-07,
+never merged, and is not in the reference library's current master.
+
+**Stage 1A — 36-cell factorial** (`spike/anylist_quantity_mechanism_test.py`): crossed 9
+quantity shapes × {add, update} × {today's mechanism (v1), the unmerged PR's `rawQuantity`-split
+mechanism sent via a full item message (v2)}. Findings:
+- **Every ADD succeeds at the wire level, both mechanisms, every shape** — this was already
+  known to be true for *our own* reads; what's new is that v1 (today's shape) stores a
+  non-numeric `amount` like `"500 g"` with no `rawQuantity`, exactly the PR #62 failure
+  precondition, on every unit-bearing add. Two items were left on TestList for a phone check
+  (`PHONECHECK-v1-amount-only` vs `PHONECHECK-v2-rawQuantity`, both quantity "500 g") — **still
+  needs your eyes**, this is the one open question Stage 1 can't answer itself.
+- **The item-wire-embed-on-update experiment (v2) is a dead end.** Sending a full item message
+  (with a properly-split `quantityPb`) through the `set-list-item-quantity` handler succeeded
+  on only the trivial empty-string cell — worse than or equal to today's plain `updated_value`
+  approach (which succeeded on 5 of 9 shapes) on every real case. The handler does not appear to
+  honour an embedded item message at all.
+
+**Stage 1C — repeating the ambiguous cells** (today's plain-value mechanism, since v2 update is
+now ruled out) found something far more specific than "unit vs no unit," and fully
+reproducible — not a fluke:
+- `spike/anylist_quantity_format_sensitivity_test.py` (6 reps/case): bare numbers succeed
+  (int and decimal, 100%); **`"1.5 kg"` succeeded 6/6**, breaking the clean "any unit fails"
+  read from Stage 1A — but `"500 g"`, `"500.0 g"`, `"500g"`, `"1.5kg"` (no space), and
+  `"g 500"` (unit-first) all failed 100% (5-6/5-6 each). Removing the space from the *same*
+  decimal+unit shape that succeeded flips it to failing — the space matters as much as the
+  decimal point.
+- `spike/anylist_quantity_format_confirm.py` then tested whether "decimal + space + unit" is
+  the real rule independent of which unit: `"1.5 g"`, `"600.5 g"`, `"1.5 ml"` — **all failed,
+  0/6 each.** Decimal+space alone doesn't explain it; `"kg"` specifically does something the
+  others don't.
+- `spike/anylist_quantity_unit_sweep.py` then swept 14 units with the one confirmed-working
+  shape (`"1.5 <unit>"` → `"2.5 <unit>"`): **only `kg` (3/3) and `lb` (3/3) succeeded.**
+  Every other unit failed 100%, including close variants — `L`, `litre`, `oz`, `mg`, `mL`,
+  even `Kg` (capitalized) and `g`/`ml`/`cup`/`tbsp`/`tsp`/`pack`. Not "weight vs volume" (`g`,
+  `mg`, `oz` are weight units and still fail), not case-insensitive (`Kg` fails), not about the
+  unit's length or a metric/imperial split (`kg` and `lb` mix both systems). The most plausible
+  explanation is a small, hardcoded server-side allowlist for some AnyList-internal feature
+  (nutrition/weight-tracking is a guess, not confirmed) that only recognises those two exact
+  tokens — not something this app can discover further from outside, and not close to broad
+  enough to build a real fix around (most ingredients here are grams/millilitres/counts; this
+  household doesn't use pounds).
+
+**Conclusion so far:** there is no request-shape trick — not `rawQuantity`, not a full item
+embed, not any tested value formatting — that makes an arbitrary unit-bearing quantity update
+reliably persist. The "proper fix" (candidate strategy 1) is dead for the UPDATE path
+specifically; it may still be real and worth shipping for the ADD path alone, pending the
+phone check above. This pushes the realistic path toward the workaround strategies (2/3/4) in
+the plan, which explicitly need the maintainer's side-by-side comparison and sign-off before
+anything ships — not a unilateral choice.
+
 ## What this spike does not do
 
 Mechanism #2 (notes on update) is unchanged from the accepted, documented limitation — still not
