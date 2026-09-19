@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 
-from app.database import Base, utcnow
+from app.database import Base, UTCDateTime, utcnow
 
 
 class PlanningSession(Base):
@@ -16,9 +16,9 @@ class PlanningSession(Base):
     id = Column(Integer, primary_key=True)
     label = Column(Text, nullable=True)  # e.g. "Week of 14 Jul"
     status = Column(Text, nullable=False, default="active")  # 'active' | 'pushed' | 'archived'
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-    pushed_at = Column(DateTime, nullable=True)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
+    pushed_at = Column(UTCDateTime(), nullable=True)
 
     recipes = relationship(
         "SessionRecipe",
@@ -48,8 +48,8 @@ class SessionRecipe(Base):
     day_of_week = Column(Integer, nullable=True)  # 1=Monday .. 7=Sunday
     scaled_servings = Column(Integer, nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
     session = relationship("PlanningSession", back_populates="recipes")
     # Read-only convenience so a slot can render "which recipe" without a second query.
@@ -94,8 +94,8 @@ class SessionChecklistItem(Base):
     # to tell apart from the breakdown itself. See services/consolidation.py > ReviewOption
     # and CLAUDE.md > Scaling Logic > Rounding & unit rules > Irreconcilable.
     review_options_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
     session = relationship("PlanningSession", back_populates="checklist_items")
 

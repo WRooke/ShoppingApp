@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, Text
+from sqlalchemy import Column, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 
-from app.database import Base, utcnow
+from app.database import Base, UTCDateTime, utcnow
 
 
 class Recipe(Base):
@@ -31,12 +31,12 @@ class Recipe(Base):
     source_page = Column(Text, nullable=True)  # e.g. "142" or "142-143"
 
     notes = Column(Text, nullable=True)  # single freeform notes field (see CLAUDE.md > Data Model)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
     # --- recipe history (Schema & Planning Addendum #2) ---------------------
     times_made = Column(Integer, nullable=False, default=0)
-    last_made_at = Column(DateTime, nullable=True)
+    last_made_at = Column(UTCDateTime(), nullable=True)
     rating = Column(Text, nullable=True)  # 'up' | 'down' | null=unrated (tri-state, not 5-star)
 
     # --- "suggest something" schema prep (Addendum #3) — fields only, no logic yet ---
@@ -44,7 +44,7 @@ class Recipe(Base):
     protein = Column(Text, nullable=True)
 
     # --- soft-delete (Addendum #5) ------------------------------------------
-    archived_at = Column(DateTime, nullable=True)  # set instead of hard-deleting
+    archived_at = Column(UTCDateTime(), nullable=True)  # set instead of hard-deleting
 
     # --- AI capture status (Phase 3.9 M6) ---------------------------------
     # JSON array of still-outstanding AI capture sub-tasks (currently only
@@ -98,7 +98,7 @@ class RecipeIngredient(Base):
     # the user entered IS the equivalence.
     resolved_quantity = Column(Float, nullable=True)
     resolved_unit = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
     recipe = relationship("Recipe", back_populates="ingredients")

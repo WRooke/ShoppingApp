@@ -12,7 +12,7 @@ See CLAUDE.md > Checklist Screen Logic > "The usuals" and > Data Model > usual_i
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,6 +22,18 @@ from app.models.catalog import UsualItem
 from app.schemas.usuals import UsualItemCreate, UsualItemUpdate
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_aware(value: datetime) -> datetime:
+    """Coerce a naive datetime to aware UTC. Belt-and-braces alongside the UTCDateTime column
+    type (app/database.py): that type guarantees anything round-tripped through the DB comes
+    back aware, but a caller can still hand is_due()/due_items()/mark_added() a naive value
+    directly (an in-memory object never committed, a hand-built ``as_of``/``when``) — this is
+    exactly the class of bug that crashed GET /api/v1/checklist/{id} on 2026-09-19
+    (`TypeError: can't compare offset-naive and offset-aware datetimes`)."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 class UsualItemNotFoundError(Exception):
@@ -43,8 +55,9 @@ def _normalise_name(name: str) -> str:
 def is_due(item: UsualItem, *, as_of: datetime | None = None) -> bool:
     if item.last_added_at is None or item.cadence_days is None:
         return True
-    now = as_of or utcnow()
-    return item.last_added_at + timedelta(days=item.cadence_days) <= now
+    now = _ensure_aware(as_of) if as_of is not None else utcnow()
+    last_added_at = _ensure_aware(item.last_added_at)
+    return last_added_at + timedelta(days=item.cadence_days) <= now
 
 
 def create_usual(db: Session, data: UsualItemCreate) -> UsualItem:
@@ -110,7 +123,7 @@ def delete_usual(db: Session, usual_id: int) -> None:
 def due_items(db: Session, *, as_of: datetime | None = None) -> list[UsualItem]:
     """Usual items currently due, name order. Kept as an in-Python filter (the list is tiny
     and `is_due` needs the per-row cadence) rather than a SQL date expression."""
-    now = as_of or utcnow()
+    now = _ensure_aware(as_of) if as_of is not None else utcnow()
     return [
         i
         for i in db.query(UsualItem).order_by(UsualItem.name.asc()).all()
@@ -136,7 +149,7 @@ def mark_added(db: Session, usual_ids: list[int], *, when: datetime | None = Non
     (Chunk 5.6). Unknown ids are ignored (the push already happened; don't fail it)."""
     if not usual_ids:
         return
-    stamp = when or utcnow()
+    stamp = _ensure_aware(when) if when is not None else utcnow()
     rows = db.query(UsualItem).filter(UsualItem.id.in_(usual_ids)).all()
     for row in rows:
         row.last_added_at = stamp

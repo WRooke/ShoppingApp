@@ -4,9 +4,9 @@ Data Model > capture_queue and > AI Provider Migration (Phase 3.9 M3)."""
 
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Column, ForeignKey, Integer, Text
 
-from app.database import Base, utcnow
+from app.database import Base, UTCDateTime, utcnow
 
 
 class CaptureQueueItem(Base):
@@ -18,7 +18,7 @@ class CaptureQueueItem(Base):
     recipe_id = Column(
         Integer, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    queued_at = Column(DateTime, nullable=False, default=utcnow)
+    queued_at = Column(UTCDateTime(), nullable=False, default=utcnow)
     attempt_count = Column(Integer, nullable=False, default=0)
-    last_attempt_at = Column(DateTime, nullable=True)
+    last_attempt_at = Column(UTCDateTime(), nullable=True)
     last_error = Column(Text, nullable=True)

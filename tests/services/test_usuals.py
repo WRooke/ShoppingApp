@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -96,7 +96,7 @@ def test_never_added_is_due(db):
 
 def test_recently_added_is_not_due(db):
     item = u.create_usual(db, _c("paper towels", cadence=7))
-    now = datetime(2026, 9, 7, 12, 0, 0)
+    now = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
     item.last_added_at = now - timedelta(days=3)
     db.commit()
     assert u.is_due(item, as_of=now) is False
@@ -104,10 +104,23 @@ def test_recently_added_is_not_due(db):
 
 def test_cadence_elapsed_is_due(db):
     item = u.create_usual(db, _c("paper towels", cadence=7))
-    now = datetime(2026, 9, 7, 12, 0, 0)
+    now = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
     item.last_added_at = now - timedelta(days=8)
     db.commit()
     assert u.is_due(item, as_of=now) is True
+
+
+def test_is_due_coerces_a_naive_as_of_to_aware_utc(db):
+    """Defence in depth (2026-09-19 checklist-500 fix): is_due()/due_items()/mark_added() must
+    not blow up on `TypeError: can't compare offset-naive and offset-aware datetimes` even if
+    a caller hands them a naive `as_of` directly — see app.services.usuals._ensure_aware()."""
+    item = u.create_usual(db, _c("paper towels", cadence=7))
+    aware_now = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
+    item.last_added_at = aware_now - timedelta(days=3)
+    db.commit()
+
+    naive_now = datetime(2026, 9, 7, 12, 0, 0)  # no tzinfo
+    assert u.is_due(item, as_of=naive_now) is False
 
 
 def test_is_due_tolerates_a_null_cadence():
@@ -124,7 +137,7 @@ def test_is_due_tolerates_a_null_cadence():
 
 
 def test_due_items_filters_and_orders(db):
-    now = datetime(2026, 9, 7, 12, 0, 0)
+    now = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
     fresh = u.create_usual(db, _c("zebra cleaner", cadence=30))
     fresh.last_added_at = now - timedelta(days=1)
     stale = u.create_usual(db, _c("apple juice", cadence=7))
@@ -138,9 +151,42 @@ def test_due_items_filters_and_orders(db):
 
 def test_mark_added_stamps_and_ignores_unknown_ids(db):
     a = u.create_usual(db, _c("a"))
-    when = datetime(2026, 9, 7, 9, 0, 0)
+    when = datetime(2026, 9, 7, 9, 0, 0, tzinfo=timezone.utc)
     u.mark_added(db, [a.id, 123456], when=when)
     assert u.get_usual(db, a.id).last_added_at == when
+
+
+# --- 2026-09-19 checklist-500 regression -------------------------------------
+
+
+def test_mark_added_then_due_items_survives_a_db_round_trip(db):
+    """Reproduces the exact production crash: mark_added() with no explicit `when` (the
+    `utcnow()` fallback, aware), committed, then re-fetched fresh from the DB (as every real
+    request does via a new Session) and compared in due_items()/is_due() with no explicit
+    `as_of` (also the `utcnow()` fallback). Before the UTCDateTime column type fix, the
+    re-fetched `last_added_at` came back naive and this raised `TypeError: can't compare
+    offset-naive and offset-aware datetimes` — see GET /api/v1/checklist/{id}, app.log
+    2026-09-19 20:22-20:23."""
+    frequent = u.create_usual(db, _c("paper towels", cadence=7))
+    rare = u.create_usual(db, _c("light bulbs", cadence=365))
+
+    u.mark_added(db, [frequent.id, rare.id])  # no `when` -> utcnow() fallback, aware
+    db.commit()
+    db.expire_all()  # force the next access to re-fetch from SQLite, like a fresh request would
+
+    due = u.due_items(db)  # no `as_of` -> utcnow() fallback, aware
+    assert [d.name for d in due] == []  # both just added, neither due yet
+
+    # Push "paper towels" 8 days into its 7-day cadence by rewriting its stamp directly (still
+    # exercises the same naive-vs-aware round trip on the comparison side).
+    stale_stamp = datetime.now(timezone.utc) - timedelta(days=8)
+    u.mark_added(db, [frequent.id], when=stale_stamp)
+    db.commit()
+    db.expire_all()
+
+    due_names = [d.name for d in u.due_items(db)]
+    assert due_names == ["paper towels"]
+    assert u.is_due(u.get_usual(db, rare.id)) is False
 
 
 def test_due_as_checklist_rows_shape(db):

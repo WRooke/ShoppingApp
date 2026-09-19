@@ -13,10 +13,10 @@ convention already used by ``product_units.ingredient_name`` / ``recipe_ingredie
 
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
-from app.database import Base, utcnow
+from app.database import Base, UTCDateTime, utcnow
 
 
 class Store(Base):
@@ -24,8 +24,8 @@ class Store(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False, unique=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
     sections = relationship(
         "StoreSection",
@@ -45,8 +45,8 @@ class StoreSection(Base):
     store_id = Column(Integer, ForeignKey("stores.id", ondelete="CASCADE"), nullable=False, index=True)
     section_name = Column(Text, nullable=False)  # matches the canonical section vocabulary
     sort_order = Column(Integer, nullable=False, default=0)  # position in this store's walk order
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
     store = relationship("Store", back_populates="sections")
 
@@ -60,5 +60,5 @@ class ProductSection(Base):
     ingredient_name = Column(Text, nullable=False, unique=True)  # matches product_units.ingredient_name
     section_name = Column(Text, nullable=False)
     source = Column(Text, nullable=False, default="user_confirmed")  # ai_suggested|user_confirmed|user_corrected
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)

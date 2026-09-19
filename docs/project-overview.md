@@ -46,6 +46,18 @@ consolidated shopping list to AnyList, a shared grocery list app they both use.
 | AnyList | See Phase 5 note | Unofficial reverse-engineered API — implementation approach TBD at Phase 5 |
 | Deployment | Python venv, batch scripts, Windows Task Scheduler | No Docker; simple start/stop scripts |
 
+### Local development environment (Windows)
+
+The project venv lives at `.venv/` in the repo root — the bare `python`/`pip` on PATH is a
+different (pyenv-managed) interpreter with none of `requirements.txt` installed, so calling
+them directly fails with `No module named pytest` etc. Always go through the venv's own
+executables, not `.venv\Scripts\activate` + a bare command (activation doesn't reliably carry
+across every shell this project is driven from — PowerShell, Git Bash, and Claude Code's tool
+sessions):
+
+- PowerShell: `.venv\Scripts\python.exe -m pytest`, `.venv\Scripts\python.exe -m uvicorn app.main:app --reload`, `.venv\Scripts\alembic.exe upgrade head`
+- Git Bash / POSIX shell: `.venv/Scripts/python.exe -m pytest` (same `.exe` paths — this is still the Windows venv, not a POSIX one)
+
 ### FastAPI notes
 - Use `uvicorn` as the ASGI server
 - Mount a `/static` directory for frontend assets

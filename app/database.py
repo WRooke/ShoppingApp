@@ -10,8 +10,9 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import DateTime, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.types import TypeDecorator
 
 from app.config import settings
 
@@ -21,6 +22,36 @@ logger = logging.getLogger(__name__)
 def utcnow() -> datetime:
     """Timezone-aware UTC now — used as the default for all timestamp columns."""
     return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator):
+    """A ``DateTime`` that survives a SQLite round-trip as timezone-aware UTC.
+
+    SQLite has no native datetime type — SQLAlchemy's plain ``DateTime`` stores it as an
+    offset-less string, so a value written as aware (all of this app's timestamps come from
+    ``utcnow()``, which is aware) comes back **naive** on the next fetch, silently dropping
+    its tzinfo. That mismatch is exactly what caused a `TypeError: can't compare offset-naive
+    and offset-aware datetimes` crash on the checklist endpoint's usuals due-date check
+    (2026-09-19) — the first code path to ever compare a re-fetched timestamp against a fresh
+    ``utcnow()``. This type makes every timestamp column round-trip as aware UTC so that
+    footgun can't recur on this or any other column. See CLAUDE.md > Data Model > audit-column
+    convention.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):  # noqa: ANN001
+        if value is None:
+            return None
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+    def process_result_value(self, value, dialect):  # noqa: ANN001
+        if value is None:
+            return None
+        return value.replace(tzinfo=timezone.utc)
 
 
 os.makedirs(os.path.dirname(settings.database_path), exist_ok=True)

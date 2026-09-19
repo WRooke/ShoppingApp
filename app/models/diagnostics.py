@@ -6,16 +6,16 @@ CLAUDE.md > Data Model > ai_call_log."""
 
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, Integer, Text
+from sqlalchemy import Column, Integer, Text
 
-from app.database import Base, utcnow
+from app.database import Base, UTCDateTime, utcnow
 
 
 class AiCallLog(Base):
     __tablename__ = "ai_call_log"
 
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, nullable=False, default=utcnow)
+    timestamp = Column(UTCDateTime(), nullable=False, default=utcnow)
     task = Column(Text, nullable=False)  # 'extract' | 'flag_substitutions' | 'suggest_sections'
     model = Column(Text, nullable=False)  # e.g. 'gemini-flash-latest' | 'gemini-flash-lite-latest'
     outcome = Column(Text, nullable=False)  # 'success' | 'quota' | 'error'

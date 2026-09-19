@@ -5,9 +5,9 @@ auto-applying ``is_default`` until Phase 3.9 M4.)"""
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Float, Integer, Text, UniqueConstraint
 
-from app.database import Base, utcnow
+from app.database import Base, UTCDateTime, utcnow
 
 
 class ProductUnit(Base):
@@ -28,8 +28,8 @@ class ProductUnit(Base):
     purchase_unit = Column(Text, nullable=True)  # e.g. "g", "L", "each"
     notes = Column(Text, nullable=True)
     is_preseeded = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class Staple(Base):
@@ -38,8 +38,8 @@ class Staple(Base):
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False, unique=True)  # normalised lowercase
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class UsualItem(Base):
@@ -58,9 +58,9 @@ class UsualItem(Base):
     name = Column(Text, nullable=False, unique=True)  # normalised lowercase
     notes = Column(Text, nullable=True)
     cadence_days = Column(Integer, nullable=False)  # "buy roughly every N days"
-    last_added_at = Column(DateTime, nullable=True)  # stamped when actually pushed to AnyList
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    last_added_at = Column(UTCDateTime(), nullable=True)  # stamped when actually pushed to AnyList
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class RememberedSubstitution(Base):
@@ -81,7 +81,7 @@ class RememberedSubstitution(Base):
     original_name = Column(Text, nullable=False)  # normalised lowercase, matches recipe_ingredients.name
     substitute_name = Column(Text, nullable=False)  # normalised lowercase (freetext; 1:many stored verbatim)
     note = Column(Text, nullable=True)  # pre-fills recipe_ingredients.substitution_note
-    last_used_at = Column(DateTime, nullable=True)  # quick-pick ordering, most-recent first
+    last_used_at = Column(UTCDateTime(), nullable=True)  # quick-pick ordering, most-recent first
     # Quantity/unit equivalence (Phase 3.9 M8 — see CLAUDE.md > AI Provider Migration >
     # Ingredient Substitution Flagging, and > Data Model > remembered_substitutions).
     # "original_qty original_unit ~= substitute_qty substitute_unit", e.g. 2 "cob" ~= 2 "can".
@@ -93,8 +93,8 @@ class RememberedSubstitution(Base):
     original_unit = Column(Text, nullable=True)
     substitute_qty = Column(Float, nullable=True)
     substitute_unit = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class IngredientAlias(Base):
@@ -138,8 +138,8 @@ class IngredientAlias(Base):
     alias_unit = Column(Text, nullable=True)
     canonical_qty = Column(Float, nullable=True)
     canonical_unit = Column(Text, nullable=True)  # nullable -- the canonical side is often a bare count
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class UnitSynonym(Base):
@@ -165,8 +165,8 @@ class UnitSynonym(Base):
     id = Column(Integer, primary_key=True)
     alias_unit = Column(Text, nullable=False, unique=True)  # normalised lowercase, post-strip
     canonical_unit = Column(Text, nullable=False)  # normalised lowercase
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class CoarseIngredient(Base):
@@ -189,5 +189,5 @@ class CoarseIngredient(Base):
     purchase_label = Column(Text, nullable=True)  # e.g. "bunch"; NULL = just "needed", no count
     recipes_per_pack = Column(Integer, nullable=False, default=3)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+    updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)

@@ -136,6 +136,50 @@ def test_load_survives_malformed_review_options_json(client, fake_anylist):
     assert reloaded["review_options"] == []  # malformed element dropped, not raised
 
 
+def test_load_after_push_with_usuals_survives_naive_aware_round_trip(client, fake_anylist):
+    """2026-09-19 prod bug reproduction — GET /api/v1/checklist/{id} 500'd with `TypeError:
+    can't compare offset-naive and offset-aware datetimes` any time a usual item had a
+    non-null last_added_at, because the value re-fetched from SQLite came back naive while
+    is_due()'s `now` was a fresh, aware utcnow() (app/services/usuals.py). The `client`
+    fixture repoints app.database.SessionLocal at a real file-backed test DB per session
+    (see conftest.py), so each request below is a genuine round trip through SQLite — an
+    in-memory-only assertion wouldn't have caught the original bug.
+    """
+    due_soon = client.post(
+        "/api/v1/settings/usuals", json={"name": "zz-router-paper-towels", "cadence_days": 7}
+    ).json()["data"]
+    overdue = client.post(
+        "/api/v1/settings/usuals", json={"name": "zz-router-light-bulbs", "cadence_days": 30}
+    ).json()["data"]
+
+    sid = _session_with_checklist(client, [{"name": "zz-router-usuals-milk", "quantity": 1, "unit": "L"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
+
+    pushed = client.post(
+        f"/api/v1/checklist/{sid}/push", json={"usual_ids": [due_soon["id"], overdue["id"]]}
+    )
+    assert pushed.status_code == 200  # stamps both usuals' last_added_at via mark_added()
+
+    # Back-date "overdue" well past its cadence, directly in the DB — same pattern as
+    # test_load_survives_malformed_review_options_json above.
+    import app.database as database
+    from app.models.catalog import UsualItem
+
+    db = database.SessionLocal()
+    try:
+        row = db.get(UsualItem, overdue["id"])
+        row.last_added_at = row.last_added_at.replace(year=row.last_added_at.year - 1)
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get(f"/api/v1/checklist/{sid}")
+    assert resp.status_code == 200  # not 500 — this is the actual regression check
+    usual_names = {u["name"] for u in resp.json()["data"]["usuals"]}
+    assert usual_names == {"zz-router-light-bulbs"}  # overdue is due; due_soon just got added
+
+
 def test_resolve_needs_review_item(client, fake_anylist):
     sid = _session_with_checklist(
         client, [{"name": "zz-router-cream", "quantity": 100, "unit": "g"},
