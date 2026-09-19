@@ -123,7 +123,7 @@ table before assuming something went missing.
 | [build-status/phase-4-planning-engine.md](./docs/build-status/phase-4-planning-engine.md) | Phase 4 chunk list and review | Build Phases > Phase 4 — Planning Engine |
 | [build-status/phase-5-checklist-anylist.md](./docs/build-status/phase-5-checklist-anylist.md) | Phase 5 chunk list (review still open) | Build Phases > Phase 5 — Checklist & AnyList Integration |
 | [build-status/anylist-fault-finding-spike.md](./docs/build-status/anylist-fault-finding-spike.md) | 2026-09-18 live fault-finding spike: dropped-note symptom confirmed on the phone, "Not set" quantity's leading theory falsified by the phone check and still open, plus a newly found duplicate-on-repush bug | (new — not in the original planning document) |
-| [build-status/phase-6-polish.md](./docs/build-status/phase-6-polish.md) | Phase 6 placeholder (not yet chunked) | Build Phases > Phase 6 — Polish |
+| [build-status/phase-6-polish.md](./docs/build-status/phase-6-polish.md) | Phase 6 kickoff decisions (13, plus 2 cross-cutting risks) + chunk list (6.1–6.7 + review) | Build Phases > Phase 6 — Polish |
 | [build-status/ingredient-unit-handling-chunks.md](./docs/build-status/ingredient-unit-handling-chunks.md) | The Ingredient Unit Handling feature's own build-chunk checklist | Ingredient Unit Handling > Build chunks |
 
 **The two banners above this table (Personal Data Policy, Non-Negotiable Operating Rules) are

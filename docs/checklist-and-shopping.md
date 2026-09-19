@@ -130,12 +130,19 @@ On push:
 
 ## Shopping List Store Layout
 
-**Status: in scope** (folded in from the Shop Layout Reorganisation addendum). Originally
-listed as a deferred item ("Shop layout reorganisation" — Phase 6 or post-MVP) and,
-separately, "Multi-shop support" was Post-MVP/descoped. Both are now active scope — a
-fixed single-store layout doesn't match the actual use case, so the descope was reversed.
-Schema lands in Phase 1 (see [Data Model](./data-model.md#data-model)); the setup and rendering UI lands in
-Phase 6 (see [Build Phases](./build-status/process.md#build-phases)).
+**Status: in scope, UI build deferred out of Phase 6** (folded in from the Shop Layout
+Reorganisation addendum). Originally listed as a deferred item ("Shop layout reorganisation" —
+Phase 6 or post-MVP) and, separately, "Multi-shop support" was Post-MVP/descoped. Both are now
+active scope — a fixed single-store layout doesn't match the actual use case, so the descope was
+reversed. Schema lands in Phase 1 (see [Data Model](./data-model.md#data-model)) and is already
+built — `stores`/`store_sections`/`product_sections` exist, and `services/product_sections.py`
+already tags AI-suggested sections in the background on every recipe save. **The setup and
+rendering UI was originally slated for Phase 6, but was deliberately pulled back out at the
+Phase 6 kickoff (2026-09-19/20)** — the maintainer judged there's more nuance to it (store
+setup UX, section-correction UX, store-sorted rendering) than was worth deciding in the same
+pass as the rest of Phase 6's polish work. It now has no reserved phase; see
+[Deferred Decisions](./deferred-decisions.md#deferred-decisions). Nothing about the schema or the
+background tagging changes — only the still-missing UI's timing.
 
 ### Use case
 The shopping list should render in a walking order that matches whichever store the trip is
@@ -162,12 +169,12 @@ This avoids a per-product-per-store mapping (which would require re-tagging ever
 every store) in favour of two small, independent tables that combine at render time — see the
 `stores` / `store_sections` / `product_sections` tables in the Data Model.
 
-### Store setup flow (new, small UI — Phase 6)
+### Store setup flow (new, small UI — future phase, not yet scheduled)
 One-time per store: user adds a store by name, then drags the section vocabulary into their
 preferred walking order. Editable later if a store rearranges. No per-product interaction here —
 this screen only touches `store_sections`.
 
-### List rendering flow (Phase 6)
+### List rendering flow (future phase, not yet scheduled)
 1. User selects a store for the current shopping trip (defaults to last-used store).
 2. App pulls the current checklist (from the existing planning engine output — unchanged).
 3. Items are grouped by `section_name` via `product_sections`.
