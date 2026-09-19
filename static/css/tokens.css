@@ -1,0 +1,166 @@
+/* Design tokens — Phase 6 Chunk 6.1 (see CLAUDE.md > UI / UX > Design direction, and
+   docs/build-status/phase-6-polish.md kickoff decisions #5/#9/#10/#12).
+
+   Colour, spacing, type and radius scales live here as CSS custom properties; every other
+   stylesheet consumes them, never a literal hex/px. Split out of app.css because this file
+   alone is already large once dark mode is included, and because "the tokens" are a distinct
+   concern from "the components built from them" (components.css) and "screens not yet
+   migrated to either" (app.css) — see CLAUDE.md > Code Architecture > File size and scope
+   discipline.
+
+   Legacy names kept as first-class tokens, not aliases-to-be-removed: --bg/--surface/--border/
+   --text/--text-dim/--accent/--nav-h and the semantic --green/--amber/--red/--grey were already
+   the app's vocabulary before this phase (used throughout the recipe/settings/checklist screens
+   this chunk does not touch) — updating their VALUES here, without renaming them, is what lets
+   every untouched screen inherit the new palette and full dark-mode support for free, with zero
+   edits to those files. New tokens (spacing/type scale, --accent-hover/--accent-tint, --surface-2,
+   --border-strong, --text-faint, --focus, --shadow-*) are additions Chunks 6.1's own new
+   components need and Chunks 6.2-6.4 will draw on as they migrate their own screens. */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400 700; /* one variable-font file covers the whole range Google served us */
+  font-display: swap;
+  src: url("/static/fonts/ibm-plex-sans-var.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/static/fonts/ibm-plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/static/fonts/ibm-plex-mono-600.woff2") format("woff2");
+}
+/* Self-hosted (static/fonts/, SIL OFL — see static/fonts/OFL.txt) rather than a Google Fonts
+   CDN link, deliberately: this app runs on a home LAN and its own UI shouldn't need internet
+   access to render. Falls back to the system stack below if a file is ever missing. */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- colour: light (default) --- */
+  --bg: #f6f3ee;
+  --surface: #fffdf9;
+  --surface-2: #efeae1;
+  --border: #ddd5c7;
+  --border-strong: #c9bfab;
+  --text: #2a2620;
+  --text-dim: #766e5f;
+  --text-faint: #a89d89;
+
+  --accent: #1f6b63;        /* Teal — decided 2026-09-19 over the originally-tried blue, which
+                                read poorly against this warm ground (blue works in dark mode
+                                instead, see the dark block below) */
+  --accent-hover: #17524c;
+  --accent-tint: #dceae7;
+  --accent-contrast: #fdfdfd;
+
+  --success: #3c7a4b;
+  --warning: #a8752e;
+  --danger: #a3352b;
+  --grey-state: #8a8375;
+  --focus: var(--accent);
+
+  --shadow-1: 0 1px 2px rgba(42, 38, 32, .06), 0 1px 1px rgba(42, 38, 32, .04);
+  --shadow-2: 0 4px 14px rgba(42, 38, 32, .10), 0 1px 3px rgba(42, 38, 32, .06);
+
+  /* legacy names (pre-Phase-6) — same values as their semantic equivalents above, kept so
+     app.css's not-yet-migrated rules (log levels, dup-warn, pending-ai badge, have-toggle, ...)
+     need no edits to pick up the new palette + dark mode */
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --grey: var(--grey-state);
+
+  /* --- type --- */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: .75rem;
+  --text-sm: .8125rem;
+  --text-base: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+
+  /* --- spacing --- */
+  --sp-1: .25rem;
+  --sp-2: .5rem;
+  --sp-3: .75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius --- */
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --nav-h: 64px; /* was 60px pre-Phase-6; the emoji icon set (Chunk 6.1) needs a touch more */
+}
+
+/* --- colour: dark ---
+   Guarded two ways per the standard three-state pattern (system/light/dark):
+   - prefers-color-scheme covers the un-stamped "System" default (no data-theme attribute)
+   - [data-theme="dark"] covers an explicit choice, once Chunk 6.4 ships the toggle, and wins
+     over prefers-color-scheme either way (a later, more specific rule) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1916;
+    --surface: #242019;
+    --surface-2: #2e2a22;
+    --border: #3d372c;
+    --border-strong: #544c3c;
+    --text: #f1ece1;
+    --text-dim: #b6ab96;
+    --text-faint: #7f7461;
+
+    --accent: #7db0e0; /* Blue — kept from the original mockup pass; confirmed good in dark
+                          mode even after teal replaced it in light mode */
+    --accent-hover: #98c1e7;
+    --accent-tint: #233242;
+    --accent-contrast: #14202b;
+
+    --success: #7ec98b;
+    --warning: #dba75f;
+    --danger: #e3897d;
+    --grey-state: #a49b89;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+    --shadow-2: 0 6px 20px rgba(0, 0, 0, .45);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1b1916;
+  --surface: #242019;
+  --surface-2: #2e2a22;
+  --border: #3d372c;
+  --border-strong: #544c3c;
+  --text: #f1ece1;
+  --text-dim: #b6ab96;
+  --text-faint: #7f7461;
+
+  --accent: #7db0e0;
+  --accent-hover: #98c1e7;
+  --accent-tint: #233242;
+  --accent-contrast: #14202b;
+
+  --success: #7ec98b;
+  --warning: #dba75f;
+  --danger: #e3897d;
+  --grey-state: #a49b89;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, .45);
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }

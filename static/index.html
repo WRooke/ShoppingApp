@@ -4,6 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ShoppingApp</title>
+  <script>
+    // Apply a saved theme choice before first paint, so there's never a flash of the wrong
+    // theme. No UI writes this key yet (the Light/Dark/System control ships in Chunk 6.4's
+    // Settings "Appearance" section) — until then this is a no-op and the page follows the
+    // OS via prefers-color-scheme, same as leaving the attribute unset. See tokens.css.
+    (function () {
+      try {
+        var saved = localStorage.getItem("theme");
+        if (saved === "light" || saved === "dark") {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      } catch (_) {
+        // localStorage can throw in a locked-down/private context — fall back to System.
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/css/tokens.css" />
+  <link rel="stylesheet" href="/static/css/components.css" />
   <link rel="stylesheet" href="/static/css/app.css" />
 </head>
 <body>
@@ -17,28 +35,35 @@
 
   <nav class="bottom-nav" aria-label="Primary">
     <a href="#/home" data-nav="home" class="nav-item">
-      <span class="nav-icon" aria-hidden="true">home</span>
+      <span class="nav-icon" aria-hidden="true">🏠</span>
       <span class="nav-label">Home</span>
     </a>
     <a href="#/recipes" data-nav="recipes" class="nav-item">
-      <span class="nav-icon" aria-hidden="true">book</span>
+      <span class="nav-icon" aria-hidden="true">📖</span>
       <span class="nav-label">Recipes</span>
+      <span class="nav-dot" data-badge="recipes" hidden aria-hidden="true"></span>
     </a>
     <a href="#/plan" data-nav="plan" class="nav-item">
-      <span class="nav-icon" aria-hidden="true">list</span>
+      <span class="nav-icon" aria-hidden="true">📋</span>
       <span class="nav-label">Plan</span>
+      <span class="nav-dot" data-badge="plan" hidden aria-hidden="true"></span>
     </a>
     <a href="#/settings" data-nav="settings" class="nav-item">
-      <span class="nav-icon" aria-hidden="true">gear</span>
+      <span class="nav-icon" aria-hidden="true">⚙️</span>
       <span class="nav-label">Settings</span>
     </a>
     <a href="#/diagnostics" data-nav="diagnostics" class="nav-item">
-      <span class="nav-icon" aria-hidden="true">pulse</span>
+      <span class="nav-icon" aria-hidden="true">📊</span>
       <span class="nav-label">Diagnostics</span>
+      <span class="nav-dot err" data-badge="diagnostics" hidden aria-hidden="true"></span>
     </a>
   </nav>
 
   <script src="/static/js/api.js"></script>
+  <script src="/static/js/toast.js"></script>
+  <script src="/static/js/back-link.js"></script>
+  <script src="/static/js/nav-badges.js"></script>
+  <script src="/static/js/home.js"></script>
   <script src="/static/js/diagnostics.js"></script>
   <script src="/static/js/dup-warn.js"></script>
   <script src="/static/js/ingredient-swap.js"></script>

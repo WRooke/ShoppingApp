@@ -1,5 +1,5 @@
 /* Minimal hash router. Views are plain functions that fill #view.
-   Only Diagnostics is functional in Phase 1; the rest are stubs. */
+   Every route below is a real view as of Phase 6 Chunk 6.1 (Home was the last stub). */
 
 (function (global) {
   "use strict";
@@ -9,21 +9,16 @@
   var navItems = document.querySelectorAll("[data-nav]");
   var activeCleanup = null;
 
-  function stub(name, note) {
-    return {
-      title: name,
-      mount: function (root) {
-        var d = document.createElement("div");
-        d.className = "stub";
-        d.textContent = note;
-        root.innerHTML = "";
-        root.appendChild(d);
-      },
-    };
-  }
-
   var routes = {
-    home: stub("Home", "Phase 1 foundation is running. Use the Diagnostics tab to check status and logs."),
+    home: {
+      title: "Home",
+      mount: function (root) {
+        global.HomeView.mount(root);
+      },
+      unmount: function () {
+        if (global.HomeView.unmount) global.HomeView.unmount();
+      },
+    },
     recipes: {
       title: "Recipes",
       mount: function (root, param) {
@@ -84,6 +79,10 @@
   }
 
   function render() {
+    // A toast is scoped to the screen that raised it (kickoff decision #12) — never let one
+    // survive onto whatever the user navigates to next.
+    if (global.Toast) global.Toast.dismiss();
+
     if (typeof activeCleanup === "function") {
       try {
         activeCleanup();

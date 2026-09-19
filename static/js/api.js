@@ -299,8 +299,10 @@
       },
     },
     sessions: {
-      list: function () {
-        return api.get("/api/v1/sessions?limit=100");
+      list: function (params) {
+        var qs = "?limit=100";
+        if (params && params.status) qs += "&status=" + encodeURIComponent(params.status);
+        return api.get("/api/v1/sessions" + qs);
       },
       get: function (id) {
         return api.get("/api/v1/sessions/" + encodeURIComponent(id));
