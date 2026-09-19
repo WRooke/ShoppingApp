@@ -13,6 +13,7 @@ connector-behaviour concerns, not wire-format ones, so they stay there.
 
 from __future__ import annotations
 
+import re
 import struct
 import uuid
 from dataclasses import dataclass
@@ -140,14 +141,40 @@ def _b(fields: dict[int, list], num: int) -> bool | None:
 def _item_from_wire(raw: bytes) -> AnyListItem:
     f = _decode_message(raw)
     quantity = None
-    if 21 in f:  # quantityPb.amount — current, set on add
-        quantity = _s(_decode_message(f[21][0]), 1)
+    if 21 in f:
+        qty_pb = _decode_message(f[21][0])
+        # rawQuantity (3, the full text a user typed) first, then amount(1)+unit(2) combined,
+        # both ahead of amount alone -- matches AnyList's own apparent read priority (2026-09-19
+        # fault-finding spike / PR #62 on the reference library: the apps render rawQuantity for
+        # display, not amount alone -- see anylist_client.py's module docstring).
+        quantity = _s(qty_pb, 3)
+        if quantity is None:
+            amount, unit = _s(qty_pb, 1), _s(qty_pb, 2)
+            quantity = f"{amount} {unit}" if amount and unit else amount
     if quantity is None and 18 in f:  # deprecatedQuantity — legacy, set by set-list-item-quantity
         quantity = _s(f, 18)
     return AnyListItem(
         identifier=_s(f, 1) or "", name=_s(f, 4), quantity=quantity, checked=_b(f, 6),
         note=_s(f, 5),
     )
+
+
+# PR #62's own parsing rule (unmerged upstream, github.com/kevdliu/anylist) — a leading
+# int-or-decimal number, then whatever's left over as the unit.
+_LEADING_NUMBER = re.compile(r"^(\d+(?:[.,]\d+)?)\s*(.*)$")
+
+
+def _split_quantity(raw: str) -> tuple[str | None, str | None, str | None]:
+    """(rawQuantity, amount, unit) the PR #62 way. Empty/blank input -> all None (no quantityPb
+    written at all, matching the pre-fix `if quantity:` guard)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None, None
+    m = _LEADING_NUMBER.match(raw)
+    if not m:
+        return raw, None, None
+    amount, unit = m.group(1), m.group(2)
+    return raw, amount, (unit or None)
 
 
 def _item_to_wire(
@@ -161,8 +188,21 @@ def _item_to_wire(
     out = _field_string(1, identifier) + _field_string(3, list_id) + _field_string(4, name)
     out += _field_string(5, details)  # AnyList's free-text "details"/notes field on an item
     out += _field_bool(6, False)  # new items land unchecked
-    if quantity:
-        out += _field_message(21, _field_string(1, quantity))
+    # 2026-09-20 fix (fault-finding spike, "Stage 1" addendum): writing quantityPb.amount alone
+    # (the whole "500 g" string, non-numeric) left AnyList's own app showing "Not set" for any
+    # freshly-added item with a unit — live phone-confirmed against both shapes. AnyList's apps
+    # render quantityPb.rawQuantity for display; a non-numeric amount with no rawQuantity shows
+    # nothing. rawQuantity now always carries the exact text; amount/unit are the PR #62 parse
+    # of it when it has a recognisable leading number, best-effort (some coarse-ingredient
+    # strings like "2 x bunch" won't split cleanly — rawQuantity alone still covers them).
+    raw_q, amount, unit = _split_quantity(quantity or "")
+    if raw_q is not None:
+        qty_pb = _field_string(3, raw_q)
+        if amount is not None:
+            qty_pb += _field_string(1, amount)
+        if unit is not None:
+            qty_pb += _field_string(2, unit)
+        out += _field_message(21, qty_pb)
     return out
 
 

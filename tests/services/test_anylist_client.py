@@ -63,6 +63,58 @@ def test_item_wire_roundtrips_details():
     assert _item_from_wire(raw).note == "to taste"
 
 
+def test_item_to_wire_splits_unit_bearing_quantity_into_rawquantity_amount_unit():
+    """2026-09-20 fix (fault-finding spike "Stage 1" addendum, PR #62 on the reference library,
+    never merged upstream): AnyList's own app was live-phone-confirmed to show "Not set" for a
+    freshly-added item whose quantityPb carried only `amount` = "500 g" (non-numeric, no
+    `rawQuantity`) -- and to display correctly once `rawQuantity` is set properly, split the
+    PR #62 way. `_item_to_wire` must set all three sub-fields now, not just the whole string
+    crammed into `amount` alone."""
+    raw = _item_to_wire(identifier="i1", list_id="L1", name="Beef Mince", quantity="500 g")
+    qty_pb = _decode_message(_decode_message(raw)[21][0])
+    assert qty_pb[3][0].decode("utf-8") == "500 g"  # rawQuantity: the exact text
+    assert qty_pb[1][0].decode("utf-8") == "500"    # amount: the parsed leading number
+    assert qty_pb[2][0].decode("utf-8") == "g"      # unit: the remainder
+    # and _item_from_wire reads it back correctly, preferring rawQuantity
+    assert _item_from_wire(raw).quantity == "500 g"
+
+
+def test_item_to_wire_bare_number_has_no_unit_subfield():
+    raw = _item_to_wire(identifier="i1", list_id="L1", name="Eggs", quantity="12")
+    qty_pb = _decode_message(_decode_message(raw)[21][0])
+    assert qty_pb[3][0].decode("utf-8") == "12"
+    assert qty_pb[1][0].decode("utf-8") == "12"
+    assert 2 not in qty_pb  # no unit field at all when there's nothing after the number
+
+
+def test_item_to_wire_non_numeric_quantity_still_sets_rawquantity_only():
+    """A coarse-ingredient-style string with no leading number ("2 x bunch") can't be split
+    into amount/unit by PR #62's regex -- rawQuantity alone still carries it, which is enough
+    for AnyList's app to render (per the same live-confirmed rule) and enough for our own reads
+    to round-trip correctly."""
+    raw = _item_to_wire(identifier="i1", list_id="L1", name="Basil", quantity="bunch")
+    qty_pb = _decode_message(_decode_message(raw)[21][0])
+    assert qty_pb[3][0].decode("utf-8") == "bunch"
+    assert 1 not in qty_pb and 2 not in qty_pb
+    assert _item_from_wire(raw).quantity == "bunch"
+
+
+def test_item_to_wire_empty_quantity_writes_no_quantitypb_at_all():
+    raw = _item_to_wire(identifier="i1", list_id="L1", name="Eggs", quantity="")
+    assert 21 not in _decode_message(raw)
+    raw_none = _item_to_wire(identifier="i1", list_id="L1", name="Eggs", quantity=None)
+    assert 21 not in _decode_message(raw_none)
+
+
+def test_item_from_wire_combines_amount_and_unit_when_no_rawquantity():
+    """An item that only ever has amount+unit set (no rawQuantity sub-field at all -- e.g. one
+    written by some other client, or an older row) should still read back as a sensible combined
+    string rather than just the bare number."""
+    qty_pb = _field_string(1, "500") + _field_string(2, "g")
+    raw = _field_string(1, "i1") + _field_string(4, "Beef Mince") + _field_message(21, qty_pb)
+    assert _item_from_wire(raw).quantity == "500 g"
+
+
 def test_item_from_wire_reads_legacy_deprecated_quantity_field_18():
     # An item whose quantity was updated via set-list-item-quantity carries field 18, not 21.
     raw = _field_string(1, "id1") + _field_string(4, "Milk") + _field_string(18, "2 x 2L")
@@ -185,7 +237,12 @@ def _added_items_from_multipart(body: bytes):
         item = _decode_message(bytes(fields[6][0]))
         qty = None
         if 21 in item:
-            qty = _decode_message(bytes(item[21][0])).get(1, [b""])[0].decode() or None
+            # 2026-09-20: quantityPb now carries rawQuantity (field 3, the full text) ahead of
+            # amount (field 1, just the parsed leading number) -- mirror anylist_wire's own
+            # read-priority so this helper reflects what the client actually meant to send.
+            qty_pb = _decode_message(bytes(item[21][0]))
+            raw = qty_pb.get(3, [b""])[0].decode() or None
+            qty = raw if raw is not None else (qty_pb.get(1, [b""])[0].decode() or None)
         out.append((item[1][0].decode(), item[4][0].decode(), qty))
     return out
 
