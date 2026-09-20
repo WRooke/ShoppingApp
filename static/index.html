@@ -6,9 +6,9 @@
   <title>ShoppingApp</title>
   <script>
     // Apply a saved theme choice before first paint, so there's never a flash of the wrong
-    // theme. No UI writes this key yet (the Light/Dark/System control ships in Chunk 6.4's
-    // Settings "Appearance" section) — until then this is a no-op and the page follows the
-    // OS via prefers-color-scheme, same as leaving the attribute unset. See tokens.css.
+    // theme. Written by Settings' "Appearance" section (settings-appearance.js). No choice
+    // saved yet: a no-op, and the page follows the OS via prefers-color-scheme, same as
+    // leaving the attribute unset. See tokens.css.
     (function () {
       try {
         var saved = localStorage.getItem("theme");
@@ -80,6 +80,7 @@
   <script src="/static/js/session-review.js"></script>
   <script src="/static/js/session-recipe-picker.js"></script>
   <script src="/static/js/sessions.js"></script>
+  <script src="/static/js/checklist-push.js"></script>
   <script src="/static/js/checklist.js"></script>
   <script src="/static/js/settings-row-actions.js"></script>
   <script src="/static/js/settings-appearance.js"></script>

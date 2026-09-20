@@ -392,6 +392,9 @@
           { usual_ids: opts.usualIds || [] }
         );
       },
+      skipUsual: function (usualId) {
+        return jsonBody("POST", "/api/v1/checklist/usuals/" + encodeURIComponent(usualId) + "/skip", {});
+      },
     },
     diagnostics: {
       logs: function (limit, level) {

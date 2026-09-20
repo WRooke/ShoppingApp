@@ -275,7 +275,7 @@ change chunk order and scope, not just because they happened.
       empty session lands on day 1), the recipe-name link, remove+Undo (confirmed server-side
       that exactly one slot survives the round trip), and the labelled swap panel — zero
       console errors anywhere.
-- [ ] **Chunk 6.3b — Checklist & AnyList push UI (`checklist.js` only).** Gate lifted (see
+- [x] **Chunk 6.3b — Checklist & AnyList push UI (`checklist.js` only).** Gate lifted (see
       cross-cutting risks above) — **re-read `checklist.py`/`anylist_client.py`'s current state
       before starting**, don't trust this document's description of them. Apply the design.
       Rework the "the usuals" group into the stock-check prompt (kickoff decision #8). A
@@ -283,6 +283,65 @@ change chunk order and scope, not just because they happened.
       against whichever AnyList strategy has actually shipped. Step indicator continuing from
       6.3; sticky Push button. Verify at phone width, the tap cycle, the needs-review resolve
       control, + `pytest tests/frontend/`.
+
+      **Done 2026-09-20 (mockup approved with one revision — "Much better! Go ahead!" — then
+      implemented + verified).** Mockup sign-off round 1 flagged that a plain spinner during
+      push "doesn't fill me with confidence anything's happening"; revised to a rotating
+      per-item progress label before implementation started (see below) — the actual
+      mockup-before-build gate (kickoff decision #13) working as intended, catching this before
+      any code was written rather than after.
+
+      **The "Last synced with AnyList" idea from kickoff decision #11 was replaced, not
+      built as originally described**, per a maintainer decision made explicitly for this
+      chunk: re-reading `checklist.py > load_checklist()` (Chunk 6.3b's own required
+      re-verification step) showed `already_on_anylist` is recomputed fresh on *every*
+      checklist page load — there is no stale cached value a timestamp could usefully warn
+      about, so a plain "last synced: `<time>`" indicator would always just say "just now" and
+      add no information. Shipped instead: a quiet **"Checked against AnyList as of this page
+      load"** note (replacing the old bare `statusLine` text, same content just given a
+      permanent home instead of only appearing on a fetch failure) plus a **discrepancy warning
+      banner** — `.push-discrepancy`, shown only when a push returns `confirmed: false`, naming
+      the specific items AnyList didn't recognise — replacing the old bare `alert()`. This is
+      exactly the "discrepancy/warning indicator instead of a plain freshness timestamp" case
+      the cross-cutting risk note flagged as a live possibility back at kickoff.
+
+      **"The usuals" stock-check prompt** (kickoff decision #8): each due item is now a
+      `.usual-card` asking "Add it, or do you have enough to last another `<cadence_days>`
+      days?" with **Add to list** (queues it into this push, client-side, same as before) or
+      **"I'm stocked, skip this time"** — a new `POST /api/v1/checklist/usuals/{id}/skip`
+      endpoint (`app/routers/checklist.py`) that calls the *already-existing*
+      `usuals_service.mark_added()` with no push at all, exactly the "reuse the existing stamp,
+      just not gated on an actual push" design from kickoff. No new service function needed.
+
+      **The push-progress indicator cycles through the actual item names being pushed**
+      ("Adding chicken thighs…" → "Adding jasmine rice…", "Item 2 of 3" beneath), not a static
+      spinner or a generic phase label — grounded in the real push list (which the frontend
+      already has, unlike the opaque multi-step AI capture calls Chunk 6.2 solved the same
+      "one HTTP request, no per-step signal" problem for) rather than invented text. Present
+      continuous ("Adding X…"), never past tense, so it never claims an item has actually
+      landed on AnyList before the response confirms it.
+
+      **File-size split**: `checklist.js` reached 490 lines once the design-system pass, the
+      stock-check rework, and the push/discrepancy additions all landed in one file. Split the
+      push-specific machinery (the sticky summary/button, the rotating progress label, the
+      discrepancy banner) into a new `checklist-push.js` (`ChecklistPush.renderSummary()` /
+      `.renderDiscrepancyBanner()` / `.unmount()`), leaving `checklist.js` at 364 lines for the
+      load/render/tap-cycle/stock-check logic. `.have-toggle` and the checklist row styling
+      moved out of `app.css` into `components-screens.css`, tokenized (no more literal hex
+      colours) along with everything else this chunk touches.
+
+      Verified: full suite **535 pass**; a throwaway phone-width (414×896) headless-CDP script
+      — **21/21 checks pass**: the step indicator, Back link, sync note, 3 ingredient rows, the
+      stock-check prompt's both actions (skip confirmed via the API that `last_added_at` was
+      stamped with the usual no longer due, and with no push triggered), the have/need tap
+      cycle, the live summary line, the push button's spinner + rotating "Adding `<item>`…"
+      label + "Item N of M" note appearing synchronously on click (verified immediately after
+      the click event rather than after a delay, since a local fake-mode push resolves faster
+      than the 1.1s rotation interval — the real multi-second AnyList round trip the mockup
+      modelled isn't reproducible against a local test server), a real push marking the session
+      `pushed`, and — via a stubbed `push()` response, the same technique the existing suite
+      already uses for the queued-capture case — the discrepancy banner rendering with the
+      specific unconfirmed item named. Zero console errors throughout.
 - [x] **Chunk 6.4 — Settings & Diagnostics.** Restructure Settings into an index + one
       `#/settings/<section>` sub-page per card (staples, product units, substitutions, usuals,
       ingredient aliases, unit synonyms, coarse ingredients); shared Back returns to the index. A

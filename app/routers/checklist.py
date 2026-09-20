@@ -20,6 +20,7 @@ from app.schemas.checklist import (
 )
 from app.schemas.sessions import ChecklistItemRead
 from app.services import checklist as checklist_service
+from app.services import usuals as usuals_service
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,18 @@ def resolve_item(
         db, session_id, item_id, total_quantity=data.total_quantity, total_unit=data.total_unit
     )
     return {"ok": True, "data": _item(row)}
+
+
+@router.post("/usuals/{usual_id}/skip")
+def skip_usual(usual_id: int, db: Session = Depends(get_db)) -> dict:
+    """"I'm stocked, skip this time" (Phase 6 Chunk 6.3b, kickoff decision #8) — the same
+    last_added_at stamp a push already applies via usuals_service.mark_added(), just not
+    gated on an actual AnyList push. Not session-scoped: usual_items has no session_id, and
+    the due-check that surfaces it on the checklist is global."""
+    item = usuals_service.get_usual(db, usual_id)
+    usuals_service.mark_added(db, [usual_id])
+    db.refresh(item)
+    return {"ok": True, "data": usuals_service.to_read(item)}
 
 
 @router.post("/{session_id}/push")
