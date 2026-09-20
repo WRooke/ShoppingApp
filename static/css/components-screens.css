@@ -248,3 +248,67 @@
 .usual-card.skipped .skipped-note { display: block; }
 
 .push-progress-note { text-align: center; font-size: var(--text-xs); margin-top: .4rem; }
+
+/* --- weekly planner (static/js/sessions.js) — Chunk 6.5. A strict 7-column grid didn't fit
+   at phone width (~400px, per this chunk's own mockup pass), so this is a vertically-stacked
+   "day sections" layout instead — one of the fallbacks the plan explicitly allowed. Tap-to-
+   assign (kickoff decision #10 — drag-and-drop rejected as unreliable under touch at this
+   width): tap a slot's move button, then tap a day section to move it there. */
+.week { display: flex; flex-direction: column; gap: var(--sp-3); }
+.day-section {
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.day-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: .55rem var(--sp-3); border-bottom: 1px solid var(--border);
+  font-weight: 700; font-size: var(--text-sm);
+}
+.day-head .dow { text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); font-size: var(--text-xs); }
+.day-head .count { font-weight: 400; color: var(--text-faint); font-size: var(--text-xs); }
+.day-empty { padding: var(--sp-3); color: var(--text-faint); font-size: var(--text-sm); font-style: italic; }
+.day-slots { padding: .3rem var(--sp-3) .5rem; display: flex; flex-direction: column; gap: .4rem; }
+.day-section.unassigned { border-style: dashed; background: var(--surface-2); }
+
+/* Two-line slot row (2026-09-20 mockup feedback: the recipe name got ellipsis-truncated
+   crammed alongside servings/move/remove on one line — the name gets its own full-width
+   line, wrapping if needed; every control lives on a second line below it). */
+.slot-row { padding: .5rem 0; border-top: 1px solid var(--border); }
+.slot-row:first-child { border-top: none; }
+.slot-row .name {
+  display: block; font-weight: 600; color: var(--text); text-decoration: none;
+  margin-bottom: .35rem; overflow-wrap: break-word;
+}
+.slot-row .name.plain { color: var(--text); }
+.slot-row .controls { display: flex; align-items: center; gap: .5rem; }
+.slot-row .controls select { flex: 1 1 auto; min-width: 0; }
+.move-btn { flex-shrink: 0; padding: .3rem .55rem; font-size: 1rem; line-height: 1; min-height: 34px; }
+.slot-row .remove-btn { flex-shrink: 0; margin-left: auto; }
+
+.move-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  background: var(--accent-tint); border: 1px solid var(--accent); border-radius: var(--r-md);
+  padding: .6rem var(--sp-3); margin-bottom: var(--sp-3); font-size: var(--text-sm);
+}
+.move-banner .lbl { font-weight: 600; }
+.move-banner button { min-height: 34px; padding: .3rem .7rem; font-size: var(--text-sm); }
+
+/* Move mode: the whole highlighted card is the tap target, not just its header (2026-09-20
+   mockup feedback — the highlight has to match what's actually tappable, or tapping the
+   highlighted area does nothing and reads as broken). */
+.week.moving .day-section:not(.picking-source) {
+  border-color: var(--accent); border-width: 2px; box-shadow: 0 0 0 3px var(--accent-tint);
+  cursor: pointer;
+}
+.week.moving .day-head { position: relative; }
+.week.moving .day-section:not(.picking-source) .day-head::after {
+  content: "Tap to move here"; position: absolute; right: var(--sp-3); top: 50%; transform: translateY(-50%);
+  color: var(--accent); font-weight: 700; font-size: var(--text-xs);
+}
+.week.moving .slot-row, .week.moving .slot-row select, .week.moving .remove-btn, .week.moving .move-btn {
+  pointer-events: none; opacity: .5;
+}
+.week.moving .day-section.picking-source .slot-row.picked { opacity: 1; }
+.week.moving .day-section.picking-source .slot-row.picked .move-btn {
+  opacity: 1; pointer-events: auto; background: var(--accent); color: var(--accent-contrast); border-color: var(--accent);
+}

@@ -7,27 +7,11 @@
 (function (global) {
   "use strict";
 
-  var DAYS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
   function el(tag, cls, text) {
     var node = document.createElement(tag);
     if (cls) node.className = cls;
     if (text != null) node.textContent = text;
     return node;
-  }
-
-  function daySelect(value, onChange) {
-    var sel = el("select");
-    for (var d = 0; d <= 7; d++) {
-      var opt = el("option", null, d === 0 ? "— day —" : DAYS[d]);
-      opt.value = d === 0 ? "" : String(d);
-      if (String(value || "") === opt.value) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    sel.addEventListener("change", function () {
-      onChange(sel.value ? parseInt(sel.value, 10) : null);
-    });
-    return sel;
   }
 
   // Chunk 6.3 kickoff decision #12 — adding a recipe/leftovers slot suggests the next day
@@ -56,20 +40,6 @@
       if (i < labels.length - 1) wrap.appendChild(el("span", "sep", "→"));
     });
     return wrap;
-  }
-
-  function servingsSelect(value, onChange) {
-    var sel = el("select");
-    for (var n = 1; n <= 12; n++) {
-      var opt = el("option", null, n + (n === 1 ? " serving" : " servings"));
-      opt.value = String(n);
-      if (n === value) opt.selected = true;
-      sel.appendChild(opt);
-    }
-    sel.addEventListener("change", function () {
-      onChange(parseInt(sel.value, 10));
-    });
-    return sel;
   }
 
   // --- session list --------------------------------------------------
@@ -182,7 +152,7 @@
     card.appendChild(head);
     card.appendChild(el("div", "muted", "Status: " + session.status));
 
-    // --- slots ---
+    // --- slots: a 7-day grid, not a flat list (Phase 6 Chunk 6.5 — see session-week.js) ---
     var slotsHeadingRow = el("div", "detail-head-row");
     slotsHeadingRow.style.marginTop = "16px";
     slotsHeadingRow.appendChild(el("h2", null, "Recipes & days"));
@@ -192,33 +162,10 @@
     if (slots.length === 0) {
       card.appendChild(el("div", "empty-state", "No recipes added yet."));
     }
-    if (slots.length > 1) {
-      // Requested 2026-09-10 hand-testing: assigning a day (the dropdown per row, below)
-      // doesn't itself move a slot's position — a recipe added last but set to "Mon" still
-      // sits at the bottom until reordered by hand with the up/down arrows. This sorts the
-      // list to match the assigned days in one action, using the existing slot-order
-      // endpoint (no backend change). Undated slots keep their current relative order and
-      // sort after every dated one.
-      var reorgBtn = el("button", null, "Reorganise by day");
-      reorgBtn.addEventListener("click", function () {
-        var withIdx = slots.map(function (slot, idx) { return { slot: slot, idx: idx }; });
-        withIdx.sort(function (a, b) {
-          var da = a.slot.day_of_week || 8; // undated -> after every real day (1-7)
-          var db = b.slot.day_of_week || 8;
-          return da !== db ? da - db : a.idx - b.idx; // stable: ties keep current order
-        });
-        var ids = withIdx.map(function (w) { return w.slot.id; });
-        api.sessions.reorder(session.id, ids).then(reload).catch(function (err) {
-          global.alert("Couldn't reorganise: " + err.message);
-        });
-      });
-      slotsHeadingRow.appendChild(reorgBtn);
-    }
-    var slotList = el("div");
-    card.appendChild(slotList);
-    slots.forEach(function (slot, idx) {
-      slotList.appendChild(renderSlotRow(session, slot, idx, slots.length, reload));
-    });
+
+    var weekSection = el("div");
+    card.appendChild(weekSection);
+    global.SessionWeek.render(weekSection, session, reload);
 
     // --- add recipe / leftovers ---
     var addRow = el("div", "log-controls");
@@ -255,115 +202,6 @@
     });
     reviewRow.appendChild(reviewBtn);
     card.appendChild(reviewRow);
-  }
-
-  function renderSlotRow(session, slot, idx, count, reload) {
-    var row = el("div", "settings-row");
-
-    var isLeftovers = slot.slot_type === "leftovers";
-    // Chunk 6.3 kickoff decision #9 — a slot's recipe name links to its own page, matching
-    // what session-review.js's "which recipe" breakdown already does further down the flow.
-    var name = isLeftovers
-      ? el("div", "recipe-row-name", "Leftovers")
-      : el("a", "recipe-row-name", slot.recipe_name || "Recipe #" + slot.recipe_id);
-    if (!isLeftovers) name.href = "#/recipes/" + slot.recipe_id;
-    name.style.flex = "2 1 140px";
-    row.appendChild(name);
-
-    if (!isLeftovers) {
-      row.appendChild(
-        servingsSelect(slot.scaled_servings, function (n) {
-          api.sessions.updateSlot(session.id, slot.id, { scaled_servings: n }).catch(barf);
-        })
-      );
-    }
-
-    row.appendChild(
-      daySelect(slot.day_of_week, function (d) {
-        api.sessions.updateSlot(session.id, slot.id, { day_of_week: d }).catch(barf);
-      })
-    );
-
-    var upBtn = el("button", null, "↑");
-    upBtn.disabled = idx === 0;
-    var downBtn = el("button", null, "↓");
-    downBtn.disabled = idx === count - 1;
-    upBtn.addEventListener("click", function () {
-      reorderMove(session, idx, idx - 1, reload);
-    });
-    downBtn.addEventListener("click", function () {
-      reorderMove(session, idx, idx + 1, reload);
-    });
-    row.appendChild(upBtn);
-    row.appendChild(downBtn);
-
-    var removeBtn = el("button", null, "Remove");
-    removeBtn.addEventListener("click", function () {
-      removeBtn.disabled = true;
-      var snapshot = {
-        slot_type: slot.slot_type,
-        recipe_id: slot.recipe_id,
-        day_of_week: slot.day_of_week,
-        scaled_servings: slot.scaled_servings,
-      };
-      var label = isLeftovers ? "Leftovers" : slot.recipe_name || "Recipe #" + slot.recipe_id;
-      api.sessions
-        .removeSlot(session.id, slot.id)
-        .then(function () {
-          global.Toast.show('Removed "' + label + '"', {
-            actionLabel: "Undo",
-            onAction: function () {
-              // removeSlot has no undo of its own — re-add from the snapshot, then a
-              // follow-up update for the day/servings addRecipe/addLeftovers' own create
-              // payload already covers (day_of_week), or doesn't (scaled_servings on an
-              // existing recipe slot needs its own call once the id is known).
-              var re =
-                snapshot.slot_type === "leftovers"
-                  ? api.sessions.addLeftovers(session.id, { day_of_week: snapshot.day_of_week })
-                  : api.sessions.addRecipe(session.id, {
-                      recipe_id: snapshot.recipe_id,
-                      day_of_week: snapshot.day_of_week,
-                    });
-              re.then(function (created) {
-                if (snapshot.slot_type === "leftovers" || !snapshot.scaled_servings) {
-                  return null;
-                }
-                return api.sessions.updateSlot(session.id, created.id, {
-                  scaled_servings: snapshot.scaled_servings,
-                });
-              })
-                .then(reload)
-                .catch(function (err) {
-                  global.alert("Couldn't undo: " + err.message);
-                });
-            },
-          });
-          reload();
-        })
-        .catch(function (err) {
-          removeBtn.disabled = false;
-          barf(err);
-        });
-    });
-    row.appendChild(removeBtn);
-
-    return row;
-
-    function barf(err) {
-      global.alert("Couldn't update: " + err.message);
-    }
-  }
-
-  function reorderMove(session, from, to, reload) {
-    var ids = (session.recipes || []).map(function (s) {
-      return s.id;
-    });
-    if (to < 0 || to >= ids.length) return;
-    var moved = ids.splice(from, 1)[0];
-    ids.splice(to, 0, moved);
-    api.sessions.reorder(session.id, ids).then(reload).catch(function (err) {
-      global.alert("Couldn't reorder: " + err.message);
-    });
   }
 
   // --- entry point -----------------------------------------------

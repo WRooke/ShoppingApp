@@ -409,12 +409,64 @@ change chunk order and scope, not just because they happened.
       toast that restores it, product-units' labelled fields, all five remaining sub-pages
       rendering with their Back link, and Diagnostics' status panel — zero console errors
       throughout.
-- [ ] **Chunk 6.5 — Weekly planner calendar view.** A 7-day grid on the session workspace,
+- [x] **Chunk 6.5 — Weekly planner calendar view.** A 7-day grid on the session workspace,
       visual-layer-only (`day_of_week` already set/stored, Phase 4 Chunk 4.4 — no data-model
       change here). Tap-to-assign interaction (kickoff decision #10) — tap a slot, then tap the
       target day. Verify at phone width — the hardest layout in this phase under 400px; a
       horizontally-scrollable week strip or day-at-a-time view are acceptable fallbacks if a
       fixed 7-column grid doesn't fit.
+
+      **Done 2026-09-20 (mockup approved after two revisions — "approved" — then implemented
+      + verified).** A strict 7-column grid was confirmed unworkable at phone width during the
+      mockup pass itself, per this chunk's own pre-authorised fallback: shipped as a
+      **vertically-stacked "day sections" layout** instead (Unassigned, then Mon–Sun, each a
+      card showing its slots) — a real 7-day breakdown, just laid out top-to-bottom rather than
+      left-to-right, which also means it scrolls naturally on a phone instead of needing a
+      horizontal-scroll or day-picker fallback.
+
+      **Two real usability bugs found and fixed during mockup review, before any code was
+      written** — the mockup-before-build gate (kickoff decision #13) doing its job twice in
+      one chunk: (1) the initial slot row crammed the recipe name alongside the servings
+      dropdown, move button, and Remove on one line — the name ellipsis-truncated for anything
+      longer than a few words. Fixed by giving the name its own full-width line that wraps,
+      with every control on a second line below it. (2) The move-mode highlight covered the
+      whole day card, but the click handler was only wired to the header text underneath it —
+      tapping the highlighted border or body did nothing, which reads as broken, not just
+      confusing. Fixed by moving the click handler to the whole card, matching what the
+      highlight visually promises.
+
+      **A third bug — this one only findable by actually building it, not the mockup** — was
+      caught by the chunk's own updated regression test (see below), not by hand-testing: the
+      "Unassigned" section only rendered when it already had something in it, so once every
+      slot in a session had a day assigned, there was no way to tap a target to *unschedule* a
+      slot at all — the section a user would need to tap simply didn't exist. Fixed by also
+      showing Unassigned whenever a move is in progress, even if it's currently empty.
+
+      **File-size splits**: `sessions.js` reached 431 lines once the grid/tap-to-assign logic
+      replaced the old flat list + day `<select>` (removed along with the now-pointless
+      "Reorganise by day" button and per-row ↑/↓ reorder arrows — the grid's day-grouping IS
+      the reorganisation now). Split into `sessions.js` (232 lines — session list, label
+      editing, add/review wiring) and a new `session-week.js` (238 lines — the grid, tap-to-
+      assign state machine, and per-slot servings/move/remove controls), matching this file
+      family's established self-contained-feature-file precedent
+      (session-recipe-picker.js, checklist-push.js). New `.week`/`.day-section`/`.slot-row`/
+      `.move-banner` styles added to `components-screens.css`.
+
+      **One pre-existing test updated, not just fixed**:
+      `test_unscheduling_a_session_slot_day_persists_after_reload` drove the now-removed day
+      `<select>` directly — updated in the same commit to drive the move-button →
+      tap-Unassigned flow instead, and this rewrite is exactly what caught the Unassigned-
+      target bug above (the test failed against the *new* UI for a real reason, not because
+      the selector was stale).
+
+      Verified: full suite **535 pass**. A throwaway phone-width (414×896) headless-CDP script
+      — **22/22 checks pass**: an empty session's empty-state + Unassigned section, a long
+      recipe name rendering in full with no truncation, 8 sections total (7 days + Unassigned),
+      correct day grouping, the move banner naming the right recipe, the highlight applying to
+      every non-source section, a real move confirmed via the API, moving *back* to Unassigned
+      (the bug fix, confirmed via the API), Cancel leaving `day_of_week` untouched, the
+      servings select and Remove-with-Undo still working per-slot — zero console errors
+      throughout.
 - [ ] **Chunk 6.6 — "Mark cooked" + Session history + Archive session.** A recipe-detail button
       incrementing `recipes.times_made` / stamping `last_made_at` (first code to write either
       column) — instant action, toast confirmation, no dialog. Extend the Plan screen with a

@@ -37,10 +37,11 @@ def _wait_for_value_match(browser, class_name: str, value: str, *, timeout: floa
 
 def test_unscheduling_a_session_slot_day_persists_after_reload(browser, api, server_url):
     """2026-09-13 code review, Stage 1 fix: services/sessions.py > update_slot() used to
-    silently drop an explicit `day_of_week: null` (the `if value is not None` guard), so
-    picking "— day —" in the UI looked like it worked but the day came back on reload. This
-    drives the actual dropdown, not the service function directly, so it also exercises
-    api.js's PATCH body and sessions.js's daySelect() wiring end to end."""
+    silently drop an explicit `day_of_week: null` (the `if value is not None` guard). Phase 6
+    Chunk 6.5 replaced the per-slot day <select> with the 7-day-grid + tap-to-assign UI
+    (session-week.js) — this now drives that flow instead (move button -> tap the
+    Unassigned section), still exercising api.js's PATCH body end to end, just through the
+    UI that actually exists now."""
     recipe = api.post(
         "/api/v1/recipes", json={"name": f"CDP day-clear test {uuid.uuid4().hex[:8]}", "base_servings": 4}
     ).json()["data"]
@@ -52,14 +53,14 @@ def test_unscheduling_a_session_slot_day_persists_after_reload(browser, api, ser
     assert slot["day_of_week"] == 3
 
     browser.navigate(f"{server_url}/#/plan/{session['id']}")
-    browser.wait_for(".settings-row select")
-    # One recipe slot -> two <select>s in document order: [0] servings, [1] day (see
-    # sessions.js > renderSlotRow). Only one slot exists in this session, so a plain nth
-    # index (rather than _wait_for_value_match's value-scan) is unambiguous here.
-    browser.fill(".settings-row select", "", nth=1)
+    browser.wait_for(".slot-row .move-btn")
+    browser.eval("document.querySelector('.slot-row .move-btn').click()")
+    browser.wait_for(".day-section.unassigned")
+    browser.eval("document.querySelector('.day-section.unassigned').click()")
 
     # Confirm against the API first (authoritative), then reload the page and confirm the
-    # dropdown itself comes back showing no day — the actual user-visible regression.
+    # grid itself comes back showing the slot under Unassigned — the actual user-visible
+    # regression this test guards against.
     deadline = time.monotonic() + TIMEOUT
     cleared = False
     while time.monotonic() < deadline:
@@ -71,8 +72,8 @@ def test_unscheduling_a_session_slot_day_persists_after_reload(browser, api, ser
     assert cleared, "day_of_week was not cleared via the UI"
 
     browser.navigate(f"{server_url}/#/plan/{session['id']}")
-    browser.wait_for(".settings-row select")
-    assert browser.eval("document.querySelectorAll('.settings-row select')[1].value") == ""
+    browser.wait_for(".day-section.unassigned")
+    assert "1 item" in browser.text(".day-section.unassigned .count")
     assert not browser.console_errors(), browser.console_errors()
 
 
