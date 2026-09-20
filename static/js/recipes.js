@@ -41,52 +41,6 @@
     return el("div", "pending-ai-badge", "⏳ Pending AI processing (" + pretty + ")");
   }
 
-  // Only render a stored source_url as a link if it actually parses as http(s) —
-  // never javascript:/data:/etc. (see CLAUDE.md > Build Phases > Phase 3 > Chunk 3.7c).
-  // Anything else falls back to plain text.
-  function safeHttpUrl(raw) {
-    if (!raw) return null;
-    try {
-      var u = new global.URL(raw);
-      if (u.protocol === "http:" || u.protocol === "https:") return u.href;
-    } catch (e) {
-      /* not a parseable URL — treat as plain text */
-    }
-    return null;
-  }
-
-  // "Source" block on the detail view — a source_url line (linked if safe, else plain),
-  // a "From {book}, p.{page}" line (page optional), both, or nothing.
-  function renderSource(card, r) {
-    if (!r.source_url && !r.source_book) return;
-    var wrap = el("div", "recipe-source");
-    wrap.style.marginTop = "8px";
-
-    if (r.source_url) {
-      var urlLine = el("div", "muted");
-      urlLine.appendChild(document.createTextNode("Source: "));
-      var safe = safeHttpUrl(r.source_url);
-      if (safe) {
-        var a = el("a", null, r.source_url);
-        a.href = safe;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        urlLine.appendChild(a);
-      } else {
-        urlLine.appendChild(document.createTextNode(r.source_url));
-      }
-      wrap.appendChild(urlLine);
-    }
-
-    if (r.source_book) {
-      var bookText = "From " + r.source_book;
-      if (r.source_page) bookText += ", p." + r.source_page;
-      wrap.appendChild(el("div", "muted", bookText));
-    }
-
-    card.appendChild(wrap);
-  }
-
   // --- list view -----------------------------------------------------
 
   function renderList(root) {
@@ -255,124 +209,9 @@
     });
   }
 
-  // --- detail view (view mode) -----------------------------------------
-
-  function renderDetail(root, id) {
-    root.innerHTML = "";
-    root.appendChild(global.BackLink.render("recipes"));
-
-    var card = el("div", "card");
-    card.textContent = "Loading...";
-    root.appendChild(card);
-
-    function load() {
-      api.recipes
-        .get(id)
-        .then(function (r) {
-          renderDetailView(card, r, load);
-        })
-        .catch(function (err) {
-          card.innerHTML = "";
-          if (err.code === "RECIPE_NOT_FOUND") {
-            card.appendChild(
-              el("div", "muted", "This recipe couldn't be found. It may have been deleted.")
-            );
-          } else {
-            card.appendChild(el("div", "muted", "Couldn't load this recipe: " + err.message));
-          }
-        });
-    }
-
-    load();
-  }
-
-  function renderDetailView(card, r, reload) {
-    card.innerHTML = "";
-
-    var headRow = el("div", "detail-head-row");
-    headRow.appendChild(el("h2", null, r.name));
-    var editBtn = el("button", null, "Edit");
-    editBtn.addEventListener("click", function () {
-      global.RecipeEditView.mount(
-        card,
-        r,
-        function () {
-          reload(); // Cancel / Save both drop back to a freshly-loaded view mode
-        },
-        function () {
-          global.Router.navigate("recipes"); // archived — nothing left to view here
-        }
-      );
-    });
-    headRow.appendChild(editBtn);
-    var addToSessionBtn = el("button", "btn-sm", "+ Add to session");
-    addToSessionBtn.addEventListener("click", function () {
-      global.AddToSession.run(r.id, addToSessionBtn);
-    });
-    headRow.appendChild(addToSessionBtn);
-    card.appendChild(headRow);
-
-    var metaBits = [fmtServings(r.base_servings)];
-    if (r.cuisine) metaBits.push(r.cuisine);
-    if (r.protein) metaBits.push(r.protein);
-    var rating = ratingLabel(r.rating);
-    if (rating) metaBits.push(rating);
-    card.appendChild(el("div", "muted", metaBits.join(" · ")));
-
-    if (r.ai_pending_tasks && r.ai_pending_tasks.length) {
-      card.appendChild(pendingBadge(r.ai_pending_tasks));
-    }
-
-    if (r.archived_at) {
-      card.appendChild(el("div", "muted", "Archived"));
-    }
-
-    renderSource(card, r);
-
-    var ingHeading = el("h2", null, "Ingredients");
-    ingHeading.style.marginTop = "16px";
-    card.appendChild(ingHeading);
-
-    if (!r.ingredients || r.ingredients.length === 0) {
-      card.appendChild(el("div", "muted", "No ingredients recorded."));
-    } else {
-      var list = el("ul", "ingredient-list");
-      r.ingredients.forEach(function (ing) {
-        var parts = [];
-        parts.push(ing.quantity + (ing.unit ? " " + ing.unit : ""));
-        parts.push(ing.name);
-        if (ing.preparation) parts.push("(" + ing.preparation + ")");
-        var li = el("li", null, parts.join(" "));
-        if (ing.resolved_ingredient) {
-          // M8 — show the swapped amount/unit when the swap isn't 1:1 ("2 can canned corn")
-          var swapAmt =
-            ing.resolved_quantity != null
-              ? ing.resolved_quantity + (ing.resolved_unit ? " " + ing.resolved_unit : "") + " "
-              : "";
-          var swapLine = el(
-            "div",
-            "ingredient-resolved",
-            "→ using " +
-              swapAmt +
-              ing.resolved_ingredient +
-              (ing.substitution_note ? " (" + ing.substitution_note + ")" : "")
-          );
-          li.appendChild(swapLine);
-        }
-        list.appendChild(li);
-      });
-      card.appendChild(list);
-    }
-
-    if (r.notes) {
-      var notesHeading = el("h2", null, "Notes");
-      notesHeading.style.marginTop = "16px";
-      card.appendChild(notesHeading);
-      card.appendChild(el("div", null, r.notes));
-    }
-  }
-
   // --- entry point -----------------------------------------------------
+  // Detail view (view mode, incl. "I cooked this") lives in recipe-detail.js — split out
+  // per CLAUDE.md > Code Architecture & Maintainability > file size discipline.
 
   function mount(root, param) {
     if (param === "new") {
@@ -382,7 +221,7 @@
     } else if (param === "capture-photo") {
       global.CaptureView.mountPhoto(root);
     } else if (param) {
-      renderDetail(root, param);
+      global.RecipeDetailView.render(root, param);
     } else {
       renderList(root);
     }

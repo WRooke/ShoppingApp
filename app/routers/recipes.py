@@ -194,6 +194,13 @@ def restore_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
     return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}
 
 
+@router.post("/{recipe_id}/mark-cooked")
+def mark_cooked(recipe_id: int, db: Session = Depends(get_db)) -> dict:
+    """"I cooked this" (Phase 6 Chunk 6.6) — increments times_made, stamps last_made_at."""
+    recipe = recipes_service.mark_cooked(db, recipe_id)
+    return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}
+
+
 # --- nested recipe_ingredients --------------------------------------------
 
 

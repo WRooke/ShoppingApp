@@ -102,6 +102,9 @@
       restore: function (id) {
         return jsonBody("POST", "/api/v1/recipes/" + encodeURIComponent(id) + "/restore", {});
       },
+      markCooked: function (id) {
+        return jsonBody("POST", "/api/v1/recipes/" + encodeURIComponent(id) + "/mark-cooked", {});
+      },
       checkDuplicate: function (params) {
         params = params || {};
         var q = [];

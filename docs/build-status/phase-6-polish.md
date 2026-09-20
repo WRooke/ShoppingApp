@@ -467,7 +467,7 @@ change chunk order and scope, not just because they happened.
       (the bug fix, confirmed via the API), Cancel leaving `day_of_week` untouched, the
       servings select and Remove-with-Undo still working per-slot — zero console errors
       throughout.
-- [ ] **Chunk 6.6 — "Mark cooked" + Session history + Archive session.** A recipe-detail button
+- [x] **Chunk 6.6 — "Mark cooked" + Session history + Archive session.** A recipe-detail button
       incrementing `recipes.times_made` / stamping `last_made_at` (first code to write either
       column) — instant action, toast confirmation, no dialog. Extend the Plan screen with a
       "past sessions" view (`pushed`/`archived`, most recent first), each row expanding to show
@@ -476,6 +476,56 @@ change chunk order and scope, not just because they happened.
       into an "Archive" button (gap found mid-planning — the endpoint existed, nothing called
       it), with the Undo toast reverting `status` to `'active'`. For a pushed session, surface
       its `shopping_history` snapshot alongside the recipe list if cheap to add (nice-to-have).
+
+      **Done 2026-09-20 (mockup approved unchanged — "Looks good!" — then implemented +
+      verified).** "I cooked this" is a new `POST /recipes/{id}/mark-cooked`
+      (`app/services/recipes.py > mark_cooked()` + a matching router endpoint) that increments
+      `times_made` and stamps `last_made_at`, shown on the recipe detail page as a compact row
+      ("Cooked N times · last on `<date>`" once tapped, "Never marked as cooked" before) —
+      exactly the instant/no-dialog/toast-confirmation shape from the kickoff bullet, since
+      it's a low-stakes, easily-ignored counter.
+
+      **The Plan screen now splits Active from Past** (kickoff decision #7) instead of showing
+      every session regardless of status forever with no way to tell a finished one from a
+      current one — confirmed this was a real, if minor, pre-existing gap while re-reading
+      `sessions.js`. "Active" is `GET /sessions?status=active`; "Past" merges two separate
+      `list()` calls (`status=pushed` + `status=archived` — the backend's own filter only takes
+      one value at a time, no backend change needed) sorted by `updated_at` (which a push or an
+      archive both already bump via `onupdate=utcnow`). Each past row expands on tap via a
+      cheap, on-demand `GET /sessions/{id}` for just that row (the list endpoint only ever
+      carries `slot_count`, not the slots themselves) showing recipe name/day/servings, each
+      name linking to its own recipe page. The `shopping_history` snapshot nice-to-have was
+      **not** built — flagged as such, not silently dropped: re-confirmed there's no existing
+      read endpoint for it, and pulling one in felt like more than "cheap to add" once actually
+      looked at, so it stayed out rather than stretching this chunk's scope.
+
+      **Archive was wired into the session workspace header** (next to the label field, hidden
+      once a session is already archived), the actual gap found mid-planning — the endpoint
+      existed since Phase 4 Chunk 4.4 but nothing in the UI had ever called it. Archiving stays
+      on the same workspace screen (`reload()` re-renders it showing "Status: archived") rather
+      than navigating away, so the Undo toast (→ `PATCH` the status back to `'active'`) doesn't
+      need the deferred-navigate trick recipe deletion uses elsewhere for exactly this reason.
+
+      **File-size splits**: `recipes.js` passed ~400 lines once the cooked-row landed in it —
+      split along its existing list-view/detail-view seam into `recipes.js` (235 lines, list +
+      entry point) and a new `recipe-detail.js` (243 lines, the "I cooked this" logic
+      included), matching the file family's established self-contained-feature-file
+      precedent (small helpers like `fmtServings`/`ratingLabel`/`pendingBadge` duplicated
+      rather than shared, same as `stepIndicator` elsewhere). `sessions.js` landed at 394
+      lines with the new Active/Past tabs + expandable history rows — under the guideline, no
+      split needed this time. `app/services/recipes.py`/`app/routers/recipes.py` were already
+      at or past the guideline before this chunk's small (7–13 line) additions — left as-is
+      per kickoff decision #6 (no opportunistic-splitting mandate for pre-existing size).
+
+      Verified: full suite **535 pass** (no pre-existing test needed updating this time — the
+      Active tab's DOM still matches what the old undifferentiated list used). A throwaway
+      phone-width (414×896) headless-CDP script — **24/24 checks pass**: the never-cooked and
+      cooked states (confirmed via the API that `times_made`/`last_made_at` actually changed,
+      including a second tap incrementing again), the Active tab correctly excluding pushed/
+      archived sessions and the Past tab correctly including only those two (with their status
+      pills), expanding a past row to reveal its recipe name/day, and the full archive → Undo →
+      re-verify-active round trip confirmed against the API at each step. Zero console errors
+      throughout.
 - [ ] **Chunk 6.7 — User testing with secondary users; gather feedback.** Manual pass with the
       secondary/non-technical household member(s), after the visual/usability work above, not
       before. Quick fixes land in this chunk; bigger findings become

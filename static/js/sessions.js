@@ -7,6 +7,8 @@
 (function (global) {
   "use strict";
 
+  var DAYS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
   function el(tag, cls, text) {
     var node = document.createElement(tag);
     if (cls) node.className = cls;
@@ -44,6 +46,11 @@
 
   // --- session list --------------------------------------------------
 
+  // Active/Past tabs (Phase 6 Chunk 6.6, kickoff decision #7) — previously this list showed
+  // every session regardless of status forever, with no way to tell a finished one from a
+  // current one at a glance. "Past" merges pushed+archived (two separate list() calls — the
+  // backend's own status filter only takes one value — sorted by updated_at, which a push or
+  // an archive both bump) and expands per-row to show its recipes.
   function renderList(root) {
     root.innerHTML = "";
 
@@ -65,39 +72,159 @@
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Planning sessions"));
+
+    var tabs = el("div", "section-tabs");
+    var activeTabBtn = el("button", null, "Active");
+    var pastTabBtn = el("button", null, "Past");
+    tabs.appendChild(activeTabBtn);
+    tabs.appendChild(pastTabBtn);
+    card.appendChild(tabs);
+
     var body = el("div");
-    body.textContent = "Loading...";
     card.appendChild(body);
     root.appendChild(card);
 
-    api.sessions
-      .list()
-      .then(function (data) {
-        body.innerHTML = "";
-        if (!data.items || data.items.length === 0) {
-          body.appendChild(el("div", "muted", "No sessions yet — start one above."));
-          return;
-        }
-        data.items.forEach(function (s) {
-          var row = el("a", "recipe-row");
-          row.href = "#/plan/" + s.id;
-          var main = el("div", "recipe-row-main");
-          main.appendChild(
-            el("div", "recipe-row-name", s.label || "Session #" + s.id)
-          );
-          var bits = [
-            s.slot_count + (s.slot_count === 1 ? " item" : " items"),
-            s.status,
-            new Date(s.created_at).toLocaleDateString(),
-          ];
-          main.appendChild(el("div", "recipe-row-meta muted", bits.join(" · ")));
-          row.appendChild(main);
-          body.appendChild(row);
+    function skeletonLoading() {
+      body.innerHTML = "";
+      var skel = el("div", "skel-row");
+      var skelLine = el("div", "skeleton skel-line");
+      skelLine.style.width = "100%";
+      skel.appendChild(skelLine);
+      body.appendChild(skel);
+    }
+
+    function sessionRow(s) {
+      var row = el("a", "recipe-row");
+      row.href = "#/plan/" + s.id;
+      var main = el("div", "recipe-row-main");
+      main.appendChild(el("div", "recipe-row-name", s.label || "Session #" + s.id));
+      var bits = [
+        s.slot_count + (s.slot_count === 1 ? " item" : " items"),
+        s.status,
+        new Date(s.created_at).toLocaleDateString(),
+      ];
+      main.appendChild(el("div", "recipe-row-meta muted", bits.join(" · ")));
+      row.appendChild(main);
+      return row;
+    }
+
+    function loadActive() {
+      skeletonLoading();
+      api.sessions
+        .list({ status: "active" })
+        .then(function (data) {
+          body.innerHTML = "";
+          var items = data.items || [];
+          if (!items.length) {
+            body.appendChild(el("div", "empty-state", "No active sessions — start one above."));
+            return;
+          }
+          items.forEach(function (s) {
+            body.appendChild(sessionRow(s));
+          });
+        })
+        .catch(function (err) {
+          body.innerHTML = "";
+          body.appendChild(el("div", "error-state", "Couldn't load sessions: " + err.message));
         });
-      })
-      .catch(function (err) {
-        body.textContent = "Couldn't load sessions: " + err.message;
+    }
+
+    function historyRow(s) {
+      var row = el("div", "history-row");
+      var headBtn = el("button", "history-head");
+      headBtn.type = "button";
+      var main = el("div", "main");
+      main.appendChild(el("div", "name", s.label || "Session #" + s.id));
+      main.appendChild(
+        el("div", "meta", new Date(s.updated_at).toLocaleDateString())
+      );
+      headBtn.appendChild(main);
+      headBtn.appendChild(el("span", "status-pill " + s.status, s.status));
+      headBtn.appendChild(el("span", "chev", "›"));
+      row.appendChild(headBtn);
+
+      var recipesBody = el("div", "history-body");
+      row.appendChild(recipesBody);
+
+      var loaded = false;
+      headBtn.addEventListener("click", function () {
+        row.classList.toggle("open");
+        if (!row.classList.contains("open") || loaded) return;
+        loaded = true;
+        recipesBody.appendChild(el("div", "muted", "Loading…"));
+        // The list endpoint only carries slot_count, not the slots themselves — a full
+        // GET /sessions/{id} is a cheap, on-demand fetch for the one row actually expanded,
+        // rather than fattening every list() response with data most rows never need.
+        api.sessions
+          .get(s.id)
+          .then(function (full) {
+            recipesBody.innerHTML = "";
+            var recipes = full.recipes || [];
+            if (!recipes.length) {
+              recipesBody.appendChild(el("div", "muted", "No recipes in this session."));
+              return;
+            }
+            recipes.forEach(function (slot) {
+              var line = el("div", "history-recipe");
+              var isLeftovers = slot.slot_type === "leftovers";
+              var name = isLeftovers
+                ? el("span", null, "Leftovers")
+                : el("a", null, slot.recipe_name || "Recipe #" + slot.recipe_id);
+              if (!isLeftovers) name.href = "#/recipes/" + slot.recipe_id;
+              line.appendChild(name);
+              var dayBits = [slot.day_of_week ? DAYS[slot.day_of_week] : "—"];
+              if (!isLeftovers && slot.scaled_servings) {
+                dayBits.push(slot.scaled_servings + (slot.scaled_servings === 1 ? " serving" : " servings"));
+              }
+              line.appendChild(el("span", "day", dayBits.join(" · ")));
+              recipesBody.appendChild(line);
+            });
+          })
+          .catch(function (err) {
+            recipesBody.innerHTML = "";
+            recipesBody.appendChild(el("div", "error-state", "Couldn't load recipes: " + err.message));
+          });
       });
+      return row;
+    }
+
+    function loadPast() {
+      skeletonLoading();
+      Promise.all([api.sessions.list({ status: "pushed" }), api.sessions.list({ status: "archived" })])
+        .then(function (results) {
+          var items = (results[0].items || []).concat(results[1].items || []);
+          items.sort(function (a, b) {
+            return new Date(b.updated_at) - new Date(a.updated_at);
+          });
+          body.innerHTML = "";
+          if (!items.length) {
+            body.appendChild(el("div", "empty-state", "No past sessions yet."));
+            return;
+          }
+          items.forEach(function (s) {
+            body.appendChild(historyRow(s));
+          });
+        })
+        .catch(function (err) {
+          body.innerHTML = "";
+          body.appendChild(el("div", "error-state", "Couldn't load past sessions: " + err.message));
+        });
+    }
+
+    function setTab(tab) {
+      activeTabBtn.setAttribute("aria-pressed", String(tab === "active"));
+      pastTabBtn.setAttribute("aria-pressed", String(tab === "past"));
+      if (tab === "active") loadActive();
+      else loadPast();
+    }
+    activeTabBtn.addEventListener("click", function () {
+      setTab("active");
+    });
+    pastTabBtn.addEventListener("click", function () {
+      setTab("past");
+    });
+
+    setTab("active");
   }
 
   // --- session workspace -------------------------------------------
@@ -149,6 +276,41 @@
         });
     });
     head.appendChild(labelInput);
+
+    // Archive (Phase 6 Chunk 6.6) — the endpoint already existed (Phase 4 Chunk 4.4) but
+    // nothing in the UI ever called it, so there was no way to remove a session from the
+    // active list at all. Stays on this same screen after archiving (reload() re-renders it
+    // showing "Status: archived") rather than navigating away, so the Undo toast doesn't
+    // need the deferred-navigate dance recipe deletion uses elsewhere.
+    if (session.status !== "archived") {
+      var wsActions = el("div", "workspace-actions");
+      var archiveBtn = el("button", "btn-sm archive-btn", "Archive");
+      archiveBtn.addEventListener("click", function () {
+        archiveBtn.disabled = true;
+        api.sessions
+          .archive(session.id)
+          .then(function () {
+            global.Toast.show("Session archived", {
+              actionLabel: "Undo",
+              onAction: function () {
+                api.sessions
+                  .update(session.id, { status: "active" })
+                  .then(reload)
+                  .catch(function (err) {
+                    global.alert("Couldn't undo: " + err.message);
+                  });
+              },
+            });
+            reload();
+          })
+          .catch(function (err) {
+            archiveBtn.disabled = false;
+            global.alert("Couldn't archive: " + err.message);
+          });
+      });
+      wsActions.appendChild(archiveBtn);
+      head.appendChild(wsActions);
+    }
     card.appendChild(head);
     card.appendChild(el("div", "muted", "Status: " + session.status));
 

@@ -310,6 +310,19 @@ def unarchive_recipe(db: Session, recipe_id: int) -> Recipe:
     return recipe
 
 
+def mark_cooked(db: Session, recipe_id: int) -> Recipe:
+    """"I cooked this" (Phase 6 Chunk 6.6) — the first code to write times_made/last_made_at
+    (schema present since Phase 1). A simple counter, not a confirmation dialog: low-stakes,
+    easily-ignored if tapped by mistake, so no undo and no "are you sure"."""
+    recipe = get_recipe(db, recipe_id)
+    recipe.times_made += 1
+    recipe.last_made_at = utcnow()
+    db.commit()
+    db.refresh(recipe)
+    logger.info("Recipe marked cooked: id=%s times_made=%s", recipe_id, recipe.times_made)
+    return recipe
+
+
 # --- recipe_ingredients ------------------------------------------------
 
 
