@@ -351,6 +351,150 @@ def test_capture_progress_step_list_shows_real_backend_state(browser, server_url
     assert not browser.console_errors(), browser.console_errors()
 
 
+def test_have_need_toggle_reaches_any_target_state_in_one_tap(browser, api, server_url):
+    """2026-09-24 — replaces the old single .have-toggle cycling button (unknown -> yes -> no
+    -> unknown, up to two taps to reach a target) with two independent one-tap toggles. Drives
+    "no" directly from "yes" (skipping "unknown"), then back to "unknown" from "no" — both in
+    exactly one click each — confirmed against the API, not just the DOM."""
+    item_name = f"cdp-have-need-{uuid.uuid4().hex[:8]}"
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP have/need test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 500, "unit": "g"}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+    api.post(f"/api/v1/sessions/{session['id']}/consolidate", json={})
+
+    def have_it_via_api():
+        items = api.get(f"/api/v1/checklist/{session['id']}").json()["data"]["items"]
+        row = next(i for i in items if i["ingredient_name"] == item_name)
+        return row["have_it"], row["id"]
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    browser.wait_for(".have-need-btn.have")
+
+    # One tap: unknown -> yes.
+    browser.eval("document.querySelector('.have-need-btn.have').click()")
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline and have_it_via_api()[0] != "yes":
+        time.sleep(0.1)
+    assert have_it_via_api()[0] == "yes"
+
+    # One tap: yes -> no directly (never passes through "unknown").
+    browser.eval("document.querySelector('.have-need-btn.need').click()")
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline and have_it_via_api()[0] != "no":
+        time.sleep(0.1)
+    assert have_it_via_api()[0] == "no"
+    assert browser.eval(
+        "document.querySelector('.have-need-btn.need').getAttribute('aria-pressed')"
+    ) == "true"
+
+    # One tap on the already-pressed button: no -> unknown.
+    browser.eval("document.querySelector('.have-need-btn.need').click()")
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline and have_it_via_api()[0] != "unknown":
+        time.sleep(0.1)
+    assert have_it_via_api()[0] == "unknown"
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def test_inline_pack_size_entry_resolves_this_session_and_preserves_other_items(browser, api, server_url):
+    """2026-09-24 — inline "+ Add pack size" entry (checklist.js > packSizeForm()). An
+    ingredient with no seeded product_units row shows the affordance; saving a pack size
+    writes to the real product_units table and triggers a re-consolidate so the pack breakdown
+    appears THIS session (not just next time) — while an unrelated item's already-made "need
+    it" choice survives that re-consolidate untouched (the "merge, not rebuild" guarantee)."""
+    no_pack_item = f"cdp-nopack-{uuid.uuid4().hex[:8]}"
+    other_item = f"cdp-other-{uuid.uuid4().hex[:8]}"
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP pack-size test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [
+                {"name": no_pack_item, "quantity": 450, "unit": "g"},
+                {"name": other_item, "quantity": 2, "unit": None},
+            ],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+    api.post(f"/api/v1/sessions/{session['id']}/consolidate", json={})
+
+    def checklist_items():
+        return api.get(f"/api/v1/checklist/{session['id']}").json()["data"]["items"]
+
+    other_id = next(i for i in checklist_items() if i["ingredient_name"] == other_item)["id"]
+    api.patch(f"/api/v1/checklist/{session['id']}/items/{other_id}", json={"have_it": "no", "add_to_list": True})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    _wait_for_value_match_text(browser, ".name", no_pack_item)
+
+    result = browser.eval(
+        "(function(name){"
+        "var rows=Array.from(document.querySelectorAll('.checklist-row'));"
+        "var row=rows.find(function(r){var n=r.querySelector('.name'); return n && n.textContent===name;});"
+        "if(!row) return 'ROW_NOT_FOUND';"
+        "var btn=row.querySelector('.btn-link');"
+        "if(!btn) return 'ADD_PACK_BUTTON_NOT_FOUND';"
+        "btn.click();"
+        "return 'OK';"
+        f"}})({json.dumps(no_pack_item)})"
+    )
+    assert result == "OK", result
+    browser.wait_for(".pack-size-form")
+
+    fill_result = browser.eval(
+        "(function(){"
+        "var form=document.querySelector('.pack-size-form');"
+        "var inputs=form.querySelectorAll('input');"
+        "inputs[0].value='700g jar'; inputs[0].dispatchEvent(new Event('input',{bubbles:true}));"
+        "inputs[1].value='700'; inputs[1].dispatchEvent(new Event('input',{bubbles:true}));"
+        "inputs[2].value='g'; inputs[2].dispatchEvent(new Event('input',{bubbles:true}));"
+        "var saveBtn=Array.from(form.querySelectorAll('button')).find(function(b){return b.textContent==='Save';});"
+        "saveBtn.click();"
+        "return 'OK';"
+        "})()"
+    )
+    assert fill_result == "OK", fill_result
+
+    deadline = time.monotonic() + TIMEOUT
+    resolved = False
+    while time.monotonic() < deadline:
+        row = next((i for i in checklist_items() if i["ingredient_name"] == no_pack_item), None)
+        if row and row.get("display_qty"):
+            resolved = True
+            break
+        time.sleep(0.2)
+    assert resolved, "the checklist never picked up a pack breakdown for the new product_units row"
+
+    other_row = next(i for i in checklist_items() if i["ingredient_name"] == other_item)
+    assert other_row["have_it"] == "no" and other_row["add_to_list"] is True
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def _wait_for_value_match_text(browser, selector: str, text: str, *, timeout: float = TIMEOUT) -> None:
+    """Like _wait_for_value_match, but for element .textContent instead of .value — used for
+    the checklist's .name divs, which aren't inputs."""
+    expr = (
+        f"Array.from(document.querySelectorAll({json.dumps(selector)}))"
+        f".some(function(e){{return e.textContent === {json.dumps(text)};}})"
+    )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if browser.eval(expr):
+            return
+        time.sleep(0.2)
+    raise TimeoutError(f"no {selector} ever had text {text!r}")
+
+
 def test_push_progress_step_list_shows_which_item_failed(browser, api, server_url):
     """2026-09-23 — real per-item push progress (static/js/checklist-push.js). Drives a real
     checklist tap to "no" so the push list is non-empty, then stubs api.checklist.push to
@@ -374,17 +518,12 @@ def test_push_progress_step_list_shows_which_item_failed(browser, api, server_ur
     api.post(f"/api/v1/sessions/{session['id']}/consolidate", json={})
 
     browser.navigate(f"{server_url}/#/checklist/{session['id']}")
-    browser.wait_for(".have-toggle")
-    browser.eval("document.querySelector('.have-toggle').click()")  # unknown -> yes
+    browser.wait_for(".have-need-btn.need")
+    browser.eval("document.querySelector('.have-need-btn.need').click()")  # one tap -> "no"
     deadline = time.monotonic() + TIMEOUT
-    while time.monotonic() < deadline and "have-yes" not in (
-        browser.eval("document.querySelector('.have-toggle').className") or ""
-    ):
-        time.sleep(0.1)
-    browser.eval("document.querySelector('.have-toggle').click()")  # yes -> no
-    deadline = time.monotonic() + TIMEOUT
-    while time.monotonic() < deadline and "have-no" not in (
-        browser.eval("document.querySelector('.have-toggle').className") or ""
+    while time.monotonic() < deadline and (
+        browser.eval("document.querySelector('.have-need-btn.need').getAttribute('aria-pressed')")
+        != "true"
     ):
         time.sleep(0.1)
 

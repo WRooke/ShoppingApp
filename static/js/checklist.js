@@ -6,9 +6,12 @@
    resolve control. Items you don't have (or explicitly tick "add") are what Chunk 5.6
    pushes to AnyList.
 
-   have_it tap cycle is BINARY: unknown -> yes -> no -> unknown (no 'partial' — see
-   CLAUDE.md > Deferred Decisions). Tapping to 'no' also sets add_to_list; back to
-   yes/unknown clears it. See CLAUDE.md > Checklist Screen Logic.
+   have_it is BINARY (no 'partial' — see CLAUDE.md > Deferred Decisions), set via two
+   independent one-tap toggles ("Have it" / "Need it") — 2026-09-24, replacing an earlier
+   single button that cycled unknown -> yes -> no -> unknown (reaching a specific target could
+   take up to two taps). Tapping the pressed button reverts to unknown; tapping either button
+   reaches its target state in exactly one tap from any starting state. Tapping "Need it" also
+   sets add_to_list; anything else clears it. See CLAUDE.md > Checklist Screen Logic.
 
    Phase 6 Chunk 6.3b: design system applied, shared Back link, step indicator
    continuing from 6.3 (Plan -> Review -> Checklist -> Push), a quiet "checked against
@@ -29,9 +32,6 @@
     if (text != null) node.textContent = text;
     return node;
   }
-
-  var HAVE_NEXT = { unknown: "yes", yes: "no", no: "unknown" };
-  var HAVE_LABEL = { unknown: "?", yes: "have it", no: "need it" };
 
   function qtyText(item) {
     // 2026-09-10 hand-testing: a note on a normally-resolved line (an overage hint, "(+ to
@@ -258,21 +258,139 @@
 
         var main = el("div", "main");
         main.appendChild(el("div", "name", item.ingredient_name));
-        main.appendChild(el("div", "meta", qtyText(item)));
+
+        // 2026-09-24 — inline "+ Add pack size" entry, no navigation to Settings. Shown only
+        // when this item has a real quantity but no known product_units row at all (the exact
+        // condition qtyText()'s final fallback branch above already renders a bare quantity
+        // for — a coarse ingredient or a resolved pack-size item always has display_qty set,
+        // so no extra field is needed to detect this).
+        var metaRow = el("div", "meta-row");
+        metaRow.appendChild(el("div", "meta", qtyText(item)));
+        if (item.total_quantity != null && !item.display_qty) {
+          var addPackBtn = el("button", "btn-link", "+ Add pack size");
+          metaRow.appendChild(addPackBtn);
+          main.appendChild(metaRow);
+          var packForm = null;
+          addPackBtn.addEventListener("click", function () {
+            if (packForm) {
+              packForm.remove();
+              packForm = null;
+              return;
+            }
+            packForm = packSizeForm(item, function () {
+              packForm.remove();
+              packForm = null;
+              reconsolidateAndReload();
+            });
+            main.appendChild(packForm);
+          });
+        } else {
+          main.appendChild(metaRow);
+        }
         row.appendChild(main);
 
-        var tap = el("button", "have-toggle have-" + item.have_it, HAVE_LABEL[item.have_it]);
-        tap.addEventListener("click", function () {
-          var next = HAVE_NEXT[item.have_it] || "unknown";
-          patchItem(item, { have_it: next, add_to_list: next === "no" }, function () {
-            tap.textContent = HAVE_LABEL[item.have_it];
-            tap.className = "have-toggle have-" + item.have_it;
-          });
+        // 2026-09-24 — two independent one-tap toggles, replacing the single button that used
+        // to cycle unknown -> yes -> no -> unknown (reaching a specific target state could take
+        // up to two taps). Tapping the pressed button reverts to "unknown"; tapping either
+        // button reaches its target state in exactly one tap from any starting state. Backend
+        // is unchanged — update_item() already accepts have_it/add_to_list independently, with
+        // no validation on the transition (see app/services/checklist.py > update_item()).
+        var pair = el("div", "have-need-pair");
+        var haveBtn = el("button", "have-need-btn have", "Have it");
+        var needBtn = el("button", "have-need-btn need", "Need it");
+        function syncPressed() {
+          haveBtn.setAttribute("aria-pressed", item.have_it === "yes" ? "true" : "false");
+          needBtn.setAttribute("aria-pressed", item.have_it === "no" ? "true" : "false");
+        }
+        syncPressed();
+        haveBtn.addEventListener("click", function () {
+          var next = item.have_it === "yes" ? "unknown" : "yes";
+          patchItem(item, { have_it: next, add_to_list: false }, syncPressed);
         });
-        row.appendChild(tap);
+        needBtn.addEventListener("click", function () {
+          var next = item.have_it === "no" ? "unknown" : "no";
+          patchItem(item, { have_it: next, add_to_list: next === "no" }, syncPressed);
+        });
+        pair.appendChild(haveBtn);
+        pair.appendChild(needBtn);
+        row.appendChild(pair);
         wrap.appendChild(row);
       });
       return wrap;
+    }
+
+    // Inline "add a pack size" form for one checklist item (2026-09-24) — same expand-in-place,
+    // no-navigation interaction pattern as reviewGroup()'s needs_review resolve control above.
+    // Writes straight into the existing product_units table (POST /settings/product-units) so
+    // future sessions resolve this ingredient's pack size automatically with no repeated entry.
+    function packSizeForm(item, onSaved) {
+      var wrap = el("div", "pack-size-form");
+      var labelInput = el("input");
+      labelInput.type = "text";
+      labelInput.placeholder = "e.g. 500g pack";
+      var qtyInput = el("input");
+      qtyInput.type = "number";
+      qtyInput.step = "any";
+      qtyInput.inputMode = "decimal";
+      qtyInput.placeholder = "e.g. 500";
+      var unitInput = el("input");
+      unitInput.type = "text";
+      unitInput.placeholder = "e.g. g";
+      wrap.appendChild(miniField("Pack label", labelInput));
+      var grid = el("div", "ing-grid");
+      grid.style.gridTemplateColumns = "1fr 1fr";
+      grid.appendChild(miniField("Pack quantity", qtyInput));
+      grid.appendChild(miniField("Unit", unitInput));
+      wrap.appendChild(grid);
+
+      var err = el("span", "form-error");
+      var saveBtn = el("button", "btn-sm primary", "Save");
+      saveBtn.addEventListener("click", function () {
+        err.textContent = "";
+        var label = labelInput.value.trim();
+        var qty = parseFloat(qtyInput.value);
+        if (!label || isNaN(qty) || qty <= 0) {
+          err.textContent = "Pack label and a positive quantity are required.";
+          return;
+        }
+        saveBtn.disabled = true;
+        api.settings.productUnits
+          .create({
+            ingredient_name: item.ingredient_name,
+            purchase_label: label,
+            purchase_qty: qty,
+            purchase_unit: unitInput.value.trim() || null,
+            notes: null,
+          })
+          .then(onSaved)
+          .catch(function (e) {
+            saveBtn.disabled = false;
+            err.textContent = e.message;
+          });
+      });
+      var actions = el("div", "log-controls");
+      actions.appendChild(saveBtn);
+      actions.appendChild(err);
+      wrap.appendChild(actions);
+      return wrap;
+    }
+
+    // Re-consolidating is required for a just-added pack size to resolve THIS session — pack
+    // resolution only runs inside POST /consolidate, never on a plain checklist reload (see
+    // CLAUDE.md > Scaling Logic > Purchase unit resolution). Safe to call here: consolidation
+    // is a merge, not a rebuild — have_it/add_to_list/already_on_anylist are preserved for
+    // every line that persists, so this never discards a decision already made this session.
+    function reconsolidateAndReload() {
+      api.sessions
+        .consolidate(sessionId, [])
+        .then(function () {
+          global.Toast.show("Pack size saved — future sessions will show this automatically.");
+          load();
+        })
+        .catch(function (err) {
+          global.alert("Saved the pack size, but couldn't refresh the checklist: " + err.message);
+          load();
+        });
     }
 
     // --- staples ---

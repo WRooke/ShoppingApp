@@ -13,9 +13,43 @@ At checklist screen load:
    - Items already on AnyList: pre-ticked, shown in a distinct style (user can untick)
    - Staples (only if used in this session's recipes): shown with a checkbox
    - All other items: unchecked by default
-4. User taps each item: cycles through have_it states: unknown → yes → no → (partial if
-   applicable)
+4. User sets each item's `have_it` state via two independent one-tap toggles, "Have it" /
+   "Need it" (`static/js/checklist.js`, `.have-need-pair`) — **reworked 2026-09-24**, replacing
+   an earlier single button that cycled `unknown → yes → no → unknown` (reaching a specific
+   target state from an arbitrary starting one could take up to two taps). Tapping the
+   currently-pressed button reverts to `unknown`; tapping either button reaches its target
+   state in exactly one tap regardless of the current state. `have_it` stays binary in the data
+   model (no `'partial'` — see [Deferred Decisions](./deferred-decisions.md#deferred-decisions)); this was a pure
+   interaction-model change, no backend change (`services/checklist.py > update_item()` already
+   accepted `have_it`/`add_to_list` independently, with no validation on the transition).
 5. Items marked 'no' or where `add_to_list` is True get pushed to AnyList
+
+### Inline pack-size entry (2026-09-24)
+
+An ingredient line with a real quantity but no matching `product_units` row shows a raw
+quantity with no pack breakdown (e.g. "1.05 kg" instead of "2 × 750 g jars · need ~1.05 kg" —
+see [Purchase unit resolution](./scaling-and-consolidation.md#scaling-logic)). Rather than requiring a trip to
+Settings to fix this, the checklist row itself now offers a **"+ Add pack size"** affordance
+(`checklist.js > packSizeForm()`) next to any such line — shown exactly when
+`item.total_quantity != null && !item.display_qty` (a coarse ingredient or an already-resolved
+pack-size item always has `display_qty` set, so no extra field was needed to detect this).
+Tapping it expands an inline form (pack label / quantity / unit — no navigation, no separate
+"item settings" screen), following the same expand-in-place interaction pattern as the
+`needs_review` resolve control just above it on this same screen. Saving writes a normal row
+into the existing `product_units` table (`POST /settings/product-units` — the same endpoint
+Settings' own "Product units" card uses), so every future session resolves this ingredient's
+pack size automatically with no repeated entry.
+
+**Re-consolidation, not just a reload, is required to see it resolve *this* session** — pack
+resolution only runs inside `POST /sessions/{id}/consolidate`
+(`session_pack_resolution.py`/`purchase_units.resolve_packs()`), never on a plain
+`GET /checklist/{id}` reload. `packSizeForm()`'s save handler therefore calls
+`POST /sessions/{id}/consolidate` (no overrides) itself before reloading the checklist. This is
+safe because consolidation is a **merge, not a rebuild** (see [Scaling Logic > "Re-running
+consolidation is a merge, not a rebuild"](./scaling-and-consolidation.md#scaling-logic)) —
+`have_it`/`add_to_list`/`already_on_anylist` are preserved for every line that persists, so
+adding a pack size for one ingredient never disturbs decisions already made on any other item
+in the same session.
 
 ### "The usuals" — household recurring items
 
