@@ -34,7 +34,10 @@ walkthrough and one-time git/GitHub setup):
 - `update.bat` — runs `scripts/update.py` on the **NUC**, from the `production` branch:
   pulls the new commit (fast-forward only, never merges), reinstalls dependencies if
   `requirements.txt` changed, then stops and restarts the server. Aborts before touching the
-  running server if any step fails, so a bad update leaves the old version running.
+  running server if any step fails, so a bad update leaves the old version running. The same
+  `git describe --tags --always` this script logs after a successful update is also what
+  `GET /api/v1/health`'s `version` field reports at runtime — see [UI/UX > Client auto-update
+  notification](./ui-ux.md#client-auto-update-notification) for the banner that polls it.
 
 Two branches, not one — see [Git branching strategy](./deferred-decisions.md#deferred-decisions), decided at the
 Phase 2 review: `develop` is where all work happens (dev PC), `production` is what the NUC

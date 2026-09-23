@@ -37,6 +37,7 @@ from google.genai import types as genai_types
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.services import progress_tracker
 
 from .client import (
     _call_gemini,
@@ -325,6 +326,11 @@ def classify_units(
 
 # --- orchestrator ------------------------------------------------------------
 
+# Real, backend-driven step names for the capture progress UI (CLAUDE.md > UI/UX > Real
+# progress indicators) — polled via GET /api/v1/recipes/capture/progress/{token}, see
+# app/services/progress_tracker.py. Order matches the actual call sequence below.
+PROGRESS_STEPS = ["extract", "sections", "substitutions"]
+
 
 def capture_recipe(
     db: Session,
@@ -334,11 +340,18 @@ def capture_recipe(
     text: str | None = None,
     image_base64: str | None = None,
     image_media_type: str | None = None,
+    progress_token: str | None = None,
 ) -> ExtractionResult:
     """Run all three calls and merge. Call 1 (extraction) is required — its failure
     propagates. Calls 2 and 3 are enrichment: an AiExtractionError from either is logged and
     swallowed (the recipe is still usable). M3 turns a swallowed *quota* failure into a
     queued retry instead.
+
+    `progress_token`, when given, drives `app.services.progress_tracker` — one real step per
+    Gemini call, reported active/done/failed as each one actually happens (2026-09-23,
+    replacing the frontend's old client-side-only rotating label with real backend state).
+    A falsy token (the normal case for anything that isn't a user-initiated capture, e.g. the
+    capture_queue retry poller) makes every progress_tracker call below a no-op.
 
     Calls through the package's own attributes (``_pkg.extract_recipe`` etc.), not the bare
     module-local names, deliberately: before the Phase 5-review package split, this
@@ -353,31 +366,44 @@ def capture_recipe(
     has reached the lines that actually populate ``extract_recipe`` etc. on it."""
     from app.services import ai_extraction as _pkg
 
-    result = _pkg.extract_recipe(
-        db,
-        call_type=call_type,
-        context_id=context_id,
-        text=text,
-        image_base64=image_base64,
-        image_media_type=image_media_type,
-    )
+    progress_tracker.start(progress_token, PROGRESS_STEPS)
+    progress_tracker.step_active(progress_token, "extract")
+    try:
+        result = _pkg.extract_recipe(
+            db,
+            call_type=call_type,
+            context_id=context_id,
+            text=text,
+            image_base64=image_base64,
+            image_media_type=image_media_type,
+        )
+    except AiExtractionError as exc:
+        progress_tracker.step_failed(progress_token, "extract", str(exc))
+        raise
+    progress_tracker.step_done(progress_token, "extract")
     names = [i.name for i in result.ingredients]
 
+    progress_tracker.step_active(progress_token, "sections")
     try:
         sections = _pkg.suggest_sections(db, context_id=context_id, ingredient_names=names)
         for ing in result.ingredients:
             ing.suggested_section = sections.get(ing.name)
-    except AiExtractionError:
+        progress_tracker.step_done(progress_token, "sections")
+    except AiExtractionError as exc:
         logger.warning("capture_recipe: section suggestion failed — will retry via the queue", exc_info=True)
         result.pending_tasks.append("suggest_sections")
+        progress_tracker.step_failed(progress_token, "sections", str(exc))
 
+    progress_tracker.step_active(progress_token, "substitutions")
     try:
         result.substitution_flags = _pkg.flag_substitutions(
             db, context_id=context_id, ingredient_names=names
         )
-    except AiExtractionError:
+        progress_tracker.step_done(progress_token, "substitutions")
+    except AiExtractionError as exc:
         # Not retried post-capture — it's only useful in the interactive review. No flags
         # simply means the user swaps manually later if they want.
         logger.warning("capture_recipe: substitution flagging failed — continuing without", exc_info=True)
+        progress_tracker.step_failed(progress_token, "substitutions", str(exc))
 
     return result

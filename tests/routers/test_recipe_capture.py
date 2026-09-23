@@ -159,6 +159,34 @@ def test_confirm_capture_rejects_missing_name(client):
     assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
+# --- capture progress polling (2026-09-23 — real step-based capture progress UI) ----------
+
+
+def test_capture_progress_reflects_a_real_capture(client):
+    html = "<html><body><article>500g beef mince, 1 onion diced</article></body></html>"
+    with patch("app.services.capture_url.httpx.get", return_value=_mock_html_response(html)):
+        resp = client.post(
+            "/api/v1/recipes/capture/url",
+            json={"url": "https://example.com/tacos", "progress_token": "router-tok-1"},
+        )
+    assert resp.status_code == 200
+
+    progress_resp = client.get("/api/v1/recipes/capture/progress/router-tok-1")
+    assert progress_resp.status_code == 200
+    body = progress_resp.json()
+    assert body["ok"] is True
+    assert [s["status"] for s in body["data"]["steps"]] == ["done", "done", "done"]
+
+
+def test_capture_progress_unknown_token_returns_structured_404(client):
+    resp = client.get("/api/v1/recipes/capture/progress/never-existed")
+
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["error"]["code"] == "PROGRESS_TOKEN_NOT_FOUND"
+
+
 # --- Gemini-429 retry queue (Phase 3.9 M3) --------------------------------------
 
 

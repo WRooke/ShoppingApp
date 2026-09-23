@@ -467,6 +467,19 @@ change chunk order and scope, not just because they happened.
       (the bug fix, confirmed via the API), Cancel leaving `day_of_week` untouched, the
       servings select and Remove-with-Undo still working per-slot — zero console errors
       throughout.
+
+      **Two gaps found in hand-testing, fixed 2026-09-23 (mockup-approved, no chunk re-opened):**
+      1. **"+ Add recipe" / "+ Add leftovers day" moved above the day-section list**, not below
+         it — `static/js/sessions.js > renderWorkspaceCard()` now appends the add-row right after
+         the "Recipes & days" heading and empty-state check, before `SessionWeek.render()`,
+         rather than after it. Pure reordering of existing `appendChild` calls; no logic change.
+      2. **Stray empty accent-coloured bar, always visible.** `session-week.js`'s `moveBanner`
+         sets `.hidden = true` when no move is in progress, but `components-screens.css`'s
+         `.move-banner` rule had no `[hidden]` override — an author CSS rule always beats the
+         browser's default `[hidden] { display: none }`, so the empty banner rendered
+         permanently above "Unassigned" regardless of state. Fixed with
+         `.move-banner[hidden] { display: none; }`, the same pattern this file already uses for
+         `.nav-dot[hidden]`.
 - [x] **Chunk 6.6 — "Mark cooked" + Session history + Archive session.** A recipe-detail button
       incrementing `recipes.times_made` / stamping `last_made_at` (first code to write either
       column) — instant action, toast confirmation, no dialog. Extend the Plan screen with a

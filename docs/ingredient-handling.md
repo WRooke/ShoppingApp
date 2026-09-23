@@ -334,7 +334,14 @@ under-buying one of them).
   `settings-substitutions.js`), add a new alias by typing both names, delete to ungroup.
   `alias_name` isn't editable after creation (delete + recreate); `canonical_name` can be
   changed (re-grouping), same convention as `RememberedSubstitution`'s immutable
-  `original_name`.
+  `original_name`. **Redesigned 2026-09-23 (mockup-approved — cluttered/unclear grouping was
+  flagged in review):** each canonical group is now one `.settings-group-card` with a visible
+  alias count in its heading; each alias row shows its (still immutable) name as a labelled
+  disabled field — "Ingredient name (fixed — delete and re-add to rename)" — instead of a
+  bare unexplained span; the 4-field qty/unit equivalence pair sits under an "Amount
+  conversion (optional)" sub-heading so it reads as one concept; Delete is a de-emphasised
+  underlined text button, separated from the primary Save action. Layout only — no change to
+  the add/edit/delete/reload flow described above.
 
 ### Quantity/unit equivalence transform (added 2026-09-10, second kickoff)
 

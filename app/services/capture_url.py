@@ -138,12 +138,19 @@ def _extract_title(html: str) -> str | None:
     return None
 
 
-def fetch_and_extract(db: Session, url: str) -> ai_extraction.ExtractionResult:
+def fetch_and_extract(
+    db: Session, url: str, *, progress_token: str | None = None
+) -> ai_extraction.ExtractionResult:
     """Fetches `url`, extracts readable text, and calls ai_extraction.capture_recipe()
     with call_type='recipe_url'. Raises RecipeFetchError on fetch failure; extraction-side
     errors (spend cap, disabled, unparseable response) propagate from ai_extraction as-is.
     If the AI didn't return a title, falls back to one parsed straight from the page's own
-    HTML (see _extract_title) — belt-and-braces, no extra AI cost."""
+    HTML (see _extract_title) — belt-and-braces, no extra AI cost.
+
+    `progress_token`, when given, is forwarded to capture_recipe() for the real-step capture
+    progress UI (CLAUDE.md > UI/UX) — the fetch itself has no separate tracked step, since a
+    slow/blocked page fetch surfaces as a plain RecipeFetchError before any step is even
+    started, same as today."""
     logger.info("Recipe URL fetch attempt: %s", url)
     try:
         response = httpx.get(
@@ -183,7 +190,9 @@ def fetch_and_extract(db: Session, url: str) -> ai_extraction.ExtractionResult:
             "this page's content is loaded by JavaScript after it opens, so it can't be read "
             "automatically — try adding the recipe manually instead",
         )
-    result = ai_extraction.capture_recipe(db, call_type="recipe_url", context_id=url, text=text)
+    result = ai_extraction.capture_recipe(
+        db, call_type="recipe_url", context_id=url, text=text, progress_token=progress_token
+    )
     if not result.title:
         result.title = _extract_title(html)
     return result

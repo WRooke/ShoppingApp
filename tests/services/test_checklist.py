@@ -232,6 +232,27 @@ def test_push_adds_needed_items_marks_session_and_writes_history(db):
     assert "Passata" in now_on_list
 
 
+def test_push_reports_per_item_progress_when_given_a_token(db):
+    """2026-09-23 — real per-item push progress UI (CLAUDE.md > UI/UX). Fake-mode AnyList
+    still exercises the same on_item callback path the real connector uses."""
+    from app.services import progress_tracker
+
+    s = _session_with_items(
+        db, [{"name": "milk", "quantity": 1, "unit": "L"},
+             {"name": "passata", "quantity": 400, "unit": "g"}]
+    )
+    checklist_service.load_checklist(db, s.id)
+    by_name = {c.ingredient_name: c for c in s.checklist_items}
+    checklist_service.update_item(db, s.id, by_name["milk"].id, have_it="no")
+    checklist_service.update_item(db, s.id, by_name["passata"].id, have_it="no")
+
+    checklist_service.push_to_anylist(db, s.id, progress_token="push-tok-1")
+
+    steps = progress_tracker.get("push-tok-1")
+    assert {s["name"] for s in steps} == {"Milk", "Passata"}
+    assert all(s["status"] == "done" for s in steps)
+
+
 def test_push_refuses_a_second_push_without_force(db):
     s = _session_with_items(db, [{"name": "passata", "quantity": 400, "unit": "g"}])
     checklist_service.update_item(db, s.id, s.checklist_items[0].id, have_it="no")

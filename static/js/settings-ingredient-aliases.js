@@ -13,7 +13,15 @@
    Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
    delete instead of confirm(), and in-place DOM removal on delete instead of a full list
    rebuild (the scroll-position bug) — see settings-substitutions.js's header comment for
-   why Add still rebuilds the whole list (same reasoning applies here). */
+   why Add still rebuilds the whole list (same reasoning applies here).
+
+   2026-09-23 redesign (see CLAUDE.md > UI/UX, mockup-approved): the alias name is now a
+   labelled, visibly-disabled field instead of a bare unexplained span, the 4-field
+   equivalence pair sits under its own "Amount conversion" sub-heading so it reads as one
+   concept, Delete is visually de-emphasised (a plain underlined text button) and separated
+   from the primary Save action, each canonical group's heading shows a count, and the
+   add-new form is visually set apart under its own "Add a new group" heading. Layout only —
+   no change to the underlying add/edit/delete/reload flow. */
 
 (function (global) {
   "use strict";
@@ -95,8 +103,13 @@
   }
 
   function renderAliasRow(row, reload) {
-    var wrap = el("div", "settings-row");
-    wrap.appendChild(el("span", "muted", row.alias_name));
+    var wrap = el("div", "settings-group-row");
+
+    var nameInput = el("input");
+    nameInput.type = "text";
+    nameInput.value = row.alias_name;
+    nameInput.disabled = true;
+    nameInput.className = "settings-name-input";
 
     var noteInput = el("input");
     noteInput.type = "text";
@@ -106,7 +119,7 @@
     var pair = pairFields(row);
 
     var saveBtn = el("button", "btn-sm primary", "Save");
-    var deleteBtn = el("button", "btn-sm", "Delete");
+    var deleteBtn = el("button", "btn-link-danger", "Delete");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
@@ -152,19 +165,21 @@
       },
     });
 
+    wrap.appendChild(miniField("Ingredient name (fixed — delete and re-add to rename)", nameInput));
     wrap.appendChild(miniField("Note", noteInput));
+    wrap.appendChild(el("div", "settings-sub-head", "Amount conversion (optional)"));
     wrap.appendChild(pair.grid);
-    var actions = el("div", "log-controls");
-    actions.style.marginTop = "6px";
-    actions.appendChild(saveBtn);
+    var actions = el("div", "settings-row-actions-line");
     actions.appendChild(deleteBtn);
+    actions.appendChild(saveBtn);
     actions.appendChild(rowErr);
     wrap.appendChild(actions);
     return wrap;
   }
 
   function renderAddRow(onAdded) {
-    var wrap = el("div", "settings-row");
+    var wrap = el("div", "settings-add-card");
+    wrap.appendChild(el("div", "settings-add-title", "Add a new group"));
 
     var aliasInput = el("input");
     aliasInput.type = "text";
@@ -263,10 +278,16 @@
             listBody.appendChild(el("div", "empty-state", "No groups yet — add one below."));
           } else {
             groups.forEach(function (group) {
-              listBody.appendChild(el("div", "sub-group-heading", group.canonical_name));
+              var groupCard = el("div", "settings-group-card");
+              var head = el("div", "settings-group-head");
+              head.appendChild(el("span", "settings-group-name", group.canonical_name));
+              var count = group.rows.length;
+              head.appendChild(el("span", "settings-group-count", count + (count === 1 ? " alias" : " aliases")));
+              groupCard.appendChild(head);
               group.rows.forEach(function (row) {
-                listBody.appendChild(renderAliasRow(row, load));
+                groupCard.appendChild(renderAliasRow(row, load));
               });
+              listBody.appendChild(groupCard);
             });
           }
           addSlot.appendChild(renderAddRow(load));

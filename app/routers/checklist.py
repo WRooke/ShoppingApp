@@ -20,6 +20,7 @@ from app.schemas.checklist import (
 )
 from app.schemas.sessions import ChecklistItemRead
 from app.services import checklist as checklist_service
+from app.services import progress_tracker
 from app.services import usuals as usuals_service
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,21 @@ def push(
     db: Session = Depends(get_db),
 ) -> dict:
     result = checklist_service.push_to_anylist(
-        db, session_id, usual_ids=(data.usual_ids if data else None), force=force
+        db,
+        session_id,
+        usual_ids=(data.usual_ids if data else None),
+        force=force,
+        progress_token=(data.progress_token if data else None),
     )
     return {"ok": True, "data": result}
+
+
+@router.get("/push/progress/{token}")
+def push_progress(token: str) -> dict:
+    """Polled by checklist-push.js while a push request is in flight (CLAUDE.md > UI/UX >
+    Real progress indicators) — see app/services/progress_tracker.py. Same shape and 404
+    behaviour as GET /recipes/capture/progress/{token}."""
+    steps = progress_tracker.get(token)
+    if steps is None:
+        raise progress_tracker.ProgressTokenNotFoundError(token)
+    return {"ok": True, "data": {"steps": steps}}

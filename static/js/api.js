@@ -144,16 +144,21 @@
           { method: "DELETE", headers: { Accept: "application/json" } }
         );
       },
-      captureUrl: function (url, allowDuplicate) {
+      captureUrl: function (url, allowDuplicate, progressToken) {
         return jsonBody("POST", "/api/v1/recipes/capture/url", {
           url: url,
           allow_duplicate: !!allowDuplicate,
+          progress_token: progressToken || null,
         });
       },
-      capturePhoto: function (file) {
+      capturePhoto: function (file, progressToken) {
         var formData = new FormData();
         formData.append("image", file);
+        if (progressToken) formData.append("progress_token", progressToken);
         return formBody("POST", "/api/v1/recipes/capture/photo", formData);
+      },
+      captureProgress: function (token) {
+        return api.get("/api/v1/recipes/capture/progress/" + encodeURIComponent(token));
       },
       confirmCapture: function (data) {
         return jsonBody("POST", "/api/v1/recipes/capture/confirm", data);
@@ -392,8 +397,11 @@
             encodeURIComponent(sessionId) +
             "/push" +
             (opts.force ? "?force=true" : ""),
-          { usual_ids: opts.usualIds || [] }
+          { usual_ids: opts.usualIds || [], progress_token: opts.progressToken || null }
         );
+      },
+      pushProgress: function (token) {
+        return api.get("/api/v1/checklist/push/progress/" + encodeURIComponent(token));
       },
       skipUsual: function (usualId) {
         return jsonBody("POST", "/api/v1/checklist/usuals/" + encodeURIComponent(usualId) + "/skip", {});

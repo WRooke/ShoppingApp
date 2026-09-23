@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models.diagnostics import AiCallLog
 from app.services.ai_extraction import (
+    EXTRACTION_SYSTEM_PROMPT,
     FALLBACK_MODEL_ID,
     MAX_INPUT_TEXT_CHARS,
     MODEL_ID,
@@ -266,6 +267,24 @@ def test_extract_recipe_servings_dropped_when_invalid(db, api_enabled):
     assert result.title is None and result.servings is None
 
 
+# --- prompt wording (2026-09-23 — garlic unit default + metric-over-imperial) --------------
+# Literal substring checks on the live prompt text, same guard style as the existing
+# _MAX_SUBSTITUTION_NOTE_CHARS backstop tests elsewhere in this package — a cheap way to
+# catch the wording being accidentally reverted or removed in a future edit.
+
+
+def test_extraction_prompt_defaults_garlic_to_cloves():
+    assert "garlic" in EXTRACTION_SYSTEM_PROMPT.lower()
+    assert "cloves" in EXTRACTION_SYSTEM_PROMPT
+    assert "heads" in EXTRACTION_SYSTEM_PROMPT
+
+
+def test_extraction_prompt_prefers_metric_over_imperial():
+    lowered = EXTRACTION_SYSTEM_PROMPT.lower()
+    assert "metric" in lowered
+    assert "imperial" in lowered
+
+
 # --- suggest_sections (call 3) -------------------------------------------------
 
 
@@ -426,6 +445,55 @@ def test_capture_recipe_extraction_failure_propagates(db, api_enabled):
     with patch("app.services.ai_extraction.genai.Client", _mock_client(side_effect=OSError("boom"))):
         with pytest.raises(AiExtractionError):
             capture_recipe(db, call_type="recipe_url", text="x")
+
+
+# --- progress tracking (2026-09-23 — real step-based capture progress UI) -----------------
+
+
+def test_capture_recipe_reports_all_steps_done_on_full_success(db, fake_mode):
+    from app.services import progress_tracker
+
+    capture_recipe(db, call_type="recipe_url", text="tacos please", progress_token="cap-tok-1")
+    steps = progress_tracker.get("cap-tok-1")
+    assert [s["status"] for s in steps] == ["done", "done", "done"]
+    assert [s["name"] for s in steps] == ["extract", "sections", "substitutions"]
+
+
+def test_capture_recipe_reports_extraction_failed_and_stops(db, api_enabled):
+    from app.services import progress_tracker
+
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(side_effect=OSError("boom"))):
+        with pytest.raises(AiExtractionError):
+            capture_recipe(db, call_type="recipe_url", text="x", progress_token="cap-tok-2")
+
+    steps = progress_tracker.get("cap-tok-2")
+    by_name = {s["name"]: s for s in steps}
+    assert by_name["extract"]["status"] == "failed"
+    assert by_name["extract"]["detail"]
+    # Enrichment never ran — extraction's failure propagates before either call happens.
+    assert by_name["sections"]["status"] == "pending"
+    assert by_name["substitutions"]["status"] == "pending"
+
+
+def test_capture_recipe_reports_enrichment_step_failed_but_keeps_going(db, api_enabled):
+    from app.services import progress_tracker
+
+    good_extract = _resp(_EXTRACTION_PAYLOAD)
+
+    def _side_effect(*args, **kwargs):
+        sys = kwargs["config"].system_instruction
+        if sys.startswith("You are a recipe extraction assistant"):
+            return good_extract
+        raise OSError("enrichment down")
+
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(side_effect=_side_effect)):
+        capture_recipe(db, call_type="recipe_url", text="x", progress_token="cap-tok-3")
+
+    steps = progress_tracker.get("cap-tok-3")
+    by_name = {s["name"]: s for s in steps}
+    assert by_name["extract"]["status"] == "done"
+    assert by_name["sections"]["status"] == "failed"
+    assert by_name["substitutions"]["status"] == "failed"
 
 
 # --- fixtures self-check ------------------------------------------------------

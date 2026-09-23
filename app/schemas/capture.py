@@ -20,6 +20,11 @@ class CaptureUrlRequest(BaseModel):
     # with a 409 before calling Claude. "Capture again anyway" re-submits with this true. See
     # CLAUDE.md > Duplicate Recipe Prevention > URL capture short-circuit.
     allow_duplicate: bool = False
+    # Real-step capture progress UI (2026-09-23, CLAUDE.md > UI/UX) — a client-generated token
+    # the frontend then polls via GET /recipes/capture/progress/{token} while this request is
+    # in flight. Optional: a capture_queue retry (no live client waiting) never sends one, and
+    # app.services.progress_tracker treats an empty/missing token as a no-op throughout.
+    progress_token: str | None = None
 
 
 class CapturedIngredient(BaseModel):

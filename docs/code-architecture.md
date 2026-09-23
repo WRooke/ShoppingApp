@@ -301,7 +301,9 @@ ShoppingApp/
 │   │   ├── capture_queue.py     ← 429 retry queue + hourly poller (Phase 3.9 M3)
 │   │   ├── checklist.py         ← checklist load + AnyList push orchestrator (Phase 5)
 │   │   ├── usuals.py            ← "the usuals" recurring-items CRUD + due calc (Phase 5)
-│   │   └── anylist_client.py    ← Python-native AnyList connector, small stable interface (Phase 5, from spike/)
+│   │   ├── anylist_client.py    ← Python-native AnyList connector, small stable interface (Phase 5, from spike/)
+│   │   ├── version.py           ← app version string for the client auto-update banner (2026-09-23), see CLAUDE.md > UI/UX
+│   │   └── progress_tracker.py  ← in-memory step tracking for the real capture/push progress UIs (2026-09-23), see CLAUDE.md > UI/UX
 │   ├── seed_data.py           ← staples + product_units + section vocabulary starter data
 │   └── log_config.py          ← logging setup, in-memory ring buffer
 ├── alembic/                    ← DB migrations (bootstrapped Phase 3 Chunk 3.7 — see CLAUDE.md > Migrations)

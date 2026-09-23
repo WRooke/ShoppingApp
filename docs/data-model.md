@@ -119,6 +119,16 @@ updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 > noticed to matter — there's no requirement to pre-enumerate pack sizes for every ingredient
 > in the seed data).
 
+> **Settings UI redesign (2026-09-23, mockup-approved):** the multi-pack-size case above used
+> to render in Settings (`settings-product-units.js`) as flat, visually unrelated rows — the
+> exact "unclear grouping" complaint this fix addresses. Rows are now grouped client-side by
+> `ingredient_name` into one card per ingredient (mirroring
+> [Ingredient Aliases](./ingredient-handling.md#ingredient-aliases)' existing canonical-name grouping); the ingredient
+> name moved to the group heading — editing it there renames every pack-size row in the group
+> in one action (`renameGroup()`, a `Promise.all` over each row's own `PATCH`), rather than
+> each row separately carrying its own editable name. Presentation-layer only: no schema or
+> `product_units` column change, `UNIQUE(ingredient_name, purchase_label)` unaffected.
+
 ### `staples`
 ```
 id              INTEGER PRIMARY KEY

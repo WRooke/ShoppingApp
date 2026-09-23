@@ -27,5 +27,29 @@
 - Typography: one sans-serif family, clear hierarchy, no decorative type.
 - No animations except functional transitions (e.g. checklist item ticked → slides/fades out).
 
+### Client auto-update notification
+
+**Built 2026-09-23.** When the NUC is updated (`scripts/update.py` pulls a new commit and
+restarts the server), a phone that already has the app open in a browser tab has no way to
+know the running server changed — the page itself is unchanged until reloaded. Rather than a
+service worker (deliberately not used — see "no PWA install, no service worker needed" above)
+or a forced silent reload (jarring mid-use, and could interrupt an in-progress capture or
+checklist edit), a small persistent banner: "Update available — tap to refresh", user-initiated
+only.
+
+- **Mechanism:** `GET /api/v1/health` gains a `version` field (`app/services/version.py >
+  get_version()`, `git describe --tags --always`, computed once at process startup and cached
+  — matches exactly what `scripts/update.py` already logs after a NUC update, see [Deployment &
+  Operations](./deployment-and-operations.md#deployment--operations)). `static/js/update-banner.js` fetches
+  `/api/v1/health` once on load to record the version the page was served with, then polls the
+  same endpoint every 5 minutes; a mismatch means the server process has restarted since this
+  page loaded.
+- **Not the shared `Toast` component.** `Toast` (`static/js/toast.js`) auto-dismisses after 5s
+  and is torn down by `router.js` on every hash change (Phase 6 kickoff decision #12) — both
+  wrong here: an update notice must persist until the user actually acts, across as many
+  navigations as it takes them to notice it. The banner is its own small app-shell component,
+  fixed at the top of the viewport, non-blocking (no overlay/modal).
+- **User-initiated only** — tapping the banner reloads the page; nothing reloads on its own.
+
 ---
 

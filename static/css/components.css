@@ -310,6 +310,36 @@ input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 }
 :root[data-theme="dark"] .toast { color: var(--bg); }
 
+/* --- client auto-update banner (static/js/update-banner.js) ---
+   Deliberately not a Toast: persistent (no auto-dismiss timer) and survives navigation until
+   tapped, unlike Toast which dies on both — see CLAUDE.md > UI/UX > Client auto-update
+   notification. Fixed at the very top of the viewport, above the app header. */
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--accent-tint);
+  border-bottom: 1px solid var(--accent);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.update-banner .ico { flex-shrink: 0; }
+.update-banner .cta {
+  margin-left: auto;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 700;
+}
+
 /* --- shared "Back" link (static/js/back-link.js — kickoff decision #9) --- */
 .back-link {
   display: inline-flex;

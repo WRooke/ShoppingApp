@@ -45,6 +45,9 @@ class ChecklistPushRequest(BaseModel):
     ingredient lines to push are read from the DB (add_to_list / have_it == 'no')."""
 
     usual_ids: list[int] = Field(default_factory=list)
+    # Real-step push progress UI (2026-09-23, CLAUDE.md > UI/UX) — a client-generated token
+    # polled via GET /checklist/push/progress/{token} while this request is in flight.
+    progress_token: str | None = None
 
 
 class ChecklistItemResolve(BaseModel):

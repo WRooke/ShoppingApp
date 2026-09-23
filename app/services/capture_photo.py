@@ -62,15 +62,22 @@ def store_image(content: bytes, content_type: str) -> str:
 
 
 def extract_stored(
-    db: Session, *, filename: str, content: bytes, content_type: str
+    db: Session,
+    *,
+    filename: str,
+    content: bytes,
+    content_type: str,
+    progress_token: str | None = None,
 ) -> ai_extraction.ExtractionResult:
-    """Run the 3-call capture pipeline on an already-stored image."""
+    """Run the 3-call capture pipeline on an already-stored image. `progress_token`, when
+    given, drives the real-step capture progress UI — see CLAUDE.md > UI/UX."""
     return ai_extraction.capture_recipe(
         db,
         call_type="recipe_photo",
         context_id=filename,
         image_base64=base64.standard_b64encode(content).decode("utf-8"),
         image_media_type=content_type,
+        progress_token=progress_token,
     )
 
 

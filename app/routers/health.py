@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
+from app.services.version import get_version
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,9 @@ def health(db: Session = Depends(get_db)) -> dict:
         "ok": True,
         "data": {
             "status": "ok" if db_connected else "degraded",
+            # Client auto-update banner (CLAUDE.md > UI/UX) polls this and compares against
+            # the version it loaded with — see static/js/update-banner.js.
+            "version": get_version(),
             "database": {
                 "connected": db_connected,
                 "path": settings.database_path,

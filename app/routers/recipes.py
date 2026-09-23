@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.capture import CaptureConfirmRequest, CaptureResult, CaptureUrlRequest
+from app.services import progress_tracker
 from app.schemas.recipes import (
     CheckDuplicateResponse,
     DuplicateMatch,
@@ -267,7 +268,7 @@ def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> 
                 ]
             )
     try:
-        result = capture_url.fetch_and_extract(db, data.url)
+        result = capture_url.fetch_and_extract(db, data.url, progress_token=data.progress_token)
     except AiQuotaExhaustedError:
         capture_queue.enqueue(
             db, task="extract_url", payload={"url": data.url, "source_type": "url"}
@@ -280,13 +281,21 @@ def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> 
 
 
 @router.post("/capture/photo")
-def capture_from_photo(image: UploadFile = File(...), db: Session = Depends(get_db)) -> dict:
+def capture_from_photo(
+    image: UploadFile = File(...),
+    progress_token: str | None = Form(None),
+    db: Session = Depends(get_db),
+) -> dict:
     content = image.file.read()
     content_type = image.content_type or ""
     filename = capture_photo.store_image(content, content_type)  # raises InvalidImageError
     try:
         result = capture_photo.extract_stored(
-            db, filename=filename, content=content, content_type=content_type
+            db,
+            filename=filename,
+            content=content,
+            content_type=content_type,
+            progress_token=progress_token,
         )
     except AiQuotaExhaustedError:
         capture_queue.enqueue(
@@ -303,6 +312,20 @@ def capture_from_photo(image: UploadFile = File(...), db: Session = Depends(get_
         "ok": True,
         "data": _capture_result(result, source_type="photo", source_image_path=filename),
     }
+
+
+@router.get("/capture/progress/{token}")
+def capture_progress(token: str) -> dict:
+    """Polled by capture.js while a capture request is in flight (CLAUDE.md > UI/UX > Real
+    progress indicators) — see app/services/progress_tracker.py. 404 when the token is
+    unknown (never started, already finished long enough ago to expire, or the frontend
+    generated one but the capture hasn't reached its first step_active() call yet — the
+    frontend's own polling loop tolerates a brief 404 at the very start for exactly this
+    reason)."""
+    steps = progress_tracker.get(token)
+    if steps is None:
+        raise progress_tracker.ProgressTokenNotFoundError(token)
+    return {"ok": True, "data": {"steps": steps}}
 
 
 @router.post("/capture/confirm", status_code=201)

@@ -62,6 +62,13 @@ Rules:
 - quantity must be a number (convert fractions: 1/2 -> 0.5)
 - unit must be one of: g, kg, ml, L, tsp, tbsp, cup, or null
 - Convert any non-standard units to the closest standard unit
+- For garlic, default to a count of cloves when the recipe doesn't specify otherwise (e.g.
+  "2 garlic" -> quantity 2, unit "cloves"); only use unit "heads" when the recipe text
+  explicitly says whole heads/bulbs of garlic
+- When the source presents both a metric and an imperial/US measurement for the same
+  quantity — slash-separated ("250g/8oz", "180C/350F"), from a metric/imperial toggle, or as
+  separate ingredient blocks — always extract the metric value (g/kg/ml/L/C) and ignore the
+  imperial one, regardless of which appears first in the text
 - If a quantity is a range (e.g. "1-2 cloves"), use the lower bound
 - Separate compound ingredients (e.g. "for the sauce:") into individual items
 - Do not include method / cooking-step instructions

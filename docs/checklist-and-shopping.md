@@ -126,6 +126,25 @@ On push:
    — otherwise a retry would re-add the items that *did* land as duplicates. A re-push of an
    already-`pushed` session is refused (`409 SESSION_ALREADY_PUSHED`) unless `?force=true`.
 
+### Real push progress UI (2026-09-23)
+
+Like capture (see [Recipe Capture > Real capture progress
+UI](./recipe-capture.md#real-capture-progress-ui-2026-09-23)), a push is still one blocking
+HTTP request from the frontend's view even though `add_or_increment_items()` internally does
+one real HTTP call per item. Chunk 6.3b originally covered that with a client-side-only timer
+cycling through the known item-name list. That's replaced with genuine per-item progress: the
+frontend sends a `progress_token` on `POST /checklist/{id}/push`;
+`anylist_client.add_or_increment_items()` takes an optional `on_item(name, status)` callback
+(no `progress_tracker` import in that file itself, keeping the external-integration class's
+small stable interface — `checklist.py`'s own `push_to_anylist()` wires the callback to
+`progress_tracker`), called `"active"` before an item's op(s) and `"done"` right after they
+succeed. `static/js/checklist-push.js` polls `GET /checklist/push/progress/{token}` every
+500ms and renders a real per-item step list. Deliberately no `"failed"` callback from
+`anylist_client.py` itself — if the whole push dies mid-item, that item simply never gets its
+`"done"` call, and the frontend does one final progress fetch on the request's rejection to
+find whichever item is still `"active"` and mark that specific one as the failure, rather than
+only a generic "push failed" alert.
+
 ---
 
 ## Shopping List Store Layout

@@ -69,6 +69,7 @@ from google import genai  # noqa: F401
 from app.config import settings  # noqa: F401
 
 from .calls import (
+    PROGRESS_STEPS,
     capture_recipe,
     classify_units,
     extract_recipe,
@@ -122,6 +123,7 @@ from .types import (
 __all__ = [
     "genai",
     "settings",
+    "PROGRESS_STEPS",
     "capture_recipe",
     "classify_units",
     "extract_recipe",

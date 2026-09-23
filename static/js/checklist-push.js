@@ -1,16 +1,17 @@
-/* Checklist screen — the "push to AnyList" summary line, sticky button, rotating
-   per-item progress label, and discrepancy banner. Split out of checklist.js per CLAUDE.md
-   > Code Architecture & Maintainability > file size discipline (checklist.js passed ~400
-   lines once Chunk 6.3b's design-system pass + the stock-check/push-progress/discrepancy
-   additions all landed in one file).
+/* Checklist screen — the "push to AnyList" summary line, sticky button, real per-item
+   progress list, and discrepancy banner. Split out of checklist.js per CLAUDE.md > Code
+   Architecture & Maintainability > file size discipline (checklist.js passed ~400 lines once
+   Chunk 6.3b's design-system pass + the stock-check/push-progress/discrepancy additions all
+   landed in one file).
 
-   Phase 6 Chunk 6.3b: a "Pushing…" state that cycles through the actual item names being
-   pushed (mockup sign-off, 2026-09-20 — a static spinner "doesn't fill me with confidence
-   anything's happening"), grounded in the real push list rather than invented phase labels,
-   the same "one HTTP request, no real per-step signal" situation capture.js's
-   startProgress() already solves for the AI capture calls. Also a discrepancy warning
-   banner when a push comes back with confirmed: false — see checklist.js's own header
-   comment for why that banner has to survive the load() a push triggers. */
+   Phase 6 Chunk 6.3b built a "Pushing…" state that cycled through the actual item names via
+   a client-side timer — an honest-looking simulation, not real backend signal. 2026-09-23:
+   replaced with real per-item progress, polled from GET /checklist/push/progress/{token}
+   (app/services/progress_tracker.py, written to by anylist_client.py's on_item callback as
+   it actually works through the batch) — the same real-step approach capture.js's
+   startProgress() uses for the AI capture calls. Also a discrepancy warning banner when a
+   push comes back with confirmed: false — see checklist.js's own header comment for why that
+   banner has to survive the load() a push triggers. */
 
 (function (global) {
   "use strict";
@@ -20,6 +21,11 @@
     if (cls) node.className = cls;
     if (text != null) node.textContent = text;
     return node;
+  }
+
+  function makeToken() {
+    if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();
+    return "t-" + Date.now() + "-" + Math.random().toString(36).slice(2);
   }
 
   // Module-level, not per-render — checklist.js's unmount() calls ChecklistPush.unmount() to
@@ -80,6 +86,8 @@
     actions.appendChild(pushBtn);
     actions.appendChild(pushNote);
     wrap.appendChild(actions);
+    var stepsSlot = el("div");
+    wrap.appendChild(stepsSlot);
 
     function update() {
       var toAdd = opts.items.filter(function (i) { return i.add_to_list || i.have_it === "no"; }).length;
@@ -95,25 +103,61 @@
     function doPush(force) {
       pushBtn.disabled = true;
       var names = pushItemNames(opts.pushUsualIds, opts.items, opts.usuals);
+      var token = makeToken();
 
-      // Present continuous ("Adding X…"), never past tense — this doesn't claim X has
-      // actually landed on AnyList yet, only that it's part of the in-flight batch.
       pushBtn.innerHTML = "";
       pushBtn.appendChild(el("span", "spinner"));
+      pushBtn.appendChild(document.createTextNode(" Pushing…"));
+
+      var rows = {};
+      stepsSlot.innerHTML = "";
       if (names.length) {
-        var i = 0;
-        var label = el("span", null, "Adding " + names[0] + "…");
-        pushBtn.appendChild(label);
+        var stepsWrap = el("div", "step-list-vertical");
+        names.forEach(function (name) {
+          var row = el("div", "step-row");
+          var icon = el("div", "step-icon pending");
+          var label = el("div", "step-label pending", "Adding " + name + "…");
+          row.appendChild(icon);
+          row.appendChild(label);
+          stepsWrap.appendChild(row);
+          rows[name] = { icon: icon, label: label, name: name };
+        });
+        stepsSlot.appendChild(stepsWrap);
         pushNote.hidden = false;
-        pushNote.textContent = "Item 1 of " + names.length;
-        activePushTimer = global.setInterval(function () {
-          i = (i + 1) % names.length;
-          label.textContent = "Adding " + names[i] + "…";
-          pushNote.textContent = "Item " + (i + 1) + " of " + names.length;
-        }, 1100);
-      } else {
-        pushBtn.appendChild(document.createTextNode(" Pushing…"));
+        pushNote.textContent = "0 of " + names.length + " confirmed";
       }
+
+      function applyProgress(steps) {
+        var doneCount = 0;
+        (steps || []).forEach(function (s) {
+          var row = rows[s.name];
+          if (!row) return;
+          row.icon.className = "step-icon " + s.status;
+          row.icon.textContent = s.status === "done" ? "✓" : s.status === "failed" ? "✕" : "";
+          row.label.className = "step-label " + s.status;
+          row.label.textContent =
+            (s.status === "done" ? "Added " : s.status === "failed" ? "Couldn't add " : "Adding ") +
+            s.name +
+            (s.status === "done" || s.status === "failed" ? "" : "…");
+          if (s.status === "done") doneCount++;
+        });
+        if (names.length) pushNote.textContent = doneCount + " of " + names.length + " confirmed";
+        return steps;
+      }
+
+      activePushTimer = names.length
+        ? global.setInterval(function () {
+            api.checklist
+              .pushProgress(token)
+              .then(function (res) {
+                applyProgress(res.steps);
+              })
+              .catch(function () {
+                // 404 until the backend's first on_item("active") call actually lands —
+                // expected right at the very start, just keep polling.
+              });
+          }, 500)
+        : null;
 
       function stopProgress() {
         if (activePushTimer) {
@@ -124,9 +168,14 @@
       }
 
       api.checklist
-        .push(opts.sessionId, { force: force, usualIds: Object.keys(opts.pushUsualIds).map(Number) })
+        .push(opts.sessionId, {
+          force: force,
+          usualIds: Object.keys(opts.pushUsualIds).map(Number),
+          progressToken: token,
+        })
         .then(function (res) {
           stopProgress();
+          stepsSlot.innerHTML = "";
           opts.onResult(res);
           opts.onReload();
         })
@@ -141,6 +190,7 @@
             // just gets its quantity updated in place. The real risk is narrower (an item
             // AnyList can no longer match, e.g. renamed/removed by hand since the last push)
             // and worth naming specifically instead of a blanket "re-add".
+            stepsSlot.innerHTML = "";
             if (
               global.confirm(
                 "This session was already pushed. Push again? Items AnyList still recognises " +
@@ -149,6 +199,32 @@
               )
             )
               doPush(true);
+            return;
+          }
+          // Which item was actually in flight when the whole push died (CLAUDE.md > UI/UX >
+          // Real progress indicators — "the UI must show which specific stage failed"): one
+          // last progress fetch, then mark whichever row never reached "done" as the culprit
+          // — anylist_client.py's on_item callback only ever reports "active"/"done" (see its
+          // docstring), so a row stuck on "active" here is exactly the one mid-flight when
+          // the surrounding request raised.
+          if (names.length) {
+            api.checklist
+              .pushProgress(token)
+              .then(function (res) {
+                var steps = applyProgress(res.steps);
+                var stuck = (steps || []).find(function (s) { return s.status === "active"; });
+                if (stuck) {
+                  var row = rows[stuck.name];
+                  row.icon.className = "step-icon failed";
+                  row.icon.textContent = "✕";
+                  row.label.className = "step-label failed";
+                  row.label.textContent = "Couldn't add " + stuck.name;
+                }
+              })
+              .catch(function () {})
+              .then(function () {
+                global.alert("Push failed: " + err.message);
+              });
           } else {
             global.alert("Push failed: " + err.message);
           }

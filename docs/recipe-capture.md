@@ -22,6 +22,24 @@ own fake-mode fixture, its own place in the Flash→Flash-Lite→queue chain. A 
 enrichment call (2 or 3) does not block extraction — the recipe is still usable, and
 `recipes.ai_tasks_pending` + the badge track what's outstanding.
 
+### Real capture progress UI (2026-09-23)
+
+The whole capture is still one blocking HTTP request from the frontend's point of view — call
+1 (extraction, required) then calls 2/3 (enrichment) run sequentially inside
+`capture_recipe()` before the response returns. Phase 6 Chunk 6.2 originally covered that with
+a client-side-only rotating status label (no relation to real backend state, since there was
+no per-step signal to poll). That's replaced with genuine per-step progress: the frontend
+generates a token and sends it as `progress_token` on `POST /capture/url` / `/capture/photo`;
+`capture_recipe()` writes real `pending`/`active`/`done`/`failed` state to
+`app/services/progress_tracker.py` (a small in-memory dict, this app being uvicorn
+single-process) as it actually moves through `extract` → `sections` → `substitutions`;
+`static/js/capture.js` polls `GET /recipes/capture/progress/{token}` every 600ms and renders a
+real step list instead of the old rotating label. A swallowed enrichment failure (sections or
+substitutions) now shows that specific step as failed, rather than the capture just silently
+continuing with no visible sign anything went wrong with that piece. See CLAUDE.md > UI/UX >
+Real progress indicators, and the equivalent design for the AnyList push in
+[Checklist, AnyList Push & Shopping List Layout](./checklist-and-shopping.md#anylist-push-logic).
+
 The rest of this section — the extraction prompt, the §0a hardening, the review flow — is
 otherwise preserved across the provider swap. Where it still says "Claude", read "the AI
 extraction service".
@@ -130,6 +148,25 @@ Rules:
 > [Ingredient Substitution Flagging](./ingredient-handling.md#ingredient-substitution-flagging--the-merged-spec)).
 > `app/services/ai_extraction.py` is the source of truth for the exact wording in force at any
 > given time — this block is kept in sync opportunistically, not on every prompt tweak.
+
+> **Note (2026-09-23):** two more rules added to `EXTRACTION_SYSTEM_PROMPT`
+> (`app/services/ai_extraction/prompts.py`), forward-looking only — no migration of existing
+> saved recipes. (1) Garlic defaults to a count of **cloves** when the recipe gives no unit
+> (e.g. "2 garlic" → quantity 2, unit `"cloves"`); `"heads"` is used only when the text
+> explicitly says whole heads/bulbs. `unit` has no fixed enum in the Gemini structured-output
+> schema (`schemas.py`'s `_GIngredient.unit` is a bare `str | None`), so this needed no schema
+> change — a free-text discrete unit like `"cloves"` is already handled the same way `"clove"`/
+> `"bunch"`/`"can"` are elsewhere (ceiled-to-whole scaling; [Ingredient Unit
+> Handling](./ingredient-handling.md#ingredient-unit-handling) Layers A/B). Checked for other
+> ingredients with the same gap (a bare count of a noun that isn't the natural purchase unit);
+> none found in this app's own seed/staples data — eggs/onions/lemons/limes are already
+> unambiguous bare counts today. (2) When a source gives both a metric and an
+> imperial/US measurement for the same quantity (slash-separated, a metric/imperial toggle
+> widget, or separate ingredient blocks), always extract the metric value and ignore the
+> imperial one. Confirmed `capture_url.py` fetches raw HTML via `httpx` + BeautifulSoup with no
+> JS execution, so a toggle widget can only ever expose whichever value the server already
+> rendered — this is a pure parsing-preference fix, not something needing page-render
+> awareness.
 
 The `suggested_section` enum in the prompt text is kept in sync with
 `SECTION_VOCABULARY` in `app/seed_data.py` by hand (see

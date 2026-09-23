@@ -325,11 +325,8 @@
       card.appendChild(el("div", "empty-state", "No recipes added yet."));
     }
 
-    var weekSection = el("div");
-    card.appendChild(weekSection);
-    global.SessionWeek.render(weekSection, session, reload);
-
-    // --- add recipe / leftovers ---
+    // --- add recipe / leftovers (2026-09-23: moved above the day list, was below it —
+    // the primary way to populate this screen shouldn't be the last thing you scroll to) ---
     var addRow = el("div", "log-controls");
     addRow.style.marginTop = "12px";
     var addRecipeBtn = el("button", null, "+ Add recipe");
@@ -352,6 +349,10 @@
           global.alert("Couldn't add leftovers: " + err.message);
         });
     });
+
+    var weekSection = el("div");
+    card.appendChild(weekSection);
+    global.SessionWeek.render(weekSection, session, reload);
 
     // --- review --- (sticky — kickoff decision #12, the primary forward action on a
     // screen that can get long once several recipes are slotted in)

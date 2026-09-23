@@ -21,33 +21,76 @@
     return wrap;
   }
 
-  // Rotating status label + spinner, not a checklist with checkmarks (Chunk 6.2) — the
-  // whole capture is one HTTP request (services/ai_extraction.py's capture_recipe() runs
-  // extraction, substitution flagging, and section suggestion server-side before responding
-  // at all), so there's no real per-step signal to check off. This only reassures the user
-  // something is happening — replacing the "looks hung" complaint with honest movement, not
-  // fake progress percentages Gemini doesn't report.
+  // 2026-09-23 — real, backend-driven step progress (replaces the old client-side-only
+  // rotating label, which had zero relation to what the server was actually doing). The
+  // three steps mirror services/ai_extraction/calls.py's PROGRESS_STEPS exactly (extract ->
+  // sections -> substitutions) — see app/services/progress_tracker.py and
+  // GET /recipes/capture/progress/{token}, polled here every 600ms while the main capture
+  // request is in flight. `firstMessage` still covers the one phase with no tracked step at
+  // all (fetching the page / uploading the photo, which happens before capture_recipe() is
+  // even called) — honest about that gap rather than inventing a step for it.
+  var STEP_LABELS = {
+    extract: "Extracting ingredients",
+    sections: "Suggesting aisles",
+    substitutions: "Checking substitutions",
+  };
+  var STEP_ORDER = ["extract", "sections", "substitutions"];
+
+  function makeToken() {
+    if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();
+    return "t-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+  }
+
+  function iconFor(status) {
+    if (status === "done") return "✓";
+    if (status === "failed") return "✕";
+    return "";
+  }
+
   function startProgress(container, firstMessage) {
-    var messages = [
-      firstMessage,
-      "Extracting ingredients…",
-      "Checking substitutions…",
-      "Suggesting aisles…",
-    ];
+    var token = makeToken();
     var wrap = el("div", "capture-progress");
     wrap.appendChild(el("span", "spinner"));
-    var label = el("span", null, messages[0]);
-    wrap.appendChild(label);
+    wrap.appendChild(el("span", null, firstMessage));
     container.appendChild(wrap);
-    var i = 0;
-    var timer = global.setInterval(function () {
-      i = (i + 1) % messages.length;
-      label.textContent = messages[i];
-    }, 1800);
+
+    var stepsWrap = el("div", "step-list-vertical");
+    var rows = {};
+    STEP_ORDER.forEach(function (name) {
+      var row = el("div", "step-row");
+      var icon = el("div", "step-icon pending");
+      var label = el("div", "step-label pending", STEP_LABELS[name]);
+      row.appendChild(icon);
+      row.appendChild(label);
+      stepsWrap.appendChild(row);
+      rows[name] = { icon: icon, label: label };
+    });
+    container.appendChild(stepsWrap);
+
+    var pollTimer = global.setInterval(function () {
+      api.recipes
+        .captureProgress(token)
+        .then(function (res) {
+          (res.steps || []).forEach(function (s) {
+            var row = rows[s.name];
+            if (!row) return;
+            row.icon.className = "step-icon " + s.status;
+            row.icon.textContent = iconFor(s.status);
+            row.label.className = "step-label " + s.status;
+          });
+        })
+        .catch(function () {
+          // 404 until the backend's first step_active() call actually lands — expected at
+          // the very start (still fetching the page/photo), just keep polling.
+        });
+    }, 600);
+
     return {
+      token: token,
       stop: function () {
-        global.clearInterval(timer);
+        global.clearInterval(pollTimer);
         if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        if (stepsWrap.parentNode) stepsWrap.parentNode.removeChild(stepsWrap);
       },
     };
   }
@@ -121,7 +164,7 @@
       goBtn.disabled = true;
       var progress = startProgress(card, "Fetching the page…");
       api.recipes
-        .captureUrl(url, allowDuplicate)
+        .captureUrl(url, allowDuplicate, progress.token)
         .then(function (result) {
           progress.stop();
           if (result && result.queued) {
@@ -202,7 +245,7 @@
       goBtn.disabled = true;
       var progress = startProgress(card, "Uploading the photo…");
       api.recipes
-        .capturePhoto(file)
+        .capturePhoto(file, progress.token)
         .then(function (result) {
           progress.stop();
           if (result && result.queued) {

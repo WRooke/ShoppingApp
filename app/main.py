@@ -36,6 +36,7 @@ from app.routers import (
 from app.routers import settings as settings_router
 from app.services.capture_photo import InvalidImageError
 from app.services.capture_url import RecipeFetchError
+from app.services.progress_tracker import ProgressTokenNotFoundError
 from app.services.ai_extraction import AiExtractionDisabledError, AiExtractionError
 from app.services.anylist_client import (
     AnyListAuthError,
@@ -314,6 +315,11 @@ _DOMAIN_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         log_level=logging.WARNING,  # the highest-priority §0c gate working as designed, not a failure
     ),
     InvalidImageError: _domain_error_handler(422, "INVALID_IMAGE", lambda e: e.reason),
+    ProgressTokenNotFoundError: _domain_error_handler(
+        404,
+        "PROGRESS_TOKEN_NOT_FOUND",
+        lambda e: "No progress found for that token — it may not have started yet, or has expired.",
+    ),
     ChecklistNotReadyError: _domain_error_handler(
         409,
         "CHECKLIST_NOT_CONSOLIDATED",

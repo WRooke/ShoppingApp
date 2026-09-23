@@ -104,6 +104,34 @@ def test_push_marks_session_pushed_and_refuses_re_push(client, fake_anylist):
     assert forced.status_code == 200
 
 
+# --- push progress polling (2026-09-23 — real per-item push progress UI) -----------------
+
+
+def test_push_progress_reflects_a_real_push(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-push-progress-eggs", "quantity": 6, "unit": None}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
+
+    pushed = client.post(
+        f"/api/v1/checklist/{sid}/push",
+        json={"usual_ids": [], "progress_token": "push-router-tok-1"},
+    )
+    assert pushed.status_code == 200
+
+    progress_resp = client.get("/api/v1/checklist/push/progress/push-router-tok-1")
+    assert progress_resp.status_code == 200
+    body = progress_resp.json()
+    assert body["ok"] is True
+    assert body["data"]["steps"][0]["status"] == "done"
+
+
+def test_push_progress_unknown_token_returns_structured_404(client):
+    resp = client.get("/api/v1/checklist/push/progress/never-existed")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "PROGRESS_TOKEN_NOT_FOUND"
+
+
 def test_load_survives_malformed_review_options_json(client, fake_anylist):
     """2026-09-17 prod bug reproduction — a needs_review row whose review_options_json was
     written by an earlier/different shape (here: an element missing 'quantity') used to 500

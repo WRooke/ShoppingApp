@@ -18,6 +18,7 @@ from app.models.catalog import Staple
 from app.models.history import ShoppingHistory
 from app.services import anylist_client
 from app.models.planning import SessionChecklistItem
+from app.services import progress_tracker
 from app.services import sessions as sessions_service
 from app.services import usuals as usuals_service
 from app.services.anylist_client import AnyListError, PushItem
@@ -253,6 +254,7 @@ def push_to_anylist(
     *,
     usual_ids: list[int] | None = None,
     force: bool = False,
+    progress_token: str | None = None,
 ) -> dict:
     """Push the checklist to AnyList: every line the user needs (``add_to_list`` or
     ``have_it == 'no'``), plus any ticked due "usuals". Existing items are updated in place
@@ -260,7 +262,12 @@ def push_to_anylist(
     (CLAUDE.md > AnyList Push Logic and > AnyList spike findings). On completion the session
     is marked ``pushed`` and a ``shopping_history`` row is written — even if the diff wasn't
     fully confirmed (the discrepancies are recorded and returned; a not-marked-pushed session
-    would re-push the confirmed items as duplicates on retry)."""
+    would re-push the confirmed items as duplicates on retry).
+
+    ``progress_token``, when given, drives the real per-item push progress UI (CLAUDE.md >
+    UI/UX > Real progress indicators) via ``progress_tracker`` — one step per pushed item
+    (named by ingredient/usual name), reported active/done as ``anylist_client`` actually
+    works through them. A falsy token makes this entirely a no-op, same as capture's."""
     session = sessions_service.get_session(db, session_id)
     if session.status == "pushed" and not force:
         raise SessionAlreadyPushedError(session_id)
@@ -288,7 +295,15 @@ def push_to_anylist(
     usual_names = {u.name.title() for u in due_usuals}
     push_items += [PushItem(name=u.name.title(), quantity=None) for u in due_usuals]
 
-    result = anylist_client.add_or_increment_items(push_items)  # AnyListError -> 502
+    progress_tracker.start(progress_token, [p.name for p in push_items])
+
+    def _on_item(name: str, status: str) -> None:
+        if status == "active":
+            progress_tracker.step_active(progress_token, name)
+        elif status == "done":
+            progress_tracker.step_done(progress_token, name)
+
+    result = anylist_client.add_or_increment_items(push_items, on_item=_on_item)  # AnyListError -> 502
     # Partition the connector's added/updated into ingredient lines vs usuals so the caller
     # doesn't double-count a usual (it also appears in `usuals_added`).
     added_ingredients = [n for n in result.added if n not in usual_names]

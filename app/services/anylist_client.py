@@ -311,9 +311,22 @@ class _RealAnyList:
             return AuthStatus(False, str(exc), utcnow())
 
     # -- writes --
-    def add_or_increment_items(self, list_name: str, items: list[PushItem]) -> PushResult:
+    def add_or_increment_items(
+        self, list_name: str, items: list[PushItem], on_item=None
+    ) -> PushResult:
         """Add/update each item, then re-fetch + diff to confirm (spike finding #3: a 200
         doesn't mean every op landed).
+
+        `on_item(name, status)`, when given, is called `"active"` right before an item's own
+        op(s) start and `"done"` right after they succeed — CLAUDE.md > UI/UX > Real progress
+        indicators. Deliberately no `"failed"` callback here: if `_post_one` raises mid-item,
+        the exception propagates (unchanged existing behaviour) and that item simply never
+        gets its `"done"` call — the caller (`checklist.py`) can tell which item was in
+        flight when the whole push died from whichever one is still `"active"` when the
+        surrounding request fails, without this class needing to know anything about how
+        progress is tracked or reported (keeps this external-integration class's own
+        "small stable interface" free of a `progress_tracker` import, per CLAUDE.md > Code
+        Architecture & Maintainability).
 
         **One operation per HTTP request — never batched, even across different items.**
         Chunk 5.7 live-verification (2026-09-12) found that AnyList's server silently drops
@@ -370,7 +383,12 @@ class _RealAnyList:
         # differential failure rate between details-touched and untouched items, casting doubt
         # on this finding — but not yet re-verified enough to act on, see the fault-finding
         # spike's 2026-09-19 addendum.)
+        def _notify(name: str, status: str) -> None:
+            if on_item:
+                on_item(name, status)
+
         for it in items:
+            _notify(it.name, "active")
             if it.existing_id and it.existing_id in before:
                 # 2026-09-20 fault-finding (Stage 1 of the reliability investigation, plus a
                 # live parity check against the real, unmodified reference `anylist` npm
@@ -447,6 +465,7 @@ class _RealAnyList:
                     ))
                     result.added_ids[it.name] = new_id
                 result.updated.append(it.name)
+                _notify(it.name, "done")
             else:
                 new_id = uuid.uuid4().hex
 
@@ -466,6 +485,7 @@ class _RealAnyList:
                 ))
                 result.added.append(it.name)
                 result.added_ids[it.name] = new_id
+                _notify(it.name, "done")
 
         if not planned:
             result.confirmed = True
@@ -551,15 +571,19 @@ class _FakeAnyList:
     def check_auth(self) -> AuthStatus:
         return AuthStatus(True, "FAKE MODE — no real AnyList call", utcnow())
 
-    def add_or_increment_items(self, list_name: str, items: list[PushItem]) -> PushResult:
+    def add_or_increment_items(self, list_name: str, items: list[PushItem], on_item=None) -> PushResult:
         # Mirrors the REAL connector's confirmed behaviour, not an idealised one. A bare count
         # (no unit) updates in place, note untouched (Chunk 5.7 — set-list-item-details on an
         # existing item permanently breaks its quantity on the real API). A unit-bearing
         # quantity instead replaces the item under a new id (2026-09-20, Phase B) — the note
         # and checked state both carry across, since that's what the real "replace" does too.
+        # `on_item` mirrors the real connector's callback (see its docstring) — the same
+        # push-progress UI exercises correctly under ANYLIST_FAKE_MODE, no real API needed.
         lst = self._list(list_name)
         result = PushResult()
         for it in items:
+            if on_item:
+                on_item(it.name, "active")
             if it.existing_id and it.existing_id in lst:
                 old = lst[it.existing_id]
                 raw_q, amount, unit = _split_quantity(it.quantity or "")
@@ -577,6 +601,8 @@ class _FakeAnyList:
                 lst[new_id] = AnyListItem(new_id, it.name, it.quantity, False, it.note)
                 result.added.append(it.name)
                 result.added_ids[it.name] = new_id
+            if on_item:
+                on_item(it.name, "done")
         result.confirmed = True
         result.raw_response = "FAKE MODE"
         # never fails, so `retried` stays empty -- fake mode doesn't model the real connector's
@@ -639,12 +665,17 @@ def get_items(list_name: str | None = None) -> list[AnyListItem]:
 
 
 def add_or_increment_items(
-    items: list[PushItem], *, list_name: str | None = None
+    items: list[PushItem], *, list_name: str | None = None, on_item=None
 ) -> PushResult:
     """Push a batch: add new items, set the quantity on ones already present (no duplicates),
-    then re-fetch + diff to confirm. See CLAUDE.md > AnyList Push Logic."""
+    then re-fetch + diff to confirm. See CLAUDE.md > AnyList Push Logic.
+
+    `on_item(name, status)` — see `_RealAnyList.add_or_increment_items`'s docstring — is
+    forwarded straight through to whichever client is active (real or fake); this module-
+    level function itself has no progress-tracking logic of its own, same "small stable
+    interface" discipline as the rest of this file."""
     name = list_name or settings.anylist_target_list_name
-    result = _get_client().add_or_increment_items(name, items)
+    result = _get_client().add_or_increment_items(name, items, on_item=on_item)
     _mark_ok()
     return result
 
