@@ -55,3 +55,13 @@ class _GUnitEntry(BaseModel):
 
 class _GUnitClassifications(BaseModel):
     units: list[_GUnitEntry]
+
+
+class _GGroup(BaseModel):
+    names: list[str]
+    suggested_canonical: str
+    reason: str | None = None
+
+
+class _GGroupings(BaseModel):
+    groups: list[_GGroup]

@@ -48,15 +48,19 @@ from .client import (
     _strip_code_fence,
 )
 from .fixtures import (
+    _FAKE_INGREDIENT_GROUPINGS,
     _FAKE_SECTION_MAP,
     _FAKE_SUBSTITUTION_FLAGS,
     _FAKE_UNIT_CLASSIFICATIONS,
     _pick_fake_fixture,
 )
 from .prompts import (
+    _MAX_GROUPING_REASON_CHARS,
     _MAX_SUBSTITUTION_NOTE_CHARS,
     _STANDARD_UNITS,
     EXTRACTION_SYSTEM_PROMPT,
+    INGREDIENT_GROUPING_SYSTEM_PROMPT,
+    MAX_GROUPING_INPUT_NAMES,
     MAX_INPUT_TEXT_CHARS,
     MAX_USER_HINT_CHARS,
     SECTIONS_SYSTEM_PROMPT,
@@ -65,11 +69,12 @@ from .prompts import (
     format_hint_sections,
     _wrap_untrusted,
 )
-from .schemas import _GExtraction, _GFlags, _GSections, _GUnitClassifications
+from .schemas import _GExtraction, _GFlags, _GGroupings, _GSections, _GUnitClassifications
 from .types import (
     AiExtractionError,
     ExtractedIngredient,
     ExtractionResult,
+    GroupingSuggestion,
     SubstitutionFlag,
 )
 
@@ -357,6 +362,83 @@ def classify_units(
 
     logger.info("AI classify_units: %d match(es)", len(out))
     return out
+
+
+# --- call 5: ingredient-grouping discovery (Fix 5, unrelated to capture) ---------------
+
+
+def suggest_ingredient_groupings(
+    db: Session, *, context_id: str | None = None, names: list[str]
+) -> list[GroupingSuggestion]:
+    """AI-suggested "these names are the same shopping item" groups across a household's own
+    real ingredient vocabulary (CLAUDE.md > Deferred Decisions > AI-assisted ingredient-
+    grouping discovery). A review artifact, never auto-applied — see
+    `scripts/suggest_ingredient_groupings.py`, the only caller. `names` should already exclude
+    already-aliased names (see `services/recipes.py::distinct_ingredient_names`).
+
+    §0a: `names` is the household's full historical `recipe_ingredients.name` list, most of
+    which passed through `extract_recipe()` from a scraped webpage or photo at some point and
+    was only passively reviewed on capture-review, not necessarily retyped — exactly "content
+    from outside the household's own direct input", so (unlike `classify_units()`, whose input
+    is typed into a form field at that exact moment) this call's input IS wrapped in
+    `_wrap_untrusted()`, same as every other call whose input can carry untrusted history."""
+    deduped = sorted({n for n in names if n})
+    if not deduped:
+        return []
+    if len(deduped) > MAX_GROUPING_INPUT_NAMES:
+        logger.warning(
+            "AI suggest_ingredient_groupings: input truncated %d -> %d names",
+            len(deduped), MAX_GROUPING_INPUT_NAMES,
+        )
+        deduped = deduped[:MAX_GROUPING_INPUT_NAMES]
+
+    if settings.ai_extraction_fake_mode:
+        name_set = set(deduped)
+        out = [
+            GroupingSuggestion(
+                names=g["names"], suggested_canonical=g["suggested_canonical"], reason=g["reason"]
+            )
+            for g in _FAKE_INGREDIENT_GROUPINGS
+            if name_set.issuperset(g["names"])
+        ]
+        logger.info("AI suggest_ingredient_groupings: FAKE MODE — %d group(s)", len(out))
+        return out
+
+    _require_enabled("suggest_ingredient_groupings")
+    parts = [genai_types.Part.from_text(text=_wrap_untrusted(json.dumps(deduped)))]
+    raw = _call_gemini(
+        db,
+        call_type="suggest_ingredient_groupings",
+        context_id=context_id,
+        system_prompt=INGREDIENT_GROUPING_SYSTEM_PROMPT,
+        response_schema=_GGroupings,
+        parts=parts,
+    )
+    try:
+        data = json.loads(_strip_code_fence(raw))
+        name_set = set(deduped)
+        groups: list[GroupingSuggestion] = []
+        for g in data.get("groups", []):
+            valid_names = [n for n in g.get("names", []) if n in name_set]
+            canonical = g.get("suggested_canonical")
+            if len(valid_names) < 2 or not canonical:
+                continue
+            reason = g.get("reason")
+            if isinstance(reason, str) and len(reason) > _MAX_GROUPING_REASON_CHARS:
+                logger.info(
+                    "AI suggest_ingredient_groupings: dropped an overlong reason (%d chars)",
+                    len(reason),
+                )
+                reason = None
+            groups.append(
+                GroupingSuggestion(names=valid_names, suggested_canonical=canonical, reason=reason)
+            )
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.error("AI suggest_ingredient_groupings: bad response %r", raw, exc_info=True)
+        raise AiExtractionError("Gemini's grouping response could not be parsed.") from exc
+
+    logger.info("AI suggest_ingredient_groupings: %d group(s)", len(groups))
+    return groups
 
 
 # --- orchestrator ------------------------------------------------------------

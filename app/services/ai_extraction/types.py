@@ -45,6 +45,21 @@ class SubstitutionFlag:
     note: str | None = None
 
 
+@dataclass(frozen=True)
+class GroupingSuggestion:
+    """One AI-suggested "these names are the same shopping item" group (Fix 5, F5.1 — see
+    CLAUDE.md > Deferred Decisions > AI-assisted ingredient-grouping discovery). ``names`` is
+    already allow-list validated by the time this is constructed — only real, currently-used
+    ingredient names ever appear here, never a hallucinated one (see
+    ``calls.py::suggest_ingredient_groupings()``). A review artifact only — nothing consumes
+    this to write to ``ingredient_aliases`` automatically; a human decides via
+    ``scripts/suggest_ingredient_groupings.py``."""
+
+    names: list[str]
+    suggested_canonical: str
+    reason: str | None = None
+
+
 @dataclass
 class ExtractionResult:
     """2026-09-13 code review: this used to also carry `input_tokens`/`output_tokens`, hardcoded

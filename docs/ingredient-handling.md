@@ -379,6 +379,15 @@ under-buying one of them).
   distinct from a neutral oil (dressing vs frying), and this is exactly the kind of pair that
   shouldn't be auto-merged without a deliberate choice. Add more groups via Settings only as a
   real gap shows up — same "don't pre-guess" rule as product_units/usuals/substitutions.
+- **Finding real gaps beyond hand-testing (Fix 5, 2026-09-27)**: dialect/product-naming pairs
+  like "stock"/"broth" share no characters in common, so string-similarity matching can't find
+  them — only world knowledge (an LLM, or unbounded manual review) can. `scripts/
+  suggest_ingredient_groupings.py` runs a one-off, maintainer-triggered AI audit against a
+  household's own real, not-yet-aliased ingredient names (`services/recipes.py::
+  distinct_ingredient_names()`), printing suggested groups for manual review — never
+  auto-applied, never a permanent endpoint. See
+  [Deferred Decisions](./deferred-decisions.md#deferred-decisions) for the reusable-on-demand
+  follow-on this could grow into.
 - **Managed in Settings** (`settings-ingredient-aliases.js`, card title "Ingredient groups") —
   rows grouped by canonical name (same list-grouped-by-target trick as
   `settings-substitutions.js`), add a new alias by typing both names, delete to ungroup.

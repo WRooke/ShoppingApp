@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import utcnow
+from app.models.catalog import IngredientAlias
 from app.models.recipes import Recipe, RecipeIngredient
 from app.schemas.capture import CaptureConfirmRequest
 from app.schemas.recipes import (
@@ -444,3 +445,25 @@ def delete_ingredient(db: Session, recipe_id: int, ingredient_id: int) -> None:
     db.delete(ingredient)
     db.commit()
     logger.info("Ingredient deleted: recipe_id=%s ingredient_id=%s", recipe_id, ingredient_id)
+
+
+def distinct_ingredient_names(db: Session, *, exclude_aliased: bool = True) -> list[str]:
+    """Every distinct `recipe_ingredients.name` value ever used, across every recipe (no
+    archived-recipe filter — matches the existing precedent every other "what's actually used"
+    query in this app already sets, e.g. `unit_synonyms.known_units_for_ingredient()`). Feeds
+    Fix 5's `suggest_ingredient_groupings()` (CLAUDE.md > Deferred Decisions > AI-assisted
+    ingredient-grouping discovery) — this is the household's own real-world ingredient
+    vocabulary, the only thing that call's entire value depends on.
+
+    `exclude_aliased=True` (the default) also drops any name that already appears as an
+    `ingredient_aliases.alias_name` — that pair is already solved, so asking the model about it
+    again would waste input budget and add review noise for something already fixed. A
+    canonical name that has never itself appeared as an alias is deliberately still included —
+    it may still have further undiscovered synonyms elsewhere in the list."""
+    names = {
+        row[0] for row in db.query(func.distinct(RecipeIngredient.name)).all() if row[0]
+    }
+    if exclude_aliased:
+        aliased = {row[0] for row in db.query(IngredientAlias.alias_name).all()}
+        names -= aliased
+    return sorted(names)

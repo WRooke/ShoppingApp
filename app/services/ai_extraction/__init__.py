@@ -75,6 +75,7 @@ from .calls import (
     classify_units,
     extract_recipe,
     flag_substitutions,
+    suggest_ingredient_groupings,
     suggest_sections,
 )
 from .client import (
@@ -96,6 +97,8 @@ from .fixtures import (
 )
 from .prompts import (
     EXTRACTION_SYSTEM_PROMPT,
+    INGREDIENT_GROUPING_SYSTEM_PROMPT,
+    MAX_GROUPING_INPUT_NAMES,
     MAX_INPUT_TEXT_CHARS,
     MAX_USER_HINT_CHARS,
     SECTIONS_SYSTEM_PROMPT,
@@ -106,6 +109,8 @@ from .prompts import (
 from .schemas import (
     _GExtraction,
     _GFlags,
+    _GGroup,
+    _GGroupings,
     _GIngredient,
     _GSectionEntry,
     _GSections,
@@ -120,6 +125,7 @@ from .types import (
     AiQuotaExhaustedError,
     ExtractedIngredient,
     ExtractionResult,
+    GroupingSuggestion,
     SubstitutionFlag,
 )
 
@@ -132,13 +138,16 @@ __all__ = [
     "classify_units",
     "extract_recipe",
     "flag_substitutions",
+    "suggest_ingredient_groupings",
     "suggest_sections",
     "MAX_OUTPUT_TOKENS",
     "MAX_INPUT_TEXT_CHARS",
     "MAX_USER_HINT_CHARS",
+    "MAX_GROUPING_INPUT_NAMES",
     "MODEL_ID",
     "FALLBACK_MODEL_ID",
     "EXTRACTION_SYSTEM_PROMPT",
+    "INGREDIENT_GROUPING_SYSTEM_PROMPT",
     "SECTIONS_SYSTEM_PROMPT",
     "SUBSTITUTIONS_SYSTEM_PROMPT",
     "UNIT_CLASSIFICATION_SYSTEM_PROMPT",
@@ -148,5 +157,6 @@ __all__ = [
     "AiQuotaExhaustedError",
     "ExtractedIngredient",
     "ExtractionResult",
+    "GroupingSuggestion",
     "SubstitutionFlag",
 ]

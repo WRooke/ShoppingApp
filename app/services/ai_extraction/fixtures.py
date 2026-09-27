@@ -82,6 +82,23 @@ _FAKE_UNIT_CLASSIFICATIONS: dict[str, str] = {
     "tbspoon": "tbsp",
 }
 
+# Canned grouping suggestions for fake mode (see suggest_ingredient_groupings(), Fix 5 F5.1).
+# A group is only ever surfaced when EVERY one of its names is present in the actual input list
+# — mirrors the real call's own membership-validation logic (calls.py), so fake mode exercises
+# that same filter rather than bypassing it.
+_FAKE_INGREDIENT_GROUPINGS: list[dict] = [
+    {
+        "names": ["stock", "broth"],
+        "suggested_canonical": "stock",
+        "reason": "same product, different naming",
+    },
+    {
+        "names": ["heavy cream", "thickened cream"],
+        "suggested_canonical": "thickened cream",
+        "reason": "Australian vs American naming",
+    },
+]
+
 
 def _pick_fake_fixture(seed_material: str) -> dict:
     digest = hashlib.sha256(seed_material.encode("utf-8")).hexdigest()

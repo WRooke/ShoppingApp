@@ -19,6 +19,8 @@ from app.schemas.recipes import (
     RecipeIngredientUpdate,
     RecipeUpdate,
 )
+from app.schemas.ingredient_aliases import IngredientAliasCreate
+from app.services import ingredient_aliases as ingredient_aliases_service
 from app.services import recipes as recipes_service
 
 
@@ -542,3 +544,73 @@ def test_find_recipe_by_source_url_prefers_live_over_archived(db):
     found = recipes_service.find_recipe_by_source_url(db, "https://example.com/r?utm_x=1")
 
     assert found.id == live.id
+
+
+# --- distinct_ingredient_names (Fix 5, F5.1 — feeds suggest_ingredient_groupings) -----------
+
+
+def test_distinct_ingredient_names_deduped_and_sorted(db):
+    recipes_service.create_recipe(
+        db,
+        _make_recipe(
+            name="A",
+            ingredients=[
+                RecipeIngredientCreate(name="onion", quantity=1, unit=None),
+                RecipeIngredientCreate(name="garlic", quantity=2, unit="clove"),
+            ],
+        ),
+    )
+    recipes_service.create_recipe(
+        db,
+        _make_recipe(
+            name="B",
+            ingredients=[RecipeIngredientCreate(name="onion", quantity=2, unit=None)],
+            source_url=None,
+        ),
+        allow_duplicate=True,
+    )
+    assert recipes_service.distinct_ingredient_names(db) == ["garlic", "onion"]
+
+
+def test_distinct_ingredient_names_excludes_aliased_by_default(db):
+    recipes_service.create_recipe(
+        db,
+        _make_recipe(
+            ingredients=[
+                RecipeIngredientCreate(name="canola oil", quantity=1, unit="tbsp"),
+                RecipeIngredientCreate(name="onion", quantity=1, unit=None),
+            ]
+        ),
+    )
+    ingredient_aliases_service.create_alias(
+        db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil")
+    )
+    assert recipes_service.distinct_ingredient_names(db) == ["onion"]
+
+
+def test_distinct_ingredient_names_keeps_a_canonical_that_was_never_itself_an_alias(db):
+    recipes_service.create_recipe(
+        db,
+        _make_recipe(
+            ingredients=[
+                RecipeIngredientCreate(name="canola oil", quantity=1, unit="tbsp"),
+                RecipeIngredientCreate(name="vegetable oil", quantity=1, unit="tbsp"),
+            ]
+        ),
+    )
+    ingredient_aliases_service.create_alias(
+        db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil")
+    )
+    # "vegetable oil" is a canonical target, never itself an alias_name — still included, since
+    # it may have further undiscovered synonyms elsewhere in the real ingredient list.
+    assert recipes_service.distinct_ingredient_names(db) == ["vegetable oil"]
+
+
+def test_distinct_ingredient_names_exclude_aliased_false_includes_everything(db):
+    recipes_service.create_recipe(
+        db, _make_recipe(ingredients=[RecipeIngredientCreate(name="canola oil", quantity=1, unit="tbsp")])
+    )
+    ingredient_aliases_service.create_alias(
+        db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil")
+    )
+    assert recipes_service.distinct_ingredient_names(db, exclude_aliased=False) == ["canola oil"]
