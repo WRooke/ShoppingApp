@@ -268,3 +268,23 @@ def alias_map(db: Session) -> dict[str, AliasResolution]:
         )
         for row in db.query(IngredientAlias).all()
     }
+
+
+def hint_pairs(db: Session, *, source: str) -> list[tuple[str, str]]:
+    """``(alias_name, canonical_name)`` pairs for the given ``source`` ("system" or "user"),
+    newest-first (``created_at`` descending). Deliberately a separate, lighter-weight query
+    from ``alias_map()`` above — that one returns every row keyed for O(1) consolidation-time
+    lookup (a different shape for a different purpose); this one feeds the extraction-prompt
+    builder (``ai_extraction/calls.py::build_extraction_system_prompt``, Fix 2 F2.3), which
+    only ever needs a plain, orderable list to cap and format, never a lookup by name.
+
+    Deliberately ignores the qty/unit equivalence-pair columns — a quantity conversion is a
+    consolidation-time concern (CLAUDE.md > Ingredient Aliases), never an extraction-prompt
+    one; a pair-carrying alias still surfaces here as a plain name hint, nothing more."""
+    rows = (
+        db.query(IngredientAlias.alias_name, IngredientAlias.canonical_name)
+        .filter(IngredientAlias.source == source)
+        .order_by(IngredientAlias.created_at.desc())
+        .all()
+    )
+    return [(row.alias_name, row.canonical_name) for row in rows]

@@ -153,6 +153,13 @@ class IngredientAlias(Base):
     alias_unit = Column(Text, nullable=True)
     canonical_qty = Column(Float, nullable=True)
     canonical_unit = Column(Text, nullable=True)  # nullable -- the canonical side is often a bare count
+    # 2026-09-27 (Fix 2, F2.1) -- "system" (a universal English fact, e.g. table salt -> salt;
+    # only ever written by a migration, never via the API) or "user" (a household preference;
+    # the default for every row created through create_alias()). Lets the extraction-prompt
+    # builder (services/ai_extraction/calls.py::build_extraction_system_prompt) frame the two
+    # kinds of hint distinctly to the model. IngredientAliasCreate has no `source` field, so the
+    # API can never set this to "system" directly.
+    source = Column(Text, nullable=False, default="user")
     created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
     updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 

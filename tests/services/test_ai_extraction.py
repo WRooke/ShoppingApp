@@ -18,18 +18,23 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models.diagnostics import AiCallLog
+from app.schemas.ingredient_aliases import IngredientAliasCreate
+from app.services import ingredient_aliases as ia
 from app.services.ai_extraction import (
     EXTRACTION_SYSTEM_PROMPT,
     FALLBACK_MODEL_ID,
     MAX_INPUT_TEXT_CHARS,
+    MAX_USER_HINT_CHARS,
     MODEL_ID,
     AiExtractionDisabledError,
     AiExtractionError,
     ExtractedIngredient,
+    build_extraction_system_prompt,
     capture_recipe,
     classify_units,
     extract_recipe,
     flag_substitutions,
+    format_hint_sections,
     suggest_sections,
 )
 
@@ -307,6 +312,136 @@ def test_extraction_prompt_prefers_metric_over_imperial():
     lowered = EXTRACTION_SYSTEM_PROMPT.lower()
     assert "metric" in lowered
     assert "imperial" in lowered
+
+
+# --- prompt wording (2026-09-27 — Fix 2, F2.3: the 3 legacy hardcoded canonicalisation pairs
+# move from static prose into dynamic, DB-driven hints — see build_extraction_system_prompt) --
+
+
+def test_extraction_prompt_no_longer_hardcodes_the_3_legacy_pairs():
+    # These pairs are now seeded (source='system') by migration 62a354151f0d and surfaced
+    # dynamically by build_extraction_system_prompt() below — the STATIC constant must no
+    # longer carry them as literal prose.
+    lowered = EXTRACTION_SYSTEM_PROMPT.lower()
+    assert "minced beef" not in lowered
+    assert "green onion" not in lowered
+    assert "scallion" not in lowered
+
+
+def test_extraction_prompt_still_keeps_the_generic_salt_rule():
+    lowered = EXTRACTION_SYSTEM_PROMPT.lower()
+    assert "salt" in lowered
+    assert "flaky" in lowered  # the finishing-salt exception survives the rewrite
+
+
+# --- format_hint_sections (Fix 2, F2.3) ----------------------------------------------------
+
+
+def test_format_hint_sections_empty_when_both_lists_empty():
+    assert format_hint_sections([], []) == ""
+
+
+def test_format_hint_sections_system_only():
+    out = format_hint_sections([("table salt", "salt")], [])
+    assert "universal english facts" in out.lower()
+    assert '"table salt" means "salt"' in out
+    assert "this household" not in out.lower()
+
+
+def test_format_hint_sections_user_only():
+    out = format_hint_sections([], [("heavy cream", "thickened cream")])
+    assert "this household" in out.lower()
+    assert '"heavy cream" means "thickened cream"' in out
+    assert "universal english facts" not in out.lower()
+
+
+def test_format_hint_sections_both_distinctly_labelled():
+    out = format_hint_sections([("table salt", "salt")], [("heavy cream", "thickened cream")])
+    lowered = out.lower()
+    assert "universal english facts" in lowered
+    assert "this household" in lowered
+    assert lowered.index("table salt") < lowered.index("this household")  # system section first
+
+
+def test_format_hint_sections_wraps_both_in_the_untrusted_delimiter():
+    out = format_hint_sections([("table salt", "salt")], [("heavy cream", "thickened cream")])
+    assert out.count("<untrusted_recipe_source") == 2  # one wrap per section
+    assert out.count("</untrusted_recipe_source") == 2
+
+
+# --- build_extraction_system_prompt (Fix 2, F2.3) ------------------------------------------
+
+
+def _system_alias(db):
+    row = ia.create_alias(db, IngredientAliasCreate(alias_name="table salt", canonical_name="salt"))
+    row.source = "system"
+    db.commit()
+    return row
+
+
+def test_build_extraction_system_prompt_includes_system_hints(db):
+    _system_alias(db)
+    out = build_extraction_system_prompt(db)
+    assert out.startswith(EXTRACTION_SYSTEM_PROMPT)
+    assert '"table salt" means "salt"' in out
+
+
+def test_build_extraction_system_prompt_includes_user_hints_distinctly(db):
+    ia.create_alias(db, IngredientAliasCreate(alias_name="heavy cream", canonical_name="thickened cream"))
+    out = build_extraction_system_prompt(db)
+    assert '"heavy cream" means "thickened cream"' in out
+    assert "this household" in out.lower()
+
+
+def test_build_extraction_system_prompt_unchanged_with_no_aliases_at_all(db):
+    assert build_extraction_system_prompt(db) == EXTRACTION_SYSTEM_PROMPT
+
+
+def test_build_extraction_system_prompt_caps_user_hints_to_the_char_budget(db):
+    # Enough short user aliases to exceed MAX_USER_HINT_CHARS several times over.
+    for i in range(200):
+        ia.create_alias(
+            db, IngredientAliasCreate(alias_name=f"zz ingredient {i}", canonical_name=f"zz canonical {i}")
+        )
+    out = build_extraction_system_prompt(db)
+    hint_text_len = len(out) - len(EXTRACTION_SYSTEM_PROMPT)
+    assert hint_text_len < len(EXTRACTION_SYSTEM_PROMPT)  # genuinely capped, not just present
+    # Newest-first: the LAST-created alias (zz ingredient 199) must survive the cap; the
+    # FIRST-created (zz ingredient 0) must not, since it's the oldest and gets dropped first.
+    assert "zz ingredient 199" in out
+    assert "zz ingredient 0" not in out
+
+
+def test_build_extraction_system_prompt_is_dynamic_not_cached(db):
+    before = build_extraction_system_prompt(db)
+    ia.create_alias(db, IngredientAliasCreate(alias_name="broth", canonical_name="stock"))
+    after = build_extraction_system_prompt(db)
+    assert before != after
+    assert '"broth" means "stock"' in after
+
+
+def test_extract_recipe_calls_the_prompt_builder_not_the_bare_constant(db, api_enabled):
+    _system_alias(db)
+    client = _mock_client(_resp(_EXTRACTION_PAYLOAD))
+    with patch("app.services.ai_extraction.genai.Client", client):
+        extract_recipe(db, call_type="recipe_url", text="x")
+    cfg = client.return_value.models.generate_content.call_args.kwargs["config"]
+    assert cfg.system_instruction == build_extraction_system_prompt(db)
+    assert cfg.system_instruction != EXTRACTION_SYSTEM_PROMPT  # proves the hint actually landed
+
+
+def test_extract_recipe_fake_mode_unaffected_by_db_aliases(db, fake_mode):
+    # Fake mode must never touch the DB or the builder — locks in that fake-mode development
+    # stays zero-dependency regardless of what's in a household's ingredient_aliases table.
+    _system_alias(db)
+    ia.create_alias(db, IngredientAliasCreate(alias_name="heavy cream", canonical_name="thickened cream"))
+    result_with_aliases = extract_recipe(db, call_type="recipe_url", text="500g beef mince")
+
+    db.query(ia.IngredientAlias).delete()
+    db.commit()
+    result_without_aliases = extract_recipe(db, call_type="recipe_url", text="500g beef mince")
+
+    assert result_with_aliases.ingredients == result_without_aliases.ingredients
 
 
 # --- suggest_sections (call 3) -------------------------------------------------

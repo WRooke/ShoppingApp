@@ -58,6 +58,20 @@ recognises two names as *the same thing* ("green onion" = "spring onion"). Subst
 treats two *different* products as interchangeable for shopping, because one is obscure or
 hard to find — e.g. "bulgarian feta" → "regular feta".
 
+> **Note (2026-09-27, F0):** the `plain yoghurt` → `greek yoghurt` `remembered_substitutions`
+> row is superseded, not deleted. The household's own prod data showed this exact pair already
+> recorded as a substitution, confirming it's a settled preference rather than a per-recipe
+> judgement call — so it was promoted to a silent `ingredient_aliases` row instead (see
+> [Ingredient Aliases](#ingredient-aliases)). The old substitution row is deliberately **left in
+> place** (CLAUDE.md non-negotiable rule 3 — no dropped row holding real household data) rather
+> than deleted: it's functionally inert now (substitution resolution runs before alias
+> resolution, and a remembered substitution never auto-applies on its own regardless), so it can
+> only ever resurface as a redundant-but-harmless "from your saved swaps" quick-pick if someone
+> manually reopens the swap UI for "plain yoghurt" again. If a future session finds this row and
+> wonders why it looks stale, this is why — it isn't a bug, and removing it is a normal,
+> reversible Settings deletion for the maintainer to do if they want it gone, not something a
+> migration or this doc should do unilaterally.
+
 ### Summary of the merged design
 
 - **Proposed** by a dedicated Gemini call at capture time (per recipe), *and* editable later
@@ -341,19 +355,24 @@ under-buying one of them).
   (and re-point any existing row that was pointing at a name which just became an alias
   itself), so `alias_map()`/consolidation only ever need a single dict lookup, never a
   chain-walk.
-- **Complements, doesn't replace, the existing salt-group prompt-based canonicalisation**
-  ([Recipe Capture](./recipe-capture.md#recipe-capture--ai-extraction) extraction prompt). That mechanism is for
-  well-known universal synonyms an LLM can recognise on its own ("kosher salt" → "salt") and
-  only ever fires on AI-extracted content. This is for household-specific groupings no
-  generic model could know are meant to merge (canola vs vegetable oil is genuinely
-  contextual — plenty of households would *not* want those grouped) and — because it's
-  applied at consolidation time, not extraction time — it also covers manually-typed
-  ingredients, which the prompt never touches. Building this also resolves the older
-  [Deferred Decisions](./deferred-decisions.md#deferred-decisions) "Ingredient synonym normalisation" item's
-  Settings-managed-alias-table half; feeding the alias table into the extraction prompt
-  itself (so the capture-review screen already shows the canonical name, not just the final
-  shopping list) is a small possible follow-on, not built now — see
-  [Deferred Decisions](./deferred-decisions.md#deferred-decisions).
+- **Complements, doesn't replace, the extraction-prompt canonicalisation.** Originally a
+  hardcoded, extraction-only mechanism (well-known universal synonyms an LLM can recognise on
+  its own, e.g. "kosher salt" → "salt"), separate from this table (household-specific groupings
+  no generic model could know are meant to merge — canola vs vegetable oil is genuinely
+  contextual — and, applied at consolidation time, also covers manually-typed ingredients the
+  prompt never touches). Building this table resolved the older
+  [Deferred Decisions](./deferred-decisions.md#deferred-decisions) "Ingredient synonym
+  normalisation" item's Settings-managed-alias-table half at the time (2026-09-10). **Fully
+  resolved 2026-09-27 (Fix 2, F2.3)**: the extraction prompt no longer hardcodes any pairs as
+  literal prose — the 3 legacy pairs (plain-salt group, "minced beef"→"beef mince",
+  "green onion"/"scallion"→"spring onion") are now `source='system'` rows in *this* table,
+  seeded once by migration `62a354151f0d`, and every real capture's system prompt is built
+  dynamically (`app/services/ai_extraction/calls.py::build_extraction_system_prompt()`) from
+  both those `system` rows and the household's own `user` rows — so a capture-review screen now
+  shows the canonical name immediately for a household preference too (e.g. "heavy cream" →
+  "thickened cream"), not only at the final shopping list. See [Recipe
+  Capture](./recipe-capture.md#claude-extraction-prompt-system)'s 2026-09-27b note for the exact
+  mechanism (the two hint sections, the character cap, the §0a wrapping).
 - **Seeded with one starter group** (`app/seed_data.py > INGREDIENT_ALIAS_SEEDS`): "canola
   oil" and "oil spray" → "vegetable oil" — these three read as the same product to most
   households. "olive oil" is deliberately **not** included — a household commonly wants it kept

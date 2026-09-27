@@ -89,6 +89,11 @@ class IngredientAliasRead(_EquivalencePairMixin):
     alias_name: str
     canonical_name: str
     note: str | None
+    # 2026-09-27 (Fix 2, F2.1) -- "system" (a universal English fact) or "user" (a household
+    # preference; the default). No `source` field on IngredientAliasCreate -- a household can
+    # never set this to "system" via the API, only a migration can. See
+    # app/models/catalog.py > IngredientAlias.source.
+    source: str
     created_at: datetime
     updated_at: datetime
 

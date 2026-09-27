@@ -37,7 +37,7 @@ from google.genai import types as genai_types
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.services import progress_tracker
+from app.services import ingredient_aliases, progress_tracker
 
 from .client import (
     _call_gemini,
@@ -58,9 +58,11 @@ from .prompts import (
     _STANDARD_UNITS,
     EXTRACTION_SYSTEM_PROMPT,
     MAX_INPUT_TEXT_CHARS,
+    MAX_USER_HINT_CHARS,
     SECTIONS_SYSTEM_PROMPT,
     SUBSTITUTIONS_SYSTEM_PROMPT,
     UNIT_CLASSIFICATION_SYSTEM_PROMPT,
+    format_hint_sections,
     _wrap_untrusted,
 )
 from .schemas import _GExtraction, _GFlags, _GSections, _GUnitClassifications
@@ -75,6 +77,39 @@ logger = logging.getLogger(__name__)
 
 
 # --- call 1: recipe extraction -----------------------------------------------------
+
+
+def build_extraction_system_prompt(db: Session) -> str:
+    """`EXTRACTION_SYSTEM_PROMPT` + the dynamic household-alias hint sections (Fix 2, F2.3).
+    Lives here, not in `prompts.py` — that module is deliberately pure prompt strings with no
+    sibling-module dependency (see its own docstring); this function is the `db`-touching
+    assembly step, same layer as every other task function in this file that already mixes
+    `db` with cross-service imports (e.g. `progress_tracker` above).
+
+    Only ever called from the real (non-fake-mode) path below — fake mode returns before
+    reaching this, so it stays a true zero-DB-dependency fixture path, unaffected by whatever
+    is or isn't in a household's `ingredient_aliases` table.
+
+    §0a: `ingredient_aliases` rows are not reliably direct household input — an `alias_name`
+    can be, and often will be, text an AI extraction pulled from a scraped webpage or photo,
+    only passively reviewed on the capture screen, not necessarily retyped by a person. That is
+    exactly the "content from outside the household's own direct input" pattern §0a exists for,
+    so both hint sections are wrapped in `_wrap_untrusted()` (via `format_hint_sections()`)
+    exactly like the recipe content itself — this is NOT `classify_units()`'s exemption (a unit
+    typed into a form field at that exact moment, touching nothing else first); ingredient
+    names have always been freetext with no allow-list, so this introduces no new *output*-
+    validation surface, only a new *input*-trust question, already answered by wrapping it."""
+    system_pairs = ingredient_aliases.hint_pairs(db, source="system")
+    user_pairs = ingredient_aliases.hint_pairs(db, source="user")
+    capped_user_pairs: list[tuple[str, str]] = []
+    budget = MAX_USER_HINT_CHARS
+    for pair in user_pairs:
+        cost = len(f'- "{pair[0]}" means "{pair[1]}"\n')
+        if cost > budget:
+            break
+        capped_user_pairs.append(pair)
+        budget -= cost
+    return EXTRACTION_SYSTEM_PROMPT + format_hint_sections(system_pairs, capped_user_pairs)
 
 
 def extract_recipe(
@@ -132,7 +167,7 @@ def extract_recipe(
         db,
         call_type=call_type,
         context_id=context_id,
-        system_prompt=EXTRACTION_SYSTEM_PROMPT,
+        system_prompt=build_extraction_system_prompt(db),
         response_schema=_GExtraction,
         parts=parts,
     )

@@ -70,6 +70,7 @@ from app.config import settings  # noqa: F401
 
 from .calls import (
     PROGRESS_STEPS,
+    build_extraction_system_prompt,
     capture_recipe,
     classify_units,
     extract_recipe,
@@ -96,9 +97,11 @@ from .fixtures import (
 from .prompts import (
     EXTRACTION_SYSTEM_PROMPT,
     MAX_INPUT_TEXT_CHARS,
+    MAX_USER_HINT_CHARS,
     SECTIONS_SYSTEM_PROMPT,
     SUBSTITUTIONS_SYSTEM_PROMPT,
     UNIT_CLASSIFICATION_SYSTEM_PROMPT,
+    format_hint_sections,
 )
 from .schemas import (
     _GExtraction,
@@ -124,6 +127,7 @@ __all__ = [
     "genai",
     "settings",
     "PROGRESS_STEPS",
+    "build_extraction_system_prompt",
     "capture_recipe",
     "classify_units",
     "extract_recipe",
@@ -131,12 +135,14 @@ __all__ = [
     "suggest_sections",
     "MAX_OUTPUT_TOKENS",
     "MAX_INPUT_TEXT_CHARS",
+    "MAX_USER_HINT_CHARS",
     "MODEL_ID",
     "FALLBACK_MODEL_ID",
     "EXTRACTION_SYSTEM_PROMPT",
     "SECTIONS_SYSTEM_PROMPT",
     "SUBSTITUTIONS_SYSTEM_PROMPT",
     "UNIT_CLASSIFICATION_SYSTEM_PROMPT",
+    "format_hint_sections",
     "AiExtractionDisabledError",
     "AiExtractionError",
     "AiQuotaExhaustedError",

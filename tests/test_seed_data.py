@@ -48,3 +48,19 @@ def test_seed_is_idempotent_for_the_preference_aliases(db):
         .count()
     )
     assert count == 4
+
+
+def test_seed_never_resurrects_a_deleted_system_alias(db):
+    """Fix 2, F2.4 — the 3 legacy system alias groups (migration 62a354151f0d) are
+    deliberately NOT in INGREDIENT_ALIAS_SEEDS, precisely so a household deleting one of them
+    via Settings sees it stay gone across every future restart, unlike the user-preference
+    rows above which re-seed if missing."""
+    row = IngredientAlias(alias_name="table salt", canonical_name="salt", source="system")
+    db.add(row)
+    db.commit()
+    db.delete(row)
+    db.commit()
+
+    seed_reference_data(db)
+
+    assert db.query(IngredientAlias).filter(IngredientAlias.alias_name == "table salt").first() is None

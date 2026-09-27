@@ -98,6 +98,12 @@ SECTION_VOCABULARY: list[str] = [
 # maintainer flagged it as genuinely recipe-dependent (sometimes a real ingredient in its own
 # right, e.g. a marinade base bought as a carton, not always a fresh-squeeze stand-in), so
 # auto-converting it would be wrong often enough to not guess at.
+# 2026-09-27 (Fix 2, F2.2) — the 3 legacy hardcoded canonicalisation pairs the extraction
+# prompt used to carry as literal prose (plain-salt group, "minced beef" -> "beef mince",
+# "green onion"/"scallion" -> "spring onion") are seeded once, ever, by migration
+# 62a354151f0d, `source='system'`, NOT here. Do not add them to this list — this dict re-runs
+# on every startup (see seed_reference_data() below), so a household deleting one via Settings
+# would see it silently resurrected on the next restart, which a one-time migration avoids.
 INGREDIENT_ALIAS_SEEDS: list[dict] = [
     {"alias_name": "canola oil", "canonical_name": "vegetable oil"},
     {"alias_name": "oil spray", "canonical_name": "vegetable oil"},

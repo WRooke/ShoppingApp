@@ -52,6 +52,14 @@ def test_create_normalises_both_names(db):
     assert row.canonical_name == "vegetable oil"
 
 
+def test_create_defaults_source_to_user(db):
+    # Fix 2, F2.1 — the API never lets a household create a source='system' row (no `source`
+    # field on IngredientAliasCreate at all); every row created through create_alias() defaults
+    # to 'user'. Only a migration (F2.2) writes 'system'.
+    row = ia.create_alias(db, _c("canola oil", "vegetable oil"))
+    assert row.source == "user"
+
+
 def test_create_rejects_self_alias(db):
     with pytest.raises(ia.InvalidIngredientAliasError):
         ia.create_alias(db, _c("olive oil", "olive oil"))
@@ -234,3 +242,55 @@ def test_delete_only_removes_that_row(db):
     ia.delete_alias(db, a.id)
     remaining, total = ia.list_aliases(db)
     assert total == 1 and remaining[0].id == b.id
+
+
+# --- hint_pairs (Fix 2, F2.3 — feeds the extraction-prompt builder) ------------------------
+
+
+def _make_system(db, alias, canonical):
+    """create_alias() always defaults to source='user' (no API path creates 'system' rows —
+    only a migration does, see F2.1/F2.2), so tests needing a system row set it directly."""
+    row = ia.create_alias(db, _c(alias, canonical))
+    row.source = "system"
+    db.commit()
+    return row
+
+
+def test_hint_pairs_system_only(db):
+    _make_system(db, "table salt", "salt")
+    ia.create_alias(db, _c("canola oil", "vegetable oil"))  # a user row, must not appear
+    assert ia.hint_pairs(db, source="system") == [("table salt", "salt")]
+
+
+def test_hint_pairs_user_only(db):
+    _make_system(db, "table salt", "salt")  # a system row, must not appear
+    ia.create_alias(db, _c("canola oil", "vegetable oil"))
+    assert ia.hint_pairs(db, source="user") == [("canola oil", "vegetable oil")]
+
+
+def test_hint_pairs_empty_when_none_of_that_source_exist(db):
+    ia.create_alias(db, _c("canola oil", "vegetable oil"))
+    assert ia.hint_pairs(db, source="system") == []
+
+
+def test_hint_pairs_newest_first(db):
+    ia.create_alias(db, _c("canola oil", "vegetable oil"))
+    ia.create_alias(db, _c("oil spray", "vegetable oil"))
+    assert ia.hint_pairs(db, source="user") == [
+        ("oil spray", "vegetable oil"),
+        ("canola oil", "vegetable oil"),
+    ]
+
+
+def test_hint_pairs_ignores_equivalence_pair_fields(db):
+    # A pair-carrying alias (a quantity/unit conversion, consolidation-time only) must still
+    # surface here as a plain name hint, with no qty/unit info leaked into the extraction
+    # prompt — see CLAUDE.md > Ingredient Aliases for why that's a consolidation-time concern.
+    ia.create_alias(
+        db,
+        IngredientAliasCreate(
+            alias_name="lemon juice", canonical_name="lemon", alias_qty=3, alias_unit="tbsp",
+            canonical_qty=1, canonical_unit=None,
+        ),
+    )
+    assert ia.hint_pairs(db, source="user") == [("lemon juice", "lemon")]

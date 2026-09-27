@@ -151,22 +151,56 @@ Rules:
 
 > **Note (2026-09-23):** two more rules added to `EXTRACTION_SYSTEM_PROMPT`
 > (`app/services/ai_extraction/prompts.py`), forward-looking only — no migration of existing
-> saved recipes. (1) Garlic defaults to a count of **cloves** when the recipe gives no unit
-> (e.g. "2 garlic" → quantity 2, unit `"cloves"`); `"heads"` is used only when the text
-> explicitly says whole heads/bulbs. `unit` has no fixed enum in the Gemini structured-output
-> schema (`schemas.py`'s `_GIngredient.unit` is a bare `str | None`), so this needed no schema
-> change — a free-text discrete unit like `"cloves"` is already handled the same way `"clove"`/
-> `"bunch"`/`"can"` are elsewhere (ceiled-to-whole scaling; [Ingredient Unit
-> Handling](./ingredient-handling.md#ingredient-unit-handling) Layers A/B). Checked for other
-> ingredients with the same gap (a bare count of a noun that isn't the natural purchase unit);
-> none found in this app's own seed data — eggs/onions/lemons/limes are already
-> unambiguous bare counts today. (2) When a source gives both a metric and an
+> saved recipes. (1) Garlic defaults to a count of cloves when the recipe gives no unit —
+> **superseded 2026-09-27, see below, this original wording was self-contradictory in
+> practice.** (2) When a source gives both a metric and an
 > imperial/US measurement for the same quantity (slash-separated, a metric/imperial toggle
 > widget, or separate ingredient blocks), always extract the metric value and ignore the
 > imperial one. Confirmed `capture_url.py` fetches raw HTML via `httpx` + BeautifulSoup with no
 > JS execution, so a toggle widget can only ever expose whichever value the server already
 > rendered — this is a pure parsing-preference fix, not something needing page-render
 > awareness.
+
+> **Note (2026-09-27a) — the garlic/clove rule above was live-tested and found broken, then
+> generalised.** A live capture of a genuinely short, simple recipe (Tomahawk steak, 7
+> ingredients) failed outright with `AiExtractionError`, not a wrong answer — root cause traced
+> to `gemini-flash-latest` defaulting to thinking mode on, its reasoning tokens drawn from the
+> same `max_output_tokens` budget as the visible completion; disabling thinking outright
+> (`thinking_config` in `app/services/ai_extraction/client.py`, `_call_gemini`) fixed it — none
+> of this package's 5 call types benefit from chain-of-thought, all being deterministic,
+> schema-constrained JSON extractions already run at `temperature=0`. Separately, the same live
+> test's *other* recipe (a tagine with garlic and thyme) showed the original 2026-09-23 garlic
+> rule was self-contradictory: the prompt's own unit-enum line ("must be one of: g, kg, ml, L,
+> tsp, tbsp, cup, or null") never mentioned `"cloves"` as an exception, so the model split
+> between honouring the enum (bare count, `unit=null`) and honouring the garlic-specific
+> override inconsistently across otherwise-identical inputs — and the same gap applied to woody
+> herbs given as a number of sprigs (thyme, rosemary, ...), which had no rule at all and always
+> came back bare-count. Both are now one consistent "discrete counting units" rule: the unit
+> enum explicitly references the carve-out, garlic still defaults to `"clove"` (`"head"` only
+> for an explicit whole head/bulb), and woody herbs given as a number of sprigs default to
+> `"sprig"` — with an explicit guardrail against inventing a counting unit for anything else.
+> Live-reverified after the fix: both garlic and thyme consistently returned real units, not
+> bare counts, across a repeat capture. See `app/services/ai_extraction/prompts.py`'s
+> `EXTRACTION_SYSTEM_PROMPT` for the exact current wording — as always, this doc block is kept
+> in sync opportunistically, not on every tweak.
+
+> **Note (2026-09-27b) — the extraction prompt is no longer a single static constant for every
+> call (Fix 2, F2.3).** `EXTRACTION_SYSTEM_PROMPT` itself stays a static base (and dropped its
+> own hardcoded "minced beef"→"beef mince" and "green onion"/"scallion"→"spring onion" pairs —
+> see [Ingredient Aliases](./ingredient-handling.md#ingredient-aliases)), but every real call
+> now goes through `app/services/ai_extraction/calls.py::build_extraction_system_prompt(db)`,
+> which appends two dynamic, `_wrap_untrusted()`-wrapped hint sections built from the
+> household's own `ingredient_aliases` table: `source='system'` rows (universal English facts,
+> e.g. the plain-salt group, seeded once by migration `62a354151f0d`) and `source='user'` rows
+> (this household's own preferences, e.g. "heavy cream" → "thickened cream" — capped to
+> `MAX_USER_HINT_CHARS` characters, newest-first, so an unbounded household table can't blow
+> out the prompt). Both sections are wrapped exactly like scraped recipe content itself:
+> `ingredient_aliases` rows aren't reliably direct household input (an `alias_name` can be text
+> an AI extraction pulled from a scraped page, only passively reviewed, not necessarily
+> retyped), so this is the same §0a untrusted-content pattern, not an exemption. Fake-mode
+> capture is unaffected — it returns a canned fixture before this function is ever called, so
+> it stays a true zero-DB-dependency path. See [Ingredient
+> Aliases](./ingredient-handling.md#ingredient-aliases) for the alias mechanism itself.
 
 The `suggested_section` enum in the prompt text is kept in sync with
 `SECTION_VOCABULARY` in `app/seed_data.py` by hand (see

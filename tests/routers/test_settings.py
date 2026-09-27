@@ -242,6 +242,18 @@ def test_create_ingredient_alias_happy_path(client):
     body = resp.json()["data"]
     assert body["alias_name"] == "zz canola oil"  # normalised (hyphen -> space)
     assert body["canonical_name"] == "zz vegetable oil"
+    assert body["source"] == "user"  # Fix 2, F2.1 — every API-created row defaults to 'user'
+
+
+def test_create_ingredient_alias_ignores_a_source_field_in_the_request_body(client):
+    # Fix 2, F2.1 — a household can never create a source='system' row via the API; IngredientAliasCreate
+    # has no `source` field at all, so one sent in the body is silently dropped, not honoured.
+    resp = client.post(
+        "/api/v1/settings/ingredient-aliases",
+        json={"alias_name": "zz-spoofed-source", "canonical_name": "zz-target", "source": "system"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["data"]["source"] == "user"
 
 
 def test_create_ingredient_alias_duplicate_returns_structured_409(client):
