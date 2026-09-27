@@ -27,6 +27,7 @@ from app.schemas.sessions import (
     SessionSlotUpdate,
     SlotOrderUpdate,
 )
+from app.services import checklist_display
 from app.services import sessions as sessions_service
 
 logger = logging.getLogger(__name__)
@@ -159,9 +160,9 @@ def consolidate_session(
         db, session_id, overrides=(data.overrides if data else None)
     )
     items = [
-        ChecklistItemRead.model_validate(row).model_copy(
-            update={"recipe_breakdown": breakdown.get(row.ingredient_name, [])}
-        )
+        checklist_display.decorate(
+            db, ChecklistItemRead.model_validate(row)
+        ).model_copy(update={"recipe_breakdown": breakdown.get(row.ingredient_name, [])})
         for row in rows
     ]
     return {

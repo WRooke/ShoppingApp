@@ -156,6 +156,20 @@ class ChecklistItemRead(BaseModel):
     id: int
     session_id: int
     ingredient_name: str
+    # 2026-09-27 — natural-English display form of `ingredient_name` (which stays singular, the
+    # stable matching key) for THIS line's own (total_quantity, total_unit) — see
+    # services/checklist_display.py. NOT a session_checklist_items column: computed fresh by the
+    # router on every read/response, same "ephemeral, derive don't store" precedent as
+    # `recipe_breakdown` below. Falls back to `ingredient_name` itself when pydantic validates
+    # straight off the ORM row (no such attribute there) — the router always overrides it via
+    # `model_copy` before the response goes out; see routers/checklist.py.
+    display_name: str = ""
+    # 2026-09-27 — natural-English display form of `total_unit`, pluralised when it's a discrete
+    # counting unit (clove, sprig, head, ...) and the quantity isn't 1 ("12 cloves"). A standard
+    # measured unit (g, ml, tsp, ...) passes through unchanged regardless of quantity — see
+    # services/checklist_display.py::display_unit. Same ephemeral/computed-fresh contract as
+    # display_name above.
+    display_unit: str | None = None
     total_quantity: float | None
     total_unit: str | None
     already_on_anylist: bool
@@ -186,6 +200,12 @@ class ReviewOptionRead(BaseModel):
 
     quantity: float
     unit: str | None = None
+    # 2026-09-27 — natural-English display form of THIS option's own `unit` — see
+    # ChecklistItemRead.display_unit and services/checklist_display.py::display_unit. The
+    # ingredient's name is never repeated per-option (the checklist card already shows it once
+    # as the row heading); only the amount needs to read naturally here, e.g. "12 cloves" rather
+    # than "12 clove".
+    display_unit: str | None = None
 
 
 class RecipeContribution(BaseModel):

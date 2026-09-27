@@ -47,7 +47,11 @@
     if (item.total_quantity == null) return item.note || "";
     var q = item.total_quantity;
     var n = q === Math.round(q) ? String(Math.round(q)) : String(q);
-    return item.total_unit ? n + " " + item.total_unit : n;
+    // 2026-09-27 — display_unit pluralises a discrete counting unit naturally ("12 cloves"),
+    // same as checklist.js's qtyText; the editable-form pre-fills below deliberately keep the
+    // raw total_unit (the real matching-key value), not this display form.
+    var unit = item.display_unit || item.total_unit;
+    return unit ? n + " " + unit : n;
   }
 
   function mount(root, sessionId) {
@@ -157,7 +161,7 @@
       var main = el("div");
       main.style.flex = "3 1 200px";
       var nameEl = hasBreakdown ? el("button", "recipe-row-name recipe-row-name-btn") : el("div", "recipe-row-name");
-      nameEl.textContent = item.ingredient_name + (hasBreakdown ? " ▾" : "");
+      nameEl.textContent = (item.display_name || item.ingredient_name) + (hasBreakdown ? " ▾" : "");
       main.appendChild(nameEl);
 
       var detail;
@@ -190,12 +194,12 @@
         nameEl.addEventListener("click", function () {
           if (breakdownSlot.firstChild) {
             breakdownSlot.innerHTML = "";
-            nameEl.textContent = item.ingredient_name + " ▾";
+            nameEl.textContent = (item.display_name || item.ingredient_name) + " ▾";
             return;
           }
           breakdownSlot.innerHTML = "";
           breakdownSlot.appendChild(renderBreakdown(item));
-          nameEl.textContent = item.ingredient_name + " ▴";
+          nameEl.textContent = (item.display_name || item.ingredient_name) + " ▴";
         });
       }
 

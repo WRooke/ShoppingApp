@@ -39,15 +39,16 @@
     // checklist, even though this is the screen right before push. Matched to
     // session-review.js's renderItemRow so both screens show the same information.
     if (item.needs_review) return item.note || "mixed units";
+    var unit = item.display_unit || item.total_unit;
     if (item.display_qty) {
       var s = item.display_qty;
       if (item.total_quantity != null)
-        s += " · need ~" + fmtNum(item.total_quantity) + (item.total_unit ? " " + item.total_unit : "");
+        s += " · need ~" + fmtNum(item.total_quantity) + (unit ? " " + unit : "");
       if (item.note) s += " · " + item.note;
       return s;
     }
     if (item.total_quantity == null) return item.note || "";
-    var qty = fmtNum(item.total_quantity) + (item.total_unit ? " " + item.total_unit : "");
+    var qty = fmtNum(item.total_quantity) + (unit ? " " + unit : "");
     return item.note ? qty + " · " + item.note : qty;
   }
 
@@ -56,7 +57,8 @@
   }
 
   function optionLabel(opt) {
-    return opt.unit ? fmtNum(opt.quantity) + " " + opt.unit : fmtNum(opt.quantity);
+    var unit = opt.display_unit || opt.unit;
+    return unit ? fmtNum(opt.quantity) + " " + unit : fmtNum(opt.quantity);
   }
 
   // Shared Plan -> Review -> Checklist -> Push indicator (own small copy — see
@@ -190,7 +192,7 @@
       review.forEach(function (item) {
         var row = el("div", "checklist-row");
         var main = el("div", "main");
-        main.appendChild(el("div", "name", item.ingredient_name));
+        main.appendChild(el("div", "name", item.display_name || item.ingredient_name));
         main.appendChild(el("div", "meta", item.note || "mixed units"));
         row.appendChild(main);
         wrap.appendChild(row);
@@ -202,6 +204,10 @@
         // not by regex-parsing `item.note` back apart. `note` can carry extra appended text
         // (e.g. an Ingredient Aliases conversion fragment) alongside the review breakdown,
         // which a regex had no reliable way to tell apart from the breakdown itself.
+        // 2026-09-27 — optionLabel() reads opt.display_unit when present, so a discrete
+        // counting unit pluralises naturally ("use 12 cloves") — see
+        // services/checklist_display.py::display_unit. The ingredient's own name is
+        // deliberately never repeated here; the card heading above already names it once.
         (item.review_options || []).forEach(function (opt) {
           var btn = el("button", "btn-sm", "use " + optionLabel(opt));
           btn.addEventListener("click", function () {
@@ -254,7 +260,11 @@
         if (item.already_on_anylist) row.classList.add("on-anylist");
 
         var main = el("div", "main");
-        main.appendChild(el("div", "name", item.ingredient_name));
+        // 2026-09-27 — natural-English display form ("chicken thighs", not the matching key
+        // "chicken thigh") for this line's own resolved amount — see
+        // services/checklist_display.py. Falls back to ingredient_name for safety if an older
+        // cached response is ever re-rendered without display_name.
+        main.appendChild(el("div", "name", item.display_name || item.ingredient_name));
 
         // 2026-09-24 — inline "+ Add pack size" entry, no navigation to Settings. Shown only
         // when this item has a real quantity but no known product_units row at all (the exact

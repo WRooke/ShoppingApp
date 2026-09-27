@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.database import utcnow
 from app.models.history import ShoppingHistory
 from app.services import anylist_client
+from app.services import checklist_display
 from app.models.planning import SessionChecklistItem
 from app.services import progress_tracker
 from app.services import sessions as sessions_service
@@ -276,7 +277,12 @@ def push_to_anylist(
     ]
     push_items = [
         PushItem(
-            name=ci.ingredient_name.title(),
+            # 2026-09-27 — the natural-English display form ("chicken thighs", not the
+            # matching key "chicken thigh") for THIS line's own resolved amount — see
+            # services/checklist_display.py. AnyList's own fuzzy-match on re-push (_find_match
+            # above) already tolerates a plural/singular difference via its own singularise
+            # fallback, so this doesn't affect existing-item matching.
+            name=checklist_display.display_name(db, ci.ingredient_name, ci.total_quantity, ci.total_unit).title(),
             quantity=_anylist_quantity(ci),
             existing_id=ci.anylist_item_id if ci.already_on_anylist else None,
             # 2026-09-10 hand-testing: a checklist note ("to taste", an overage hint like

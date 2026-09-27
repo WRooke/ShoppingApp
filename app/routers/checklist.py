@@ -20,6 +20,7 @@ from app.schemas.checklist import (
 )
 from app.schemas.sessions import ChecklistItemRead
 from app.services import checklist as checklist_service
+from app.services import checklist_display
 from app.services import progress_tracker
 from app.services import usuals as usuals_service
 
@@ -28,8 +29,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/checklist", tags=["checklist"])
 
 
-def _item(row) -> dict:
-    return ChecklistItemRead.model_validate(row).model_dump()
+def _item(db: Session, row) -> dict:
+    return checklist_display.decorate(db, ChecklistItemRead.model_validate(row)).model_dump()
 
 
 @router.get("/{session_id}")
@@ -39,7 +40,9 @@ def load_checklist(session_id: int, db: Session = Depends(get_db)) -> dict:
         session_id=session_id,
         anylist_ok=anylist_ok,
         anylist_detail=anylist_detail,
-        items=[ChecklistItemRead.model_validate(r) for r in items],
+        items=[
+            checklist_display.decorate(db, ChecklistItemRead.model_validate(r)) for r in items
+        ],
         usuals=checklist_service.due_usuals(db),
     )
     return {"ok": True, "data": body.model_dump()}
@@ -55,7 +58,7 @@ def update_item(
     row = checklist_service.update_item(
         db, session_id, item_id, have_it=data.have_it, add_to_list=data.add_to_list
     )
-    return {"ok": True, "data": _item(row)}
+    return {"ok": True, "data": _item(db, row)}
 
 
 @router.post("/{session_id}/items/{item_id}/resolve")
@@ -68,7 +71,7 @@ def resolve_item(
     row = checklist_service.resolve_item(
         db, session_id, item_id, total_quantity=data.total_quantity, total_unit=data.total_unit
     )
-    return {"ok": True, "data": _item(row)}
+    return {"ok": True, "data": _item(db, row)}
 
 
 @router.post("/usuals/{usual_id}/skip")
