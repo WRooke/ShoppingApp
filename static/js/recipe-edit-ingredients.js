@@ -73,6 +73,7 @@
     row.appendChild(grid);
     row.appendChild(miniField("Preparation", prepInput));
     row.appendChild(global.UnitHints.attach(nameInput, unitInput)); // 2026-09-12, see unit-hints.js
+    row.appendChild(global.IngredientNameHints.attach(nameInput)); // Fix 4, see ingredient-name-hints.js
 
     // Substitution (Phase 3.9 M4) — the swap this recipe uses. Blank clears it.
     var resolvedInput = el("input");
@@ -235,6 +236,7 @@
     row.appendChild(grid);
     row.appendChild(miniField("Preparation", prepInput));
     row.appendChild(global.UnitHints.attach(nameInput, unitInput)); // 2026-09-12, see unit-hints.js
+    row.appendChild(global.IngredientNameHints.attach(nameInput)); // Fix 4, see ingredient-name-hints.js
 
     var addBtn = el("button", "btn-sm primary", "+ Add ingredient");
     var rowErr = el("span", "form-error");

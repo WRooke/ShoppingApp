@@ -23,6 +23,7 @@ from app.schemas.recipes import (
     RecipeUpdate,
 )
 from app.services import product_sections
+from app.services import text_normalize
 from app.services import unit_synonyms as unit_synonyms_service
 
 logger = logging.getLogger(__name__)
@@ -467,3 +468,21 @@ def distinct_ingredient_names(db: Session, *, exclude_aliased: bool = True) -> l
         aliased = {row[0] for row in db.query(IngredientAlias.alias_name).all()}
         names -= aliased
     return sorted(names)
+
+
+def known_ingredient_names(db: Session) -> list[str]:
+    """The full set of ingredient names this household's own data already recognises, each
+    normalised through `text_normalize.normalise_ingredient_name` — feeds Fix 4's on-the-fly
+    alias nudge (CLAUDE.md > Ingredient Handling > Ingredient Aliases), so a freshly-typed name
+    can be fuzzy-matched against it client-side.
+
+    Deliberately **not** `distinct_ingredient_names()` above (Fix 5's function) — that one
+    defaults to excluding already-aliased names (the opposite of useful here, where an aliased
+    name's *canonical* form is exactly what should be nudged toward) and returns raw,
+    unnormalised strings. This unions every raw `recipe_ingredients.name` (no exclusion) with
+    every `ingredient_aliases.canonical_name` (so a canonical that was never itself typed as a
+    raw ingredient name is still a valid nudge target), normalises both, and dedupes."""
+    raw_names = {row[0] for row in db.query(func.distinct(RecipeIngredient.name)).all() if row[0]}
+    canonical_names = {row[0] for row in db.query(IngredientAlias.canonical_name).all() if row[0]}
+    normalised = {text_normalize.normalise_ingredient_name(n) for n in raw_names | canonical_names}
+    return sorted(normalised)

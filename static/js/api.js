@@ -118,6 +118,9 @@
       ingredientUnits: function (name) {
         return api.get("/api/v1/recipes/ingredient-units?name=" + encodeURIComponent(name));
       },
+      ingredientNames: function () {
+        return api.get("/api/v1/recipes/ingredient-names");
+      },
       addIngredient: function (recipeId, data) {
         return jsonBody(
           "POST",

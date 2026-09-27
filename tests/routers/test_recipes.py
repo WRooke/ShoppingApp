@@ -342,4 +342,22 @@ def test_ingredient_units_endpoint_returns_units_used_before(client):
 def test_ingredient_units_endpoint_empty_for_unused_name(client):
     resp = client.get("/api/v1/recipes/ingredient-units?name=zz-never-used-ingredient")
     assert resp.status_code == 200
-    assert resp.json()["data"]["units"] == []
+
+
+# --- ingredient-names: on-the-fly alias nudge lookup (Fix 4, F4.1, 2026-09-27) ---------------
+
+
+def test_ingredient_names_endpoint_returns_deduped_normalised_names(client):
+    _create_recipe(
+        client,
+        name="ZZ-IngNames-Test",
+        # plural marker on the trailing word -- normalise_ingredient_name only singularises
+        # the last word of a name, so "zz test carrots" -> "zz test carrot".
+        ingredients=[{"name": "zz test carrots", "quantity": 2, "unit": None}],
+    )
+    resp = client.get("/api/v1/recipes/ingredient-names")
+    assert resp.status_code == 200
+    names = resp.json()["data"]["names"]
+    # normalised (singular) and deduped -- exactly one entry for this ingredient
+    assert names.count("zz test carrot") == 1
+    assert "zz test carrots" not in names

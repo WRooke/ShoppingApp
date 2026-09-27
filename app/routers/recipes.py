@@ -168,6 +168,16 @@ def ingredient_units(
     return {"ok": True, "data": {"units": units}}
 
 
+# Fix 4 (2026-09-27, CLAUDE.md > Ingredient Handling > Ingredient Aliases) — the full known
+# ingredient-name vocabulary (normalised), fetched once client-side to power the on-the-fly
+# alias nudge on the name field, mirroring Layer C's own unit-field nudge above. Same
+# declared-before-{recipe_id} reasoning as check-duplicate/ingredient-units above.
+@router.get("/ingredient-names")
+def ingredient_names(db: Session = Depends(get_db)) -> dict:
+    names = recipes_service.known_ingredient_names(db)
+    return {"ok": True, "data": {"names": names}}
+
+
 @router.get("/{recipe_id}")
 def get_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
     recipe = recipes_service.get_recipe(db, recipe_id)

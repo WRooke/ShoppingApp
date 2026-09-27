@@ -153,6 +153,7 @@
       rowEl.appendChild(grid);
       rowEl.appendChild(miniField("Preparation", prepI));
       rowEl.appendChild(global.UnitHints.attach(nameI, unitI)); // 2026-09-12, see unit-hints.js
+      rowEl.appendChild(global.IngredientNameHints.attach(nameI)); // Fix 4, see ingredient-name-hints.js
       var removeRow = el("div", "log-controls");
       removeRow.style.marginTop = "8px";
       removeRow.appendChild(removeBtn);

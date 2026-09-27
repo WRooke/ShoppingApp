@@ -614,3 +614,37 @@ def test_distinct_ingredient_names_exclude_aliased_false_includes_everything(db)
         db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil")
     )
     assert recipes_service.distinct_ingredient_names(db, exclude_aliased=False) == ["canola oil"]
+
+
+# --- known_ingredient_names (Fix 4, F4.1 — feeds the on-the-fly alias nudge) -----------------
+
+
+def test_known_ingredient_names_dedupes_raw_name_against_alias_canonical(db):
+    # "chicken thighs" (raw, plural) and an alias's canonical "chicken thigh" (singular)
+    # normalise to the same key -- must appear exactly once, not twice. The alias's own
+    # alias_name ("chook thigh") is deliberately NOT in the result -- it never exists as a
+    # standalone shopping item, it always resolves to its canonical target.
+    recipes_service.create_recipe(
+        db, _make_recipe(ingredients=[RecipeIngredientCreate(name="chicken thighs", quantity=8, unit=None)])
+    )
+    ingredient_aliases_service.create_alias(
+        db, IngredientAliasCreate(alias_name="chook thigh", canonical_name="chicken thigh")
+    )
+    assert recipes_service.known_ingredient_names(db) == ["chicken thigh"]
+
+
+def test_known_ingredient_names_includes_canonical_never_used_as_raw_name(db):
+    # "vegetable oil" is only ever a canonical target, never a raw recipe_ingredients.name --
+    # still a valid nudge target (unlike distinct_ingredient_names' default exclude-aliased
+    # behaviour, this function has no exclusion at all).
+    recipes_service.create_recipe(
+        db, _make_recipe(ingredients=[RecipeIngredientCreate(name="canola oil", quantity=1, unit="tbsp")])
+    )
+    ingredient_aliases_service.create_alias(
+        db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil")
+    )
+    assert recipes_service.known_ingredient_names(db) == ["canola oil", "vegetable oil"]
+
+
+def test_known_ingredient_names_empty_db_returns_empty_list(db):
+    assert recipes_service.known_ingredient_names(db) == []

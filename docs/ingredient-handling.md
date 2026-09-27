@@ -393,10 +393,14 @@ under-buying one of them).
   `settings-substitutions.js`), add a new alias by typing both names, delete to ungroup.
   `alias_name` isn't editable after creation (delete + recreate); `canonical_name` can be
   changed (re-grouping), same convention as `RememberedSubstitution`'s immutable
-  `original_name`. **Partially resolved 2026-09-27 (Fix 3)** — the checklist's own merge action
-  (below) now offers "always treat these as the same ingredient?" inline at the point a mismatch
-  is actually noticed, writing a durable `source='user'` alias without a trip to Settings;
-  Settings remains the only place to *edit* an existing group's canonical name or delete one.
+  `original_name`. **Resolved 2026-09-27/28 (Fix 3, then Fix 4)** — the checklist's own merge
+  action (below) offers "always treat these as the same ingredient?" inline when a mismatch is
+  noticed at shopping-list time (Fix 3); the on-the-fly alias nudge (`static/js/
+  ingredient-name-hints.js`, mirroring Ingredient Unit Handling's Layer C) catches it even
+  earlier, right where a name is first typed — recipe entry, recipe editing, and capture-review
+  all offer "keep both, treat as one shopping item" the moment a close-but-not-identical name is
+  noticed (Fix 4). Settings remains the only place to *edit* an existing group's canonical name
+  or delete one.
   **Redesigned 2026-09-23 (mockup-approved — cluttered/unclear grouping was
   flagged in review):** each canonical group is now one `.settings-group-card` with a visible
   alias count in its heading; each alias row shows its (still immutable) name as a labelled
