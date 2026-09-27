@@ -235,6 +235,35 @@ build safe (see the intro to this section).
   stamp head` for the already-current tables, verified column-by-column via `PRAGMA
   table_info` first, never blind.
 
+### Data loss on prod is never acceptable
+- **Any change that would lose data on the NUC's production database when deployed is
+  unacceptable — full stop, no exceptions for convenience, deadline, or feature scope.** This
+  sits alongside (not instead of) the migration discipline above: it's the standard every
+  migration and every `update.py` run is actually held to.
+- **Every schema change must be backwards compatible with the prod DB it will be applied to.**
+  Concretely: an Alembic migration must apply cleanly to the NUC's real, currently-running
+  database — not just to a fresh `create_all()` schema or the dev PC's own DB — and must never
+  drop a column/table/row that still holds real household data, never narrow a type or add a
+  `NOT NULL` in a way that orphans existing rows, and never rename in place without a
+  data-preserving path (add-new/backfill/drop-old across separate migrations, not a same-step
+  rename that silently discards what doesn't map).
+- **Why:** the prod DB holds the household's actual recipes, sessions, and shopping history —
+  data with no upstream source to regenerate from if a careless migration eats it. The dev PC's
+  DB is disposable (seed data, test fixtures, drift already tolerated per the note below); the
+  NUC's is not, and the two are allowed to diverge in schema *state* (dev ahead, NUC catching up
+  on the next `update.py`) but never in a way that makes catching up destructive.
+- **How to apply:** before writing a migration, ask what happens to existing rows under it, not
+  just whether it runs. Prefer additive changes (new nullable column, new table) over
+  destructive ones. Where a destructive-looking change is genuinely required (e.g. the
+  `product_units` UNIQUE-constraint tightening), check first whether real data violates the new
+  constraint and handle it explicitly (a data migration step, a backfill, a warning surfaced to
+  the maintainer) rather than letting Alembic's `ALTER` fail loudly on prod or, worse, succeed
+  by silently discarding rows. When in doubt whether a change is safe against the *real* prod
+  data shape (not just the dev DB's), ask the maintainer before shipping it — this is exactly
+  the kind of judgement call [Backup & Restore](./deployment-and-operations.md#backup--restore)'s pre-restore
+  safety copy and tested restore path exist to backstop, not a substitute for getting the
+  migration itself right.
+
 ### Keep this document and the code pointing at each other
 - Keep doing what Phase 1 already does: a docstring or comment that names the relevant CLAUDE.md
   section (e.g. "see CLAUDE.md > Data Model") wherever code exists *because* of a decision made
@@ -304,7 +333,7 @@ ShoppingApp/
 │   │   ├── anylist_client.py    ← Python-native AnyList connector, small stable interface (Phase 5, from spike/)
 │   │   ├── version.py           ← app version string for the client auto-update banner (2026-09-23), see CLAUDE.md > UI/UX
 │   │   └── progress_tracker.py  ← in-memory step tracking for the real capture/push progress UIs (2026-09-23), see CLAUDE.md > UI/UX
-│   ├── seed_data.py           ← staples + product_units + section vocabulary starter data
+│   ├── seed_data.py           ← product_units + section vocabulary starter data
 │   └── log_config.py          ← logging setup, in-memory ring buffer
 ├── alembic/                    ← DB migrations (bootstrapped Phase 3 Chunk 3.7 — see CLAUDE.md > Migrations)
 │   ├── env.py                  ← wired to app.database.Base + the config sqlite:/// URL

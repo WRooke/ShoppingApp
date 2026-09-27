@@ -4,7 +4,7 @@ Chunk 5.4). CRUD + a due-date calculation. Plain Python / SQLAlchemy, no ``fasta
 An item is *due* when it has never been added (``last_added_at IS NULL``) or when
 ``last_added_at + cadence_days`` has passed. Due items surface as their own group on the
 checklist (Chunk 5.5); pushing one to AnyList stamps ``last_added_at`` (Chunk 5.6). Seeded
-empty — no pre-guessing, same call as the staples starter list.
+empty — no pre-guessing, same "don't pre-guess" discipline as every other reference list.
 
 See CLAUDE.md > Checklist Screen Logic > "The usuals" and > Data Model > usual_items.
 """

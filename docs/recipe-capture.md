@@ -159,7 +159,7 @@ Rules:
 > `"bunch"`/`"can"` are elsewhere (ceiled-to-whole scaling; [Ingredient Unit
 > Handling](./ingredient-handling.md#ingredient-unit-handling) Layers A/B). Checked for other
 > ingredients with the same gap (a bare count of a noun that isn't the natural purchase unit);
-> none found in this app's own seed/staples data — eggs/onions/lemons/limes are already
+> none found in this app's own seed data — eggs/onions/lemons/limes are already
 > unambiguous bare counts today. (2) When a source gives both a metric and an
 > imperial/US measurement for the same quantity (slash-separated, a metric/imperial toggle
 > widget, or separate ingredient blocks), always extract the metric value and ignore the

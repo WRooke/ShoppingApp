@@ -8,10 +8,8 @@ At checklist screen load:
    a. Check if it appears in current AnyList list (fuzzy name match — normalised lowercase,
       strip plurals if needed)
    b. If found: set `already_on_anylist = True`, `have_it = 'yes'` by default
-   c. Check if it is in `staples` table: set `is_staple = True`
 3. Present checklist to user:
    - Items already on AnyList: pre-ticked, shown in a distinct style (user can untick)
-   - Staples (only if used in this session's recipes): shown with a checkbox
    - All other items: unchecked by default
 4. User sets each item's `have_it` state via two independent one-tap toggles, "Have it" /
    "Need it" (`static/js/checklist.js`, `.have-need-pair`) — **reworked 2026-09-24**, replacing
@@ -25,6 +23,10 @@ At checklist screen load:
 5. Items marked 'no' or where `add_to_list` is True get pushed to AnyList
 
 ### Inline pack-size entry (2026-09-24)
+
+The reference implementation of [UI/UX > Design principle: resolve at the point of
+need](./ui-ux.md#design-principle-resolve-at-the-point-of-need-not-in-settings) — fixing a
+missing pack size right here instead of sending the user to Settings.
 
 An ingredient line with a real quantity but no matching `product_units` row shows a raw
 quantity with no pack breakdown (e.g. "1.05 kg" instead of "2 × 750 g jars · need ~1.05 kg" —
@@ -56,13 +58,14 @@ in the same session.
 Raised 2026-09-05, **designed at the Phase 5 kickoff (2026-09-07)**: alongside the
 recipe-driven checklist above, a pass over recurring non-recipe household items — laundry
 powder, dishwashing liquid, and similar things bought periodically regardless of what's being
-cooked. Distinct from [`staples`](./data-model.md#staples) — staples are recipe ingredients assumed on-hand,
-surfaced only when a recipe in the session needs them; "the usuals" have no recipe link at
-all and are offered on their own schedule.
+cooked. Was distinct from the now-retired [`staples`](./data-model.md#staples) feature in the
+one way that mattered even before that removal: this has real cadence/memory
+(`cadence_days`/`last_added_at`), which `staples` never did — see [Decision History > Staples —
+usefulness assessment](./decision-history.md#staples--usefulness-assessment-raised-2026-09-27).
 
 **Resolved design** (Decision Dialogue → option 2, day-based cadence, checklist group):
 - **Own table** — [`usual_items`](./data-model.md#usual_items) (`name` / `notes` / `cadence_days` /
-  `last_added_at`), not a flag on `staples`.
+  `last_added_at`).
 - **Day-based cadence.** Each item carries `cadence_days` ("buy roughly every N days"). It is
   *due* when `last_added_at IS NULL` or `last_added_at + cadence_days` has passed. Days rather
   than "every N sessions" because ad-hoc single-recipe sessions make a session an unreliable
@@ -71,8 +74,8 @@ all and are offered on their own schedule.
 - **Checklist group, not a separate screen.** Due usuals render as the final group on the
   existing checklist screen, each with a checkbox; ticked ones ride the same push as the
   recipe items. Non-due items don't appear.
-- **Managed in Settings** (`settings-usuals.js`), same CRUD shape as staples/product-units.
-  Seeded empty — no pre-guessing, same call as the [Staples Starter List](./data-model.md#staples-starter-list).
+- **Managed in Settings** (`settings-usuals.js`), same CRUD shape as product-units.
+  Seeded empty — same "don't pre-guess" discipline as every other reference list.
 
 Built in [Phase 5 Chunks 5.4 / 5.5 / 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration).
 

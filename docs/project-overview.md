@@ -15,8 +15,7 @@ consolidated shopping list to AnyList, a shared grocery list app they both use.
 5. Planning engine consolidates ingredients across all recipes, scales quantities, resolves
    purchase units
 6. Checklist screen: pull current AnyList items, then walk through each ingredient — "do you
-   have this?" Pre-tick anything already on AnyList. Staples appear only when they are needed
-   by a recipe in this session.
+   have this?" Pre-tick anything already on AnyList.
 7. Review final list — optionally as a store-specific walking-order view (see
    [Shopping List Store Layout](./checklist-and-shopping.md#shopping-list-store-layout))
 8. Push to AnyList in one action

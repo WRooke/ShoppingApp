@@ -3,7 +3,7 @@
    just "buy a bunch", not a number worth reconciling. See CLAUDE.md > Ingredient Unit
    Handling > Layer D.
 
-   Flat list, same CRUD shape as staples/usuals — no grouping needed, each row is one
+   Flat list, same CRUD shape as usuals — no grouping needed, each row is one
    ingredient with its own purchase label and "recipes per pack" divisor.
 
    Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on

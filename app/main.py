@@ -61,9 +61,7 @@ from app.services.sessions import (
 )
 from app.services.settings import (
     DuplicateProductUnitNameError,
-    DuplicateStapleNameError,
     ProductUnitNotFoundError,
-    StapleNotFoundError,
 )
 from app.services.substitutions import (
     DuplicateSubstitutionError,
@@ -116,7 +114,7 @@ async def lifespan(app: FastAPI):
         logger.error("Database initialisation failed during startup", exc_info=True)
         raise
 
-    # Reference data (staples + product_units starter lists) — idempotent, safe to
+    # Reference data (product_units starter list) — idempotent, safe to
     # run on every startup. See CLAUDE.md > Build Phases > Phase 2, Chunk 2.1.
     db = SessionLocal()
     try:
@@ -235,12 +233,6 @@ _DOMAIN_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         404,
         "INGREDIENT_NOT_FOUND",
         lambda e: f"Ingredient {e.ingredient_id} not found on recipe {e.recipe_id}.",
-    ),
-    StapleNotFoundError: _domain_error_handler(
-        404, "STAPLE_NOT_FOUND", lambda e: f"Staple {e.staple_id} not found."
-    ),
-    DuplicateStapleNameError: _domain_error_handler(
-        409, "DUPLICATE_STAPLE_NAME", lambda e: f'"{e.name}" is already on the staples list.'
     ),
     UsualItemNotFoundError: _domain_error_handler(
         404, "USUAL_ITEM_NOT_FOUND", lambda e: f"Usual item {e.usual_id} not found."

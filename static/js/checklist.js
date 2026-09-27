@@ -1,10 +1,9 @@
 /* Checklist screen (Phase 5 Chunk 5.5) — #/checklist/<session_id>.
 
    Walks the consolidated shopping list one item at a time: "do you have this?".
-   Items already on AnyList are pre-ticked and shown distinctly. Staples and the due
-   "usuals" are their own groups. Irreconcilable-units lines (Chunk 4.6) get an inline
-   resolve control. Items you don't have (or explicitly tick "add") are what Chunk 5.6
-   pushes to AnyList.
+   Items already on AnyList are pre-ticked and shown distinctly. The due "usuals" are their
+   own group. Irreconcilable-units lines (Chunk 4.6) get an inline resolve control. Items you
+   don't have (or explicitly tick "add") are what Chunk 5.6 pushes to AnyList.
 
    have_it is BINARY (no 'partial' — see CLAUDE.md > Deferred Decisions), set via two
    independent one-tap toggles ("Have it" / "Need it") — 2026-09-24, replacing an earlier
@@ -151,12 +150,10 @@
       var items = data.items || [];
       var usuals = data.usuals || [];
       var review = items.filter(function (i) { return i.needs_review; });
-      var staples = items.filter(function (i) { return i.is_staple && !i.needs_review; });
-      var regular = items.filter(function (i) { return !i.is_staple && !i.needs_review; });
+      var regular = items.filter(function (i) { return !i.needs_review; });
 
       if (review.length) body.appendChild(reviewGroup(review));
       body.appendChild(itemsGroup(regular));
-      if (staples.length) body.appendChild(staplesGroup(staples));
       // 2026-09-10 hand-testing ("Where's the usuals?") — this group used to disappear
       // entirely when nothing was currently due, which is indistinguishable from the feature
       // not existing at all if you've never set any usuals up. Always show it, with a message
@@ -391,26 +388,6 @@
           global.alert("Saved the pack size, but couldn't refresh the checklist: " + err.message);
           load();
         });
-    }
-
-    // --- staples ---
-    function staplesGroup(staples) {
-      var wrap = el("div");
-      wrap.appendChild(el("div", "sub-group-heading", "Staples used this session"));
-      staples.forEach(function (item) {
-        var row = el("div", "checklist-row");
-        var label = el("label", "ing-swap-remember");
-        var cb = el("input"); cb.type = "checkbox"; cb.checked = !!item.add_to_list;
-        cb.addEventListener("change", function () {
-          patchItem(item, { add_to_list: cb.checked });
-        });
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(" " + item.ingredient_name + " — add to list"));
-        row.appendChild(label);
-        if (item.already_on_anylist) row.appendChild(el("span", "muted", " (already on AnyList)"));
-        wrap.appendChild(row);
-      });
-      return wrap;
     }
 
     // --- the usuals: a stock-check prompt, not a bare checkbox (kickoff decision #8) ---

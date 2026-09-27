@@ -1,7 +1,8 @@
-"""``product_units``, ``staples``, ``remembered_substitutions``, ``ingredient_aliases``,
-``unit_synonyms`` and ``coarse_ingredients`` — the editable reference catalogue managed from
-the Settings page. (``remembered_substitutions`` was ``ingredient_substitutions`` with an
-auto-applying ``is_default`` until Phase 3.9 M4.)"""
+"""``product_units``, ``remembered_substitutions``, ``ingredient_aliases``, ``unit_synonyms``
+and ``coarse_ingredients`` — the editable reference catalogue managed from the Settings page.
+(``remembered_substitutions`` was ``ingredient_substitutions`` with an auto-applying
+``is_default`` until Phase 3.9 M4.) ``Staple`` below is a former member of this catalogue, kept
+for schema-preservation only — see its own docstring."""
 
 from __future__ import annotations
 
@@ -33,6 +34,17 @@ class ProductUnit(Base):
 
 
 class Staple(Base):
+    """Retired 2026-09-27 — the "assume always on hand" checklist grouping this backed had no
+    cadence/memory, so it never actually saved a have/need decision (identical interaction cost
+    to any other ingredient every session); removed at the application layer with no proven
+    replacement demand. This class is intentionally kept, with no router/service/frontend code
+    referencing it, purely so the ``staples`` table is never dropped from a database that may
+    already hold rows — CLAUDE.md's non-negotiable rule 3 ("data loss on the NUC's production
+    database is never acceptable") forbids a migration that would do that. Do not delete this
+    class or write a migration dropping ``staples`` without re-reading that rule. See
+    docs/decision-history.md > "Staples — usefulness assessment" for the full record.
+    """
+
     __tablename__ = "staples"
 
     id = Column(Integer, primary_key=True)
@@ -44,8 +56,11 @@ class Staple(Base):
 
 class UsualItem(Base):
     """"The usuals" (Phase 5 Chunk 5.4) — recurring non-recipe household items bought on a
-    day-based schedule, independent of meal planning. Distinct from ``Staple`` (recipe
-    ingredients assumed on-hand). Surfaced on the checklist as its own group only when *due*:
+    day-based schedule, independent of meal planning. Distinct from the now-retired ``Staple``
+    (recipe ingredients that were assumed on-hand — see that class's docstring for why it was
+    removed) in the one way that mattered even before the removal: "the usuals" actually has
+    real cadence/memory (``cadence_days``/``last_added_at``), which ``Staple`` never did.
+    Surfaced on the checklist as its own group only when *due*:
     ``last_added_at IS NULL`` or ``last_added_at + cadence_days`` has passed. Cadence is in
     days, not sessions — an ad-hoc single-recipe session is an unreliable clock. Managed in
     Settings, seeded empty. See CLAUDE.md > Checklist Screen Logic > "The usuals" and >
@@ -179,7 +194,8 @@ class CoarseIngredient(Base):
     "pack" concept (a plain purchase label + a recipe-count divisor) is simpler than, and
     orthogonal to, ``ProductUnit``'s precise weight/volume pack-size resolution, which a
     coarse ingredient never runs. Checked against an ingredient's FINAL resolved name (after
-    substitution + ``IngredientAlias`` resolution), the same point ``is_staple`` is checked.
+    substitution + ``IngredientAlias`` resolution), the same point substitution/alias
+    resolution finishes.
     """
 
     __tablename__ = "coarse_ingredients"

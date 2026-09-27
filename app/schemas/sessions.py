@@ -158,7 +158,6 @@ class ChecklistItemRead(BaseModel):
     ingredient_name: str
     total_quantity: float | None
     total_unit: str | None
-    is_staple: bool
     already_on_anylist: bool
     have_it: str
     add_to_list: bool

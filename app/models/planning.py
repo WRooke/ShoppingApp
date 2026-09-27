@@ -67,6 +67,10 @@ class SessionChecklistItem(Base):
     ingredient_name = Column(Text, nullable=False)  # consolidated, normalised
     total_quantity = Column(Float, nullable=True)
     total_unit = Column(Text, nullable=True)
+    # Retired 2026-09-27 alongside the Staple model (app/models/catalog.py) — nothing ever sets
+    # this True again. Kept, not dropped, per CLAUDE.md's non-negotiable rule 3 (no data loss on
+    # the NUC's production database); see docs/decision-history.md > "Staples — usefulness
+    # assessment" for the full record.
     is_staple = Column(Boolean, nullable=False, default=False)
     already_on_anylist = Column(Boolean, nullable=False, default=False)
     have_it = Column(Text, nullable=False, default="unknown")  # 'yes'|'no'|'partial'|'unknown'

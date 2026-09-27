@@ -121,6 +121,13 @@ the weekly backup are in `SETUP.md`.
 - **`scripts/update.py`'s migration step runs before the server is stopped** — see
   [Code Architecture & Maintainability > Migrations](./code-architecture.md#migrations) for
   the trade-off and why that ordering is deliberate, not an oversight.
+- **Data loss on the NUC's prod DB from a deployed change is never acceptable** — see
+  [Code Architecture & Maintainability > Data loss on prod is never
+  acceptable](./code-architecture.md#data-loss-on-prod-is-never-acceptable). Every migration
+  that reaches `update.bat` must be backwards compatible with the real prod data it will run
+  against, not just with a fresh dev DB. The pre-restore safety copy and tested restore path
+  above are the backstop for the unexpected, not a substitute for shipping a migration that's
+  safe in the first place.
 
 ---
 

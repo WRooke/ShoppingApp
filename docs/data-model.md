@@ -130,6 +130,15 @@ updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 > `product_units` column change, `UNIQUE(ingredient_name, purchase_label)` unaffected.
 
 ### `staples`
+
+**Retired 2026-09-27** — see [Decision History > Staples — usefulness
+assessment](./decision-history.md#staples--usefulness-assessment-raised-2026-09-27). The
+"assume always on hand" checklist grouping this backed had no cadence/memory, so it never
+actually saved a have/need decision; removed at the application layer (no router, service, or
+frontend code references it any more). **The table itself is intentionally *not* dropped** —
+CLAUDE.md's non-negotiable rule 3 ("data loss on the NUC's production database is never
+acceptable") forbids a migration that would risk any existing row. It stays in the schema,
+unused, forever; no new rows are ever seeded into it going forward.
 ```
 id              INTEGER PRIMARY KEY
 name            TEXT NOT NULL UNIQUE  -- normalised lowercase
@@ -264,7 +273,7 @@ attempted.
 id                INTEGER PRIMARY KEY
 name              TEXT NOT NULL UNIQUE   -- normalised lowercase; checked against the FINAL
                                           -- resolved name (after substitution + ingredient-
-                                          -- alias resolution), same point `is_staple` checks
+                                          -- alias resolution finishes)
 purchase_label    TEXT                   -- nullable, e.g. "bunch" -- shown as "2 × bunch";
                                           -- NULL = the line just shows "needed", no pack count
 recipes_per_pack  INTEGER NOT NULL DEFAULT 3  -- how many contributing recipe SLOTS (not
@@ -314,7 +323,10 @@ session_id      INTEGER NOT NULL REFERENCES planning_sessions(id) ON DELETE CASC
 ingredient_name TEXT NOT NULL       -- consolidated, normalised
 total_quantity  REAL               -- nullable (some items are unitless)
 total_unit      TEXT               -- nullable
-is_staple       BOOLEAN NOT NULL DEFAULT 0
+is_staple       BOOLEAN NOT NULL DEFAULT 0  -- retired 2026-09-27 alongside `staples` (see
+                                             -- that table's note); nothing sets this True any
+                                             -- more, kept rather than dropped per the
+                                             -- non-negotiable no-prod-data-loss rule
 already_on_anylist BOOLEAN NOT NULL DEFAULT 0  -- populated at checklist load time
 have_it         TEXT NOT NULL DEFAULT 'unknown'  -- 'yes', 'no', 'partial', 'unknown'
 add_to_list     BOOLEAN NOT NULL DEFAULT 0
@@ -351,10 +363,10 @@ anylist_response_json TEXT          -- nullable, raw AnyList response for diagno
 ### `usual_items`
 
 **Phase 5 Chunk 5.4** — "the usuals": recurring non-recipe household items (laundry powder,
-dish soap) bought on a schedule independent of meal planning. Distinct from
-[`staples`](#staples) (which are recipe ingredients assumed on-hand, surfaced only when a
-recipe in the session needs them). Managed in Settings; surfaced on the checklist as its own
-group only when *due*. Seeded empty. See
+dish soap) bought on a schedule independent of meal planning. Was distinct from the now-retired
+[`staples`](#staples) in the one way that mattered even before that removal: this table has
+real cadence/memory (`cadence_days`/`last_added_at`), which `staples` never did. Managed in
+Settings; surfaced on the checklist as its own group only when *due*. Seeded empty. See
 [Checklist Screen Logic > "The usuals"](./checklist-and-shopping.md#the-usuals--household-recurring-items).
 ```
 id              INTEGER PRIMARY KEY
@@ -494,22 +506,14 @@ Items not in this table display raw scaled quantity on the shopping list (e.g. "
 
 ---
 
-## Staples Starter List
+## Staples Starter List (retired 2026-09-27)
 
-Seed a default staples list. User edits via Settings. **Deliberately minimal — confirmed
-2026-09-05.** An earlier draft seeded anything vaguely pantry-shaped (garlic, sugar, soy sauce,
-vinegars, dried herbs/spices, tomato paste, dijon mustard) without confirming any of it matched
-what this household actually treats as "assume we have it, don't put it on the shopping list."
-Only these five are confirmed:
-```
-salt, black pepper, olive oil, vegetable oil, plain flour
-```
-This list is expected to grow as more recipes go through the system and a genuine staple gap
-turns up — add via Settings at that point rather than pre-guessing the rest of it now. Item
-seeded as a starter default here, not a staple: **tomato paste** — explicitly ruled out as a
-staple (used too situationally to assume it's always on hand); it has no `product_units` entry
-either at the moment, since it isn't yet clear whether it should be resolved as a purchase-unit
-item or left as raw scaled quantity — revisit if it comes up as a real gap.
+**No longer seeded.** The `staples` feature was removed at the application layer — see
+[`staples`](#staples) and [Decision History > Staples — usefulness
+assessment](./decision-history.md#staples--usefulness-assessment-raised-2026-09-27). Kept here
+only as a historical record of what was originally seeded (salt, black pepper, olive oil,
+vegetable oil, plain flour) — a fresh install today gets none of these, since
+`seed_reference_data()` no longer inserts them.
 
 ---
 

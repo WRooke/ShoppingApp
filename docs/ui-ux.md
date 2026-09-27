@@ -10,6 +10,43 @@
 - Navigation: persistent bottom nav bar on mobile with icons for: Home, Recipes, Plan, Settings,
   Diagnostics.
 
+### Design principle: resolve at the point of need, not in Settings
+
+Any data that would otherwise require a trip to the Settings screen to fix or add — ingredient
+aliases, purchase units/pack sizes, unit conversions, canonical ingredient mappings, and
+anything similar added in future — should be resolvable *live, inline, at the point where the
+gap is discovered* (typically the checklist or ingredient-review screen), rather than requiring
+navigation away to a settings form.
+
+This generalises a pattern that already runs through the rest of this spec rather than
+inventing a new one: [Explicitly Out of Scope](./project-overview.md#explicitly-out-of-scope)
+already rules out pantry tracking because it "adds admin overhead the app is designed to
+remove," and the "don't pre-guess, wait for a real gap to show up in use" seeding discipline
+applied throughout [Ingredient Handling](./ingredient-handling.md#ingredient-handling--normalisation-substitution-aliases--units)
+is the same instinct applied to *when data gets added*. This principle is the same instinct
+applied to *where* it gets added — the moment a gap becomes visible (an unmerged duplicate, an
+item with no known pack size, an unmapped alias) is also the moment the user has the most
+context to fix it; sending them to a separate screen for later usually means it doesn't get
+fixed at all, and the underlying data problem recurs indefinitely.
+
+**Guardrail — this must not create UI clutter.** The inline-resolution affordance must be
+contextual and dormant by default, not a permanent extra control cluttering every row:
+- Only surface the fix-it action when the gap actually exists for that item — not as a
+  persistent icon/button shown regardless of whether it's needed.
+- Prefer tap-to-reveal (tapping the ambiguous value itself opens the inline edit) over
+  always-visible secondary buttons.
+- The row's default, common-case appearance should look no busier than it does today.
+
+**Established reference example:** [Inline pack-size entry](./checklist-and-shopping.md#inline-pack-size-entry-2026-09-24)
+— tapping a raw quantity with no known pack size on the checklist expands an inline form that
+writes straight into the `product_units` table, no Settings trip required.
+
+**What this means for future feature planning:** before adding a new Settings-screen field or
+table, ask whether a point-of-use screen (checklist, review, plan) could capture or correct the
+same data instead, feeding the same underlying store. Settings remains useful for bulk
+management, initial setup, and reviewing/auditing existing mappings — but should not be the
+primary or only way most of this data gets created or corrected day-to-day.
+
 ### Tone & copy
 - Plain language. No jargon. Sentence case everywhere.
 - Actions describe exactly what happens: "Add to list" not "Submit". "Save recipe" not "Confirm".

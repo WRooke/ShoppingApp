@@ -68,8 +68,9 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
   ([Chunk 2.4](./build-status/phase-2-recipe-library.md#phase-2--recipe-library), already built) — a correction, not a substitution.
   Substitution is for ingredients that are correctly captured but undesirable to actually buy.
 - **No proactive tagging UI.** A rule is never created speculatively — same reasoning already
-  applied to [Staples](./data-model.md#staples-starter-list) and the [`product_units`](./data-model.md#product_units)
-  multi-pack-size note: don't pre-guess, wait for a real gap to show up in use. The *only* way an
+  applied to the [`product_units`](./data-model.md#product_units) multi-pack-size note (and,
+  formerly, to the now-retired [`staples`](./data-model.md#staples) starter list): don't
+  pre-guess, wait for a real gap to show up in use. The *only* way an
   `ingredient_substitutions` row gets created is reactively, from an actual ad-hoc swap during
   planning (see below). There is no standalone "tag this ingredient as substitutable" screen.
 - **Rules apply by ingredient name, not by recipe.** A rule for "bulgarian feta" applies to
@@ -299,11 +300,10 @@ under-buying one of them).
   exactly like any other consolidated line, the same as the existing salt-group prompt-based
   canonicalisation already behaves. No "(includes canola oil, oil spray)" annotation. **Not**
   the case when an alias carries a quantity/unit transform — see below.
-- **Downstream matching (staples, product_units, AnyList fuzzy-match) needs no separate
-  change** — because resolution happens before grouping, every consolidated
-  `session_checklist_items.ingredient_name` is already the canonical name by the time staple
-  membership or a `product_units` pack lookup checks it. A staple named "vegetable oil"
-  correctly catches a recipe that said "canola oil", with no extra code.
+- **Downstream matching (product_units, AnyList fuzzy-match) needs no separate change** —
+  because resolution happens before grouping, every consolidated
+  `session_checklist_items.ingredient_name` is already the canonical name by the time a
+  `product_units` pack lookup checks it.
 - **Chains are flattened at write time, not followed at read time** — `create_alias` /
   `update_alias` always resolve a new `canonical_name` to its final target before storing
   (and re-point any existing row that was pointing at a name which just became an alias
@@ -323,18 +323,20 @@ under-buying one of them).
   shopping list) is a small possible follow-on, not built now — see
   [Deferred Decisions](./deferred-decisions.md#deferred-decisions).
 - **Seeded with one starter group** (`app/seed_data.py > INGREDIENT_ALIAS_SEEDS`): "canola
-  oil" and "oil spray" → "vegetable oil" (already a `STAPLE_SEED` — see [Staples Starter
-  List](#staples-starter-list)). "olive oil" (also already a staple) is deliberately **not**
-  included — a household commonly wants it kept distinct from a neutral oil (dressing vs
-  frying), and this is exactly the kind of pair that shouldn't be auto-merged without a
-  deliberate choice. Add more groups via Settings only as a real gap shows up — same
-  "don't pre-guess" rule as staples/product_units/usuals/substitutions.
+  oil" and "oil spray" → "vegetable oil" — these three read as the same product to most
+  households. "olive oil" is deliberately **not** included — a household commonly wants it kept
+  distinct from a neutral oil (dressing vs frying), and this is exactly the kind of pair that
+  shouldn't be auto-merged without a deliberate choice. Add more groups via Settings only as a
+  real gap shows up — same "don't pre-guess" rule as product_units/usuals/substitutions.
 - **Managed in Settings** (`settings-ingredient-aliases.js`, card title "Ingredient groups") —
   rows grouped by canonical name (same list-grouped-by-target trick as
   `settings-substitutions.js`), add a new alias by typing both names, delete to ungroup.
   `alias_name` isn't editable after creation (delete + recreate); `canonical_name` can be
   changed (re-grouping), same convention as `RememberedSubstitution`'s immutable
-  `original_name`. **Redesigned 2026-09-23 (mockup-approved — cluttered/unclear grouping was
+  `original_name`. **Known exception to [UI/UX > Design principle: resolve at the point of
+  need](./ui-ux.md#design-principle-resolve-at-the-point-of-need-not-in-settings)** — adding a
+  new alias group is Settings-only today, not resolvable inline from the checklist. Flagged as
+  worth reconsidering later, not re-decided now. **Redesigned 2026-09-23 (mockup-approved — cluttered/unclear grouping was
   flagged in review):** each canonical group is now one `.settings-group-card` with a visible
   alias count in its heading; each alias row shows its (still immutable) name as a labelled
   disabled field — "Ingredient name (fixed — delete and re-add to rename)" — instead of a
@@ -549,11 +551,10 @@ request rather than parked separately.
 ### Layer D — coarse ingredients (the parsley problem)
 A genuinely different mechanism from A-C: not a unit-spelling fix, but an escape hatch from
 quantity math entirely for ingredients where precision is pointless.
-- New table [`coarse_ingredients`](./data-model.md#coarse_ingredients): a flat set of ingredient names (same
-  shape as `staples`), each with a `purchase_label` (e.g. "bunch") and a `recipes_per_pack`
-  divisor (default 3).
-- At consolidation, an ingredient in this table (checked against its final resolved name,
-  same point `is_staple` checks) **skips the normal sum → normalise → round pipeline
+- New table [`coarse_ingredients`](./data-model.md#coarse_ingredients): a flat set of ingredient names, each
+  with a `purchase_label` (e.g. "bunch") and a `recipes_per_pack` divisor (default 3).
+- At consolidation, an ingredient in this table (checked against its final resolved name, after
+  substitution/alias resolution finishes) **skips the normal sum → normalise → round pipeline
   entirely** — its contributing lines' quantities and units are never summed or compared.
   Instead: count how many recipe **slots** (not summed quantity) use it this session,
   `packs_needed = ceil(slot_count / recipes_per_pack)`, displayed as
@@ -585,21 +586,23 @@ quantity math entirely for ingredients where precision is pointless.
 Once Layers A–D above fixed the actual reconciliation bug, the maintainer asked a broader
 question: could the *remaining* manual Settings admin — noticing a new unit misspelling and
 adding a `unit_synonyms` row by hand, and by extension `ingredient_aliases` /
-`coarse_ingredients` / `remembered_substitutions` / `staples` / `product_units` /
-`usual_items` — be reduced further with some "intelligent" automation, with an explicit,
-permission-granting caveat: if it's too much of a code burden to do this well, plain manual
-entry is a perfectly acceptable fallback.
+`coarse_ingredients` / `remembered_substitutions` / `product_units` / `usual_items` (`staples`
+at the time this was raised, since retired — see [Decision History > Staples — usefulness
+assessment](./decision-history.md#staples--usefulness-assessment-raised-2026-09-27)) — be
+reduced further with some "intelligent" automation, with an explicit, permission-granting
+caveat: if it's too much of a code burden to do this well, plain manual entry is a perfectly
+acceptable fallback.
 
 **Verdict: `unit_synonyms` is the one strong candidate; everything else stays manual.** The
 dividing line is objective fact vs. household preference:
-- `staples` / `usual_items` ("do we always have this on hand" / "buy this on a schedule") and
-  `ingredient_aliases` / `coarse_ingredients` ("is X the same shopping item as Y for us" / "do
-  we track this ingredient coarsely") are all judgment calls about *this* household's kitchen.
-  An AI can only guess at them — automating these would just move the guessing from the
-  household to the model, which the household would still need to check, and would quietly
-  undo the "don't pre-guess, wait for a real gap to show up in use" discipline every other
-  reference list in this file already follows deliberately (staples, product_units, usuals
-  were all seeded minimal on purpose — see their own sections). Not built. If typing these
+- `usual_items` ("buy this on a schedule") and `ingredient_aliases` / `coarse_ingredients`
+  ("is X the same shopping item as Y for us" / "do we track this ingredient coarsely") are all
+  judgment calls about *this* household's kitchen. An AI can only guess at them — automating
+  these would just move the guessing from the household to the model, which the household would
+  still need to check, and would quietly undo the "don't pre-guess, wait for a real gap to show
+  up in use" discipline every other reference list in this file already follows deliberately
+  (product_units and usuals were both seeded minimal on purpose — see their own sections). Not
+  built. If typing these
   ever proves genuinely tedious, an AI-*suggests*/household-*confirms* flow (the same shape as
   the existing capture-time substitution flagging) is the fallback worth reaching for, not
   full automation — see [Deferred Decisions](./deferred-decisions.md#deferred-decisions).

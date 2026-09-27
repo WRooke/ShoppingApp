@@ -158,7 +158,7 @@ where it's actually been noticed to matter. Chunk 4.5 re-checks that the Setting
 
 **Re-running consolidation is a merge, not a rebuild (2026-09-06).**
 `POST /sessions/{id}/consolidate` upserts `session_checklist_items` keyed by
-`ingredient_name`: quantities / pack breakdowns / `is_staple` / irreconcilable flags are
+`ingredient_name`: quantities / pack breakdowns / irreconcilable flags are
 recomputed, new lines are added and lines no longer needed are removed, but per-item
 **state is preserved** for lines that persist — `have_it`, `add_to_list`, and (Phase 5)
 `already_on_anylist` / `anylist_item_id`. So adding a recipe and re-consolidating never

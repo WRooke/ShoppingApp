@@ -14,8 +14,6 @@ from app.database import Base
 from app.schemas.settings import (
     ProductUnitCreate,
     ProductUnitUpdate,
-    StapleCreate,
-    StapleUpdate,
 )
 from app.services import settings as settings_service
 
@@ -43,70 +41,6 @@ def db():
         # = error` and CLAUDE.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
-
-
-# --- staples ---------------------------------------------------------------
-
-
-def test_create_staple_normalises_name(db):
-    staple = settings_service.create_staple(db, StapleCreate(name="  Salt  "))
-
-    assert staple.id is not None
-    assert staple.name == "salt"
-
-
-def test_create_staple_duplicate_name_raises(db):
-    settings_service.create_staple(db, StapleCreate(name="salt"))
-
-    with pytest.raises(settings_service.DuplicateStapleNameError):
-        settings_service.create_staple(db, StapleCreate(name="Salt"))
-
-
-def test_list_staples_ordered_by_name(db):
-    settings_service.create_staple(db, StapleCreate(name="vegetable oil"))
-    settings_service.create_staple(db, StapleCreate(name="black pepper"))
-
-    results, total = settings_service.list_staples(db)
-
-    assert total == 2
-    assert [s.name for s in results] == ["black pepper", "vegetable oil"]
-
-
-def test_update_staple_partial_update_only_touches_sent_fields(db):
-    staple = settings_service.create_staple(db, StapleCreate(name="salt"))
-
-    updated = settings_service.update_staple(db, staple.id, StapleUpdate(notes="fine sea salt"))
-
-    assert updated.name == "salt"  # untouched
-    assert updated.notes == "fine sea salt"
-
-
-def test_update_staple_raises_when_missing(db):
-    with pytest.raises(settings_service.StapleNotFoundError):
-        settings_service.update_staple(db, 999, StapleUpdate(notes="x"))
-
-
-def test_update_staple_duplicate_name_raises(db):
-    settings_service.create_staple(db, StapleCreate(name="salt"))
-    other = settings_service.create_staple(db, StapleCreate(name="pepper"))
-
-    with pytest.raises(settings_service.DuplicateStapleNameError):
-        settings_service.update_staple(db, other.id, StapleUpdate(name="salt"))
-
-
-def test_delete_staple_removes_row(db):
-    staple = settings_service.create_staple(db, StapleCreate(name="salt"))
-
-    settings_service.delete_staple(db, staple.id)
-
-    results, total = settings_service.list_staples(db)
-    assert total == 0
-    assert results == []
-
-
-def test_delete_staple_raises_when_missing(db):
-    with pytest.raises(settings_service.StapleNotFoundError):
-        settings_service.delete_staple(db, 999)
 
 
 # --- product_units -----------------------------------------------------

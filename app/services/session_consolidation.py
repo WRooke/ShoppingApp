@@ -21,7 +21,7 @@ import math
 
 from sqlalchemy.orm import Session
 
-from app.models.catalog import ProductUnit, Staple
+from app.models.catalog import ProductUnit
 from app.models.planning import PlanningSession, SessionChecklistItem
 from app.schemas.sessions import SessionOverride
 from app.services import (
@@ -325,7 +325,6 @@ def _consolidate_session_impl(
     coarse_items, normal_lines = _coarse_items(all_lines, coarse_ingredients.coarse_map(db))
     items = coarse_items + consolidation.consolidate(normal_lines)
 
-    staple_names = {s.name for s in db.query(Staple).all()}
     existing = {ci.ingredient_name: ci for ci in session.checklist_items}
 
     for item in items:
@@ -333,8 +332,6 @@ def _consolidate_session_impl(
         if row is None:
             row = SessionChecklistItem(session_id=session.id, ingredient_name=item.name)
             db.add(row)
-
-        row.is_staple = item.name in staple_names
 
         # 2026-09-10 hand-testing ("doesn't remember amounts under review") — a needs_review
         # conflict the user manually resolved (checklist.resolve_item(), which sets

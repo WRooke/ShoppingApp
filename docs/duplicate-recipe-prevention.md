@@ -34,7 +34,7 @@ legitimately share a name — "pancakes"). So every match *warns* and offers a w
   translated centrally in `app/main.py` to a **409** with error code
   `POSSIBLE_DUPLICATE_RECIPE` and a structured `detail` listing each match (recipe id, name,
   source summary, which signal matched, and whether it is archived). Same
-  raise-in-service / translate-in-main.py pattern as the existing `DuplicateStapleNameError`
+  raise-in-service / translate-in-main.py pattern as the existing `DuplicateProductUnitNameError`
   → 409, with a richer body and an override flag.
 - The frontend catches the 409 and shows "You might already have this:" with each match as a
   link, plus **Open existing** and **Save anyway**. "Save anyway" re-submits the identical

@@ -1,8 +1,8 @@
 /* Shared row-delete behaviour for every Settings card — Phase 6 Chunk 6.4 (see
-   docs/build-status/phase-6-polish.md kickoff decisions #2/#9). All 7 cards (staples,
-   product units, substitutions, usuals, ingredient aliases, unit synonyms, coarse
-   ingredients) follow the identical "list of editable rows" shape, so this is the "one
-   reusable wiring applied consistently" the kickoff decision asked for, rather than seven
+   docs/build-status/phase-6-polish.md kickoff decisions #2/#9). All 6 cards (product units,
+   substitutions, usuals, ingredient aliases, unit synonyms, coarse ingredients) follow the
+   identical "list of editable rows" shape, so this is the "one
+   reusable wiring applied consistently" the kickoff decision asked for, rather than six
    near-identical copies.
 
    Two things this buys, in one place: an in-place DOM removal instead of the old

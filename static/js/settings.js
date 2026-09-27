@@ -3,7 +3,7 @@
    (including the new Appearance one) lives at its own `#/settings/<section>` route —
    router.js's existing key/param hash shape already supports this, no router changes needed
    beyond passing the param through. Each section's own renderCard() lives in its own file
-   (settings-appearance.js, settings-staples.js, settings-product-units.js,
+   (settings-appearance.js, settings-product-units.js,
    settings-substitutions.js, settings-usuals.js, settings-ingredient-aliases.js,
    settings-unit-synonyms.js, settings-coarse-ingredients.js) — this file is just the index
    and the dispatch between them, split out once the combined file passed the ~400 line
@@ -20,7 +20,6 @@
   }
 
   var SECTIONS = [
-    { slug: "staples", name: "Staples", count: function () { return api.settings.staples.list(); } },
     { slug: "product-units", name: "Product units", count: function () { return api.settings.productUnits.list(); } },
     { slug: "substitutions", name: "Substitutions", count: function () { return api.settings.substitutions.list(); } },
     { slug: "usuals", name: "The usuals", count: function () { return api.settings.usuals.list(); } },
@@ -64,7 +63,7 @@
     });
   }
 
-  // Appearance/staples/product-units clear root and add the Back link themselves; the other
+  // Appearance/product-units clear root and add the Back link themselves; the other
   // four sections' renderCard() only append a card (unchanged from their pre-6.4 shape), so
   // this dispatch does that wrapping for them.
   function withBack(renderFn) {
@@ -77,7 +76,6 @@
 
   var SECTION_MOUNTS = {
     appearance: global.SettingsAppearanceView.renderCard,
-    staples: global.SettingsStaplesView.renderCard,
     "product-units": global.SettingsProductUnitsView.renderCard,
     substitutions: withBack(global.SettingsSubstitutionsView.renderCard),
     usuals: withBack(global.SettingsUsualsView.renderCard),

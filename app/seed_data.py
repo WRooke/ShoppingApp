@@ -11,7 +11,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from app.models.catalog import CoarseIngredient, IngredientAlias, ProductUnit, Staple, UnitSynonym
+from app.models.catalog import CoarseIngredient, IngredientAlias, ProductUnit, UnitSynonym
 
 logger = logging.getLogger(__name__)
 
@@ -71,29 +71,14 @@ SECTION_VOCABULARY: list[str] = [
     "other",
 ]
 
-# Deliberately minimal (confirmed 2026-09-05 — see CLAUDE.md > Staples Starter List). Earlier
-# draft over-seeded this with anything vaguely pantry-shaped (soy sauce, vinegars, dried
-# herbs/spices, tomato paste, dijon mustard, garlic) without confirming any of it actually
-# matched what this household treats as "assume we have it, don't put it on the list". Add
-# more here (or via Settings, once Chunk 2.5 exists) only as real recipes surface a genuine
-# staple gap — do not pre-guess the rest of the list.
-STAPLE_SEEDS: list[str] = [
-    "salt",
-    "black pepper",
-    "olive oil",
-    "vegetable oil",
-    "plain flour",
-]
-
 # "Same shopping item" groupings (2026-09-10 — see CLAUDE.md > Ingredient Aliases). Seeded
 # with the one group that motivated the feature: "canola oil" and "oil spray" fold onto
-# "vegetable oil" — which is already a STAPLE_SEED above, so this also means those recipe
-# wordings now correctly match the existing vegetable-oil staple, not just each other.
-# "olive oil" (also already a staple) is deliberately left OUT of this group — a household
-# commonly wants it kept distinct from a neutral oil (dressing vs frying), and merging
-# genuinely different products risks silently under-buying one of them. As with every other
-# list on this page: add more groups via Settings only when a real gap shows up in use, not
-# pre-emptively.
+# "vegetable oil" — these three read as the same product to most households, so recipe
+# wordings for any of them correctly consolidate onto one shopping-list line.
+# "olive oil" is deliberately left OUT of this group — a household commonly wants it kept
+# distinct from a neutral oil (dressing vs frying), and merging genuinely different products
+# risks silently under-buying one of them. As with every other list on this page: add more
+# groups via Settings only when a real gap shows up in use, not pre-emptively.
 #
 # 2026-09-10 (second kickoff, lemon/lime juice -> whole fruit): a group may also carry an
 # optional quantity/unit equivalence pair (alias_qty/alias_unit ~= canonical_qty/
@@ -197,7 +182,7 @@ COARSE_INGREDIENT_SEEDS: list[dict] = [
 
 
 def seed_reference_data(db: Session) -> dict:
-    """Insert any missing preseeded product units and staples. Idempotent.
+    """Insert any missing preseeded product units. Idempotent.
 
     Returns a small dict summarising how many rows were added.
     """
@@ -216,13 +201,6 @@ def seed_reference_data(db: Session) -> dict:
         if exists is None:
             db.add(ProductUnit(is_preseeded=True, **row))
             added_units += 1
-
-    added_staples = 0
-    for name in STAPLE_SEEDS:
-        exists = db.query(Staple).filter(Staple.name == name).first()
-        if exists is None:
-            db.add(Staple(name=name))
-            added_staples += 1
 
     added_aliases = 0
     for row in INGREDIENT_ALIAS_SEEDS:
@@ -256,7 +234,6 @@ def seed_reference_data(db: Session) -> dict:
     db.commit()
     result = {
         "product_units_added": added_units,
-        "staples_added": added_staples,
         "ingredient_aliases_added": added_aliases,
         "unit_synonyms_added": added_unit_synonyms,
         "coarse_ingredients_added": added_coarse,

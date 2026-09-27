@@ -644,19 +644,6 @@ def test_consolidate_leftovers_slot_contributes_nothing(db):
     assert items[0].total_quantity == 3
 
 
-def test_consolidate_flags_is_staple(db):
-    from app.services import settings as settings_service
-    from app.schemas.settings import StapleCreate
-
-    settings_service.create_staple(db, StapleCreate(name="olive oil"))
-    s = sessions_service.create_session(db, PlanningSessionCreate())
-    r = _recipe_with(db, "Dressing", [{"name": "olive oil", "quantity": 30, "unit": "ml"}])
-    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
-
-    items = sessions_service.consolidate_session(db, s.id)
-    assert items[0].is_staple is True
-
-
 def test_consolidate_is_a_merge_preserving_have_it_and_add_to_list(db):
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r1 = _recipe_with(db, "A", [{"name": "onion", "quantity": 2, "unit": None}])

@@ -46,11 +46,13 @@ This applies to:
 
 ## ⚠️ Non-Negotiable Operating Rules
 
-**Set 2026-09-05, revised 2026-09-06. These rules are of the highest criticality in this
-project — they override every other facet of the app, including anything else in this
-document, any convenience, any feature request, and any deadline.** Full detail lives in
-[Security](./docs/security.md#security) (§0a, §0b, §0c below); this banner exists so none of them can be missed
-by skimming straight to a phase's chunk list.
+**Set 2026-09-05, revised 2026-09-06, extended 2026-09-27. These rules are of the highest
+criticality in this project — they override every other facet of the app, including anything
+else in this document, any convenience, any feature request, and any deadline.** Full detail
+lives in [Security](./docs/security.md#security) (§0a, §0b, §0c below) and
+[Code Architecture & Maintainability](./docs/code-architecture.md#data-loss-on-prod-is-never-acceptable)
+(rule 3 below); this banner exists so none of them can be missed by skimming straight to a
+phase's chunk list.
 
 > **Provider note (2026-09-06):** the AI extraction provider is Anthropic Claude → Google
 > Gemini as of Phase 3.9 (see
@@ -77,6 +79,21 @@ by skimming straight to a phase's chunk list.
    making any real call even once it's on. Cost calculation and per-call logging (`api_usage`)
    are kept for observability regardless — see
    [Security §0b](./docs/security.md#0b-api-usage-observability-no-hard-cap).
+3. **Data loss on the NUC's production database is never acceptable.** Any change deployed
+   from the dev PC — schema migration, code change, script — must be fully backwards
+   compatible with the real prod DB it will run against: no dropped column/table/row that
+   holds real household data, no narrowed type or added `NOT NULL` that orphans existing rows,
+   no in-place rename without a data-preserving path. This holds regardless of convenience,
+   deadline, or feature scope. See
+   [Code Architecture & Maintainability > Data loss on prod is never
+   acceptable](./docs/code-architecture.md#data-loss-on-prod-is-never-acceptable).
+
+**2026-09-27 addition — rule 3 above.** Elevated from a docs-only note in
+[Code Architecture & Maintainability](./docs/code-architecture.md#data-loss-on-prod-is-never-acceptable)
+to a non-negotiable rule at the maintainer's request: the prod DB holds the household's actual
+recipes, sessions, and shopping history, with no upstream source to regenerate from if a
+careless migration or deploy eats it — the same standing as the injection-hardening and
+API-permission rules above, not merely good practice.
 
 **2026-09-06 revision — the hard AU$0.50 spend cap from the original 2026-09-05 rule set has
 been removed.** It was set out of a mistaken belief that Anthropic API billing works like an
@@ -154,12 +171,12 @@ See [docs/code-architecture.md](./docs/code-architecture.md).
 
 ## Data Model
 
-Every SQLite table (16 of them) — `recipes`, `recipe_ingredients`, `product_units`, `staples`,
-`remembered_substitutions`, `ingredient_aliases`, `unit_synonyms`, `coarse_ingredients`,
-`planning_sessions`, `session_recipes`, `session_checklist_items`, `shopping_history`,
-`usual_items`, `ai_call_log`, `capture_queue`, and `stores`/`store_sections`/`product_sections`
-— plus the audit-column convention and the seed data (pre-seeded product units, the staples
-starter list, the section vocabulary).
+Every SQLite table (16 of them) — `recipes`, `recipe_ingredients`, `product_units`, `staples`
+(retired 2026-09-27, schema kept but unused — see Decision Dialogues), `remembered_substitutions`,
+`ingredient_aliases`, `unit_synonyms`, `coarse_ingredients`, `planning_sessions`,
+`session_recipes`, `session_checklist_items`, `shopping_history`, `usual_items`, `ai_call_log`,
+`capture_queue`, and `stores`/`store_sections`/`product_sections` — plus the audit-column
+convention and the seed data (pre-seeded product units, the section vocabulary).
 
 See [docs/data-model.md](./docs/data-model.md).
 
@@ -249,8 +266,9 @@ See [docs/deployment-and-operations.md](./docs/deployment-and-operations.md).
 
 ## UI / UX
 
-Mobile-first principles, plain-language tone and copy rules, accessibility minimums, and the
-Phase 6 design direction (palette, typography, no decorative animation).
+Mobile-first principles, plain-language tone and copy rules, accessibility minimums, the
+point-of-need design principle for settings-like data, and the Phase 6 design direction
+(palette, typography, no decorative animation).
 
 See [docs/ui-ux.md](./docs/ui-ux.md).
 

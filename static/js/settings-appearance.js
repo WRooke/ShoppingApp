@@ -3,7 +3,7 @@
    index.html's own pre-paint script that reads this same `localStorage["theme"]` key
    before first render). Split out of settings.js per CLAUDE.md > Code Architecture &
    Maintainability > file size discipline — settings.js was pushing well past 400 lines
-   once the index + staples + product-units + this card all landed in one file. */
+   once the index + product-units + this card all landed in one file. */
 
 (function (global) {
   "use strict";

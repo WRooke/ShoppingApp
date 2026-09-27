@@ -177,7 +177,6 @@
       }
       var d = el("div", "recipe-row-meta muted", detail);
       main.appendChild(d);
-      if (item.is_staple) main.appendChild(el("div", "recipe-row-meta muted", "(staple)"));
       row.appendChild(main);
 
       var swapBtn = el("button", null, "Swap");

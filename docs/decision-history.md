@@ -417,6 +417,83 @@ not a snap decision buried in a bug-triage session. Do not build speculatively b
 
 ---
 
+#### Staples — usefulness assessment (raised 2026-09-27)
+
+**Findings:** `staples` is fully wired end-to-end and matches its documented design intent
+exactly — seeded 5 items (`app/seed_data.py > STAPLE_SEEDS`: salt, black pepper, olive oil,
+vegetable oil, plain flour) flow into `is_staple`, computed live in both
+`services/checklist.py` and `services/session_consolidation.py`, surfaced as their own "Staples
+used this session" group on the checklist, and managed via a dedicated Settings CRUD card. This
+is not drift and not dead code. It was also deliberately kept separate from
+["the usuals"](#the-usuals--recurring-household-items-phase-5-kickoff) at the Phase 5 kickoff —
+a considered decision, not an oversight.
+
+The likely source of the "doesn't add much value" feeling: the seed list is narrow (5 items)
+and the *only* way to grow it is a trip to Settings — exactly the admin-overhead pattern
+flagged in [UI/UX > Design principle: resolve at the point of
+need](./ui-ux.md#design-principle-resolve-at-the-point-of-need-not-in-settings) — and nothing
+in the app currently nudges the household when a real gap shows up (e.g. repeatedly ticking
+"have it" for the same non-staple ingredient across sessions). Real value that *does* exist
+today: a staple gets its own checklist group and defaults to not-added, sparing a have/need
+decision each session for the items it covers — removing the feature outright would push those
+5 ingredients back into the manual have/need flow every time.
+
+**Q:** Is `staples` worth keeping as-is, worth improving, or worth removing?
+
+**A options:**
+1. **Do nothing.** Lowest effort; doesn't address the stated complaint.
+2. **Apply the point-of-need principle:** add a dormant, tap-to-reveal "always assume I have
+   this" affordance on a regular checklist row that writes straight to the `staples` table —
+   grows the list from real usage friction instead of a Settings trip, directly targeting why
+   the list stayed at 5 items.
+3. **Hand-expand the seed list now via Settings.** Cheapest partial fix, no code change, but
+   re-introduces the exact admin-overhead pattern being retired elsewhere.
+4. **Fold into "the usuals."** Not recommended — re-litigates the explicit 2026-09-07 decision
+   to keep them as separate tables (recipe-linked vs not), with no new information since then
+   to justify reopening it.
+5. **Remove entirely.** Itemised removal surface, all isolated with nothing else depending on
+   it: `Staple` model (`app/models/catalog.py`), `is_staple` column + computation
+   (`app/models/planning.py`, `services/checklist.py`, `services/session_consolidation.py`),
+   schemas (`app/schemas/settings.py`, `app/schemas/sessions.py`), router
+   (`app/routers/settings.py`), service (`app/services/settings.py`), seed data
+   (`app/seed_data.py` `STAPLE_SEEDS`), frontend (`static/js/settings-staples.js`, the `staples`
+   card registration in `settings.js`, the `staplesGroup()` block in `checklist.js`, the
+   `(staple)` tag in `session-review.js`). Net effect is negative unless paired with option 2 —
+   those 5 ingredients would need the have/need decision every session with no replacement.
+
+**Context:** Raised 2026-09-27 by the maintainer as a low-value complaint, not a bug report.
+
+**Expected outcome:** Maintainer picks a direction (most likely 2, optionally with 3 as an
+immediate stop-gap). Flagged here rather than decided unilaterally, per CLAUDE.md's standing
+instruction not to make a unilateral call on an open/deferred item.
+
+**Resolved 2026-09-27 — option 5 (remove), schema preserved.** The maintainer corrected the
+"Findings" section above from real usage: those 5 staple ingredients needed a tap every session
+anyway, identical interaction cost to any other ingredient — because `is_staple` has no cadence
+or memory (unlike `usual_items`'s `cadence_days`/`last_added_at`), a household must make a fresh
+have/need decision on a staple every single session, so the claimed "sparing a have/need
+decision" benefit never actually existed. Given a choice between reworking staples with real
+cadence logic (which the point-of-need principle above could have driven — option 2) or removing
+it outright, the maintainer chose removal: there was no proven demand to justify building a
+cadence mechanism for a feature nobody found valuable in its current form.
+
+**The `staples` table and `session_checklist_items.is_staple` column are *not* dropped from the
+schema.** While reviewing the removal, the maintainer added CLAUDE.md's non-negotiable rule 3
+(2026-09-27): data loss on the NUC's production database is never acceptable, with no exception
+for feature scope, and the `staples` table is household-editable via Settings, so a migration
+dropping it could destroy real rows on a database this session can't inspect. The removal
+instead happened entirely at the application layer: every router, service function, frontend
+UI element, and computation reading/writing `staples`/`is_staple` was deleted (verified by a
+full case-insensitive grep sweep of `app/`, `static/`, `tests/`), but the `Staple` ORM class and
+the `is_staple` column stay defined in `app/models/` — intentionally, with a comment on each
+warning against deleting them — so the table is never dropped from any database that might
+already hold rows, and `tests/test_migrations.py` (which asserts `alembic upgrade head` matches
+a fresh `Base.metadata.create_all()`) needed no changes, since the schema never moved. No new
+rows are seeded into `staples` going forward. Full suite (548 tests) verified green after the
+removal.
+
+---
+
 ### History (superseded designs, kept for the record)
 
 - **2026-09-05** — "substitution flagging" asked about; resolved "doesn't exist, not built"

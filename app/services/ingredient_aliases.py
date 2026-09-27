@@ -255,9 +255,8 @@ class AliasResolution:
 
 
 def alias_map(db: Session) -> dict[str, AliasResolution]:
-    """The whole table as {alias_name: AliasResolution} — loaded once per consolidate (same
-    bulk-load pattern as ``session_consolidation``'s ``staple_names``) rather than a query per
-    ingredient line. See CLAUDE.md > Ingredient Aliases > Where it applies."""
+    """The whole table as {alias_name: AliasResolution} — loaded once per consolidate rather
+    than a query per ingredient line. See CLAUDE.md > Ingredient Aliases > Where it applies."""
     return {
         row.alias_name: AliasResolution(
             canonical_name=row.canonical_name,

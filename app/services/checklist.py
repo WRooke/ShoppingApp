@@ -14,7 +14,6 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.database import utcnow
-from app.models.catalog import Staple
 from app.models.history import ShoppingHistory
 from app.services import anylist_client
 from app.models.planning import SessionChecklistItem
@@ -94,8 +93,8 @@ def load_checklist(db: Session, session_id: int) -> tuple[list[SessionChecklistI
     (the spec's "at checklist screen load" step). Upsert on the existing rows:
     `already_on_anylist` / `anylist_item_id` are recomputed *only when the AnyList fetch
     succeeds* (a transient failure must not wipe a good match); `have_it` is only ever
-    *upgraded* from 'unknown' to 'yes' by a pre-tick, never downgraded; `is_staple` is
-    re-confirmed every time. Never touches `add_to_list`."""
+    *upgraded* from 'unknown' to 'yes' by a pre-tick, never downgraded. Never touches
+    `add_to_list`."""
     session = sessions_service.get_session(db, session_id)  # raises SessionNotFoundError
     items = list(session.checklist_items)
     if not items:
@@ -111,9 +110,7 @@ def load_checklist(db: Session, session_id: int) -> tuple[list[SessionChecklistI
         anylist_ok, anylist_detail = False, str(exc)
         logger.warning("Checklist load: AnyList fetch failed, pre-tick skipped — %s", exc)
 
-    staple_names = {s.name for s in db.query(Staple).all()}
     for ci in items:
-        ci.is_staple = ci.ingredient_name in staple_names
         if not anylist_ok:
             continue  # keep whatever match state was there; don't wipe it on a transient fail
         match = _find_match(ci.ingredient_name, anylist_items)
