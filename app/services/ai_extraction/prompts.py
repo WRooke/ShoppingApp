@@ -60,11 +60,19 @@ Rules:
 - servings is the integer number of servings/portions the recipe yields; if given as a range
   (e.g. "serves 4-6"), use the lower bound; null if not stated
 - quantity must be a number (convert fractions: 1/2 -> 0.5)
-- unit must be one of: g, kg, ml, L, tsp, tbsp, cup, or null
+- unit must be one of: g, kg, ml, L, tsp, tbsp, cup, one of the discrete counting units listed
+  in the next rule, or null
 - Convert any non-standard units to the closest standard unit
-- For garlic, default to a count of cloves when the recipe doesn't specify otherwise (e.g.
-  "2 garlic" -> quantity 2, unit "cloves"); only use unit "heads" when the recipe text
-  explicitly says whole heads/bulbs of garlic
+- Some ingredients are conventionally counted with a specific word rather than a bare number —
+  use that word as the unit instead of leaving unit null:
+  - garlic -> "clove" when the recipe doesn't specify otherwise (e.g. "2 garlic" -> quantity 2,
+    unit "clove"); only use "head" when the recipe text explicitly says whole heads/bulbs of
+    garlic
+  - fresh woody herbs (thyme, rosemary, oregano, sage) given as a number of sprigs -> "sprig"
+    (e.g. "4 sprigs thyme" -> quantity 4, unit "sprig")
+  Do not invent a counting unit for any other ingredient this way — if the recipe gives a plain
+  number with no unit and it isn't one of the cases above, leave unit null (this is correct and
+  expected for genuinely bare-count items like eggs, onions, lemons)
 - When the source presents both a metric and an imperial/US measurement for the same
   quantity — slash-separated ("250g/8oz", "180C/350F"), from a metric/imperial toggle, or as
   separate ingredient blocks — always extract the metric value (g/kg/ml/L/C) and ignore the

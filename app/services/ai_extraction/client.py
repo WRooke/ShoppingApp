@@ -47,6 +47,18 @@ _MODEL_CHAIN = (MODEL_ID, FALLBACK_MODEL_ID)
 # if a response is ever cut off again rather than a generic parse failure.
 MAX_OUTPUT_TOKENS = 8192
 
+# 2026-09-27 live-test finding: "gemini-flash-latest" defaults to thinking mode ON with no
+# thinking_config set, and a "thinking" response's reasoning tokens are drawn from the SAME
+# max_output_tokens budget as the visible completion. A 7-ingredient recipe (well under any
+# reasonable size limit) hit finish_reason=MAX_TOKENS after only 316 *visible* output tokens
+# -- the model had spent the rest of the 8192 cap on invisible chain-of-thought before ever
+# writing the JSON body. The pre-existing MAX_TOKENS handling below then reported this as "the
+# recipe was too large," which was never the real cause. None of this package's 5 call types
+# benefit from chain-of-thought -- they're all deterministic, schema-constrained JSON
+# extractions already run at temperature=0 -- so thinking is disabled outright rather than
+# tuned to a smaller nonzero budget.
+_THINKING_CONFIG = genai_types.ThinkingConfig(thinking_budget=0)
+
 
 def _strip_code_fence(raw_text: str) -> str:
     text = raw_text.strip()
@@ -117,6 +129,7 @@ def _call_gemini(
             response_schema=response_schema,
             max_output_tokens=MAX_OUTPUT_TOKENS,
             temperature=0,
+            thinking_config=_THINKING_CONFIG,
         )
         try:
             response = client.models.generate_content(model=model, contents=parts, config=config)

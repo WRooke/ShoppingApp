@@ -267,7 +267,12 @@ def test_extract_recipe_servings_dropped_when_invalid(db, api_enabled):
     assert result.title is None and result.servings is None
 
 
-# --- prompt wording (2026-09-23 — garlic unit default + metric-over-imperial) --------------
+# --- prompt wording (2026-09-23 — garlic unit default + metric-over-imperial;
+# 2026-09-27 — generalised to a "discrete counting units" rule after a live-test capture of a
+# 7-ingredient recipe came back with "4 sprigs fresh thyme" as quantity=4, unit=None: the old
+# "unit must be one of: g, kg, ml, L, tsp, tbsp, cup, or null" line directly contradicted the
+# very next rule's "unit 'cloves'" garlic default, and had no equivalent carve-out for herbs
+# conventionally counted by the sprig -- both now folded into one consistent rule) -------------
 # Literal substring checks on the live prompt text, same guard style as the existing
 # _MAX_SUBSTITUTION_NOTE_CHARS backstop tests elsewhere in this package — a cheap way to
 # catch the wording being accidentally reverted or removed in a future edit.
@@ -275,8 +280,27 @@ def test_extract_recipe_servings_dropped_when_invalid(db, api_enabled):
 
 def test_extraction_prompt_defaults_garlic_to_cloves():
     assert "garlic" in EXTRACTION_SYSTEM_PROMPT.lower()
-    assert "cloves" in EXTRACTION_SYSTEM_PROMPT
-    assert "heads" in EXTRACTION_SYSTEM_PROMPT
+    assert "clove" in EXTRACTION_SYSTEM_PROMPT
+    assert "head" in EXTRACTION_SYSTEM_PROMPT
+
+
+def test_extraction_prompt_unit_rule_does_not_contradict_the_counting_units_carve_out():
+    # The old wording said unit "must be one of: g, kg, ml, L, tsp, tbsp, cup, or null" with no
+    # mention of the discrete counting units the very next rule then demands — a model reading
+    # the two rules in order had no consistent instruction. The enum line must now reference
+    # the carve-out explicitly.
+    assert "discrete counting unit" in EXTRACTION_SYSTEM_PROMPT.lower()
+
+
+def test_extraction_prompt_defaults_woody_herb_sprigs_to_sprig_unit():
+    lowered = EXTRACTION_SYSTEM_PROMPT.lower()
+    assert "sprig" in lowered
+    assert "thyme" in lowered
+    assert "rosemary" in lowered
+
+
+def test_extraction_prompt_warns_against_inventing_other_counting_units():
+    assert "do not invent a counting unit" in EXTRACTION_SYSTEM_PROMPT.lower()
 
 
 def test_extraction_prompt_prefers_metric_over_imperial():
