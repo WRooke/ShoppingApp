@@ -33,8 +33,12 @@ PRODUCT_UNIT_SEEDS: list[dict] = [
     # bug F1.5's migration fixes for existing databases.
     {"ingredient_name": "egg", "purchase_label": "half dozen", "purchase_qty": 6, "purchase_unit": "each"},
     {"ingredient_name": "egg", "purchase_label": "dozen", "purchase_qty": 12, "purchase_unit": "each"},
-    {"ingredient_name": "milk", "purchase_label": "1L bottle", "purchase_qty": 1, "purchase_unit": "L"},
-    {"ingredient_name": "milk", "purchase_label": "2L bottle", "purchase_qty": 2, "purchase_unit": "L"},
+    # 2026-09-27 (Fix 5, F5.2) — "milk" -> "full cream milk" is now an accepted household alias
+    # (INGREDIENT_ALIAS_SEEDS below), so these must be seeded under the alias's canonical name
+    # or they'd become unreachable the same way F0's "yoghurt" rows were — see migration
+    # f9e79977f8b0 for the equivalent repoint on existing databases.
+    {"ingredient_name": "full cream milk", "purchase_label": "1L bottle", "purchase_qty": 1, "purchase_unit": "L"},
+    {"ingredient_name": "full cream milk", "purchase_label": "2L bottle", "purchase_qty": 2, "purchase_unit": "L"},
     {"ingredient_name": "greek yoghurt", "purchase_label": "500g tub", "purchase_qty": 500, "purchase_unit": "g"},
     {"ingredient_name": "greek yoghurt", "purchase_label": "1kg tub", "purchase_qty": 1000, "purchase_unit": "g"},
     {"ingredient_name": "butter", "purchase_label": "250g block", "purchase_qty": 250, "purchase_unit": "g"},
@@ -54,7 +58,10 @@ PRODUCT_UNIT_SEEDS: list[dict] = [
     {"ingredient_name": "brown sugar", "purchase_label": "500g bag", "purchase_qty": 500, "purchase_unit": "g"},
     {"ingredient_name": "basmati rice", "purchase_label": "1kg bag", "purchase_qty": 1000, "purchase_unit": "g"},
     {"ingredient_name": "pasta", "purchase_label": "500g pack", "purchase_qty": 500, "purchase_unit": "g"},
-    {"ingredient_name": "diced tomato", "purchase_label": "400g can", "purchase_qty": 400, "purchase_unit": "g"},
+    # 2026-09-27 (Fix 5, F5.2) — "diced tomato"/"crushed tomato" -> "canned tomato" is now an
+    # accepted household alias (INGREDIENT_ALIAS_SEEDS below); same repoint reasoning as milk
+    # above.
+    {"ingredient_name": "canned tomato", "purchase_label": "400g can", "purchase_qty": 400, "purchase_unit": "g"},
     {"ingredient_name": "coconut cream", "purchase_label": "400ml can", "purchase_qty": 400, "purchase_unit": "ml"},
     {"ingredient_name": "coconut milk", "purchase_label": "400ml can", "purchase_qty": 400, "purchase_unit": "ml"},
     {"ingredient_name": "chicken stock", "purchase_label": "1L carton", "purchase_qty": 1000, "purchase_unit": "ml"},
@@ -149,6 +156,34 @@ INGREDIENT_ALIAS_SEEDS: list[dict] = [
     # first hop at consolidation time (alias_map() is a single dict lookup, no chain-following).
     {"alias_name": "plain yogurt", "canonical_name": "greek yoghurt"},  # AU spelling + preference
     {"alias_name": "plain yoghurt", "canonical_name": "greek yoghurt"},
+    # 2026-09-27 (Fix 5, F5.2) — accepted from a real `suggest_ingredient_groupings()` audit run
+    # against the prod DB. Maintainer reviewed all 20 suggested groups; these 8 pairs were
+    # confirmed as genuine "same shopping item" preferences. Explicitly rejected (not seeded):
+    # "flour"/"plain flour" (self-raising flour is a distinct real product — keep separate);
+    # "garlic"/"garlic clove(s)" and the coriander/parsley groups (waiting to see if the gap
+    # recurs before committing to a merge). "diced tomatoes"/"crushed tomatoes" were merged
+    # onto a NEW canonical, "canned tomatoes" — neither of the model's own two original names,
+    # the maintainer's own preferred term for the household's shopping list.
+    #
+    # IMPORTANT: every string below is already run through text_normalize.normalise_ingredient_name()
+    # by hand before being written here — seed_reference_data()'s loop inserts these rows RAW
+    # (unlike create_alias(), it does NOT normalise on the way in), and consolidation always
+    # normalises an incoming ingredient name before checking this table (session_consolidation.py
+    # ::_apply_alias -> alias_map.get(_norm(name))). A seed string that isn't already in
+    # normalised form would silently never match anything — confirmed against the real
+    # normaliser for every entry below before committing (e.g. "chilli flakes" singularises to
+    # "chilli flake"; "chicken breasts" to "chicken breast"; hyphens fold to a space).
+    {"alias_name": "dried chilli flake", "canonical_name": "chilli flake"},
+    {"alias_name": "whole egg mayonnaise", "canonical_name": "mayonnaise"},
+    {"alias_name": "milk", "canonical_name": "full cream milk"},
+    {"alias_name": "whole milk", "canonical_name": "full cream milk"},
+    {"alias_name": "full fat coconut milk", "canonical_name": "coconut milk"},
+    {"alias_name": "sugar", "canonical_name": "white sugar"},
+    {"alias_name": "boneless skinless chicken breast", "canonical_name": "chicken breast"},
+    {"alias_name": "cumin", "canonical_name": "ground cumin"},
+    {"alias_name": "turmeric", "canonical_name": "ground turmeric"},
+    {"alias_name": "diced tomato", "canonical_name": "canned tomato"},
+    {"alias_name": "crushed tomato", "canonical_name": "canned tomato"},
 ]
 
 # Unit-spelling canonicalisation (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling >

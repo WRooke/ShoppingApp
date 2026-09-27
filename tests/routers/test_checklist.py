@@ -43,8 +43,12 @@ def test_load_before_consolidate_is_409(client):
 
 
 def test_load_returns_envelope_with_items_and_anylist_status(client, fake_anylist):
+    # "eggs" (not "milk") — 2026-09-27 (Fix 5, F5.2) "milk" is now aliased to "full cream milk"
+    # (a real, accepted household preference), which would no longer fuzzy-match the fake
+    # AnyList seed's "milk" item. "eggs" -> "egg" (Fix 1's own plural-strip, unrelated to any
+    # alias) still exercises the exact same pre-tick/fuzzy-match path this test is actually for.
     sid = _session_with_checklist(
-        client, [{"name": "milk", "quantity": 1, "unit": "L"},
+        client, [{"name": "eggs", "quantity": 1, "unit": None},
                  {"name": "zz-router-passata", "quantity": 400, "unit": "g"}]
     )
     resp = client.get(f"/api/v1/checklist/{sid}")
@@ -53,8 +57,8 @@ def test_load_returns_envelope_with_items_and_anylist_status(client, fake_anylis
     assert data["session_id"] == sid
     assert data["anylist_ok"] is True
     names = {i["ingredient_name"]: i for i in data["items"]}
-    assert names["milk"]["already_on_anylist"] is True
-    assert names["milk"]["have_it"] == "yes"  # pre-ticked from the fake list
+    assert names["egg"]["already_on_anylist"] is True
+    assert names["egg"]["have_it"] == "yes"  # pre-ticked from the fake list
     # 2026-09-27 — the shared normaliser folds hyphens to a space.
     assert names["zz router passata"]["already_on_anylist"] is False
 
