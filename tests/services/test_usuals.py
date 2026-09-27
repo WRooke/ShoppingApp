@@ -185,7 +185,7 @@ def test_mark_added_then_due_items_survives_a_db_round_trip(db):
     db.expire_all()
 
     due_names = [d.name for d in u.due_items(db)]
-    assert due_names == ["paper towels"]
+    assert due_names == ["paper towel"]  # normalised (singularised)
     assert u.is_due(u.get_usual(db, rare.id)) is False
 
 

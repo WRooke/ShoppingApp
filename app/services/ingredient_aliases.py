@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.models.catalog import IngredientAlias
 from app.schemas.ingredient_aliases import IngredientAliasCreate, IngredientAliasUpdate
+from app.services import text_normalize
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class InvalidIngredientAliasError(Exception):
 
 
 def _normalise(name: str) -> str:
-    return " ".join(name.strip().lower().split())
+    return text_normalize.normalise_ingredient_name(name)
 
 
 def _clean_note(note: str | None) -> str | None:

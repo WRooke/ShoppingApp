@@ -17,6 +17,7 @@ from app.schemas.settings import (
     ProductUnitUpdate,
 )
 from app.seed_data import SECTION_VOCABULARY
+from app.services import text_normalize
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,10 @@ class DuplicateProductUnitNameError(Exception):
 
 
 def _normalise_name(name: str) -> str:
-    """Lowercase + strip whitespace — matches recipe_ingredients.name so
-    product_units lines up with consolidated ingredient names (see
-    CLAUDE.md > Ingredient Normalisation)."""
-    return name.strip().lower()
+    """Delegates to the shared text_normalize.normalise_ingredient_name() (2026-09-27) — so
+    `product_units` lines up with consolidation's own grouping key (plurals/hyphens included),
+    not just a lowercase+strip match. See CLAUDE.md > Ingredient Normalisation."""
+    return text_normalize.normalise_ingredient_name(name)
 
 
 # --- product_units -----------------------------------------------------

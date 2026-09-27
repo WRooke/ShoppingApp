@@ -19,6 +19,7 @@ from app.services import anylist_client
 from app.models.planning import SessionChecklistItem
 from app.services import progress_tracker
 from app.services import sessions as sessions_service
+from app.services import text_normalize
 from app.services import usuals as usuals_service
 from app.services.anylist_client import AnyListError, PushItem
 
@@ -56,20 +57,21 @@ class SessionAlreadyPushedError(Exception):
 
 
 def _norm(s: str) -> str:
-    return " ".join((s or "").strip().lower().split())
+    """Delegates to the shared text_normalize.base_norm() (2026-09-27) — NOT the full
+    normalise_ingredient_name(), since _names_match() below applies singularisation itself, as
+    its own explicit fallback tier (see _singularise)."""
+    return text_normalize.base_norm(s or "")
 
 
 def _singularise(s: str) -> str:
-    """Very conservative de-pluralisation for fuzzy list matching (CLAUDE.md > Checklist
-    Screen Logic: "fuzzy name match — normalised lowercase, strip plurals if needed").
-    Handles the grocery-common cases (tomatoes, potatoes, boxes, dishes) and leaves anything
-    ambiguous alone — a false negative just means the user ticks the item by hand, a false
-    positive would pre-tick the wrong thing."""
-    if len(s) > 4 and s.endswith(("ses", "xes", "zes", "ches", "shes", "oes")):
-        return s[:-2]
-    if len(s) > 3 and s.endswith("s") and not s.endswith("ss"):
-        return s[:-1]
-    return s
+    """Delegates to the shared, hardened text_normalize.singularise() (2026-09-27) — this used
+    to be its own weaker, local copy (missing the -us guard and irregular -ies/-ves endings).
+    `anylist_name` is raw external text this app doesn't control, so _names_match() below still
+    needs its own explicit singularise fallback tier even though `ingredient_name` on our side
+    is already fully normalised by the time it gets here (CLAUDE.md > Checklist Screen Logic:
+    "fuzzy name match — normalised lowercase, strip plurals if needed"). A false negative just
+    means the user ticks the item by hand; a false positive would pre-tick the wrong thing."""
+    return text_normalize.singularise(s)
 
 
 def _names_match(ingredient_name: str, anylist_name: str | None) -> bool:

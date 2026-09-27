@@ -15,6 +15,8 @@ import json
 import time
 import uuid
 
+from app.services.text_normalize import normalise_ingredient_name
+
 TIMEOUT = 8.0
 
 
@@ -123,7 +125,9 @@ def test_clearing_a_usual_items_note_persists_after_reload(browser, api, server_
     """2026-09-13 code review, Stage 1 fix: services/usuals.py > update_usual() had the same
     `if value is not None` bug as update_slot() above — clearing a usual item's note in
     Settings silently no-opped. Drives the real Save button in settings-usuals.js."""
-    name = f"cdp note-clear test {uuid.uuid4().hex[:8]}"
+    # Normalised immediately — usuals.py's create_usual() runs names through the shared
+    # normaliser (2026-09-27), which folds hyphens to a space.
+    name = normalise_ingredient_name(f"cdp note-clear test {uuid.uuid4().hex[:8]}")
     usual = api.post(
         "/api/v1/settings/usuals",
         json={"name": name, "cadence_days": 14, "notes": "clear me"},
@@ -231,9 +235,11 @@ def test_ingredient_alias_group_shows_count_and_fixed_name_field(browser, api, s
     """2026-09-23 Settings redesign (settings-ingredient-aliases.js): a canonical group now
     renders as one `.settings-group-card` with a visible alias count, and each alias's name
     is a labelled, disabled field (not a bare unexplained span)."""
-    canonical = f"cdp-canon-{uuid.uuid4().hex[:8]}"
-    alias1 = f"cdp-alias-a-{uuid.uuid4().hex[:8]}"
-    alias2 = f"cdp-alias-b-{uuid.uuid4().hex[:8]}"
+    # Normalised immediately — ingredient_aliases.create_alias() runs names through the shared
+    # normaliser (2026-09-27), which folds hyphens to a space.
+    canonical = normalise_ingredient_name(f"cdp-canon-{uuid.uuid4().hex[:8]}")
+    alias1 = normalise_ingredient_name(f"cdp-alias-a-{uuid.uuid4().hex[:8]}")
+    alias2 = normalise_ingredient_name(f"cdp-alias-b-{uuid.uuid4().hex[:8]}")
     api.post(
         "/api/v1/settings/ingredient-aliases",
         json={"alias_name": alias1, "canonical_name": canonical},
@@ -268,8 +274,10 @@ def test_product_unit_group_renames_every_pack_size_together(browser, api, serve
     """2026-09-23 Settings redesign (settings-product-units.js): an ingredient with more than
     one pack size now renders as one grouped card; renaming the group heading renames every
     pack-size row in it, not just one."""
-    original_name = f"cdp-eggs-{uuid.uuid4().hex[:8]}"
-    new_name = f"cdp-eggs-renamed-{uuid.uuid4().hex[:8]}"
+    # Normalised immediately — settings.py's create_product_unit() runs names through the
+    # shared normaliser (2026-09-27), which folds hyphens to a space.
+    original_name = normalise_ingredient_name(f"cdp-eggs-{uuid.uuid4().hex[:8]}")
+    new_name = normalise_ingredient_name(f"cdp-eggs-renamed-{uuid.uuid4().hex[:8]}")
     unit_a = api.post(
         "/api/v1/settings/product-units",
         json={"ingredient_name": original_name, "purchase_label": "half dozen", "purchase_qty": 6, "purchase_unit": "each"},
@@ -356,7 +364,9 @@ def test_have_need_toggle_reaches_any_target_state_in_one_tap(browser, api, serv
     -> unknown, up to two taps to reach a target) with two independent one-tap toggles. Drives
     "no" directly from "yes" (skipping "unknown"), then back to "unknown" from "no" — both in
     exactly one click each — confirmed against the API, not just the DOM."""
-    item_name = f"cdp-have-need-{uuid.uuid4().hex[:8]}"
+    # Normalised immediately — the shared normaliser folds hyphens to a space, so a hyphenated
+    # fixture name wouldn't round-trip literally through ingredient_name (2026-09-27).
+    item_name = normalise_ingredient_name(f"cdp-have-need-{uuid.uuid4().hex[:8]}")
     recipe = api.post(
         "/api/v1/recipes",
         json={
@@ -410,8 +420,9 @@ def test_inline_pack_size_entry_resolves_this_session_and_preserves_other_items(
     writes to the real product_units table and triggers a re-consolidate so the pack breakdown
     appears THIS session (not just next time) — while an unrelated item's already-made "need
     it" choice survives that re-consolidate untouched (the "merge, not rebuild" guarantee)."""
-    no_pack_item = f"cdp-nopack-{uuid.uuid4().hex[:8]}"
-    other_item = f"cdp-other-{uuid.uuid4().hex[:8]}"
+    # Normalised immediately — see the have/need toggle test above for why.
+    no_pack_item = normalise_ingredient_name(f"cdp-nopack-{uuid.uuid4().hex[:8]}")
+    other_item = normalise_ingredient_name(f"cdp-other-{uuid.uuid4().hex[:8]}")
     recipe = api.post(
         "/api/v1/recipes",
         json={
@@ -500,7 +511,8 @@ def test_push_progress_step_list_shows_which_item_failed(browser, api, server_ur
     checklist tap to "no" so the push list is non-empty, then stubs api.checklist.push to
     reject and api.checklist.pushProgress to report the one item still "active" — confirming
     the UI marks that specific item as the one that failed, not a generic alert alone."""
-    item_name = f"cdp-push-progress-{uuid.uuid4().hex[:8]}"
+    # Normalised immediately — see the have/need toggle test above for why.
+    item_name = normalise_ingredient_name(f"cdp-push-progress-{uuid.uuid4().hex[:8]}")
     recipe = api.post(
         "/api/v1/recipes",
         json={

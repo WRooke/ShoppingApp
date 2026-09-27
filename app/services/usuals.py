@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.database import utcnow
 from app.models.catalog import UsualItem
 from app.schemas.usuals import UsualItemCreate, UsualItemUpdate
+from app.services import text_normalize
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class DuplicateUsualItemNameError(Exception):
 
 
 def _normalise_name(name: str) -> str:
-    return " ".join(name.strip().lower().split())
+    return text_normalize.normalise_ingredient_name(name)
 
 
 def is_due(item: UsualItem, *, as_of: datetime | None = None) -> bool:

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.catalog import CoarseIngredient
 from app.schemas.coarse_ingredients import CoarseIngredientCreate, CoarseIngredientUpdate
+from app.services import text_normalize
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class DuplicateCoarseIngredientError(Exception):
 
 
 def _normalise(name: str) -> str:
-    return " ".join(name.strip().lower().split())
+    return text_normalize.normalise_ingredient_name(name)
 
 
 def _clean_text(value: str | None) -> str | None:

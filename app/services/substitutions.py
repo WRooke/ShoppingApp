@@ -23,6 +23,7 @@ from app.schemas.substitutions import (
     RememberedSubstitutionCreate,
     RememberedSubstitutionUpdate,
 )
+from app.services import text_normalize
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class InvalidSubstitutionError(Exception):
 
 
 def _normalise(name: str) -> str:
-    return " ".join(name.strip().lower().split())
+    return text_normalize.normalise_ingredient_name(name)
 
 
 def _clean_note(note: str | None) -> str | None:

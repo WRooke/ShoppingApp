@@ -2,14 +2,46 @@
 
 ## Ingredient Normalisation
 
-Ingredient names must be consistent across recipes for consolidation to work. Rules:
+**Status: base mechanical normalisation built 2026-09-27 (the ingredient-name-matching plan) —
+supersedes the original "do not implement automatic synonym matching" note below, which is
+stale and kept only for history.**
+
+`app/services/text_normalize.py::normalise_ingredient_name()` is the single shared
+grouping/matching key used everywhere an ingredient name is compared for equality: base
+consolidation grouping (`consolidation.py`), every Settings-managed reference table's own
+matching (`product_units`, `coarse_ingredients`, `ingredient_aliases`, `remembered_substitutions`,
+`usual_items`), and the checklist's AnyList fuzzy-match. It is deliberately **mechanical only** —
+lowercasing, whitespace-collapse, hyphen/dash-folding to a space, and a conservative
+pluralisation-strip (including an `-us` guard so asparagus/couscous/hummus/citrus are never
+mistaken for a plural, and a small explicit whitelist for the `leaf`/`leaves`,
+`loaf`/`loaves`-style irregular plural — never a blind "-ves" suffix rule, which would corrupt
+"cloves"/"olives"/"gloves"). It never resolves genuine word-choice differences ("stock" vs
+"broth", "capsicum" vs "red capsicum", dialect spelling) — those stay `ingredient_aliases`'
+job, a household judgement call, never guessed at mechanically.
+
+Because this is now the shared key everywhere, `recipe_ingredients.name`/`resolved_ingredient`
+are deliberately **not** rewritten through it (see `app/services/recipes.py`'s
+`_normalise_ingredient_name()`/`_norm_resolved()` docstrings) — a recipe's own detail page must
+always show exactly what it said, and every consolidation pass re-derives the matching key
+fresh from that raw value, so nothing needs to be pre-computed or stored.
+
+Existing rows in the 5 reference tables above, written before this module existed, were
+backfilled onto the new normalised form by a one-time Alembic data migration
+(`bcaf5b44af53`) — CLAUDE.md's non-negotiable rule 3 (no data loss on the prod database) meant
+that migration never deletes a row: a collision between two existing rows leaves the "losing"
+row's value completely untouched rather than merging or dropping it, printing a report line for
+the maintainer to reconcile by hand via the existing Settings CRUD. See
+[Deferred Decisions](./deferred-decisions.md#deferred-decisions) for the tracked follow-up
+(reconciling any such left-behind rows, and any other pre-existing data that would benefit from
+this and the alias/AI-assisted-grouping mechanisms below but predates them).
+
+**Original 2026-09-05 rules, kept for history — the "do not implement automatic synonym
+matching" line no longer holds, superseded above:**
 - Store all names in lowercase
 - Strip leading/trailing whitespace
 - Canonical forms: "beef mince" not "minced beef", "spring onion" not "green onion"
 - On first capture, names are stored as Claude returns them (after lowercasing)
 - The user can edit names in the recipe editing UI
-- **Do not implement automatic synonym matching in early phases** — the user reviews and
-  confirms all extractions, which provides sufficient normalisation for now. Flag for future.
 
 ---
 

@@ -173,6 +173,46 @@ def test_names_normalised_and_sorted():
     assert [i.name for i in result] == ["apple", "beef mince"]
 
 
+# --- 2026-09-27 (ingredient-name-matching plan, F1.2) -------------------------------------
+# _normalise_name() now delegates to text_normalize.normalise_ingredient_name(), so plural and
+# hyphen variants of the same ingredient merge into one consolidated line. Confirmed against
+# real pairs found in the prod DB audit; see app/services/text_normalize.py's own tests for the
+# normaliser's unit tests — these check the effect at consolidate()'s own level.
+
+
+def test_plural_variants_merge():
+    result = consolidate([L("carrot", 2, None), L("carrots", 3, None)])
+    assert len(result) == 1
+    assert result[0].name == "carrot" and result[0].quantity == 5
+
+
+def test_hyphen_variants_merge():
+    result = consolidate(
+        [L("extra virgin olive oil", 20, "ml"), L("extra-virgin olive oil", 30, "ml")]
+    )
+    assert len(result) == 1
+    assert result[0].name == "extra virgin olive oil" and result[0].quantity == 50
+
+
+def test_must_not_merge_cases_stay_distinct_at_consolidate_level():
+    result = consolidate(
+        [
+            L("coriander", 1, None),
+            L("coriander leaves", 1, None),
+            L("fresh coriander", 1, None),
+            L("chicken breasts", 1, None),
+            L("chicken thighs", 1, None),
+        ]
+    )
+    assert {i.name for i in result} == {
+        "coriander",
+        "coriander leaf",  # singularised ("leaves" -> "leaf"), still distinct from "coriander"
+        "fresh coriander",
+        "chicken breast",  # singularised, but still distinct from chicken thigh
+        "chicken thigh",
+    }
+
+
 # --- conversion notes (2026-09-10, Ingredient Aliases quantity/unit transform) ------------
 #
 # consolidation.py treats source_qty/unit/name as opaque display metadata — the actual

@@ -75,7 +75,9 @@ cleanly in ~2 hours. `spike/anylist_spike.py` + `spike/FINDINGS.md` are the refe
 Phase 5 Chunk 5.2 connector (`services/anylist_client.py`) was adapted from. The Node.js
 Express microservice fallback was **not** taken; if it ever were, it must bind to
 `127.0.0.1` only — never `0.0.0.0` (see [Security](./security.md#security) §2). The websocket
-live-refresh listener was out of spike scope and is not used — the app fetches on demand.
+live-refresh listener was out of spike scope and is not used — the app fetches on demand. This
+decision predates, and is the documented exception to,
+[Code Architecture & Maintainability > Prefer a known library over hand-rolling](./code-architecture.md#prefer-a-known-library-over-hand-rolling-added-2026-09-27).
 
 ### AnyList — derisking spike (bring forward)
 AnyList has been flagged as a high-risk, low-confidence part of the stack, so the core

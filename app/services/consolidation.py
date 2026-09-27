@@ -43,6 +43,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from app.services.text_normalize import normalise_ingredient_name
+
 _ML_PER = {"ml": 1.0, "l": 1000.0, "tsp": 5.0, "tbsp": 20.0, "cup": 250.0}
 _G_PER = {"g": 1.0, "kg": 1000.0}
 _SPOON_CUP_UNITS = {"tsp", "tbsp", "cup"}
@@ -304,7 +306,15 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
 
 
 def _normalise_name(name: str) -> str:
-    return " ".join(name.strip().lower().split())
+    """The consolidation grouping key — delegates to the shared
+    ``text_normalize.normalise_ingredient_name`` (2026-09-27), which every other reference-table
+    matching site in the app must also use (session_consolidation.py, coarse_ingredients.py,
+    ingredient_aliases.py, substitutions.py, settings.py, usuals.py, checklist.py,
+    unit_synonyms.py — see that module's own docstring for why they all have to agree on this).
+    Previously just ``" ".join(name.strip().lower().split())`` — plural/hyphen variants of the
+    same ingredient ("carrot"/"carrots", "extra virgin olive oil"/"extra-virgin olive oil")
+    landed as separate, unmerged shopping-list lines. See CLAUDE.md > Ingredient Normalisation."""
+    return normalise_ingredient_name(name)
 
 
 def consolidate(lines: list[IngredientLine]) -> list[ConsolidatedItem]:

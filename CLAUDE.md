@@ -118,7 +118,7 @@ table before assuming something went missing.
 | docs/ file | Contents | Original section(s) it was built from |
 |---|---|---|
 | [project-overview.md](./docs/project-overview.md) | Project Overview, Users, Tech Stack, what's explicitly out of scope, the `.env` reference | Project Overview; Users; Tech Stack (+ FastAPI notes, AnyList integration decision, AnyList derisking-spike note); Explicitly Out of Scope; Environment Variables (.env) |
-| [code-architecture.md](./docs/code-architecture.md) | Layering rules, file-size/documentation discipline, migrations, the source tree map, the API response envelope | Code Architecture & Maintainability; Project Directory Structure; API Conventions |
+| [code-architecture.md](./docs/code-architecture.md) | Layering rules, file-size/documentation discipline, when to prefer a known library over hand-rolled code, migrations, the source tree map, the API response envelope | Code Architecture & Maintainability; Project Directory Structure; API Conventions |
 | [data-model.md](./docs/data-model.md) | All 16 SQLite tables, audit-column conventions, seed data | Data Model; Pre-seeded Product Units; Staples Starter List; Section Vocabulary Starter List |
 | [scaling-and-consolidation.md](./docs/scaling-and-consolidation.md) | Scaling, rounding/unit-normalisation rules, purchase-unit resolution, the per-recipe ingredient breakdown | Scaling Logic; Which Recipe Is This Ingredient From |
 | [recipe-capture.md](./docs/recipe-capture.md) | URL/photo capture flow, the extraction prompt, the current Gemini provider/model/call-structure spec | Recipe Capture — AI Extraction; AI Provider Migration (its provider/model selection, call structure, photo capture, fallback & retry, queueing, pending-state surfacing, API key storage, free-tier resolution, and deferred-Ollama parts only — see below) |
@@ -164,8 +164,9 @@ See [docs/project-overview.md](./docs/project-overview.md).
 The rule set that keeps a project built incrementally across many separate sessions safe to
 extend: strict one-way layering (`routers/` → `services/` → `models/`/`schemas/`), external
 integrations kept behind small stable interfaces, a file-size guideline, a documentation
-standard ("comment the why, not the what"), the Alembic migration story, and the physical
-source tree. Also covers the API response envelope and error-code conventions.
+standard ("comment the why, not the what"), when to prefer a known library over hand-rolled
+code, the Alembic migration story, and the physical source tree. Also covers the API response
+envelope and error-code conventions.
 
 See [docs/code-architecture.md](./docs/code-architecture.md).
 

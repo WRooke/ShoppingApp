@@ -28,7 +28,7 @@ def test_create_product_unit_happy_path(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["ok"] is True
-    assert body["data"]["ingredient_name"] == "zz-test-ingredient"  # normalised
+    assert body["data"]["ingredient_name"] == "zz test ingredient"  # normalised (hyphen -> space)
     assert body["data"]["is_preseeded"] is False
 
 
@@ -118,7 +118,7 @@ def test_create_substitution_normalises_and_no_default_concept(client):
     resp = _create_sub(client, "ZZ-Bulgarian Feta", "ZZ-Regular Feta", note="close enough")
     assert resp.status_code == 201
     body = resp.json()["data"]
-    assert body["original_name"] == "zz-bulgarian feta"  # normalised
+    assert body["original_name"] == "zz bulgarian feta"  # normalised (hyphen -> space)
     assert body["note"] == "close enough"
     assert "is_default" not in body
 
@@ -148,8 +148,8 @@ def test_multiple_substitutes_per_original_and_patch_note(client):
     assert resp.json()["data"]["note"] == "use this in a pinch"
 
     listed = client.get("/api/v1/settings/substitutions?limit=500").json()["data"]["items"]
-    mine = [r for r in listed if r["original_name"] == "zz-multi"]
-    assert {r["substitute_name"] for r in mine} == {"zz-sub-a", "zz-sub-b"}
+    mine = [r for r in listed if r["original_name"] == "zz multi"]
+    assert {r["substitute_name"] for r in mine} == {"zz sub a", "zz sub b"}
 
 
 def test_delete_substitution(client):
@@ -240,8 +240,8 @@ def test_create_ingredient_alias_happy_path(client):
     resp = _create_alias(client, "ZZ-Canola Oil", "ZZ-Vegetable Oil")
     assert resp.status_code == 201
     body = resp.json()["data"]
-    assert body["alias_name"] == "zz-canola oil"  # normalised
-    assert body["canonical_name"] == "zz-vegetable oil"
+    assert body["alias_name"] == "zz canola oil"  # normalised (hyphen -> space)
+    assert body["canonical_name"] == "zz vegetable oil"
 
 
 def test_create_ingredient_alias_duplicate_returns_structured_409(client):
@@ -263,8 +263,8 @@ def test_multiple_aliases_share_one_canonical(client):
     assert a["id"] != b["id"]
 
     listed = client.get("/api/v1/settings/ingredient-aliases?limit=500").json()["data"]["items"]
-    mine = [r for r in listed if r["canonical_name"] == "zz-multi-canonical"]
-    assert {r["alias_name"] for r in mine} == {"zz-multi-a", "zz-multi-b"}
+    mine = [r for r in listed if r["canonical_name"] == "zz multi canonical"]
+    assert {r["alias_name"] for r in mine} == {"zz multi a", "zz multi b"}
 
 
 def test_delete_ingredient_alias(client):
@@ -388,7 +388,7 @@ def test_create_coarse_ingredient_happy_path(client):
     )
     assert resp.status_code == 201
     body = resp.json()["data"]
-    assert body["name"] == "zz-parsley"
+    assert body["name"] == "zz parsley"  # normalised (hyphen -> space)
     assert body["purchase_label"] == "bunch"
     assert body["recipes_per_pack"] == 3  # default
 

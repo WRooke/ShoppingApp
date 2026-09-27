@@ -49,6 +49,39 @@ underneath ever swaps from native calls to the Node microservice, that swap is a
 file's internals, not a hunt through every router and service that happens to need shopping-list
 data. The same applies to anything else with an external dependency added later.
 
+### Prefer a known library over hand-rolling (added 2026-09-27)
+Default to an external, actively-maintained, known-safe library over writing and maintaining
+equivalent logic by hand, whenever one exists that fits the need. There's no sense developing
+and maintaining code that's already freely available, tested, and has already found the edge
+cases a first-pass hand-rolled version hasn't yet.
+
+- **Concrete example already in the codebase:** `services/text_normalize.py`'s original
+  hand-rolled `singularise()` shipped with two real bugs (a blind "-ves" suffix rule corrupted
+  "cloves"→"clof"/"olives"→"olif"; a blind "-us" guard also caught "tofus"). An empirical,
+  corpus-based evaluation against every distinct ingredient name in the real dev and prod DBs
+  found `inflect.singular_noun()` genuinely better at the true-irregular cases (geese/goose,
+  mice/mouse) a suffix rule can never reach.
+- **Not "the library always wins" — the choice is deliberate, not default inertia either way.**
+  That same evaluation also rejected `TextBlob` outright (worse defaults, a much heavier
+  dependency chain) and landed on a *hybrid* — hand-rolled rules where they're proven safe,
+  `inflect` only where it's empirically better — rather than reaching for either extreme. The
+  AnyList connector is the opposite outcome reached the same way: a timeboxed spike (see
+  [Tech Stack > AnyList integration — Phase 5 decision](./project-overview.md#anylist-integration--phase-5-decision))
+  found a hand-rolled ~150-line protobuf codec simpler and cleaner than pulling in
+  `protobuf`/`websockets` for what this app actually needed. Both are the model to follow: look
+  first, then decide with a reason, rather than reflexively hand-rolling *or* reflexively
+  reaching for a package.
+- **How to apply:** before writing non-trivial logic that feels like it must already exist
+  somewhere (parsing, normalisation, retry/backoff, date handling, fuzzy matching, and similar),
+  check for a well-known library first. If one fits, use it. If hand-rolling still wins, say so
+  in the module docstring the way `text_normalize.py` and the AnyList spike write-up already
+  do — a bare, unexplained hand-rolled block is exactly what this rule exists to prevent.
+- **Existing hand-rolled code is not being retroactively audited by this rule** — see the
+  tracking row in [Deferred Decisions](./deferred-decisions.md#deferred-decisions). This rule
+  governs new code going forward; any future pass over what's already there is separate,
+  deliberate work, and any swap it makes still needs full regression testing before it counts
+  as done.
+
 ### Tests — pytest, `tests/` mirroring `app/`
 - `services/` functions get unit tests with no DB and no network — these are cheap to write
   because the layering rule above keeps them pure, and they're what catches a scaling/rounding

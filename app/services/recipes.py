@@ -42,7 +42,8 @@ class IngredientNotFoundError(Exception):
 
 def _norm_resolved(value: str | None) -> str | None:
     """Normalise a resolved_ingredient the same way as an ingredient name (lowercase, trim);
-    blank -> None (clears the substitution). Phase 3.9 M4."""
+    blank -> None (clears the substitution). Phase 3.9 M4. Deliberately lowercase+strip only,
+    not the shared text_normalize normaliser — see _normalise_ingredient_name()'s docstring."""
     if value is None:
         return None
     trimmed = " ".join(value.strip().lower().split())
@@ -65,9 +66,14 @@ def _resolved_transform(
 
 
 def _normalise_ingredient_name(name: str) -> str:
-    """Lowercase + strip whitespace — see CLAUDE.md > Ingredient Normalisation.
-    Automatic synonym matching ("green onion" vs "spring onion") is explicitly
-    NOT implemented here — deferred, user review is the normalisation for now."""
+    """Lowercase + strip whitespace only — deliberately NOT the shared
+    ``text_normalize.normalise_ingredient_name()`` used everywhere a resolved/consolidated name
+    is matched (2026-09-27 ingredient-name-matching plan, explicit no-change decision, F1.4).
+    This is the write path for ``recipe_ingredients.name``/``resolved_ingredient`` themselves —
+    a recipe's own detail page must always show exactly what it said, and
+    ``consolidate_session()`` re-derives the grouping/matching key fresh from this raw value on
+    every call, so rewriting it here would buy nothing and would break that guarantee. Do not
+    "fix" this to call the shared normaliser — see CLAUDE.md > Ingredient Normalisation."""
     return name.strip().lower()
 
 

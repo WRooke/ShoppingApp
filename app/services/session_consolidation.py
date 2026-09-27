@@ -31,6 +31,7 @@ from app.services import (
     purchase_units,
     scaling,
     session_pack_resolution,
+    text_normalize,
     unit_synonyms,
 )
 from app.services.sessions import get_session
@@ -43,7 +44,10 @@ _DAY_ABBR = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun
 
 
 def _norm(name: str) -> str:
-    return " ".join(name.strip().lower().split())
+    """Delegates to the shared text_normalize.normalise_ingredient_name() (2026-09-27) — must
+    stay in lockstep with consolidation.py's own _normalise_name(), or alias/override/coarse
+    lookups here disagree with what the pure consolidate() actually grouped under."""
+    return text_normalize.normalise_ingredient_name(name)
 
 
 def _effective_source(ing) -> tuple[float, str | None]:

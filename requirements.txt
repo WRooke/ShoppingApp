@@ -13,6 +13,16 @@ SQLAlchemy==2.0.52
 alembic==1.19.2  # DB migrations — bootstrapped Phase 3 Chunk 3.7a (see CLAUDE.md > Migrations)
 python-dotenv==1.2.3
 
+# Ingredient-name-matching plan (2026-09-27) — app/services/text_normalize.py::singularise().
+# A deliberate, evaluated exception to "kept deliberately minimal" above: pluralisation has
+# real irregulars (geese/goose, knives/knife, children/child) a hand-rolled suffix-rule
+# approach can never cover without reinventing a small English morphology engine badly.
+# Chosen over TextBlob after an empirical, corpus-based comparison — TextBlob shares the same
+# "-us"-ending flaw (needs the same guard either way) but ALSO regresses a real ingredient
+# ("olives" -> "olife", wrong) and pulls in nltk + 5 more transitive packages; inflect pulls
+# only `typeguard`. Pure Python, no compiled extensions, no corpora download.
+inflect==7.5.0
+
 # Dev/test — see CLAUDE.md > Code Architecture & Maintainability. Added ahead of Phase 2
 # so the tests/ convention exists from the first real business logic, not retrofitted later.
 pytest==9.1.1

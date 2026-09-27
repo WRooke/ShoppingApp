@@ -41,23 +41,25 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.catalog import UnitSynonym
 from app.models.recipes import RecipeIngredient
 from app.schemas.unit_synonyms import UnitSynonymCreate, UnitSynonymUpdate
-from app.services import ingredient_aliases
+from app.services import ingredient_aliases, text_normalize
 from app.services.scaling import NO_SCALE_UNITS
 
 logger = logging.getLogger(__name__)
 
-# The standard units classify_units() (app/services/ai_extraction.py) is allowed to match a
-# spelling against. Kept here too (not just re-exported from ai_extraction) so this module's
-# own "already resolves to a standard unit, nothing to learn" check doesn't need to import
-# the AI module just for a constant.
-_STANDARD_UNITS = frozenset({"g", "kg", "ml", "l", "tsp", "tbsp", "cup"})
+# The standard (measured) units classify_units() (app/services/ai_extraction.py) is allowed to
+# match a spelling against. Kept here too (not just re-exported from ai_extraction) so this
+# module's own "already resolves to a standard unit, nothing to learn" check doesn't need to
+# import the AI module just for a constant. Public (not `_`-prefixed) — also the "is this a
+# discrete counting unit?" check checklist_display.py's display pluralisation needs (2026-09-27):
+# anything present and NOT in this set (clove, sprig, head, bunch, pinch, can, ...) is, by this
+# app's own vocabulary, a discrete counting unit rather than a measured one.
+STANDARD_UNITS = frozenset({"g", "kg", "ml", "l", "tsp", "tbsp", "cup"})
 
 # Endings a plain "+s"/"+es" plural typically adds to a short discrete-unit noun. Deliberately
 # conservative — a false strip (treating a genuinely different word as a plural of another)
@@ -185,12 +187,14 @@ def resolve_unit(unit: str | None, synonyms: dict[str, str]) -> str | None:
 # --- Layer B: per-ingredient known units, derived live (2026-09-12) --------------------
 
 
-def _alias_group_names(db: Session, name: str) -> set[str]:
-    """Every ingredient name that should count as "the same ingredient" for pooling known
-    units — the given name plus its whole ``ingredient_aliases`` group, whichever direction
-    it points (an alias asking about its own canonical, or a canonical asking about its
-    aliases)."""
-    normalised = " ".join(name.strip().lower().split())
+def alias_group_names(db: Session, name: str) -> set[str]:
+    """Every ingredient name that should count as "the same ingredient" for pooling
+    per-ingredient facts derived from real usage — the given name plus its whole
+    ``ingredient_aliases`` group, whichever direction it points (an alias asking about its own
+    canonical, or a canonical asking about its aliases). Public (not `_`-prefixed) — reused by
+    ``checklist_display.py``'s countability check (2026-09-27), the same "pool across the alias
+    group" need as this module's own `known_units_for_ingredient()` below."""
+    normalised = text_normalize.normalise_ingredient_name(name)
     amap = ingredient_aliases.alias_map(db)
     canonical = amap[normalised].canonical_name if normalised in amap else normalised
     group = {canonical}
@@ -204,22 +208,30 @@ def known_units_for_ingredient(db: Session, name: str) -> list[str]:
     and "g" already show up as one entry, "g", not two. Zero admin: a plain query over
     ``recipe_ingredients``, no new table (CLAUDE.md > Ingredient Unit Handling > Layer B).
     Surfaced as quick-pick buttons on the unit input in manual entry / editing / capture
-    review, and as the comparison set for the Layer C duplicate-unit nudge."""
-    names = _alias_group_names(db, name)
+    review, and as the comparison set for the Layer C duplicate-unit nudge.
+
+    2026-09-27 — matched in Python against the *normalised* name, not via a SQL
+    ``RecipeIngredient.name.in_(names)`` filter: ``recipe_ingredients.name`` is deliberately
+    NEVER rewritten through ``text_normalize`` (CLAUDE.md > Ingredient Normalisation — a
+    recipe's own detail page always shows exactly what it said), so a raw stored name can
+    differ in shape (plural, hyphenated) from the normalised group names `alias_group_names`
+    now returns. Household-scale data, so a full table scan here is cheap."""
+    names = alias_group_names(db, name)
     if not names:
         return []
     synonyms = synonym_map(db)
     rows = (
-        db.query(RecipeIngredient.unit, func.count(RecipeIngredient.id))
-        .filter(RecipeIngredient.name.in_(names), RecipeIngredient.unit.isnot(None))
-        .group_by(RecipeIngredient.unit)
+        db.query(RecipeIngredient.name, RecipeIngredient.unit)
+        .filter(RecipeIngredient.unit.isnot(None))
         .all()
     )
     counts: dict[str, int] = {}
-    for unit, count in rows:
+    for ing_name, unit in rows:
+        if text_normalize.normalise_ingredient_name(ing_name) not in names:
+            continue
         canonical = resolve_unit(unit, synonyms)
         if canonical:
-            counts[canonical] = counts.get(canonical, 0) + count
+            counts[canonical] = counts.get(canonical, 0) + 1
     return sorted(counts, key=lambda u: (-counts[u], u))
 
 
@@ -262,7 +274,7 @@ def learn_new_units(
         unit = raw.strip().lower()
         if not unit or unit in NO_SCALE_UNITS:
             continue
-        if resolve_unit(unit, synonyms) in _STANDARD_UNITS:
+        if resolve_unit(unit, synonyms) in STANDARD_UNITS:
             continue  # already resolves to a standard unit -- nothing to learn
         candidates.add(unit)
     if not candidates:

@@ -55,7 +55,8 @@ def test_load_returns_envelope_with_items_and_anylist_status(client, fake_anylis
     names = {i["ingredient_name"]: i for i in data["items"]}
     assert names["milk"]["already_on_anylist"] is True
     assert names["milk"]["have_it"] == "yes"  # pre-ticked from the fake list
-    assert names["zz-router-passata"]["already_on_anylist"] is False
+    # 2026-09-27 — the shared normaliser folds hyphens to a space.
+    assert names["zz router passata"]["already_on_anylist"] is False
 
 
 def test_patch_item_updates_state(client, fake_anylist):
@@ -91,7 +92,9 @@ def test_push_marks_session_pushed_and_refuses_re_push(client, fake_anylist):
     pushed = client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []})
     assert pushed.status_code == 200
     body = pushed.json()["data"]
-    assert "Zz-Push-Passata" in body["added"] and body["confirmed"] is True
+    # 2026-09-27 — hyphen folded to a space by the shared normaliser before AnyList push's
+    # own .title() call: "zz-push-passata" -> "zz push passata" -> "Zz Push Passata".
+    assert "Zz Push Passata" in body["added"] and body["confirmed"] is True
 
     session = client.get(f"/api/v1/sessions/{sid}").json()["data"]
     assert session["status"] == "pushed" and session["pushed_at"] is not None
@@ -205,7 +208,8 @@ def test_load_after_push_with_usuals_survives_naive_aware_round_trip(client, fak
     resp = client.get(f"/api/v1/checklist/{sid}")
     assert resp.status_code == 200  # not 500 — this is the actual regression check
     usual_names = {u["name"] for u in resp.json()["data"]["usuals"]}
-    assert usual_names == {"zz-router-light-bulbs"}  # overdue is due; due_soon just got added
+    # normalised (hyphen -> space, "bulbs" -> "bulb")
+    assert usual_names == {"zz router light bulb"}  # overdue is due; due_soon just got added
 
 
 def test_resolve_needs_review_item(client, fake_anylist):

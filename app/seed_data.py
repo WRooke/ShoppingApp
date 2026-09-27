@@ -24,12 +24,19 @@ logger = logging.getLogger(__name__)
 # Uniqueness is (ingredient_name, purchase_label) as of Phase 4 Chunk 4.1.
 PRODUCT_UNIT_SEEDS: list[dict] = [
     # Dairy & eggs
-    {"ingredient_name": "eggs", "purchase_label": "half dozen", "purchase_qty": 6, "purchase_unit": "each"},
-    {"ingredient_name": "eggs", "purchase_label": "dozen", "purchase_qty": 12, "purchase_unit": "each"},
+    # 2026-09-27 (ingredient-name-matching plan, F1.3) — "eggs"/"diced tomatoes" below renamed
+    # to their singularised form, and "yoghurt" to "greek yoghurt" (F0's promoted household
+    # preference — see INGREDIENT_ALIAS_SEEDS below), because seed_reference_data() inserts
+    # these rows directly, bypassing settings.py's normaliser entirely — the static source text
+    # here IS the final matching key, not just a display label. Leaving a plural/orphaned form
+    # here would keep re-seeding an unreachable row on every fresh install, the same class of
+    # bug F1.5's migration fixes for existing databases.
+    {"ingredient_name": "egg", "purchase_label": "half dozen", "purchase_qty": 6, "purchase_unit": "each"},
+    {"ingredient_name": "egg", "purchase_label": "dozen", "purchase_qty": 12, "purchase_unit": "each"},
     {"ingredient_name": "milk", "purchase_label": "1L bottle", "purchase_qty": 1, "purchase_unit": "L"},
     {"ingredient_name": "milk", "purchase_label": "2L bottle", "purchase_qty": 2, "purchase_unit": "L"},
-    {"ingredient_name": "yoghurt", "purchase_label": "500g tub", "purchase_qty": 500, "purchase_unit": "g"},
-    {"ingredient_name": "yoghurt", "purchase_label": "1kg tub", "purchase_qty": 1000, "purchase_unit": "g"},
+    {"ingredient_name": "greek yoghurt", "purchase_label": "500g tub", "purchase_qty": 500, "purchase_unit": "g"},
+    {"ingredient_name": "greek yoghurt", "purchase_label": "1kg tub", "purchase_qty": 1000, "purchase_unit": "g"},
     {"ingredient_name": "butter", "purchase_label": "250g block", "purchase_qty": 250, "purchase_unit": "g"},
     {"ingredient_name": "cream", "purchase_label": "300ml carton", "purchase_qty": 300, "purchase_unit": "ml"},
     {"ingredient_name": "sour cream", "purchase_label": "200g tub", "purchase_qty": 200, "purchase_unit": "g"},
@@ -47,7 +54,7 @@ PRODUCT_UNIT_SEEDS: list[dict] = [
     {"ingredient_name": "brown sugar", "purchase_label": "500g bag", "purchase_qty": 500, "purchase_unit": "g"},
     {"ingredient_name": "basmati rice", "purchase_label": "1kg bag", "purchase_qty": 1000, "purchase_unit": "g"},
     {"ingredient_name": "pasta", "purchase_label": "500g pack", "purchase_qty": 500, "purchase_unit": "g"},
-    {"ingredient_name": "diced tomatoes", "purchase_label": "400g can", "purchase_qty": 400, "purchase_unit": "g"},
+    {"ingredient_name": "diced tomato", "purchase_label": "400g can", "purchase_qty": 400, "purchase_unit": "g"},
     {"ingredient_name": "coconut cream", "purchase_label": "400ml can", "purchase_qty": 400, "purchase_unit": "ml"},
     {"ingredient_name": "coconut milk", "purchase_label": "400ml can", "purchase_qty": 400, "purchase_unit": "ml"},
     {"ingredient_name": "chicken stock", "purchase_label": "1L carton", "purchase_qty": 1000, "purchase_unit": "ml"},
@@ -120,6 +127,22 @@ INGREDIENT_ALIAS_SEEDS: list[dict] = [
         "alias_qty": 2, "alias_unit": "tsp", "canonical_qty": 1, "canonical_unit": None,
         "note": "roughly 2 tsp zest per lime",
     },
+    # 2026-09-27 — household-stated naming preferences, same standing as the oil-variant group
+    # above (a real, current preference, not a guess — see the ingredient-name-matching plan's
+    # F0 chunk). "heavy cream"/"broth" don't appear in any real recipe yet (confirmed against
+    # the prod DB) — these are forward-looking, so a future US-worded scraped recipe resolves
+    # correctly the moment it's captured, not just at shopping-list time.
+    {"alias_name": "heavy cream", "canonical_name": "thickened cream"},
+    {"alias_name": "broth", "canonical_name": "stock"},
+    # Promoted from a `remembered_substitutions` row (which is left in place, not deleted — see
+    # the plan's data-loss correction) to a silent alias: the household already confirmed this
+    # swap every time it came up, so it's no longer a per-recipe judgement call. Both spellings
+    # seeded directly against the final target ("greek yoghurt"), not chained through each other
+    # -- seed_reference_data() inserts rows directly (bypassing create_alias()'s chain-flattening),
+    # so a 2-hop "plain yogurt -> plain yoghurt -> greek yoghurt" seed would NOT resolve past the
+    # first hop at consolidation time (alias_map() is a single dict lookup, no chain-following).
+    {"alias_name": "plain yogurt", "canonical_name": "greek yoghurt"},  # AU spelling + preference
+    {"alias_name": "plain yoghurt", "canonical_name": "greek yoghurt"},
 ]
 
 # Unit-spelling canonicalisation (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling >

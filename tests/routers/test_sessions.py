@@ -259,7 +259,9 @@ def test_consolidate_endpoint_multi_pack_eggs(client):
     client.post(f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r["id"], "scaled_servings": 4})
 
     resp = client.post(f"/api/v1/sessions/{s['id']}/consolidate", json={})
-    eggs = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "eggs")
+    # 2026-09-27 — singularised by the shared normaliser ("eggs" -> "egg"), matching
+    # PRODUCT_UNIT_SEEDS' own now-singular "egg" rows.
+    eggs = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "egg")
     assert eggs["display_qty"] == "1 × dozen"  # 8 eggs -> a dozen beats a half-dozen
 
 
@@ -281,5 +283,8 @@ def test_consolidate_endpoint_session_override(client):
         json={"overrides": [{"original_name": "zz-bulgarian feta", "substitute_name": "zz-plain feta"}]},
     )
     names = [i["ingredient_name"] for i in resp.json()["data"]["items"]]
-    assert "zz-plain feta" in names
+    # 2026-09-27 — the shared normaliser folds hyphens to a space ("zz-plain feta" ->
+    # "zz plain feta"), same as "extra-virgin"/"extra virgin".
+    assert "zz plain feta" in names
     assert "zz-bulgarian feta" not in names
+    assert "zz bulgarian feta" not in names

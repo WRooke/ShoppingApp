@@ -901,6 +901,7 @@ def test_consolidate_session_override_pair_skipped_for_to_taste_line(db):
             original_qty=1, original_unit="pinch", substitute_qty=2, substitute_unit="g",
         )],
     )
-    # renamed, but still a "to taste" line — no number, no ratio applied
-    assert [i.ingredient_name for i in items] == ["saffron threads"]
+    # renamed, but still a "to taste" line — no number, no ratio applied. Singularised by the
+    # 2026-09-27 shared normaliser ("threads" -> "thread"), same as any other plural.
+    assert [i.ingredient_name for i in items] == ["saffron thread"]
     assert items[0].total_quantity is None and items[0].note == "to taste"

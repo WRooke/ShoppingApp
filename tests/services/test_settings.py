@@ -61,7 +61,7 @@ def test_create_product_unit_normalises_name_and_defaults_not_preseeded(db):
     unit = settings_service.create_product_unit(db, _make_product_unit())
 
     assert unit.id is not None
-    assert unit.ingredient_name == "eggs"
+    assert unit.ingredient_name == "egg"  # normalised (singularised)
     assert unit.is_preseeded is False
 
 
@@ -82,7 +82,7 @@ def test_create_product_unit_allows_second_pack_size_for_same_ingredient(db):
     )
 
     assert first.id != second.id
-    assert first.ingredient_name == second.ingredient_name == "eggs"
+    assert first.ingredient_name == second.ingredient_name == "egg"  # normalised
 
 
 def test_list_product_units_ordered_by_ingredient_name(db):
