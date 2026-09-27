@@ -16,6 +16,7 @@ from app.schemas.checklist import (
     ChecklistItemResolve,
     ChecklistItemUpdate,
     ChecklistLoadResponse,
+    ChecklistMergeRequest,
     ChecklistPushRequest,
 )
 from app.schemas.sessions import ChecklistItemRead
@@ -72,6 +73,30 @@ def resolve_item(
         db, session_id, item_id, total_quantity=data.total_quantity, total_unit=data.total_unit
     )
     return {"ok": True, "data": _item(db, row)}
+
+
+@router.post("/{session_id}/merge")
+def merge_items(
+    session_id: int,
+    data: ChecklistMergeRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Fold 2+ checklist lines into one (Fix 3 — CLAUDE.md > Deferred Decisions >
+    checklist-time merge). Pre-push only (409 SESSION_ALREADY_PUSHED once pushed); a
+    `remember=True` merge that names an already-aliased item surfaces 409
+    DUPLICATE_INGREDIENT_ALIAS, same as Settings' own alias creation."""
+    rows = checklist_service.merge_items(
+        db,
+        session_id,
+        item_names=data.item_names,
+        canonical_name=data.canonical_name,
+        remember=data.remember,
+        alias_qty=data.alias_qty,
+        alias_unit=data.alias_unit,
+        canonical_qty=data.canonical_qty,
+        canonical_unit=data.canonical_unit,
+    )
+    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
 
 
 @router.post("/usuals/{usual_id}/skip")

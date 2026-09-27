@@ -90,6 +90,19 @@
     // instant the "confirmed" push response arrives) until a later push confirms cleanly.
     var lastDiscrepancies = null;
 
+    // Fix 3 — "Select to merge" mode (checklist-time merge, CLAUDE.md > Deferred Decisions).
+    // Screen-level toggle, not a permanent per-row control — entering it hides the existing
+    // have/need toggles and pack-size link on every regular row for the duration. Client-only
+    // state, re-rendered from the last-loaded data (no API call) so toggling it or (un)checking
+    // a row is instant. mergeSelected is {ingredient_name: item}, not just a name set, so the
+    // merge panel can read each selected item's own display_name/total_unit without a re-fetch.
+    var mergeMode = false;
+    var mergeSelected = {};
+    var lastData = null;
+    function rerender() {
+      if (lastData) render(lastData);
+    }
+
     root.appendChild(global.BackLink.render("plan"));
     root.appendChild(stepIndicator("Checklist"));
 
@@ -111,6 +124,8 @@
     load();
 
     function load() {
+      mergeMode = false;
+      mergeSelected = {};
       api.checklist
         .load(sessionId)
         .then(render)
@@ -135,6 +150,7 @@
     }
 
     function render(data) {
+      lastData = data;
       body.innerHTML = "";
       syncNote.className = "sync-note" + (data.anylist_ok ? "" : " stale");
       syncNote.innerHTML = "";
@@ -253,11 +269,39 @@
     // --- regular items ---
     function itemsGroup(regular) {
       var wrap = el("div");
-      wrap.appendChild(el("div", "sub-group-heading", "Ingredients"));
+      var heading = el("div", "sub-group-heading");
+      heading.appendChild(document.createTextNode("Ingredients"));
+      // Fix 3 — "Select to merge" toggle, only worth showing with 2+ rows to actually merge.
+      // Screen-level mode, not a permanent per-row control (see the mount()-level comment
+      // above) — re-rendered locally via rerender(), no API call just to toggle it.
+      if (regular.length >= 2) {
+        var toggle = el("button", "btn-link", mergeMode ? "Cancel" : "Select to merge");
+        toggle.style.marginLeft = "8px";
+        toggle.addEventListener("click", function () {
+          mergeMode = !mergeMode;
+          mergeSelected = {};
+          rerender();
+        });
+        heading.appendChild(toggle);
+      }
+      wrap.appendChild(heading);
       if (!regular.length) wrap.appendChild(el("div", "muted", "Nothing here."));
       regular.forEach(function (item) {
         var row = el("div", "checklist-row");
         if (item.already_on_anylist) row.classList.add("on-anylist");
+
+        if (mergeMode) {
+          var checkbox = el("input");
+          checkbox.type = "checkbox";
+          checkbox.className = "merge-select-checkbox";
+          checkbox.checked = !!mergeSelected[item.ingredient_name];
+          checkbox.addEventListener("change", function () {
+            if (checkbox.checked) mergeSelected[item.ingredient_name] = item;
+            else delete mergeSelected[item.ingredient_name];
+            rerender();
+          });
+          row.appendChild(checkbox);
+        }
 
         var main = el("div", "main");
         // 2026-09-27 — natural-English display form ("chicken thighs", not the matching key
@@ -270,10 +314,11 @@
         // when this item has a real quantity but no known product_units row at all (the exact
         // condition qtyText()'s final fallback branch above already renders a bare quantity
         // for — a coarse ingredient or a resolved pack-size item always has display_qty set,
-        // so no extra field is needed to detect this).
+        // so no extra field is needed to detect this). Suppressed in merge-select mode, same
+        // as the have/need pair below — one row shouldn't carry two competing sets of controls.
         var metaRow = el("div", "meta-row");
         metaRow.appendChild(el("div", "meta", qtyText(item)));
-        if (item.total_quantity != null && !item.display_qty) {
+        if (!mergeMode && item.total_quantity != null && !item.display_qty) {
           var addPackBtn = el("button", "btn-link", "+ Add pack size");
           metaRow.appendChild(addPackBtn);
           main.appendChild(metaRow);
@@ -296,34 +341,195 @@
         }
         row.appendChild(main);
 
-        // 2026-09-24 — two independent one-tap toggles, replacing the single button that used
-        // to cycle unknown -> yes -> no -> unknown (reaching a specific target state could take
-        // up to two taps). Tapping the pressed button reverts to "unknown"; tapping either
-        // button reaches its target state in exactly one tap from any starting state. Backend
-        // is unchanged — update_item() already accepts have_it/add_to_list independently, with
-        // no validation on the transition (see app/services/checklist.py > update_item()).
-        var pair = el("div", "have-need-pair");
-        var haveBtn = el("button", "have-need-btn have", "Have it");
-        var needBtn = el("button", "have-need-btn need", "Need it");
-        function syncPressed() {
-          haveBtn.setAttribute("aria-pressed", item.have_it === "yes" ? "true" : "false");
-          needBtn.setAttribute("aria-pressed", item.have_it === "no" ? "true" : "false");
+        if (!mergeMode) {
+          // 2026-09-24 — two independent one-tap toggles, replacing the single button that used
+          // to cycle unknown -> yes -> no -> unknown (reaching a specific target state could
+          // take up to two taps). Tapping the pressed button reverts to "unknown"; tapping
+          // either button reaches its target state in exactly one tap from any starting state.
+          // Backend is unchanged — update_item() already accepts have_it/add_to_list
+          // independently, with no validation on the transition (see
+          // app/services/checklist.py > update_item()).
+          var pair = el("div", "have-need-pair");
+          var haveBtn = el("button", "have-need-btn have", "Have it");
+          var needBtn = el("button", "have-need-btn need", "Need it");
+          (function (item, haveBtn, needBtn) {
+            function syncPressed() {
+              haveBtn.setAttribute("aria-pressed", item.have_it === "yes" ? "true" : "false");
+              needBtn.setAttribute("aria-pressed", item.have_it === "no" ? "true" : "false");
+            }
+            syncPressed();
+            haveBtn.addEventListener("click", function () {
+              var next = item.have_it === "yes" ? "unknown" : "yes";
+              patchItem(item, { have_it: next, add_to_list: false }, syncPressed);
+            });
+            needBtn.addEventListener("click", function () {
+              var next = item.have_it === "no" ? "unknown" : "no";
+              patchItem(item, { have_it: next, add_to_list: next === "no" }, syncPressed);
+            });
+          })(item, haveBtn, needBtn);
+          pair.appendChild(haveBtn);
+          pair.appendChild(needBtn);
+          row.appendChild(pair);
         }
-        syncPressed();
-        haveBtn.addEventListener("click", function () {
-          var next = item.have_it === "yes" ? "unknown" : "yes";
-          patchItem(item, { have_it: next, add_to_list: false }, syncPressed);
-        });
-        needBtn.addEventListener("click", function () {
-          var next = item.have_it === "no" ? "unknown" : "no";
-          patchItem(item, { have_it: next, add_to_list: next === "no" }, syncPressed);
-        });
-        pair.appendChild(haveBtn);
-        pair.appendChild(needBtn);
-        row.appendChild(pair);
         wrap.appendChild(row);
       });
+
+      if (mergeMode) {
+        var selected = Object.keys(mergeSelected).map(function (k) { return mergeSelected[k]; });
+        var actions = el("div", "log-controls");
+        actions.style.marginTop = "8px";
+        if (selected.length >= 2) {
+          var mergeBtn = el("button", "btn-sm primary", "Merge (" + selected.length + ")");
+          mergeBtn.addEventListener("click", function () {
+            mergeBtn.disabled = true;
+            wrap.appendChild(
+              mergePanel(selected, function () {
+                mergeMode = false;
+                mergeSelected = {};
+                load(); // full reload -- names/totals genuinely changed server-side
+              })
+            );
+          });
+          actions.appendChild(mergeBtn);
+        } else {
+          actions.appendChild(el("span", "muted", "Select 2 or more to merge."));
+        }
+        wrap.appendChild(actions);
+      }
       return wrap;
+    }
+
+    // Fix 3 — the merge confirmation panel: canonical-name choice, an optional dormant
+    // amount-equivalence field (point-of-need's own guardrail — collapsed by default, matching
+    // the common case where a merge needs no ratio at all, e.g. "capsicum"/"red capsicum"),
+    // and the existing "remember this?" confirm pattern session-review.js's askRemember()
+    // already establishes (a plain browser confirm(), not a custom control).
+    function mergePanel(selected, onDone) {
+      var wrap = el("div", "pack-size-form"); // same inline-expansion visual treatment
+      wrap.appendChild(el("div", "sub-group-heading", "Keep which name?"));
+      var canonicalName = selected[0].ingredient_name;
+      selected.forEach(function (item, i) {
+        var row = el("label", "radio-row");
+        var radio = el("input");
+        radio.type = "radio";
+        radio.name = "merge-canonical";
+        radio.value = item.ingredient_name;
+        radio.checked = i === 0;
+        radio.addEventListener("change", function () {
+          canonicalName = item.ingredient_name;
+        });
+        row.appendChild(radio);
+        row.appendChild(document.createTextNode(" " + (item.display_name || item.ingredient_name)));
+        wrap.appendChild(row);
+      });
+
+      var pairLinkRow = el("div", "meta-row");
+      var pairLink = el("button", "btn-link", "Not the same amount? Tap to set the equivalent");
+      var pair = null; // { grid, values() } from pairFields(), only when expanded
+      pairLinkRow.appendChild(pairLink);
+      wrap.appendChild(pairLinkRow);
+      // `actions` (declared further below, `var`-hoisted) is only ever read here once the
+      // user actually clicks this link, by which point mergePanel()'s own setup below —
+      // including `actions`'s assignment — has already finished running.
+      pairLink.addEventListener("click", function () {
+        if (pair) {
+          pair.grid.remove();
+          pair = null;
+          pairLink.textContent = "Not the same amount? Tap to set the equivalent";
+          return;
+        }
+        pair = pairFields();
+        wrap.insertBefore(pair.grid, actions);
+        pairLink.textContent = "Hide the amount equivalence";
+      });
+
+      var err = el("span", "form-error");
+      var confirmBtn = el("button", "btn-sm primary", "Merge");
+      confirmBtn.addEventListener("click", function () {
+        err.textContent = "";
+        var values = pair ? pair.values() : {};
+        if (pair && (values.alias_qty == null || values.canonical_qty == null)) {
+          err.textContent = "Enter both amounts, or collapse the equivalence field to skip it.";
+          return;
+        }
+        var remember = global.confirm(
+          "Always treat these as the same ingredient? This will apply to every future recipe " +
+            "using these names, not just this session."
+        );
+        confirmBtn.disabled = true;
+        api.checklist
+          .merge(sessionId, {
+            item_names: selected.map(function (i) { return i.ingredient_name; }),
+            canonical_name: canonicalName,
+            remember: remember,
+            alias_qty: values.alias_qty != null ? values.alias_qty : null,
+            alias_unit: values.alias_unit || null,
+            canonical_qty: values.canonical_qty != null ? values.canonical_qty : null,
+            canonical_unit: values.canonical_unit || null,
+          })
+          .then(function () {
+            global.Toast.show("Merged.");
+            onDone();
+          })
+          .catch(function (e) {
+            confirmBtn.disabled = false;
+            // Merge is pre-push only — same reactive-409 handling as the Push button's own
+            // "already pushed" case (checklist-push.js), rather than fetching session status
+            // just to hide this control proactively.
+            err.textContent =
+              e.code === "SESSION_ALREADY_PUSHED"
+                ? "This session has already been pushed — merging isn't available after push."
+                : e.message;
+          });
+      });
+      var actions = el("div", "log-controls");
+      actions.appendChild(confirmBtn);
+      actions.appendChild(err);
+      wrap.appendChild(actions);
+      return wrap;
+    }
+
+    // Fix 3's own small local copy of the same four-field amount/unit grid shape
+    // settings-ingredient-aliases.js / settings-substitutions.js already establish — this
+    // codebase's own deliberate, established convention for this exact class of UI helper
+    // (already duplicated in those two files; miniField() itself is duplicated in eleven files
+    // across this app), not something to extract into a shared module.
+    function pairFields() {
+      function num() {
+        var n = el("input");
+        n.type = "number";
+        n.step = "any";
+        n.inputMode = "decimal";
+        return n;
+      }
+      function txt() {
+        var t = el("input");
+        t.type = "text";
+        return t;
+      }
+      var mqty = num();
+      var munit = txt();
+      var cqty = num();
+      var cunit = txt();
+      var grid = el("div", "ing-grid");
+      grid.style.gridTemplateColumns = "1fr 1fr 1fr 1fr";
+      grid.appendChild(miniField("This amount", mqty));
+      grid.appendChild(miniField("Unit", munit));
+      grid.appendChild(miniField("= Kept amount", cqty));
+      grid.appendChild(miniField("Unit (blank = count)", cunit));
+      return {
+        grid: grid,
+        values: function () {
+          var mq = parseFloat(mqty.value);
+          var cq = parseFloat(cqty.value);
+          return {
+            alias_qty: isNaN(mq) ? null : mq,
+            alias_unit: munit.value.trim() || null,
+            canonical_qty: isNaN(cq) ? null : cq,
+            canonical_unit: cunit.value.trim() || null,
+          };
+        },
+      };
     }
 
     // Inline "add a pack size" form for one checklist item (2026-09-24) — same expand-in-place,

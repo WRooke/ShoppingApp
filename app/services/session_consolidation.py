@@ -30,6 +30,7 @@ from app.services import (
     ingredient_aliases,
     purchase_units,
     scaling,
+    session_merges,
     session_pack_resolution,
     text_normalize,
     unit_synonyms,
@@ -108,6 +109,31 @@ def _apply_alias(
         new_qty = qty / alias.alias_qty * alias.canonical_qty
         return alias.canonical_name, new_qty, alias.canonical_unit, (qty, unit, name)
     return alias.canonical_name, qty, unit, None
+
+
+def _apply_session_merge(
+    name: str, qty: float, unit: str | None, scaled: bool,
+    merge_map: dict[str, ingredient_aliases.AliasResolution],
+) -> tuple[str, float, str | None, tuple[float, str | None, str] | None]:
+    """Fold a Fix 3 session-only merge into an already-scaled line, as the pass applied
+    immediately AFTER `_apply_alias` — a merge can fold two *already-aliased* names together
+    (it sees whatever name the alias step already produced), but never the reverse, so this
+    is strictly the last resolution step in the chain. Identical matching rule and return
+    shape to `_apply_alias` above (reuses the same `AliasResolution` type via
+    `session_merges.session_merge_map()`, deliberately — a session merge IS an alias
+    resolution, just scoped to one session instead of durable). See CLAUDE.md > Deferred
+    Decisions > checklist-time merge."""
+    merge = merge_map.get(_norm(name))
+    if merge is None:
+        return name, qty, unit, None
+    if (
+        scaled
+        and merge.has_pair
+        and _norm(merge.alias_unit or "") == _norm(unit or "")
+    ):
+        new_qty = qty / merge.alias_qty * merge.canonical_qty
+        return merge.canonical_name, new_qty, merge.canonical_unit, (qty, unit, name)
+    return merge.canonical_name, qty, unit, None
 
 
 def _recipe_label(slot) -> str:
@@ -228,6 +254,7 @@ def _scaled_lines(
     override_map: dict[str, SessionOverride],
     alias_map: dict[str, ingredient_aliases.AliasResolution],
     synonym_map: dict[str, str],
+    merge_map: dict[str, ingredient_aliases.AliasResolution],
 ) -> list[consolidation.IngredientLine]:
     """Scaled ingredient lines with the *effective* name (and, for M8/aliases, amount/unit)
     already resolved: the ingredient's own unit is canonicalised (2026-09-12, CLAUDE.md >
@@ -243,8 +270,10 @@ def _scaled_lines(
     2026-09-12). Each line also carries which recipe slot it came from: `recipe_id`/
     `recipe_label` (2026-09-11, CLAUDE.md > "Which recipe is this ingredient from"), purely for
     display, and `slot_id` (2026-09-13), purely for `_coarse_items()`'s slot-counting — neither
-    plays any part in the resolution above. Finally, each recipe slot's OWN lines get one more
-    pass —
+    plays any part in the resolution above. After the alias map, a Fix 3 session-only merge
+    (`merge_map`) gets its own final pass — the same shape and matching rule, applied last, so
+    a merge can fold two already-aliased names together (CLAUDE.md > Deferred Decisions >
+    checklist-time merge). Finally, each recipe slot's OWN lines get one more pass —
     `_apply_shared_extraction_adjustment()` (2026-09-12, CLAUDE.md > Ingredient Aliases >
     Shared-source combining) — collapsing 2+ different alias sources sharing a canonical name
     *within that one recipe* down to their max rather than their sum (e.g. lemon juice + lemon
@@ -267,7 +296,14 @@ def _scaled_lines(
                 name, qty, unit = _apply_session_override(
                     name, qty, unit, sq.scaled, ov
                 )
-            name, qty, unit, source = _apply_alias(name, qty, unit, sq.scaled, alias_map)
+            name, qty, unit, alias_source = _apply_alias(name, qty, unit, sq.scaled, alias_map)
+            # Fix 3 — a session merge is the LAST resolution step (it can fold two
+            # already-aliased names together, never the reverse). If the merge itself carries
+            # a pair transform it produces its own conversion-note source; a name-only merge
+            # returns None and must NOT clobber an earlier alias-level conversion note that's
+            # still the most relevant "from X" the display should show.
+            name, qty, unit, merge_source = _apply_session_merge(name, qty, unit, sq.scaled, merge_map)
+            source = merge_source or alias_source
             slot_lines.append(
                 consolidation.IngredientLine(
                     name=name, quantity=qty, unit=unit, is_no_scale=not sq.scaled,
@@ -322,7 +358,11 @@ def _consolidate_session_impl(
     # equivalence pair) is carried through.
     override_map = {_norm(ov.original_name): ov for ov in (overrides or [])}
     all_lines = _scaled_lines(
-        session, override_map, ingredient_aliases.alias_map(db), unit_synonyms.synonym_map(db)
+        session,
+        override_map,
+        ingredient_aliases.alias_map(db),
+        unit_synonyms.synonym_map(db),
+        session_merges.session_merge_map(db, session_id),
     )
     # Ingredient Unit Handling Layer D (2026-09-12) — a coarse ingredient's lines never reach
     # the pure consolidate() below; they're grouped and resolved by _coarse_items() instead.

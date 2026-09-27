@@ -389,6 +389,9 @@
       skipUsual: function (usualId) {
         return jsonBody("POST", "/api/v1/checklist/usuals/" + encodeURIComponent(usualId) + "/skip", {});
       },
+      merge: function (sessionId, data) {
+        return jsonBody("POST", "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/merge", data);
+      },
     },
     diagnostics: {
       logs: function (limit, level) {

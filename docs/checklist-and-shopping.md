@@ -53,6 +53,39 @@ consolidation is a merge, not a rebuild"](./scaling-and-consolidation.md#scaling
 adding a pack size for one ingredient never disturbs decisions already made on any other item
 in the same session.
 
+### Checklist-time ingredient merge (Fix 3, 2026-09-27)
+
+A second point-of-need affordance alongside inline pack-size entry above: rather than requiring
+a trip to Settings to notice and fix an ingredient-name mismatch (e.g. a recipe's "corn" and
+another's "canned corn" showing as two separate lines), the checklist screen itself offers a
+**"Select to merge"** mode (`checklist.js`, screen-level toggle shown only when 2+ regular rows
+exist — not a permanent per-row control, matching the existing convention that a row shouldn't
+carry two competing sets of controls at once). Selecting 2+ rows and tapping "Merge (N)" opens a
+small panel:
+- **Keep which name?** — a radio choice of which selected item's name becomes canonical for the
+  merge.
+- **An optional, dormant "different amount?" field** — collapsed by default (the same
+  point-of-need guardrail as the pack-size form: contextual, not a permanent extra control).
+  Left collapsed, the merge is a plain rename with quantities summed directly (the common case —
+  "capsicum"/"red capsicum" need no ratio at all). Expanded, it takes a
+  `member_qty`/`member_unit` → `canonical_qty`/`canonical_unit` equivalence pair (e.g. "4 cob" =
+  "1 can"), converting the non-canonical line's amount onto the canonical unit before summing.
+  A unit mismatch at consolidation time falls back to the existing `needs_review` UX — no new
+  "combined item count" math.
+- **"Always treat these as the same ingredient?"** (yes/no, a plain `confirm()`) — yes writes a
+  durable `source='user'` [ingredient alias](./ingredient-handling.md#ingredient-aliases) (live
+  for every future recipe); no writes a session-scoped
+  `session_ingredient_merges` row instead (this week only, cascade-deleted with the session — see
+  [Ingredient Aliases](./ingredient-handling.md#ingredient-aliases) for the table shape and how
+  it slots into the resolution chain as the step after alias resolution).
+- **Merge is pre-push only** — disabled once `session.status == "pushed"` (avoids leaving an
+  un-cleanable stray duplicate on the real AnyList list). Not proactively hidden once pushed;
+  surfaced the same reactive way the Push button's own "already pushed" case already is (a
+  friendly message on the 409, not a pre-emptive status fetch just to hide the control).
+- Have-it/add-to-list state on a merged-away row is preserved onto the surviving canonical row
+  (strongest value wins: "no" beats "yes" beats "unknown" for have-it; any "add to list" wins) —
+  merging never silently discards an in-progress decision.
+
 ### "The usuals" — household recurring items
 
 Raised 2026-09-05, **designed at the Phase 5 kickoff (2026-09-07)**: alongside the

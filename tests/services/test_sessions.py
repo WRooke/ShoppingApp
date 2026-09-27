@@ -905,3 +905,115 @@ def test_consolidate_session_override_pair_skipped_for_to_taste_line(db):
     # 2026-09-27 shared normaliser ("threads" -> "thread"), same as any other plural.
     assert [i.ingredient_name for i in items] == ["saffron thread"]
     assert items[0].total_quantity is None and items[0].note == "to taste"
+
+
+# --- Fix 3, F3.2: session-only checklist merge resolution ----------------------------------
+
+
+def test_consolidate_session_merge_folds_two_names_into_one(db):
+    from app.services import session_merges
+
+    r1 = _recipe_with(db, "A", [{"name": "carrot", "quantity": 2, "unit": None}])
+    r2 = _recipe_with(db, "B", [{"name": "orange carrot", "quantity": 3, "unit": None}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+    session_merges.add_session_merge(db, s.id, "orange carrot", "carrot")
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["carrot"]
+    assert items[0].total_quantity == 5  # 2 + 3
+
+
+def test_consolidate_session_merge_with_pair_converts_amount_on_unit_match(db):
+    from app.services import session_merges
+
+    r1 = _recipe_with(db, "Chowder", [{"name": "corn", "quantity": 4, "unit": "cob"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    session_merges.add_session_merge(
+        db, s.id, "corn", "canned corn",
+        alias_qty=2, alias_unit="cob", canonical_qty=1, canonical_unit="can",
+    )
+
+    items = sessions_service.consolidate_session(db, s.id)
+    # 4 cob / 2 * 1 = 2 can
+    assert [i.ingredient_name for i in items] == ["canned corn"]
+    assert (items[0].total_quantity, items[0].total_unit) == (2, "can")
+    assert items[0].note == "from 4 cob corn"
+
+
+def test_consolidate_session_merge_pair_falls_back_to_name_only_on_unit_mismatch(db):
+    from app.services import session_merges
+
+    r1 = _recipe_with(db, "Chowder", [{"name": "corn", "quantity": 500, "unit": "g"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    session_merges.add_session_merge(
+        db, s.id, "corn", "canned corn",
+        alias_qty=2, alias_unit="cob", canonical_qty=1, canonical_unit="can",
+    )
+
+    items = sessions_service.consolidate_session(db, s.id)
+    # merge's own alias_unit "cob" != line unit "g" -> rename only, quantity/unit unchanged
+    assert [i.ingredient_name for i in items] == ["canned corn"]
+    assert (items[0].total_quantity, items[0].total_unit) == (500, "g")
+
+
+def test_consolidate_session_merge_unit_conflict_produces_needs_review(db):
+    from app.services import session_merges
+
+    r1 = _recipe_with(db, "A", [{"name": "cream", "quantity": 100, "unit": "g"}])
+    r2 = _recipe_with(db, "B", [{"name": "thickened cream", "quantity": 200, "unit": "ml"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r1.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r2.id, scaled_servings=4))
+    session_merges.add_session_merge(db, s.id, "thickened cream", "cream")  # name-only merge
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["cream"]
+    # g + ml can't be summed -- existing needs_review output, not new fallback math.
+    assert items[0].needs_review is True
+
+
+def test_consolidate_session_merge_scoped_to_its_own_session_only(db):
+    from app.services import session_merges
+
+    r = _recipe_with(
+        db, "A",
+        [{"name": "carrot", "quantity": 2, "unit": None}, {"name": "orange carrot", "quantity": 3, "unit": None}],
+    )
+    s1 = sessions_service.create_session(db, PlanningSessionCreate())
+    s2 = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s1.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    sessions_service.add_session_recipe(db, s2.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    session_merges.add_session_merge(db, s1.id, "orange carrot", "carrot")
+
+    s1_items = sessions_service.consolidate_session(db, s1.id)
+    s2_items = sessions_service.consolidate_session(db, s2.id)
+    assert [i.ingredient_name for i in s1_items] == ["carrot"]  # merged
+    assert sorted(i.ingredient_name for i in s2_items) == ["carrot", "orange carrot"]  # untouched
+
+
+def test_consolidate_session_merge_applies_after_an_existing_alias(db):
+    """A merge folds two ALREADY-ALIASED names together (F3.2's 'last step in the chain'
+    ordering) — confirmed by merging two names that are each already aliased elsewhere."""
+    from app.schemas.ingredient_aliases import IngredientAliasCreate
+    from app.services import ingredient_aliases as ia_service
+    from app.services import session_merges
+
+    ia_service.create_alias(db, IngredientAliasCreate(alias_name="canola oil", canonical_name="vegetable oil"))
+    ia_service.create_alias(db, IngredientAliasCreate(alias_name="sunflower oil", canonical_name="neutral oil"))
+    r = _recipe_with(
+        db, "A",
+        [{"name": "canola oil", "quantity": 1, "unit": "tbsp"}, {"name": "sunflower oil", "quantity": 2, "unit": "tbsp"}],
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    # Merge the two ALIAS TARGETS together, not the raw recipe names -- proves the merge sees
+    # whatever name the alias step already produced.
+    session_merges.add_session_merge(db, s.id, "neutral oil", "vegetable oil")
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["vegetable oil"]
+    assert items[0].total_quantity == 3  # 1 + 2

@@ -231,3 +231,153 @@ def test_resolve_needs_review_item(client, fake_anylist):
     body = resp.json()["data"]
     assert body["needs_review"] is False
     assert body["total_quantity"] == 300 and body["total_unit"] == "ml"
+
+
+# --- merge (Fix 3, F3.3) -----------------------------------------------------------------
+
+
+def test_merge_name_only_not_remembered_collapses_two_rows(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-merge-carrot", "quantity": 2, "unit": None},
+                 {"name": "zz-merge-orange-carrot", "quantity": 3, "unit": None}]
+    )
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge carrot", "zz merge orange carrot"],
+            "canonical_name": "zz merge carrot",
+            "remember": False,
+        },
+    )
+    assert resp.status_code == 200
+    names = {i["ingredient_name"] for i in resp.json()["data"]["items"]}
+    assert "zz merge carrot" in names
+    assert "zz merge orange carrot" not in names
+
+    reloaded = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"]
+    merged = next(i for i in reloaded if i["ingredient_name"] == "zz merge carrot")
+    assert merged["total_quantity"] == 5  # 2 + 3
+
+
+def test_merge_with_pair_converts_amount_and_shows_a_conversion_note(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-merge-corn", "quantity": 4, "unit": "cob"}])
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge corn", "zz merge canned corn"],
+            "canonical_name": "zz merge canned corn",
+            "remember": False,
+            "alias_qty": 2, "alias_unit": "cob", "canonical_qty": 1, "canonical_unit": "can",
+        },
+    )
+    assert resp.status_code == 200
+    item = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz merge canned corn")
+    assert item["total_quantity"] == 2 and item["total_unit"] == "can"
+    assert "from" in (item["note"] or "").lower()
+
+
+def test_merge_remember_true_creates_a_durable_alias(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-merge-remember-a", "quantity": 1, "unit": None},
+                 {"name": "zz-merge-remember-b", "quantity": 2, "unit": None}]
+    )
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge remember a", "zz merge remember b"],
+            "canonical_name": "zz merge remember a",
+            "remember": True,
+        },
+    )
+    assert resp.status_code == 200
+
+    # Confirmed via a second, unrelated session -- the alias is durable, not session-scoped.
+    sid2 = _session_with_checklist(client, [{"name": "zz-merge-remember-b", "quantity": 5, "unit": None}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert [i["ingredient_name"] for i in items2] == ["zz merge remember a"]
+    assert items2[0]["total_quantity"] == 5
+
+
+def test_merge_remember_false_only_affects_this_session(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-merge-scoped-a", "quantity": 1, "unit": None},
+                 {"name": "zz-merge-scoped-b", "quantity": 2, "unit": None}]
+    )
+    client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge scoped a", "zz merge scoped b"],
+            "canonical_name": "zz merge scoped a",
+            "remember": False,
+        },
+    )
+    sid2 = _session_with_checklist(client, [{"name": "zz-merge-scoped-b", "quantity": 5, "unit": None}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert [i["ingredient_name"] for i in items2] == ["zz merge scoped b"]  # untouched
+
+
+def test_merge_refused_once_session_is_pushed(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-merge-pushed-a", "quantity": 1, "unit": None},
+                 {"name": "zz-merge-pushed-b", "quantity": 2, "unit": None}]
+    )
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
+    pushed = client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []})
+    assert pushed.status_code == 200
+
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge pushed a", "zz merge pushed b"],
+            "canonical_name": "zz merge pushed a",
+            "remember": False,
+        },
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "SESSION_ALREADY_PUSHED"
+
+
+def test_merge_remember_true_onto_an_already_aliased_name_is_a_structured_409(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-merge-dup-a", "quantity": 1, "unit": None},
+                 {"name": "zz-merge-dup-b", "quantity": 2, "unit": None}]
+    )
+    client.post(
+        "/api/v1/settings/ingredient-aliases",
+        json={"alias_name": "zz merge dup b", "canonical_name": "zz something else"},
+    )
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge dup a", "zz merge dup b"],
+            "canonical_name": "zz merge dup a",
+            "remember": True,
+        },
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "DUPLICATE_INGREDIENT_ALIAS"
+
+
+def test_merge_carries_forward_the_strongest_have_it_and_add_to_list(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-merge-state-a", "quantity": 1, "unit": None},
+                 {"name": "zz-merge-state-b", "quantity": 2, "unit": None}]
+    )
+    items = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"]
+    a = next(i for i in items if i["ingredient_name"] == "zz merge state a")
+    b = next(i for i in items if i["ingredient_name"] == "zz merge state b")
+    # "a" is set to "no" (add_to_list True); "b" stays "unknown" -- "no" must win the merge.
+    client.patch(f"/api/v1/checklist/{sid}/items/{a['id']}", json={"have_it": "no", "add_to_list": True})
+
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge state a", "zz merge state b"],
+            "canonical_name": "zz merge state b",  # keep the OTHER name, still "unknown"
+            "remember": False,
+        },
+    )
+    assert resp.status_code == 200
+    merged = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz merge state b")
+    assert merged["have_it"] == "no" and merged["add_to_list"] is True

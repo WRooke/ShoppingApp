@@ -1,10 +1,11 @@
-"""``planning_sessions``, ``session_recipes`` and ``session_checklist_items`` tables."""
+"""``planning_sessions``, ``session_recipes``, ``session_checklist_items`` and
+``session_ingredient_merges`` tables."""
 
 from __future__ import annotations
 
 import json
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.database import Base, UTCDateTime, utcnow
@@ -28,6 +29,11 @@ class PlanningSession(Base):
     )
     checklist_items = relationship(
         "SessionChecklistItem",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+    ingredient_merges = relationship(
+        "SessionIngredientMerge",
         back_populates="session",
         cascade="all, delete-orphan",
     )
@@ -126,3 +132,35 @@ class SessionChecklistItem(Base):
             if isinstance(o, dict) and isinstance(o.get("quantity"), (int, float))
             and not isinstance(o.get("quantity"), bool)
         ]
+
+
+class SessionIngredientMerge(Base):
+    """Fix 3, F3.1 (CLAUDE.md > Deferred Decisions > checklist-time merge) — a session-scoped,
+    ephemeral "fold these two checklist items into one, for this session only" rule, the
+    counterpart to a durable `ingredient_aliases` row (`remember=True` at the checklist merge
+    endpoint writes one of those instead — see `services/checklist.py::merge_items()`).
+
+    Same cascade-delete pattern as `SessionRecipe`/`SessionChecklistItem` above — a merge that
+    wasn't "remembered" disappears automatically when the session is archived/deleted, exactly
+    "this week only" semantics with no manual cleanup code needed. `alias_qty`/`alias_unit`/
+    `canonical_qty`/`canonical_unit` are the same optional equivalence-pair shape
+    `ingredient_aliases` has (see `schemas/equivalence.py::validate_alias_pair`, which both
+    reuse) — `canonical_unit` may be blank for the same reason an alias's can (the canonical
+    side is very often a bare discrete count)."""
+
+    __tablename__ = "session_ingredient_merges"
+    __table_args__ = (UniqueConstraint("session_id", "member_name"),)
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(
+        Integer, ForeignKey("planning_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    member_name = Column(Text, nullable=False)  # a merged-away checklist item's resolved name
+    canonical_name = Column(Text, nullable=False)  # the name it folds into, this session only
+    alias_qty = Column(Float, nullable=True)
+    alias_unit = Column(Text, nullable=True)
+    canonical_qty = Column(Float, nullable=True)
+    canonical_unit = Column(Text, nullable=True)
+    created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+
+    session = relationship("PlanningSession", back_populates="ingredient_merges")

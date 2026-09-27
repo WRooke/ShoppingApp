@@ -15,10 +15,13 @@ from sqlalchemy.orm import Session
 
 from app.database import utcnow
 from app.models.history import ShoppingHistory
+from app.schemas.ingredient_aliases import IngredientAliasCreate
 from app.services import anylist_client
 from app.services import checklist_display
 from app.models.planning import SessionChecklistItem
+from app.services import ingredient_aliases as ingredient_aliases_service
 from app.services import progress_tracker
+from app.services import session_merges
 from app.services import sessions as sessions_service
 from app.services import text_normalize
 from app.services import usuals as usuals_service
@@ -205,6 +208,109 @@ def resolve_item(
         session_id, item_id, total_quantity, total_unit,
     )
     return row
+
+
+# --- merge (Fix 3, F3.3 — CLAUDE.md > Deferred Decisions > checklist-time merge) -----------
+
+_HAVE_IT_STRENGTH = {"no": 2, "yes": 1, "unknown": 0, "partial": 0}
+
+
+def merge_items(
+    db: Session,
+    session_id: int,
+    *,
+    item_names: list[str],
+    canonical_name: str,
+    remember: bool,
+    alias_qty: float | None = None,
+    alias_unit: str | None = None,
+    canonical_qty: float | None = None,
+    canonical_unit: str | None = None,
+) -> list[SessionChecklistItem]:
+    """Fold 2+ already-consolidated checklist lines into one, either for this session only
+    (`remember=False` -> `session_merges.add_session_merge()`) or as a durable household
+    preference (`remember=True` -> a real `ingredient_aliases` row per non-canonical name).
+    Pre-push only — merging after a push would leave an un-cleanable stray duplicate on the
+    real AnyList list.
+
+    The equivalence pair, when given, applies uniformly to every non-canonical name in
+    `item_names` — the request schema carries exactly one pair, matching the checklist UI's own
+    simple "select 2+, keep one name, optionally set one ratio" shape (F3.4); a merge needing a
+    *different* ratio per member isn't supported by this action (same "don't build past what's
+    asked for" discipline as everywhere else in this app).
+
+    State handling: `have_it`/`add_to_list` are read from every named row *before*
+    `consolidate_session()` runs (which will delete the merged-away rows via its own existing,
+    unmodified stale-row cleanup) and the strongest value across all of them is written onto
+    the surviving canonical row *after* — so a merge never silently loses an in-progress
+    decision (`session_checklist_items` is this app's own documented ephemeral,
+    recomputed-every-consolidate cache, not persistent household data — this preservation step
+    is on top of, not instead of, that existing convention)."""
+    session = sessions_service.get_session(db, session_id)
+    if session.status == "pushed":
+        raise SessionAlreadyPushedError(session_id)
+
+    rows = {
+        row.ingredient_name: row
+        for row in db.query(SessionChecklistItem)
+        .filter(
+            SessionChecklistItem.session_id == session_id,
+            SessionChecklistItem.ingredient_name.in_(item_names),
+        )
+        .all()
+    }
+    have_it = "unknown"
+    add_to_list = False
+    for row in rows.values():
+        if _HAVE_IT_STRENGTH.get(row.have_it, 0) > _HAVE_IT_STRENGTH.get(have_it, 0):
+            have_it = row.have_it
+        add_to_list = add_to_list or row.add_to_list
+
+    members = [n for n in item_names if n != canonical_name]
+    if remember:
+        # Explicitly not caught/suppressed: a name already aliased elsewhere raises
+        # DuplicateIngredientAliasError, surfaced as a normal structured 409 the user can act
+        # on (pick a different canonical, or fix the existing alias first) — same "surface it,
+        # don't silently swallow it" convention as every other structured error in this app.
+        for member in members:
+            ingredient_aliases_service.create_alias(
+                db,
+                IngredientAliasCreate(
+                    alias_name=member, canonical_name=canonical_name,
+                    alias_qty=alias_qty, alias_unit=alias_unit,
+                    canonical_qty=canonical_qty, canonical_unit=canonical_unit,
+                ),
+            )
+    else:
+        for member in members:
+            session_merges.add_session_merge(
+                db, session_id, member, canonical_name,
+                alias_qty=alias_qty, alias_unit=alias_unit,
+                canonical_qty=canonical_qty, canonical_unit=canonical_unit,
+            )
+
+    sessions_service.consolidate_session(db, session_id)
+
+    canonical_row = (
+        db.query(SessionChecklistItem)
+        .filter(
+            SessionChecklistItem.session_id == session_id,
+            SessionChecklistItem.ingredient_name == canonical_name,
+        )
+        .first()
+    )
+    if canonical_row is not None:
+        if _HAVE_IT_STRENGTH.get(have_it, 0) > _HAVE_IT_STRENGTH.get(canonical_row.have_it, 0):
+            canonical_row.have_it = have_it
+        canonical_row.add_to_list = canonical_row.add_to_list or add_to_list
+        db.commit()
+        db.refresh(canonical_row)
+
+    logger.info(
+        "Checklist items merged: session_id=%s %r -> %r remember=%s",
+        session_id, item_names, canonical_name, remember,
+    )
+    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
 
 
 # --- push (Chunk 5.6) ---------------------------------------------------------------

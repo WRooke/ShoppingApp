@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.equivalence import validate_alias_pair
 from app.schemas.sessions import ChecklistItemRead
 
 HaveIt = ("unknown", "yes", "no", "partial")  # 'partial' allowed by the column, never set (binary UX)
@@ -61,6 +62,30 @@ class ChecklistItemResolve(BaseModel):
     def _clean(self) -> "ChecklistItemResolve":
         if self.total_unit is not None:
             self.total_unit = " ".join(self.total_unit.strip().lower().split()) or None
+        return self
+
+
+class ChecklistMergeRequest(BaseModel):
+    """POST /checklist/{id}/merge body (Fix 3, F3.3 — CLAUDE.md > Deferred Decisions >
+    checklist-time merge). `item_names` are already-consolidated `ingredient_name` values (the
+    matching key, not display names); `canonical_name` must be one of them. `remember=True`
+    writes a durable `ingredient_aliases` row (`source='user'`); `remember=False` writes a
+    `session_ingredient_merges` row scoped to this session only. `pair` is the same optional
+    equivalence-pair shape as an alias's own — see `schemas/equivalence.py`."""
+
+    item_names: list[str] = Field(..., min_length=2)
+    canonical_name: str = Field(..., min_length=1)
+    remember: bool
+    alias_qty: float | None = None
+    alias_unit: str | None = None
+    canonical_qty: float | None = None
+    canonical_unit: str | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> "ChecklistMergeRequest":
+        if self.canonical_name not in self.item_names:
+            raise ValueError("canonical_name must be one of item_names")
+        validate_alias_pair(self.alias_qty, self.alias_unit, self.canonical_qty, self.canonical_unit)
         return self
 
 

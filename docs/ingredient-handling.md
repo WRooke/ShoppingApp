@@ -393,10 +393,11 @@ under-buying one of them).
   `settings-substitutions.js`), add a new alias by typing both names, delete to ungroup.
   `alias_name` isn't editable after creation (delete + recreate); `canonical_name` can be
   changed (re-grouping), same convention as `RememberedSubstitution`'s immutable
-  `original_name`. **Known exception to [UI/UX > Design principle: resolve at the point of
-  need](./ui-ux.md#design-principle-resolve-at-the-point-of-need-not-in-settings)** — adding a
-  new alias group is Settings-only today, not resolvable inline from the checklist. Flagged as
-  worth reconsidering later, not re-decided now. **Redesigned 2026-09-23 (mockup-approved — cluttered/unclear grouping was
+  `original_name`. **Partially resolved 2026-09-27 (Fix 3)** — the checklist's own merge action
+  (below) now offers "always treat these as the same ingredient?" inline at the point a mismatch
+  is actually noticed, writing a durable `source='user'` alias without a trip to Settings;
+  Settings remains the only place to *edit* an existing group's canonical name or delete one.
+  **Redesigned 2026-09-23 (mockup-approved — cluttered/unclear grouping was
   flagged in review):** each canonical group is now one `.settings-group-card` with a visible
   alias count in its heading; each alias row shows its (still immutable) name as a labelled
   disabled field — "Ingredient name (fixed — delete and re-add to rename)" — instead of a
@@ -404,6 +405,30 @@ under-buying one of them).
   conversion (optional)" sub-heading so it reads as one concept; Delete is a de-emphasised
   underlined text button, separated from the primary Save action. Layout only — no change to
   the add/edit/delete/reload flow described above.
+
+### Session-scoped merges — the ephemeral counterpart (Fix 3, 2026-09-27)
+
+A durable alias is the right tool when a household is confident two names are *always* the same
+shopping item. Sometimes that confidence isn't there yet — a one-off mismatch between two
+recipes this week, or a household member who wants to try folding two lines together without
+committing every future recipe to it. The checklist's merge action (see [Checklist Screen Logic >
+Checklist-time ingredient merge](./checklist-and-shopping.md#checklist-time-ingredient-merge-fix-3-2026-09-27))
+answers "always treat these as the same ingredient?" with **no** by writing a
+`session_ingredient_merges` row instead of an `ingredient_aliases` one:
+
+- Same shape as an alias's own equivalence pair (`member_name`/`canonical_name` +
+  optional `alias_qty`/`alias_unit`/`canonical_qty`/`canonical_unit`), scoped by `session_id`,
+  cascade-deleted when the session is deleted — no manual cleanup, no trace left behind once the
+  session is gone.
+- Resolved in `session_consolidation.py::_scaled_lines()` as the step immediately *after* alias
+  resolution — a session merge can fold together two names that are each already resolved
+  through an alias, but an alias can never see or undo a session merge (the reverse would let a
+  one-off, this-session-only choice leak into every other session).
+- `services/session_merges.py` deliberately reuses `ingredient_aliases.AliasResolution`'s exact
+  shape rather than a bespoke dataclass, so the same equivalence-matching code serves both
+  tables.
+- **Never a Settings-managed concept** — it exists only to be created and consumed within one
+  session's lifetime; there is nothing to list, edit, or delete outside of it.
 
 ### Quantity/unit equivalence transform (added 2026-09-10, second kickoff)
 
