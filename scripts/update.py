@@ -62,6 +62,18 @@ def _server_is_running() -> bool:
         return False
 
 
+def dirty_status_ignoring_backups(cwd: Path = BASE_DIR) -> tuple[bool, str]:
+    """``git status --porcelain`` for everything EXCEPT ``backups/``.
+
+    2026-09-28 — a stale staged-but-uncommitted file under backups/ (left behind when
+    scripts/backup.py's commit step failed, then deleted from disk by hand, which shows as
+    ``AD``) blocked update.bat with no way out short of git surgery on the NUC. backups/ is
+    machine-written by backup.py and is never part of a code deploy, so its state is not a
+    reason to refuse an update. Anything outside backups/ still counts as a real local edit.
+    """
+    return run_git(cwd, "status", "--porcelain", "--", ".", ":(exclude)backups")
+
+
 def main() -> int:
     is_repo, repo_out = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
     if not is_repo:
@@ -71,7 +83,11 @@ def main() -> int:
         )
         return 1
 
-    status_ok, status_out = run_git(BASE_DIR, "status", "--porcelain")
+    # Self-heal: unstage anything under backups/ (harmless — touches only the index, never
+    # a file on disk) so a half-finished backup commit can't wedge the pull below.
+    run_git(BASE_DIR, "reset", "-q", "--", "backups")
+
+    status_ok, status_out = dirty_status_ignoring_backups()
     if not status_ok:
         _fail(f"Could not check git status: {status_out}")
         return 1

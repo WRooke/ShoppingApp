@@ -79,13 +79,25 @@ def commit_and_push() -> None:
     add_ok, add_out = run_git(BASE_DIR, "add", "backups")
     if not add_ok:
         logger.error("Backup: git add failed: %s", add_out)
+        run_git(BASE_DIR, "reset", "-q", "--", "backups")
         return
 
+    # Fall back to a generic identity only when none is configured on this machine, so a
+    # fresh NUC checkout can't fail the commit for want of user.name/user.email. The
+    # pathspec ("-- backups") keeps the commit to backups/ even if something else is staged.
+    identity = []
+    if not run_git(BASE_DIR, "config", "user.email")[1]:
+        identity = ["-c", "user.name=ShoppingApp Backup", "-c", "user.email=backup@localhost"]
     commit_ok, commit_out = run_git(
-        BASE_DIR, "commit", "-m", f"Automated backup {_timestamp()}"
+        BASE_DIR, *identity, "commit", "-m", f"Automated backup {_timestamp()}", "--", "backups"
     )
     if not commit_ok:
         logger.error("Backup: git commit failed: %s", commit_out)
+        # 2026-09-28 — never leave the backup files staged-but-uncommitted. That half-done
+        # state is what wedged update.bat ("AD backups/...") once a failed commit was
+        # followed by hand-deleting the files. Unstaging only touches the index; the backup
+        # files on disk are untouched.
+        run_git(BASE_DIR, "reset", "-q", "--", "backups")
         return
     logger.info("Backup: committed locally.")
 

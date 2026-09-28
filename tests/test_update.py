@@ -47,3 +47,49 @@ def test_server_is_running_false_and_does_not_raise_on_exception(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", _boom)
     assert _server_is_running() is False
+
+
+# --- 2026-09-28: backups/ must never block an update ------------------------------------
+# Real (throwaway) git repos, not mocks: the bug was in how git itself reports this state.
+
+import subprocess as _sp  # noqa: E402  (kept next to its only users)
+
+from scripts.update import dirty_status_ignoring_backups  # noqa: E402
+
+
+def _git(cwd, *args):
+    _sp.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=cwd, check=True, capture_output=True,
+    )
+
+
+def _repo(tmp_path):
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "app.txt").write_text("code")
+    (tmp_path / "backups").mkdir()
+    (tmp_path / "backups" / ".gitkeep").write_text("")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "init")
+    return tmp_path
+
+
+def test_staged_then_deleted_backup_does_not_count_as_dirty(tmp_path):
+    """The exact production state: `AD backups/x.db` (staged add, then deleted on disk)."""
+    repo = _repo(tmp_path)
+    backup = repo / "backups" / "mealplanner_x.db"
+    backup.write_text("db")
+    _git(repo, "add", "backups")
+    backup.unlink()
+
+    ok, out = dirty_status_ignoring_backups(repo)
+    assert ok and out == ""
+
+
+def test_real_local_edit_outside_backups_still_counts_as_dirty(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "app.txt").write_text("edited on the NUC")
+    (repo / "backups" / "mealplanner_x.db").write_text("db")
+
+    ok, out = dirty_status_ignoring_backups(repo)
+    assert ok and "app.txt" in out and "backups" not in out
