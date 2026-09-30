@@ -539,17 +539,177 @@ change chunk order and scope, not just because they happened.
       pills), expanding a past row to reveal its recipe name/day, and the full archive → Undo →
       re-verify-active round trip confirmed against the API at each step. Zero console errors
       throughout.
-**2026-10-01 note:** [Phase 7](./phase-7-checklist-consolidation-and-diagnostics.md) (Review→
-Checklist merge, the per-ingredient edit panel, AI substitution-flagging removal, back-
-navigation, diagnostics) ran to completion ahead of this chunk and the Phase 6 review below, to
-handle an urgent maintainer feedback batch — see that file's own out-of-sequence note. Chunk
-6.7 and the Phase 6 review are still open and still the next item on this phase's own roadmap.
-
 - [ ] **Chunk 6.7 — User testing with secondary users; gather feedback.** Manual pass with the
       secondary/non-technical household member(s), after the visual/usability work above, not
       before. Quick fixes land in this chunk; bigger findings become
       [Deferred Decisions](../deferred-decisions.md#deferred-decisions) rather than expanding
-      Phase 6 indefinitely.
+      Phase 6 indefinitely. **Still open — feedback isn't finished.**
+
+      **2026-09-29 to 2026-10-01 feedback batch, done.** The maintainer sent a 5-item
+      feedback/change-request document after using the app for a while: retire the standalone
+      Review screen in favour of a richer Checklist, add a per-ingredient edit surface on
+      Checklist rows, trim the AI substitution-*flagging* call (keep manual substitution
+      entirely), fix Back navigation, and fix several Diagnostics problems. All five landed.
+      Tracked internally (this session's own plan file and the git commit messages) as "Chunk
+      7.1–7.8" — that numbering never meant a separate phase, just this batch's own sub-steps;
+      it's Chunk 6.7 work, organisationally, same as everything else here.
+
+      1. Retire the standalone Review screen, merge its useful parts into Checklist.
+      2. Per-ingredient edit surface on Checklist rows (pack size / substitute / alias / coarse
+         item / merge).
+      3. Remove the AI substitution-*flagging* call only, keep manual substitution entirely.
+      4. Back navigation that always returns to the real previous screen, never "three screens
+         ago".
+      5. Diagnostics: unslice Recent Errors, add a Copy button, fix its contrast/layout, quiet
+         WinError 10054 noise.
+
+      - [x] **Mockup gate.** Interactive mockup at
+        https://claude.ai/artifact/B6SiNLcKvND7tWnjdrsXMf, four revision rounds. Locked design:
+        tap a row's name to expand **only the recipe breakdown** first (read-only, no chip
+        needed — every expanded row has one); a nested **"Edit ingredient ▾"** toggle
+        underneath, shown only when the row has something to edit, reveals a
+        **select-exclusive** chip row (**pack size, substitute, alias, coarse item, merge** —
+        unit spelling dropped entirely, stays Settings-only); Have it/Need it stay as labelled
+        buttons on the collapsed row, untouched; every chip sub-panel ends with the
+        this-list-only/permanent toggle, an explicit Save, and a "Saved ✓" confirmation. A true
+        bottom-sheet pattern (the maintainer's original phrasing) was considered and explicitly
+        declined for now in favour of this codebase's only existing inline-expand pattern —
+        kept on record in [Checklist, AnyList Push & Shopping List
+        Layout](../checklist-and-shopping.md) as a noted alternative, not dropped.
+
+      - [x] **Remove the AI substitution-flagging call only.** Scope corrected mid-plan after
+        the maintainer's own clarifying answer ("why would it delete the substitutions? I still
+        want to substitute stuff, I just don't want to waste an AI call that adds next to no
+        value") — every manual substitution mechanism (`remembered_substitutions`, the Settings
+        CRUD, ad-hoc swap UI, `resolved_ingredient`) stayed fully intact; only Gemini's
+        `flag_substitutions()` call and its orchestration step, prompt, schema fields, and the
+        "AI suggests: X" hint UI were removed. Capture drops from a 3-call to a 2-call flow
+        (extract → sections). 677 tests passed at this point, including a live headless check
+        that capture still completes with only 2 progress steps. See [Recipe
+        Capture](../recipe-capture.md#recipe-capture--ai-extraction) and [Ingredient
+        Handling](../ingredient-handling.md#ingredient-handling--normalisation-substitution-aliases--units).
+
+      - [x] **Checklist load triggers consolidation + recipe-breakdown surfacing.**
+        `load_checklist()` now always calls `consolidate_session_with_breakdown()` on every
+        load, not just when empty — corrected during implementation from the original plan
+        (recomputing only on an empty session couldn't produce `recipe_breakdown` on every
+        subsequent load, which the Review-merge step needed). `ChecklistNotReadyError` removed
+        entirely, including its `main.py` 409 handler. 679 tests passed. See [Checklist,
+        AnyList Push & Shopping List
+        Layout](../checklist-and-shopping.md#the-ingredient-panel-2026-09-30-chunk-75).
+
+      - [x] **Delete Review, wire Plan → Checklist directly.** `session-review.js` deleted
+        outright (not kept dormant); Plan's sticky action links straight to
+        `#/checklist/<id>`; step indicator collapses `Plan → Review → Checklist → Push` to
+        `Plan → Checklist → Push`; the recipe-breakdown display folded into Checklist's own row
+        expansion (the mockup's approved shell). `HANDOVER-review-checklist-merge.md`'s
+        resolution folded into `checklist-and-shopping.md`/`scaling-and-consolidation.md`, then
+        the handover file deleted. 680 tests passed, including an end-to-end browser test
+        driving the real Plan button click with zero prior `/consolidate` calls.
+
+      - [x] **Remaining panel sections + session-scoped override store.** New file
+        `static/js/checklist-panel.js` (split out once `checklist.js` hit the file-size
+        guideline). `session_ingredient_merges` extended with a `kind` discriminator (`merge` |
+        `substitute` | `pack_size` | `coarse`) plus 4 new columns via migration
+        `c7c1ecd37ec8`, tested round-trip (upgrade/downgrade/upgrade) against a real scratch DB
+        per CLAUDE.md rule 3 — resolves the override-persistence question
+        `HANDOVER-review-checklist-merge.md` had left open, by extending the existing
+        merge-store mechanism rather than building a parallel one, per the maintainer's
+        explicit ask that it "gel with the merge functionality just implemented."
+        `session_consolidation.py` reads this table itself on every consolidate call now (the
+        `ConsolidateRequest.overrides` request-body shape is gone). Resolution order:
+        recipe-level `resolved_ingredient` → session substitute override → alias → session
+        merge override → (pack size / coarse apply separately, at the quantity/display stage).
+        Substitute/Alias/Coarse item chips always offered; Pack size gated on the existing gap
+        condition; Merge on 2+ rows (hands off to the existing screen-level "Select to merge"
+        mode rather than a second mechanism — Merge and Alias write through the identical
+        `ingredient_aliases` mechanism, confirmed against the real code, not just similar in
+        spirit). **Merge/Alias false-positive risk documented, not solved** — see [Deferred
+        Decisions](../deferred-decisions.md#deferred-decisions)'s "No persistent 'don't suggest
+        this pairing again' memory" row (a real production example: Fix 5's rejected
+        "flour"/"plain flour" suggestion); mitigated only by Save always being explicit, never
+        auto-applied. 698 tests passed.
+
+      - [x] **Back-navigation fixes.** New file `static/js/panel-back-guard.js` —
+        history-balanced: exactly one `close()` function ever closes the panel, whether
+        triggered by `popstate` (hardware/Android back, the browser's own back control, and the
+        in-app ← link are indistinguishable at this level — one listener covers all three) or
+        by a link tap while the panel is open (intercepted globally in the capturing phase,
+        since a plain hash-link click fires `hashchange` but never `popstate`). Checklist
+        scroll position captured on `unmount()`, restored once on the next `mount()`. Found
+        (documented, not fixed — explicitly out of scope) the same same-hash-DOM-swap bug class
+        in `capture.js`'s post-capture transition — see
+        [Deferred Decisions](../deferred-decisions.md#deferred-decisions). 701 tests passed,
+        including 3 covering the maintainer's exact flagged scenarios (panel-closes-before-
+        navigate, link-tap-from-open-panel leaves the stack balanced, scroll restore).
+
+      - [x] **Diagnostics (5a–5d).** `/recent-errors` returns every ERROR+ entry in the ring
+        buffer instead of a hard `[:10]` slice; ring buffer cap raised 1000 → 5000
+        (`app/log_config.py::RING_BUFFER_MAXLEN`). "Copy errors" button on the Recent Errors
+        card (always ERROR+), copying `timestamp | level | logger: message` + full traceback
+        per entry via `navigator.clipboard.writeText`, with a Toast confirmation. `.log-line`'s
+        message column widened, `.log-time`/`.log-trace` moved off the low-contrast
+        `--text-dim` onto `--text`, `.errors-box`'s hardcoded `#fdf3f3` onto
+        `var(--danger-tint)` (adapts in dark mode). A `logging.Filter` on the `asyncio` logger
+        downgrades WinError 10054 (`ConnectionResetError`/WSAECONNRESET — routine on a home
+        LAN/WiFi) from ERROR to DEBUG, matched on the exception object itself (type +
+        `.winerror`), not a message string, and scoped to that one logger, not a blanket
+        exception handler. 707 tests passed (5 new filter tests, 1 new ">10 entries" router
+        test); 5b/5c verified live via `scripts/cdp.py` against a seeded scratch server (14
+        ERROR entries all rendered and copied correctly in the right format; a seeded WinError
+        10054 record confirmed excluded from `/recent-errors` in the same run). See
+        [Diagnostics & Logging](../diagnostics-and-logging.md#diagnostics--logging).
+
+      - [x] **Batch wrap-up verification.** Full `pytest` run: **708 pass** (689 backend + 19
+        frontend). Full live walkthrough via `scripts/cdp.py` against a seeded scratch server,
+        integration-style (not just each step's own isolated check): create a recipe → session
+        → Plan screen shows the collapsed `Plan → Checklist → Push` indicator with no Review
+        control anywhere → straight to Checklist with zero prior `/consolidate` call, items
+        render correctly → expand a row (breakdown shown) → "Edit ingredient" reveals the
+        select-exclusive chip row (Substitute / Alias / Coarse item / Merge — no Pack size chip
+        on an item that already resolved cleanly, confirming the gap-gating) → Have it/Need it
+        tappable without opening the panel → Back once closes the panel with the route
+        unchanged, Back again returns to the real previous screen (Plan) — the exact "three
+        screens ago" scenario the maintainer originally flagged, now confirmed fixed end to
+        end, not just in each earlier step's own narrower test → scroll down, visit a recipe,
+        return, scroll position restored → Push to AnyList (fake mode) confirms → Diagnostics
+        page shows zero errors throughout the run.
+
+        **One real bug found during this verification pass's own screenshot** (independently
+        flagged by the maintainer looking at the same screenshot): `.checklist-row` is a `flex`
+        container with no `flex-wrap`, so the expand-slot (recipe breakdown + edit panel) —
+        appended as a third flex child with an inline `flex-basis: 100%`, meant to drop onto
+        its own full-width line beneath the row per `rowNameParts()`'s own docstring — never
+        actually got that line break; without `flex-wrap`, `flex-basis` alone doesn't force
+        one, so the default `flex-shrink: 1` instead squeezed the quantity text down to a
+        sliver narrow enough to wrap character-by-character. Fixed with `flex-wrap: wrap` on
+        `.checklist-row` (`static/css/components-screens.css`). Confirmed via live screenshot
+        before/after, and locked in with a new geometry-based regression test,
+        `test_expanded_row_meta_text_is_not_squeezed_onto_its_own_line`
+        (`tests/frontend/test_frontend_regressions.py`) — checked to actually fail without the
+        fix (reverted it and re-ran to confirm) before being counted as a real regression
+        guard. This is the +1 test between the Diagnostics step's 707 and this step's 708.
+
+        Docs updated chunk-by-chunk as each step landed, re-confirmed here rather than written
+        fresh: [Checklist, AnyList Push & Shopping List
+        Layout](../checklist-and-shopping.md) (the ingredient panel section, the
+        Review→Checklist merge resolution, the recipe-breakdown section, the back-guard
+        paragraph), [Recipe Capture](../recipe-capture.md) (2-call flow), [Ingredient
+        Handling](../ingredient-handling.md) (AI-flagging removal, still-intact manual
+        substitution), [Scaling & Consolidation](../scaling-and-consolidation.md) (breakdown no
+        longer review-screen-only), [Diagnostics & Logging](../diagnostics-and-logging.md)
+        (ring buffer cap now documented, WinError filter documented, "last 10" language gone),
+        and [Deferred Decisions](../deferred-decisions.md) (Merge/Alias false-positive risk
+        row, the capture.js same-hash-DOM-swap finding, point-of-need row marked resolved).
+
+      **Deliverable of this batch:** Checklist is now the one screen for shopping-list prep —
+      consolidates itself, shows the per-recipe breakdown, and lets you fix an ingredient (pack
+      size, substitute, alias, coarse item, merge) right on the row instead of a Settings trip,
+      all session-scoped by default with an explicit permanent option. Back always goes where
+      you'd expect, including through an open panel. Diagnostics surfaces every real error,
+      lets you copy them out, and no longer drowns them in routine Windows connection-reset
+      noise. **Chunk 6.7 itself stays open** — more user testing/feedback is still expected
+      before it and the Phase 6 review below are checked off.
 - [ ] **Phase 6 review** — re-check against [UI/UX](../ui-ux.md),
       [Checklist, AnyList Push & Shopping List Layout](../checklist-and-shopping.md) (confirm the
       store-layout deferral note landed correctly and nothing there was silently half-built),
