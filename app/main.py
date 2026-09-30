@@ -45,7 +45,6 @@ from app.services.anylist_client import (
 )
 from app.services.checklist import (
     ChecklistItemNotFoundError,
-    ChecklistNotReadyError,
     SessionAlreadyPushedError,
 )
 from app.services.usuals import DuplicateUsualItemNameError, UsualItemNotFoundError
@@ -311,11 +310,6 @@ _DOMAIN_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         404,
         "PROGRESS_TOKEN_NOT_FOUND",
         lambda e: "No progress found for that token — it may not have started yet, or has expired.",
-    ),
-    ChecklistNotReadyError: _domain_error_handler(
-        409,
-        "CHECKLIST_NOT_CONSOLIDATED",
-        lambda e: "This session has no shopping list yet — review and consolidate it first.",
     ),
     ChecklistItemNotFoundError: _domain_error_handler(
         404,

@@ -187,13 +187,14 @@ consolidated line's name to expand it into a per-recipe breakdown. No record of 
 being designed or built before it was raised — checked CLAUDE.md, the full git history, and
 session memory first, rather than assume it existed.
 
-### Design (confirmed 2026-09-11)
+### Design (confirmed 2026-09-11; no longer review-screen-only as of 2026-09-30, chunk 7.3)
 
-- **Ephemeral, review-screen-only — nothing persisted.** Computed fresh on every
-  `POST /sessions/{id}/consolidate`, the same call that already runs the whole pipeline; not
-  written to `session_checklist_items` or anywhere else. It doesn't need to survive to the
-  checklist screen or into `shopping_history` — the ingredient-review step is the one place
-  this check makes sense, right before the household commits to "do I have this?" and pushes.
+- **Ephemeral — nothing persisted.** Computed fresh on every consolidate pass, not written to
+  `session_checklist_items` or anywhere else. **2026-09-30 (chunk 7.3):** the standalone
+  Review screen that used to be the only place this ran was deleted — `checklist.py >
+  load_checklist()` now calls `consolidate_session_with_breakdown()` itself on every load, so
+  the breakdown is available on Checklist directly, not just review-screen-only. It still
+  doesn't need `shopping_history` — recomputed fresh every time it's needed, same as before.
 - **One row per contributing recipe *slot*, never merged — even two slots of the same
   recipe.** If a recipe is slotted into a session twice (e.g. meal-prepped for two different
   nights, at different serving sizes), the breakdown shows both occurrences separately rather
@@ -222,19 +223,21 @@ session memory first, rather than assume it existed.
   into `ConsolidatedItem.recipe_breakdown` — it has no idea what a "recipe" is, same as it has
   no idea what an "alias" is.
 - **Threading it to the API without changing `consolidate_session()`'s signature** — that
-  function is called from many places (the checklist load/push path, most of the test suite)
-  that have no use for this and shouldn't need updating. `consolidate_session()` stays exactly
-  as it was, now a thin wrapper around a shared internal `_consolidate_session_impl()`; a new
-  `consolidate_session_with_breakdown()` (used only by the one router endpoint that needs it)
+  function is called from many places (the push path, most of the test suite) that have no use
+  for this and shouldn't need updating. `consolidate_session()` stays exactly as it was, a thin
+  wrapper around a shared internal `_consolidate_session_impl()`; `consolidate_session_with_breakdown()`
   reads the breakdown map off the SAME already-computed `ConsolidatedItem`s the upsert loop
-  iterates, so there's no second consolidation pass. Wire format:
-  `ChecklistItemRead.recipe_breakdown` (`list[RecipeContribution]`, always `[]` on any other
-  endpoint that returns a `ChecklistItemRead` — populated only by the consolidate endpoint via
-  `model_copy()` after validation, since it isn't a real `session_checklist_items` column).
-- **UI**: `session-review.js` — the ingredient name becomes a tappable toggle (▾/▴) only when
-  a breakdown actually exists; expands to a small list of "Recipe name — amount" rows, each
-  linking to its recipe. Collapsed by default. No change to the checklist screen
-  (`checklist.js`) — this is deliberately review-screen-only, per the design above.
+  iterates, so there's no second consolidation pass. **2026-09-30 (chunk 7.3):** now has two
+  callers, not one — `routers/sessions.py`'s own `POST .../consolidate` endpoint (unchanged),
+  and `checklist.py::load_checklist()`. Wire format: `ChecklistItemRead.recipe_breakdown`
+  (`list[RecipeContribution]`, `[]` on any endpoint that doesn't explicitly attach it — every
+  endpoint that does uses the same `model_copy()`-after-validation pattern, since it isn't a
+  real `session_checklist_items` column).
+- **UI**: `checklist.js` — the ingredient name becomes a tappable toggle (▾/▴) only when a
+  breakdown actually exists; expands to a small list of "Recipe name — amount" rows, each
+  linking to its recipe. Collapsed by default. **2026-09-30 (chunk 7.3/7.4):** moved here from
+  the now-deleted `session-review.js` (Review screen) — see
+  [Checklist Screen Logic](./checklist-and-shopping.md#checklist-screen-logic).
 
 ---
 

@@ -36,13 +36,20 @@ def _item(db: Session, row) -> dict:
 
 @router.get("/{session_id}")
 def load_checklist(session_id: int, db: Session = Depends(get_db)) -> dict:
-    items, anylist_ok, anylist_detail = checklist_service.load_checklist(db, session_id)
+    # 2026-09-30 (chunk 7.3) — load_checklist() now consolidates itself (no more standalone
+    # Review screen to have done it first) and returns recipe_breakdown alongside the items,
+    # same ephemeral map routers/sessions.py's own consolidate endpoint has always attached —
+    # see CLAUDE.md > "Which recipe is this ingredient from", no longer review-screen-only.
+    items, anylist_ok, anylist_detail, breakdown = checklist_service.load_checklist(db, session_id)
     body = ChecklistLoadResponse(
         session_id=session_id,
         anylist_ok=anylist_ok,
         anylist_detail=anylist_detail,
         items=[
-            checklist_display.decorate(db, ChecklistItemRead.model_validate(r)) for r in items
+            checklist_display.decorate(db, ChecklistItemRead.model_validate(r)).model_copy(
+                update={"recipe_breakdown": breakdown.get(r.ingredient_name, [])}
+            )
+            for r in items
         ],
         usuals=checklist_service.due_usuals(db),
     )

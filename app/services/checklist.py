@@ -30,15 +30,6 @@ from app.services.anylist_client import AnyListError, PushItem
 logger = logging.getLogger(__name__)
 
 
-class ChecklistNotReadyError(Exception):
-    """The session has no consolidated checklist yet — run POST /sessions/{id}/consolidate
-    first (the Phase 4 review screen does this). 409 CHECKLIST_NOT_CONSOLIDATED."""
-
-    def __init__(self, session_id: int) -> None:
-        self.session_id = session_id
-        super().__init__(f"Session {session_id} has no consolidated checklist yet")
-
-
 class ChecklistItemNotFoundError(Exception):
     """404 CHECKLIST_ITEM_NOT_FOUND."""
 
@@ -94,17 +85,32 @@ def _find_match(
 # --- load -----------------------------------------------------------------------------
 
 
-def load_checklist(db: Session, session_id: int) -> tuple[list[SessionChecklistItem], bool, str | None]:
-    """(checklist items, anylist_ok, anylist_detail). Re-runs the AnyList match every call
-    (the spec's "at checklist screen load" step). Upsert on the existing rows:
-    `already_on_anylist` / `anylist_item_id` are recomputed *only when the AnyList fetch
+def load_checklist(
+    db: Session, session_id: int
+) -> tuple[list[SessionChecklistItem], bool, str | None, dict[str, list]]:
+    """(checklist items, anylist_ok, anylist_detail, recipe_breakdown). Re-runs the AnyList
+    match every call (the spec's "at checklist screen load" step). Upsert on the existing
+    rows: `already_on_anylist` / `anylist_item_id` are recomputed *only when the AnyList fetch
     succeeds* (a transient failure must not wipe a good match); `have_it` is only ever
     *upgraded* from 'unknown' to 'yes' by a pre-tick, never downgraded. Never touches
-    `add_to_list`."""
+    `add_to_list`.
+
+    **2026-09-30 (chunk 7.3, Review→Checklist merge):** used to raise `ChecklistNotReadyError`
+    if the session had no consolidated checklist yet, requiring a caller (the now-deleted
+    Review screen) to run `POST /sessions/{id}/consolidate` first. Now calls
+    `consolidate_session_with_breakdown()` itself, every load, so Checklist works standalone.
+    Safe to do unconditionally: `consolidate_session()`'s upsert is already documented as
+    non-destructive to per-line state (`have_it`/`add_to_list`/`already_on_anylist` preserved
+    for lines that persist, only computed fields recomputed) — the exact property the
+    upgrade-only pre-tick logic below already depends on. `recipe_breakdown` (CLAUDE.md >
+    "Which recipe is this ingredient from") is a byproduct of that same pass, no second
+    consolidation needed for it — see `docs/scaling-and-consolidation.md`, no longer
+    review-screen-only now that Checklist is the one place this runs."""
     session = sessions_service.get_session(db, session_id)  # raises SessionNotFoundError
+    _rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, session_id)
+    # Same Session identity map -> `session` now reflects the just-committed consolidate
+    # (SQLAlchemy expires attributes on commit; the next access below re-queries fresh).
     items = list(session.checklist_items)
-    if not items:
-        raise ChecklistNotReadyError(session_id)
 
     anylist_items: list[anylist_client.AnyListItem] = []
     anylist_ok, anylist_detail = True, None
@@ -139,7 +145,7 @@ def load_checklist(db: Session, session_id: int) -> tuple[list[SessionChecklistI
         anylist_ok,
         sum(1 for c in ordered if c.already_on_anylist),
     )
-    return ordered, anylist_ok, anylist_detail
+    return ordered, anylist_ok, anylist_detail, breakdown
 
 
 def due_usuals(db: Session) -> list:

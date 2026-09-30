@@ -35,11 +35,42 @@ def _session_with_checklist(client, ingredients):
     return sid
 
 
-def test_load_before_consolidate_is_409(client):
+def test_load_before_explicit_consolidate_succeeds_with_no_recipes(client):
+    # 2026-09-30 (chunk 7.3) — load_checklist() now consolidates itself; a brand-new session
+    # with zero recipes and never explicitly consolidated succeeds with an empty checklist,
+    # rather than the old 409 CHECKLIST_NOT_CONSOLIDATED (the whole point of the change — a
+    # standalone Review-screen step used to be the only thing that ever ran consolidate first).
     sid = client.post("/api/v1/sessions", json={"label": "empty"}).json()["data"]["id"]
     resp = client.get(f"/api/v1/checklist/{sid}")
-    assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "CHECKLIST_NOT_CONSOLIDATED"
+    assert resp.status_code == 200
+    assert resp.json()["data"]["items"] == []
+
+
+def test_load_with_recipes_but_never_explicitly_consolidated_populates_the_checklist(client):
+    # The scenario chunk 7.3 exists for: a session with recipes slotted in, straight to
+    # Checklist, with no prior POST /sessions/{id}/consolidate call at all.
+    recipe = client.post(
+        "/api/v1/recipes",
+        json={
+            "name": "Never Consolidated",
+            "source_type": "manual",
+            "base_servings": 4,
+            # Ingredient names are normalised on save (hyphens fold to spaces) — use the
+            # already-normalised form so the assertion below matches without relying on that
+            # unrelated behaviour.
+            "ingredients": [{"name": "zz never consolidated flour", "quantity": 200, "unit": "g"}],
+            "allow_duplicate": True,
+        },
+    ).json()["data"]
+    sid = client.post("/api/v1/sessions", json={"label": "nc"}).json()["data"]["id"]
+    client.post(f"/api/v1/sessions/{sid}/recipes", json={"recipe_id": recipe["id"], "scaled_servings": 4})
+
+    resp = client.get(f"/api/v1/checklist/{sid}")
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    assert len(items) == 1
+    assert items[0]["ingredient_name"] == "zz never consolidated flour"
+    assert items[0]["recipe_breakdown"][0]["recipe_label"] == "Never Consolidated"
 
 
 def test_load_returns_envelope_with_items_and_anylist_status(client, fake_anylist):
@@ -146,6 +177,19 @@ def test_load_survives_malformed_review_options_json(client, fake_anylist):
     since ReviewOptionRead.quantity is required with no default. Every subsequent load of
     that same session failed identically until the row was fixed by hand — matching the
     diagnostics log signature (repeated "Unhandled exception on GET /api/v1/checklist/{id}").
+
+    **2026-09-30 (chunk 7.3) — this scenario changed shape, not disappeared.** Checklist's own
+    `load()` now re-consolidates on every call (it used to only ever run via the now-deleted
+    Review screen), and consolidation unconditionally overwrites `review_options_json` on
+    every pass (session_consolidation.py — reset to `None`, then freshly rewritten only if
+    `needs_review` still holds). So a hand-corrupted row can no longer *survive* through to
+    the router's `model_validate(row)` step the way the original 2026-09-17 bug reproduced —
+    the very next load self-heals it before serialization ever sees the bad value. What's
+    still worth covering: that self-healing actually happens (no crash, and the value comes
+    back correctly re-populated) rather than the corruption somehow persisting. The
+    property-level defensive parsing itself (a malformed element dropped, not raised) is still
+    covered directly, bypassing consolidation entirely, by
+    tests/services/test_checklist.py::test_review_options_drops_malformed_elements.
     """
     sid = _session_with_checklist(
         client, [{"name": "zz-router-malformed", "quantity": 100, "unit": "g"},
@@ -168,7 +212,13 @@ def test_load_survives_malformed_review_options_json(client, fake_anylist):
     resp = client.get(f"/api/v1/checklist/{sid}")
     assert resp.status_code == 200
     reloaded = next(i for i in resp.json()["data"]["items"] if i["id"] == item["id"])
-    assert reloaded["review_options"] == []  # malformed element dropped, not raised
+    # Self-healed: the still-genuine g/ml conflict means review_options_json was freshly
+    # rewritten by this load's own re-consolidate — not left as the malformed value, and not
+    # merely emptied either (that would be the old, weaker "swallow and hide" behaviour).
+    assert reloaded["needs_review"] is True
+    assert len(reloaded["review_options"]) >= 1
+    for opt in reloaded["review_options"]:
+        assert set(opt) >= {"quantity", "unit"}
 
 
 def test_load_after_push_with_usuals_survives_naive_aware_round_trip(client, fake_anylist):

@@ -88,10 +88,35 @@ def test_names_match(a, b, expected):
 # --- load -------------------------------------------------------------------
 
 
-def test_load_raises_when_not_consolidated(db):
+def test_load_succeeds_with_no_recipes_and_no_prior_consolidate(db):
+    # 2026-09-30 (chunk 7.3) — load_checklist() consolidates itself now; the old
+    # ChecklistNotReadyError (raised when session.checklist_items was empty, requiring the
+    # now-deleted Review screen to have run consolidate first) is gone.
     s = sessions_service.create_session(db, PlanningSessionCreate())
-    with pytest.raises(checklist_service.ChecklistNotReadyError):
-        checklist_service.load_checklist(db, s.id)
+    items, ok, detail, breakdown = checklist_service.load_checklist(db, s.id)
+    assert items == []
+    assert breakdown == {}
+
+
+def test_load_with_recipes_but_never_explicitly_consolidated(db):
+    # Ingredient names are normalised on save (hyphens fold to spaces — text_normalize.py,
+    # unrelated to this chunk) — write the test's expectation as the already-normalised form
+    # rather than assume the input string survives verbatim.
+    r = recipes_service.create_recipe(
+        db,
+        RecipeCreate(
+            name="Never Consolidated", source_type="manual", base_servings=4,
+            ingredients=[RecipeIngredientCreate(name="zz svc never consolidated", quantity=1, unit=None)],
+        ),
+        allow_duplicate=True,
+    )
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    # deliberately no sessions_service.consolidate_session(db, s.id) call here
+
+    items, ok, detail, breakdown = checklist_service.load_checklist(db, s.id)
+    assert [i.ingredient_name for i in items] == ["zz svc never consolidated"]
+    assert breakdown["zz svc never consolidated"][0].recipe_label == "Never Consolidated"
 
 
 def test_load_preticks_items_already_on_the_list(db):
@@ -99,7 +124,7 @@ def test_load_preticks_items_already_on_the_list(db):
         db, [{"name": "milk", "quantity": 1, "unit": "L"},
              {"name": "passata", "quantity": 400, "unit": "g"}]
     )
-    items, ok, detail = checklist_service.load_checklist(db, s.id)
+    items, ok, detail, _breakdown = checklist_service.load_checklist(db, s.id)
     by_name = {i.ingredient_name: i for i in items}
     assert ok is True and detail in (None, "FAKE MODE — no real AnyList call") or ok is True
 
@@ -119,7 +144,7 @@ def test_pretick_never_overrides_a_user_choice(db):
     milk.have_it = "no"
     db.commit()
 
-    items, _, _ = checklist_service.load_checklist(db, s.id)
+    items, _, _, _ = checklist_service.load_checklist(db, s.id)
     assert items[0].already_on_anylist is True  # still recorded as on the list
     assert items[0].have_it == "no"  # but the user's 'no' is respected
 
@@ -159,7 +184,7 @@ def test_load_when_anylist_disabled_does_not_wipe_match_state(db):
     ac.settings.anylist_fake_mode = False
     ac.settings.anylist_enabled = False
     try:
-        items, ok, detail = checklist_service.load_checklist(db, s.id)
+        items, ok, detail, _breakdown = checklist_service.load_checklist(db, s.id)
     finally:
         ac.settings.anylist_fake_mode = True
         ac.reset_client()

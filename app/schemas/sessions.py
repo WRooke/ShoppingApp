@@ -211,9 +211,11 @@ class ReviewOptionRead(BaseModel):
 class RecipeContribution(BaseModel):
     """One recipe slot's contribution to a consolidated ingredient-review line — 2026-09-11,
     CLAUDE.md > "Which recipe is this ingredient from". Ephemeral: computed fresh on every
-    POST /sessions/{id}/consolidate, never persisted to session_checklist_items (confirmed
-    with the maintainer — this is a review-screen-only aid, not needed later on the checklist
-    screen or in shopping history)."""
+    consolidate pass, never persisted to session_checklist_items — not needed in shopping
+    history. **2026-09-30 (chunk 7.3):** no longer review-screen-only — the now-deleted Review
+    screen's breakdown toggle moved onto Checklist rows, which attaches this the same way
+    routers/sessions.py's own consolidate endpoint always has (see routers/checklist.py's
+    GET /{session_id})."""
 
     recipe_id: int | None
     recipe_label: str
