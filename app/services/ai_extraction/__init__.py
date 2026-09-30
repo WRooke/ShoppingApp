@@ -28,23 +28,23 @@ imported there (and re-exported here) rather than referenced through a different
 — so that `patch("app.services.ai_extraction.genai.Client", ...)`-style test patches (see
 ``tests/services/test_ai_extraction.py``) keep resolving to the same shared module object.
 
-**Three separate Gemini calls per capture** (M2), each with its own system prompt,
-``response_schema`` and fake fixture:
+**Two separate Gemini calls per capture** (M2; originally three — the AI substitution-flagging
+call was removed 2026-09-30, manual substitution stays, see ``calls.py``'s module docstring
+and CLAUDE.md > Deferred Decisions), each with its own system prompt, ``response_schema`` and
+fake fixture:
   1. ``extract_recipe()``      — ingredients + cuisine/protein (NO section suggestion)
-  2. ``flag_substitutions()``  — per-recipe substitution candidates (enrichment; M4 wires
-                                 the confirm/decline UI)
-  3. ``suggest_sections()``    — per-ingredient store section (allow-list validated)
-``capture_recipe()`` runs all three and merges the result. Calls 2 and 3 are enrichment —
-if they fail the recipe is still usable (M3 turns a quota failure into a queued retry).
+  2. ``suggest_sections()``    — per-ingredient store section (allow-list validated)
+``capture_recipe()`` runs both and merges the result. Call 2 is enrichment — if it fails the
+recipe is still usable (M3 turns a quota failure into a queued retry).
 
-A fourth call, unrelated to capture, lives here too for the same "one small stable
+A further call, unrelated to capture, lives here too for the same "one small stable
 interface" reason (CLAUDE.md > Ingredient Unit Handling > Admin reduction, 2026-09-12):
-  4. ``classify_units()``      — is a never-before-seen unit spelling a same-magnitude
+  3. ``classify_units()``      — is a never-before-seen unit spelling a same-magnitude
                                  variant of a standard unit (g/kg/ml/l/tsp/tbsp/cup)?
                                  Called from ``services/unit_synonyms.py > learn_new_units()``
                                  after an ingredient save, not from ``capture_recipe()``. Its
                                  input is the household's own typed data, not scraped/
-                                 photographed content, so — uniquely among the four — it does
+                                 photographed content, so — uniquely among these — it does
                                  NOT wrap its input in the §0a untrusted-content delimiter;
                                  the output is still allow-list validated regardless.
 
@@ -74,7 +74,6 @@ from .calls import (
     capture_recipe,
     classify_units,
     extract_recipe,
-    flag_substitutions,
     suggest_ingredient_groupings,
     suggest_sections,
 )
@@ -91,7 +90,6 @@ from .client import (
 from .fixtures import (
     _FAKE_FIXTURES,
     _FAKE_SECTION_MAP,
-    _FAKE_SUBSTITUTION_FLAGS,
     _FAKE_UNIT_CLASSIFICATIONS,
     _pick_fake_fixture,
 )
@@ -102,13 +100,11 @@ from .prompts import (
     MAX_INPUT_TEXT_CHARS,
     MAX_USER_HINT_CHARS,
     SECTIONS_SYSTEM_PROMPT,
-    SUBSTITUTIONS_SYSTEM_PROMPT,
     UNIT_CLASSIFICATION_SYSTEM_PROMPT,
     format_hint_sections,
 )
 from .schemas import (
     _GExtraction,
-    _GFlags,
     _GGroup,
     _GGroupings,
     _GIngredient,
@@ -126,7 +122,6 @@ from .types import (
     ExtractedIngredient,
     ExtractionResult,
     GroupingSuggestion,
-    SubstitutionFlag,
 )
 
 __all__ = [
@@ -137,7 +132,6 @@ __all__ = [
     "capture_recipe",
     "classify_units",
     "extract_recipe",
-    "flag_substitutions",
     "suggest_ingredient_groupings",
     "suggest_sections",
     "MAX_OUTPUT_TOKENS",
@@ -149,7 +143,6 @@ __all__ = [
     "EXTRACTION_SYSTEM_PROMPT",
     "INGREDIENT_GROUPING_SYSTEM_PROMPT",
     "SECTIONS_SYSTEM_PROMPT",
-    "SUBSTITUTIONS_SYSTEM_PROMPT",
     "UNIT_CLASSIFICATION_SYSTEM_PROMPT",
     "format_hint_sections",
     "AiExtractionDisabledError",
@@ -158,5 +151,4 @@ __all__ = [
     "ExtractedIngredient",
     "ExtractionResult",
     "GroupingSuggestion",
-    "SubstitutionFlag",
 ]

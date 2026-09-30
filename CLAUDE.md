@@ -123,7 +123,7 @@ table before assuming something went missing.
 | [scaling-and-consolidation.md](./docs/scaling-and-consolidation.md) | Scaling, rounding/unit-normalisation rules, purchase-unit resolution, the per-recipe ingredient breakdown | Scaling Logic; Which Recipe Is This Ingredient From |
 | [recipe-capture.md](./docs/recipe-capture.md) | URL/photo capture flow, the extraction prompt, the current Gemini provider/model/call-structure spec | Recipe Capture — AI Extraction; AI Provider Migration (its provider/model selection, call structure, photo capture, fallback & retry, queueing, pending-state surfacing, API key storage, free-tier resolution, and deferred-Ollama parts only — see below) |
 | [duplicate-recipe-prevention.md](./docs/duplicate-recipe-prevention.md) | Warn-with-override duplicate detection at recipe save time | Duplicate Recipe Prevention |
-| [ingredient-handling.md](./docs/ingredient-handling.md) | Normalisation, substitution (incl. the merged capture-time-flagging spec), aliases, and the four-layer unit-handling design | Ingredient Normalisation; Ingredient Substitution (minus its History subsection — see decision-history.md); Ingredient Aliases; Ingredient Unit Handling (minus its Build-chunks subsection — see build-status/); AI Provider Migration's substitution-merge table and "Ingredient Substitution Flagging — the merged spec" |
+| [ingredient-handling.md](./docs/ingredient-handling.md) | Normalisation, substitution (manual only since 2026-09-30 — the AI-flagging call was removed), aliases, and the four-layer unit-handling design | Ingredient Normalisation; Ingredient Substitution (minus its History subsection — see decision-history.md); Ingredient Aliases; Ingredient Unit Handling (minus its Build-chunks subsection — see build-status/); AI Provider Migration's substitution-merge table and "Substitution — the current spec" (formerly "Ingredient Substitution Flagging — the merged spec") |
 | [checklist-and-shopping.md](./docs/checklist-and-shopping.md) | Checklist load/tap logic, "the usuals", the AnyList push algorithm, store-layout sorting | Checklist Screen Logic; AnyList Push Logic; Shopping List Store Layout |
 | [nutrition-mfp-export.md](./docs/nutrition-mfp-export.md) | Recipe → MyFitnessPal export design (post-MVP, unscheduled) | Nutrition & MyFitnessPal Export |
 | [diagnostics-and-logging.md](./docs/diagnostics-and-logging.md) | Logging rules, log file rotation, the `/diagnostics` page spec | Diagnostics & Logging |
@@ -194,10 +194,11 @@ See [docs/scaling-and-consolidation.md](./docs/scaling-and-consolidation.md).
 ## Recipe Capture — AI Extraction
 
 The URL and photo capture flows, the extraction prompt, and the current (Gemini-based)
-provider spec: the Flash → Flash-Lite → `capture_queue` fallback chain, the three separate
-per-task calls, photo capture, API key storage, and the free-tier billing resolution. The
-substitution-flagging call's actual merged design lives in ingredient-handling.md instead
-(it's a substitution concern first).
+provider spec: the Flash → Flash-Lite → `capture_queue` fallback chain, the two separate
+per-task calls (originally three — the substitution-flagging call was removed 2026-09-30;
+manual substitution stays, and its design lives in ingredient-handling.md instead, since it's
+a substitution concern first), photo capture, API key storage, and the free-tier billing
+resolution.
 
 See [docs/recipe-capture.md](./docs/recipe-capture.md).
 

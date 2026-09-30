@@ -23,18 +23,19 @@
 
   // 2026-09-23 — real, backend-driven step progress (replaces the old client-side-only
   // rotating label, which had zero relation to what the server was actually doing). The
-  // three steps mirror services/ai_extraction/calls.py's PROGRESS_STEPS exactly (extract ->
-  // sections -> substitutions) — see app/services/progress_tracker.py and
-  // GET /recipes/capture/progress/{token}, polled here every 600ms while the main capture
-  // request is in flight. `firstMessage` still covers the one phase with no tracked step at
-  // all (fetching the page / uploading the photo, which happens before capture_recipe() is
-  // even called) — honest about that gap rather than inventing a step for it.
+  // steps mirror services/ai_extraction/calls.py's PROGRESS_STEPS exactly (extract ->
+  // sections — a third step, "substitutions", was removed 2026-09-30 along with the AI
+  // substitution-flagging call; manual substitution stays, just without an AI suggestion)
+  // — see app/services/progress_tracker.py and GET /recipes/capture/progress/{token}, polled
+  // here every 600ms while the main capture request is in flight. `firstMessage` still covers
+  // the one phase with no tracked step at all (fetching the page / uploading the photo, which
+  // happens before capture_recipe() is even called) — honest about that gap rather than
+  // inventing a step for it.
   var STEP_LABELS = {
     extract: "Extracting ingredients",
     sections: "Suggesting aisles",
-    substitutions: "Checking substitutions",
   };
-  var STEP_ORDER = ["extract", "sections", "substitutions"];
+  var STEP_ORDER = ["extract", "sections"];
 
   function makeToken() {
     if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();

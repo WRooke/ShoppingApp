@@ -334,8 +334,7 @@ def test_capture_progress_step_list_shows_real_backend_state(browser, server_url
         "window.api.recipes.captureProgress = function(token){"
         "return Promise.resolve({steps: ["
         "{name: 'extract', status: 'done', detail: null},"
-        "{name: 'sections', status: 'active', detail: null},"
-        "{name: 'substitutions', status: 'pending', detail: null}"
+        "{name: 'sections', status: 'active', detail: null}"
         "]});"
         "};"
     )
@@ -353,9 +352,12 @@ def test_capture_progress_step_list_shows_real_backend_state(browser, server_url
         "})"
     )
     by_status = {r["status"]: r["label"] for r in rows}
+    # Only 2 steps as of 2026-09-30 (was 3 — "substitutions" removed with the AI
+    # substitution-flagging call; capture.js's STEP_ORDER drives rendering, not whatever the
+    # backend response happens to include, so a stray 3rd entry wouldn't render anyway).
+    assert len(rows) == 2
     assert by_status.get("done") == "Extracting ingredients"
     assert by_status.get("active") == "Suggesting aisles"
-    assert by_status.get("pending") == "Checking substitutions"
     assert not browser.console_errors(), browser.console_errors()
 
 

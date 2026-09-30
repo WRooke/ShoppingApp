@@ -1,5 +1,6 @@
-"""Unit tests for app/services/ai_extraction.py (Google Gemini, Phase 3.9 M2 — 3 per-task
-calls + the capture_recipe() orchestrator).
+"""Unit tests for app/services/ai_extraction.py (Google Gemini, Phase 3.9 M2 — 2 per-task
+calls + the capture_recipe() orchestrator; originally 3 — flag_substitutions() was removed
+2026-09-30, manual substitution stays, see CLAUDE.md > Deferred Decisions).
 
 The `google-genai` client is mocked throughout (CLAUDE.md > Tests). Covers §0a/§0c: enable
 switch defaults calls to refused, fake mode bypasses without network, a hallucinated section
@@ -36,7 +37,6 @@ from app.services.ai_extraction import (
     capture_recipe,
     classify_units,
     extract_recipe,
-    flag_substitutions,
     format_hint_sections,
     suggest_ingredient_groupings,
     suggest_sections,
@@ -124,7 +124,6 @@ def test_extract_recipe_success_from_text(db, api_enabled):
         original_text="500g beef mince", suggested_section=None,  # call 1 never sets sections
     )
     assert result.ingredients[1].preparation == "finely diced"
-    assert result.substitution_flags == []
 
 
 def test_extract_recipe_sends_image_part_and_delimits_text(db, api_enabled):
@@ -530,51 +529,12 @@ def test_classify_units_logs_task_classify_units(db, api_enabled):
     assert (row.task, row.outcome) == ("classify_units", "success")
 
 
-# --- flag_substitutions (call 2) --------------------------------------------
+# flag_substitutions (formerly call 2) and its 5 tests were removed 2026-09-30 along with the
+# AI substitution-flagging call itself — manual substitution stays, see CLAUDE.md > Deferred
+# Decisions and docs/ingredient-handling.md's Substitution section.
 
 
-def test_flag_substitutions_filters_to_input_names(db, api_enabled):
-    payload = {"flags": [
-        {"original": "parmesan", "suggested_substitute": "pecorino", "note": "similar"},
-        {"original": "not in recipe", "suggested_substitute": "x", "note": None},
-    ]}
-    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
-        flags = flag_substitutions(db, context_id=None, ingredient_names=["parmesan", "pasta"])
-    assert [f.original for f in flags] == ["parmesan"]
-    assert flags[0].suggested_substitute == "pecorino"
-
-
-def test_flag_substitutions_fake_mode_returns_canned_for_known_names(db, fake_mode):
-    flags = flag_substitutions(db, context_id=None, ingredient_names=["parmesan", "pasta"])
-    assert [f.original for f in flags] == ["parmesan"]
-
-
-def test_flag_substitutions_empty_when_no_known_names(db, fake_mode):
-    assert flag_substitutions(db, context_id=None, ingredient_names=["pasta", "onion"]) == []
-
-
-def test_flag_substitutions_drops_overlong_note(db, api_enabled):
-    # Capture-Fixes-Staged.md issue 4 — a verbose "why this works" rationale (the kind the
-    # maintainer explicitly doesn't want) is dropped rather than shown, even if the model
-    # ignores the prompt's "~10 words max" rule.
-    verbose = (
-        "Regular butter contains milk solids that brown and burn faster than ghee, "
-        "so keep an eye on the heat and stir a little more often than usual."
-    )
-    payload = {"flags": [{"original": "ghee", "suggested_substitute": "butter", "note": verbose}]}
-    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
-        flags = flag_substitutions(db, context_id=None, ingredient_names=["ghee"])
-    assert flags[0].note is None
-
-
-def test_flag_substitutions_keeps_short_note(db, api_enabled):
-    payload = {"flags": [{"original": "ghee", "suggested_substitute": "butter", "note": "use 20% less"}]}
-    with patch("app.services.ai_extraction.genai.Client", _mock_client(_resp(payload))):
-        flags = flag_substitutions(db, context_id=None, ingredient_names=["ghee"])
-    assert flags[0].note == "use 20% less"
-
-
-# --- suggest_ingredient_groupings (call 5, Fix 5) ---------------------------------------
+# --- suggest_ingredient_groupings (call 4, Fix 5) ---------------------------------------
 
 
 def test_suggest_ingredient_groupings_fake_mode_matches_a_canned_group(db, fake_mode):
@@ -668,20 +628,16 @@ def test_suggest_ingredient_groupings_prompt_wraps_the_input_placeholder():
 # --- capture_recipe (orchestrator) ---------------------------------------
 
 
-def test_capture_recipe_merges_sections_and_flags_fake_mode(db, fake_mode):
-    # the "weeknight beef tacos" fixture (deterministic for this seed) contains parmesan? no —
-    # it has "tortillas" which is in _FAKE_SUBSTITUTION_FLAGS
+def test_capture_recipe_merges_sections_fake_mode(db, fake_mode):
     result = capture_recipe(db, call_type="recipe_url", text="tacos please")
-    assert any(i.suggested_section for i in result.ingredients)  # call 3 merged in
-    names_flagged = {f.original for f in result.substitution_flags}
-    assert names_flagged & {i.name for i in result.ingredients}  # flags only for real ingredients
+    assert any(i.suggested_section for i in result.ingredients)  # call 2 merged in
 
 
 def test_capture_recipe_swallows_enrichment_failure(db, api_enabled):
     good_extract = _resp(_EXTRACTION_PAYLOAD)
 
     def _side_effect(*args, **kwargs):
-        # call 1 succeeds, calls 2 & 3 blow up
+        # call 1 succeeds, call 2 blows up
         sys = kwargs["config"].system_instruction
         if sys.startswith("You are a recipe extraction assistant"):
             return good_extract
@@ -692,7 +648,6 @@ def test_capture_recipe_swallows_enrichment_failure(db, api_enabled):
 
     assert len(result.ingredients) == 2  # extraction still succeeded
     assert all(i.suggested_section is None for i in result.ingredients)  # sections swallowed
-    assert result.substitution_flags == []  # flags swallowed
 
 
 def test_capture_recipe_extraction_failure_propagates(db, api_enabled):
@@ -709,8 +664,8 @@ def test_capture_recipe_reports_all_steps_done_on_full_success(db, fake_mode):
 
     capture_recipe(db, call_type="recipe_url", text="tacos please", progress_token="cap-tok-1")
     steps = progress_tracker.get("cap-tok-1")
-    assert [s["status"] for s in steps] == ["done", "done", "done"]
-    assert [s["name"] for s in steps] == ["extract", "sections", "substitutions"]
+    assert [s["status"] for s in steps] == ["done", "done"]
+    assert [s["name"] for s in steps] == ["extract", "sections"]
 
 
 def test_capture_recipe_reports_extraction_failed_and_stops(db, api_enabled):
@@ -724,9 +679,8 @@ def test_capture_recipe_reports_extraction_failed_and_stops(db, api_enabled):
     by_name = {s["name"]: s for s in steps}
     assert by_name["extract"]["status"] == "failed"
     assert by_name["extract"]["detail"]
-    # Enrichment never ran — extraction's failure propagates before either call happens.
+    # Enrichment never ran — extraction's failure propagates before the call happens.
     assert by_name["sections"]["status"] == "pending"
-    assert by_name["substitutions"]["status"] == "pending"
 
 
 def test_capture_recipe_reports_enrichment_step_failed_but_keeps_going(db, api_enabled):
@@ -747,7 +701,6 @@ def test_capture_recipe_reports_enrichment_step_failed_but_keeps_going(db, api_e
     by_name = {s["name"]: s for s in steps}
     assert by_name["extract"]["status"] == "done"
     assert by_name["sections"]["status"] == "failed"
-    assert by_name["substitutions"]["status"] == "failed"
 
 
 # --- fixtures self-check ------------------------------------------------------

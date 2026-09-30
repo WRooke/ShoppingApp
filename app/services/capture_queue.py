@@ -11,9 +11,15 @@ Task types and how ``run_once`` handles each:
     suggestion is still owed, enqueue a ``suggest_sections`` follow-up + set the badge.
   * ``suggest_sections`` — retry the call for the saved ``recipe_id``, tag
     ``product_sections``, clear ``recipes.ai_tasks_pending`` (M6).
-  * ``flag_substitutions`` — never retried post-capture (interactive-only); dropped if seen.
 A task still over quota is kept (``record_attempt``) and retried next hour; any other error
 is logged and the task is kept too.
+
+2026-09-30: a third task type, ``flag_substitutions``, used to be handled here (never
+retried post-capture, interactive-only, dropped if seen) — removed along with the AI
+substitution-flagging call itself (see ``ai_extraction/calls.py``'s module docstring).
+Nothing ever actually enqueued that task type (confirmed: no ``enqueue(..., task=
+"flag_substitutions", ...)`` call existed anywhere in the app even before this removal), so
+this isn't a live-row concern.
 
 Plain Python / SQLAlchemy — no ``fastapi`` import.
 """
@@ -190,11 +196,6 @@ def run_once(db: Session) -> dict:
         try:
             if item.task == "suggest_sections":
                 _process_suggest_sections(db, item)
-            elif item.task == "flag_substitutions":
-                # not retried post-capture — interactive-only; drop it if it somehow got here
-                remove(db, item)
-                summary["skipped"] += 1
-                continue
             else:
                 _process_extract(db, item)
             summary["succeeded"] += 1

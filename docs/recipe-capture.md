@@ -5,21 +5,22 @@
 **Provider: Google Gemini** (`gemini-2.5-flash` → `gemini-2.5-flash-lite` → `capture_queue`),
 `google-genai` SDK, structured-output mode. See
 [AI Provider Migration (Phase 3.9)](#ai-provider-migration--anthropic-claude--google-gemini-phase-39)
-for the full spec — the provider swap, the Flash→Flash-Lite→queue chain, the "Pending AI
-processing" badge, and the substitution merge. *(Code is on the `anthropic` SDK / Haiku 4.5
-until Phase 3.9 chunk M1.)*
+for the full spec — the provider swap, the Flash→Flash-Lite→queue chain, and the "Pending AI
+processing" badge. *(Code is on the `anthropic` SDK / Haiku 4.5 until Phase 3.9 chunk M1.)*
 
-**Three separate Gemini calls per capture**, not one combined call (Phase 3.9 M2):
+**Two separate Gemini calls per capture**, not one combined call (Phase 3.9 M2; originally
+three — a third call, ingredient substitution flagging, was removed 2026-09-30. Manual
+substitution stays fully in place; only the AI *suggestion* layer was judged to add too
+little value for the call it cost. See [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution)
+and CLAUDE.md > Deferred Decisions):
 1. **Recipe extraction** — ingredients + `cuisine` / `protein` (the JSON below, minus
    `suggested_section`).
-2. **Ingredient substitution flagging** — per recipe, per-ingredient confirm/decline (the
-   merged spec — see the migration section).
-3. **Store section suggestion** — per ingredient (`suggested_section`), moved out of the
+2. **Store section suggestion** — per ingredient (`suggested_section`), moved out of the
    extraction prompt into its own call.
 
 Each call: its own system prompt, its own Gemini `response_schema` (structured-output), its
 own fake-mode fixture, its own place in the Flash→Flash-Lite→queue chain. A failed/queued
-enrichment call (2 or 3) does not block extraction — the recipe is still usable, and
+call 2 does not block extraction — the recipe is still usable, and
 `recipes.ai_tasks_pending` + the badge track what's outstanding.
 
 ### Real capture progress UI (2026-09-23)
@@ -32,10 +33,11 @@ no per-step signal to poll). That's replaced with genuine per-step progress: the
 generates a token and sends it as `progress_token` on `POST /capture/url` / `/capture/photo`;
 `capture_recipe()` writes real `pending`/`active`/`done`/`failed` state to
 `app/services/progress_tracker.py` (a small in-memory dict, this app being uvicorn
-single-process) as it actually moves through `extract` → `sections` → `substitutions`;
-`static/js/capture.js` polls `GET /recipes/capture/progress/{token}` every 600ms and renders a
-real step list instead of the old rotating label. A swallowed enrichment failure (sections or
-substitutions) now shows that specific step as failed, rather than the capture just silently
+single-process) as it actually moves through `extract` → `sections` (a third step,
+`substitutions`, existed here until the AI substitution-flagging call was removed
+2026-09-30); `static/js/capture.js` polls `GET /recipes/capture/progress/{token}` every 600ms
+and renders a real step list instead of the old rotating label. A swallowed enrichment
+failure (sections) now shows that step as failed, rather than the capture just silently
 continuing with no visible sign anything went wrong with that piece. See CLAUDE.md > UI/UX >
 Real progress indicators, and the equivalent design for the AnyList push in
 [Checklist, AnyList Push & Shopping List Layout](./checklist-and-shopping.md#anylist-push-logic).
@@ -144,8 +146,9 @@ Rules:
 > `Capture-Fixes-Staged.md` (title/servings never extracted, "cooking salt" vs "kosher salt"
 > consolidation misses, verbose substitution notes, dropped "to serve" ingredients — issue 3's
 > full fix, a Settings-managed alias table, stays a
-> [Deferred Decision](./deferred-decisions.md#deferred-decisions); the note-length backstop for issue 4 lives in
-> [Ingredient Substitution Flagging](./ingredient-handling.md#ingredient-substitution-flagging--the-merged-spec)).
+> [Deferred Decision](./deferred-decisions.md#deferred-decisions); issue 4's note-length
+> backstop lived in the AI substitution-flagging call, removed 2026-09-30 along with that call
+> — see [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution)).
 > `app/services/ai_extraction.py` is the source of truth for the exact wording in force at any
 > given time — this block is kept in sync opportunistically, not on every prompt tweak.
 
@@ -292,10 +295,12 @@ oldest queued item), not an assumed fixed reset time.
 
 ### Call structure — separate calls per task
 
-Each capture issues **separate Gemini calls**, not one combined call:
+Each capture issues **separate Gemini calls**, not one combined call (originally three —
+ingredient substitution flagging was removed 2026-09-30; manual substitution is unaffected,
+only the AI *suggestion* was removed, see [Ingredient
+Substitution](./ingredient-handling.md#ingredient-substitution)):
 1. **Recipe extraction** — ingredients, steps, metadata (from URL text or photo).
-2. **Ingredient substitution flagging** — per-recipe, confirmation required (see below).
-3. **Store section suggestion** — per ingredient, confirmation required (unchanged in intent
+2. **Store section suggestion** — per ingredient, confirmation required (unchanged in intent
    from the prior addendum; today it rides inside the single extraction call).
 
 Uses more daily quota than a combined call, but keeps each task's prompt, schema and
@@ -329,7 +334,7 @@ schema parity from prior addenda.
 ### Surfacing queued / pending state (both required)
 
 - **Recipe library badge:** "Pending AI processing" until all required AI tasks (extraction,
-  substitution flagging, section suggestion) complete.
+  section suggestion) complete.
 - **Diagnostics panel:** queued items visible in the live log tail / component status view.
 
 ### API key storage

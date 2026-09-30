@@ -13,7 +13,7 @@ class CaptureQueueItem(Base):
     __tablename__ = "capture_queue"
 
     id = Column(Integer, primary_key=True)
-    task = Column(Text, nullable=False)  # extract_url | extract_photo | flag_substitutions | suggest_sections
+    task = Column(Text, nullable=False)  # extract_url | extract_photo | suggest_sections
     payload_json = Column(Text, nullable=False)  # {url|text} or {image_path}; + {recipe_id} for enrichment
     recipe_id = Column(
         Integer, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=True, index=True

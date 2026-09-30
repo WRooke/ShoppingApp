@@ -47,11 +47,17 @@ matching" line no longer holds, superseded above:**
 
 ## Ingredient Substitution
 
-**Status: in scope. Design = the MERGE of the Phase 4 approach and the addendum's
-capture-time flagging, confirmed 2026-09-06. Built in Phase 3.9 chunk M4.** The full,
-authoritative spec is
-[AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec)
-and the merge table just above it. This section is now a summary + the history.
+**Status: in scope, manual only.** Design = the MERGE of the Phase 4 approach and the
+addendum's capture-time flagging, confirmed 2026-09-06, built in Phase 3.9 chunk M4. **The
+AI-flagging half was removed 2026-09-30** — the maintainer judged the Gemini call that
+*suggested* a substitute added too little value for the call it cost ("I know what I'm doing
+when substituting"). Everything else described below — the recipe-level swap, the
+`remembered_substitutions` quick-pick library, the quantity/unit transform, the session-only
+ad-hoc override during planning, and Settings management — is **unaffected and stays fully
+in place**; only the AI *suggestion* layer is gone. The full, authoritative spec is
+[Substitution — the current spec](#substitution--the-current-spec) and the merge table just
+above it (kept as a historical record of the 2026-09-06 merge decision — read its "Who
+proposes a swap" row with the 2026-09-30 removal in mind).
 
 Distinct from [Ingredient Normalisation](#ingredient-normalisation) above: normalisation
 recognises two names as *the same thing* ("green onion" = "spring onion"). Substitution
@@ -74,8 +80,10 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
 
 ### Summary of the merged design
 
-- **Proposed** by a dedicated Gemini call at capture time (per recipe), *and* editable later
-  in the recipe editor, *and* swappable session-only during planning.
+- **Entered manually** — at capture-review time (per recipe), *and* editable later in the
+  recipe editor, *and* swappable session-only during planning. No AI proposes a candidate any
+  more (removed 2026-09-30); the entry field and quick-picks are always there, just never
+  pre-suggested.
 - **Stored** on the ingredient record: `recipe_ingredients.resolved_ingredient` (nullable —
   the swap this recipe uses) + `substitution_note`, and (Phase 3.9 M8) optional
   `resolved_quantity` / `resolved_unit` when the swap also changes the amount/unit ("2 corn
@@ -83,9 +91,8 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
   it and reverts.
 - **Confirmed per recipe, always.** No silent auto-apply, no `is_default`.
 - **Remembered** in [`remembered_substitutions`](./data-model.md#remembered_substitutions) *only* as a
-  quick-pick accelerator — it pre-fills / top-ranks the suggestion in the per-recipe confirm
-  UI under a "from your saved swaps" label; the user still confirms. The AI flagging call is
-  never told about past choices.
+  quick-pick accelerator — it pre-fills / top-ranks the suggestion in the per-recipe entry
+  field under a "from your saved swaps" label; the user still confirms.
 - **Consolidation** reads `resolved_ingredient` (fallback `name`) as plain data — no
   substitution logic in the pure `consolidate()`. A session-only planning swap resolves in
   the `consolidate_session()` orchestrator.
@@ -186,7 +193,7 @@ and the addendum's capture-time flagging idea are **merged** (decisions confirme
 
 | Axis | Merged behaviour |
 |---|---|
-| **Who proposes a swap** | Both: a dedicated Gemini call flags candidates per recipe at capture; the user can also swap later in the recipe editor, or session-only during planning. |
+| **Who proposes a swap** | ~~Both: a dedicated Gemini call flags candidates per recipe at capture~~ — **the AI half was removed 2026-09-30**; the user swaps manually at capture-review time, in the recipe editor, or session-only during planning. |
 | **Source of truth** | The **ingredient record**. `recipe_ingredients` gains `resolved_ingredient` (nullable — the swap this recipe actually uses) and `substitution_note` (freetext why). `name` stays the *original* (merge decision #2 — reuse `name`, no separate `original_ingredient` column). **M8:** also `resolved_quantity` / `resolved_unit` — the swap's *absolute* amount when it differs ("2 cob" → "2 can"). Only meaningful with `resolved_ingredient` set; both NULL = name-only. |
 | **Quantity/unit transform (M8)** | A swap can change the amount and unit, not just the name. Recipe-level: absolute `resolved_quantity`/`resolved_unit`, scaled by servings at consolidation. Library-level: an equivalence pair (`original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`) the quick-pick uses to pre-fill the recipe-level absolute — user still confirms. Session override: the same pair, applied to the scaled quantity. Resolved in `consolidate_session()` / `_scaled_lines()`, never in pure `consolidate()`. No cross-unit conversion table — the entered number is the equivalence. See [Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
 | **Auto-apply** | **Never silent.** `is_default` and `get_default_substitution_map()` are removed. Every swap is confirmed per recipe. |
@@ -200,33 +207,33 @@ substitutes per ingredient, Settings management (reframed as a quick-pick librar
 the planning-time ad-hoc swap + `ConsolidateRequest.overrides` plumbing, `substitution_note`.
 **Removed:** `is_default` + its reassign/enforce logic, silent auto-apply,
 `get_default_substitution_map()`, substitution resolution inside `consolidate()`.
-**Added:** the capture-time AI flagging call, per-ingredient confirm/decline,
-`recipe_ingredients.resolved_ingredient` / `substitution_note`, the "Pending AI processing"
-badge.
+**Added, then removed again:** the capture-time AI flagging call and its "Pending AI
+processing" badge contribution were added in Phase 3.9 M4, then removed 2026-09-30 (manual
+value judged not worth the AI call). **Still in place:** per-ingredient confirm/decline (now
+always a manual pick, never AI-prefilled), `recipe_ingredients.resolved_ingredient` /
+`substitution_note`.
 
-### Ingredient Substitution Flagging — the merged spec
+### Substitution — the current spec
 
-Supersedes both the addendum's stricter "no memory at all" wording and the Phase 4
+Supersedes the addendum's stricter "no memory at all" wording and the Phase 4
 "global auto-applying rules" design — see the merge table above. **If existing code
-disagrees with the rules below, the code is wrong** (this feature has drifted before).
+disagrees with the rules below, the code is wrong** (this feature has drifted before). This
+section used to be titled "Ingredient Substitution Flagging" and centred on the AI call that
+proposed a candidate; that call was removed 2026-09-30 (renamed from
+`#ingredient-substitution-flagging--the-merged-spec` — old links to that anchor should be
+updated). Everything below describes the manual-only mechanism that remains.
 
 **What it IS:**
-- At capture time, a dedicated Gemini call flags ingredients *in this specific recipe* that
-  could be substituted, each with a suggested substitute + an optional short note (e.g.
-  `buttermilk` → `"milk + lemon juice"`, note "acidulate the milk and rest 10 min").
-  **Tightened 2026-09-07** (Capture-Fixes-Staged.md issue 4 — hand-testing found the model
-  volunteering "why this works" rationale the maintainer didn't want, e.g. *"Regular butter
-  contains milk solids that brown and burn faster than ghee, so watch the heat"*): the note
-  is null on a straight 1:1 swap and, when present, is capped at ~10 words / a real
-  method-or-quantity change only — never an explanation of why the two items are similar.
-  `SUBSTITUTIONS_SYSTEM_PROMPT` carries the exact wording; `flag_substitutions()` also drops
-  (not truncates) any note over 120 chars server-side as a backstop against the model
-  ignoring the prompt.
-- Each flag is surfaced for **per-recipe, per-ingredient confirm/decline** before anything is
-  stored. Confirm → `recipe_ingredients.resolved_ingredient` + `substitution_note` set on
-  *that* recipe. Decline → `resolved_ingredient` left NULL (falls back to `name`); the flag
-  is dismissed, not hidden from history.
-- On confirm, an optional **"save this swap"** tick writes/updates a
+- A manual swap, entered per recipe via the swap control (`ingredient-swap.js`) on the
+  capture-review screen or the recipe editor — a free-text "use instead" field, an optional
+  short note, and quick-pick buttons for any saved swaps. Nothing suggests a candidate; the
+  user always types or picks one.
+- The entered swap is **per-recipe, per-ingredient, confirmed by construction** — there's no
+  separate confirm/decline step because nothing is pre-filled to accept or reject. Filling
+  the field and saving the recipe → `recipe_ingredients.resolved_ingredient` +
+  `substitution_note` set on *that* recipe. Leaving it blank → `resolved_ingredient` stays
+  NULL (falls back to `name`).
+- On save, an optional **"save this swap"** tick writes/updates a
   [`remembered_substitutions`](./data-model.md#remembered_substitutions) row (name → name + note). Unticked
   = one-off, this recipe only.
 
@@ -240,11 +247,9 @@ disagrees with the rules below, the code is wrong** (this feature has drifted be
 - **Only valid alongside a name change.** "Buy this in a different unit without changing the
   item" is a [`product_units`](./data-model.md#product_units) concern, not a substitution. Both fields are
   cleared whenever `resolved_ingredient` is cleared. Schema enforces both-or-neither.
-- **The AI does not suggest the numbers** (decided M8) — `flag_substitutions` stays
-  name + note only; extending its structured output would be fresh
-  [§0a](./security.md#0a-prompt-injection-hardening-highest-priority) number/unit-validation surface for
-  values the user has to sanity-check anyway. Revisit if hand-entry proves tedious —
-  [Deferred Decisions](./deferred-decisions.md#deferred-decisions).
+- **Entirely manual, always was for the numbers** (decided M8, before the AI half even
+  existed) — nothing has ever suggested the amount/unit; the user always types it. Revisit
+  only if hand-entry proves tedious — [Deferred Decisions](./deferred-decisions.md#deferred-decisions).
 - **Library rows** ([`remembered_substitutions`](./data-model.md#remembered_substitutions)) store it as an
   *equivalence pair* (`original_qty original_unit ≈ substitute_qty substitute_unit`), not an
   absolute — an absolute makes no sense across recipes. On quick-pick, the UI multiplies by
@@ -256,11 +261,10 @@ disagrees with the rules below, the code is wrong** (this feature has drifted be
   [Scaling Logic > Consolidation across recipes](./scaling-and-consolidation.md#consolidation-across-recipes).
 
 **Memory — accelerator, never an action:**
-- If `remembered_substitutions` has entries for a flagged ingredient's `name`, they are
-  **pre-selected / top-ranked** in the confirm UI beneath a visible "from your saved swaps"
-  label. The user still clicks confirm — nothing is applied without that per-recipe action.
-- The Gemini flagging call is **never** given past choices — every recipe's AI flags are
-  independent. Only the UI pre-fill consults memory.
+- If `remembered_substitutions` has entries for an ingredient's `name`, they're offered as
+  **quick-pick buttons** beneath the swap field, under a visible "saved" label — a single
+  saved swap also pre-fills the field, so the common case ("I always sub this one thing") is
+  one tap, not retyping. The user still has to save the recipe for it to take effect.
 
 **What it is NOT:**
 - ❌ No silent auto-apply anywhere. No `is_default`.
@@ -274,15 +278,15 @@ disagrees with the rules below, the code is wrong** (this feature has drifted be
   a line resolved to "6 can" with a `product_units` row seeded in grams gets no pack
   breakdown (shows "6 can"). Known limitation — seed a `can`-unit `product_units` row if
   pack resolution is wanted there.
-
-**Call behaviour:** its own Gemini call; same Flash → Flash-Lite → queue chain; if it
-fails/queues, extraction still completes and the recipe is usable — flags are enrichment,
-not a blocker. The "Pending AI processing" badge names *which* sub-task (extraction /
-substitution / section) is still outstanding.
+- ❌ **No AI involvement at all, as of 2026-09-30.** No Gemini call, no candidate suggestion,
+  nothing to fail/queue/retry for this feature — it's ordinary form data now, same trust
+  level as any other manually-typed field. (Historical note, no longer true: this section used
+  to describe a dedicated Gemini call here, its own place in the Flash → Flash-Lite → queue
+  chain, and a "substitution" step in the "Pending AI processing" badge — all removed.)
 
 **Where it lives in the app:**
-- **Capture review screen** (`capture-review.js`) — the per-ingredient confirm/decline +
-  quick-picks + "save this swap" tick, after extraction, before the recipe is saved.
+- **Capture review screen** (`capture-review.js`) — the manual swap field + quick-picks +
+  "save this swap" tick, after extraction, before the recipe is saved.
 - **Recipe editor** (`recipe-edit.js`) — the same per-ingredient controls, so a swap can be
   added / changed / cleared later. Clearing `resolved_ingredient` reverts to `name`.
 - **Planning session review** (`session-review.js`) — the existing ad-hoc swap, now a

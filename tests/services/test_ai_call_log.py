@@ -41,8 +41,15 @@ def db():
 def test_task_for_maps_call_types():
     assert ai_call_log.task_for("recipe_url") == "extract"
     assert ai_call_log.task_for("recipe_photo") == "extract"
-    assert ai_call_log.task_for("flag_substitutions") == "flag_substitutions"
     assert ai_call_log.task_for("suggest_sections") == "suggest_sections"
+
+
+def test_task_for_falls_back_to_call_type_unchanged():
+    # "flag_substitutions" is deliberately not in _TASK any more (the AI substitution-flagging
+    # call was removed 2026-09-30) — this exercises the same fallback path any unmapped
+    # call_type takes, not a real mapping for it.
+    assert ai_call_log.task_for("flag_substitutions") == "flag_substitutions"
+    assert ai_call_log.task_for("something_unmapped") == "something_unmapped"
 
 
 def test_log_ai_call_success(db):

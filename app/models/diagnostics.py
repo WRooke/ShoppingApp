@@ -16,7 +16,11 @@ class AiCallLog(Base):
 
     id = Column(Integer, primary_key=True)
     timestamp = Column(UTCDateTime(), nullable=False, default=utcnow)
-    task = Column(Text, nullable=False)  # 'extract' | 'flag_substitutions' | 'suggest_sections'
+    # 'extract' | 'suggest_sections' | 'classify_units' | 'suggest_ingredient_groupings'.
+    # 'flag_substitutions' also appears on historical rows logged before 2026-09-30, when the
+    # AI substitution-flagging call was removed (manual substitution stays — see
+    # app/services/ai_extraction/calls.py) — no longer written by anything, never rewritten.
+    task = Column(Text, nullable=False)
     model = Column(Text, nullable=False)  # e.g. 'gemini-flash-latest' | 'gemini-flash-lite-latest'
     outcome = Column(Text, nullable=False)  # 'success' | 'quota' | 'error'
     input_tokens = Column(Integer, nullable=True)  # unknown on a pre-response failure

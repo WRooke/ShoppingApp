@@ -38,16 +38,6 @@ class _GSections(BaseModel):
     sections: list[_GSectionEntry]
 
 
-class _GFlag(BaseModel):
-    original: str
-    suggested_substitute: str
-    note: str | None = None
-
-
-class _GFlags(BaseModel):
-    flags: list[_GFlag]
-
-
 class _GUnitEntry(BaseModel):
     unit: str
     canonical: str | None = None

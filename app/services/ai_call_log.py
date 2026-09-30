@@ -19,12 +19,16 @@ from app.models.diagnostics import AiCallLog
 
 logger = logging.getLogger(__name__)
 
-# Map the AI-call `call_type` (recipe_url / recipe_photo / flag_substitutions /
-# suggest_sections / classify_units) to the ai_call_log.task vocabulary.
+# Map the AI-call `call_type` (recipe_url / recipe_photo / suggest_sections / classify_units)
+# to the ai_call_log.task vocabulary.
 _TASK = {
     "recipe_url": "extract",
     "recipe_photo": "extract",
-    "flag_substitutions": "flag_substitutions",
+    # "flag_substitutions" removed 2026-09-30 along with the AI substitution-flagging call
+    # itself — kept out of this map deliberately, but NOT removed from historical
+    # ai_call_log/capture_queue rows (rule 3: no destructive change to existing data). Old
+    # rows with task="flag_substitutions" stay exactly as logged; task_for() below only
+    # affects new calls, and nothing calls it with this call_type any more.
     "suggest_sections": "suggest_sections",
     "classify_units": "classify_units",  # admin reduction (2026-09-12), unrelated to capture
 }

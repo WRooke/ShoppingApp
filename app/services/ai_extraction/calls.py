@@ -1,28 +1,29 @@
-"""The four Gemini task calls, plus the capture_recipe() orchestrator that runs the first
-three of them for a single recipe capture.
+"""The Gemini task calls, plus the capture_recipe() orchestrator that runs the first two of
+them for a single recipe capture.
 
 Part of the ``ai_extraction`` package (split from the former single-file module at the
 Phase 5 review, 2026-09-12 — see CLAUDE.md > Deferred Decisions). This is the module the
 rest of the app actually calls into — ``__init__.py`` re-exports every name here unchanged,
 so nothing outside this package needed to change for the split.
 
-**Three separate Gemini calls per capture** (M2), each with its own system prompt,
-``response_schema`` and fake fixture:
+**Two separate Gemini calls per capture** (M2; originally three — the AI substitution-flagging
+call was removed 2026-09-30, see CLAUDE.md > Deferred Decisions and
+docs/ingredient-handling.md's Substitution section: manual substitution stays, only the
+AI *suggestion* layer was judged to add too little value for the call it cost), each with its
+own system prompt, ``response_schema`` and fake fixture:
   1. ``extract_recipe()``      — ingredients + cuisine/protein (NO section suggestion)
-  2. ``flag_substitutions()``  — per-recipe substitution candidates (enrichment; M4 wires
-                                 the confirm/decline UI)
-  3. ``suggest_sections()``    — per-ingredient store section (allow-list validated)
-``capture_recipe()`` runs all three and merges the result. Calls 2 and 3 are enrichment —
-if they fail the recipe is still usable (M3 turns a quota failure into a queued retry).
+  2. ``suggest_sections()``    — per-ingredient store section (allow-list validated)
+``capture_recipe()`` runs both and merges the result. Call 2 is enrichment — if it fails the
+recipe is still usable (M3 turns a quota failure into a queued retry).
 
-A fourth call, unrelated to capture, lives here too for the same "one small stable
+A further call, unrelated to capture, lives here too for the same "one small stable
 interface" reason (CLAUDE.md > Ingredient Unit Handling > Admin reduction, 2026-09-12):
-  4. ``classify_units()``      — is a never-before-seen unit spelling a same-magnitude
+  3. ``classify_units()``      — is a never-before-seen unit spelling a same-magnitude
                                  variant of a standard unit (g/kg/ml/l/tsp/tbsp/cup)?
                                  Called from ``services/unit_synonyms.py > learn_new_units()``
                                  after an ingredient save, not from ``capture_recipe()``. Its
                                  input is the household's own typed data, not scraped/
-                                 photographed content, so — uniquely among the four — it does
+                                 photographed content, so — uniquely among these — it does
                                  NOT wrap its input in the §0a untrusted-content delimiter;
                                  the output is still allow-list validated regardless.
 """
@@ -50,13 +51,11 @@ from .client import (
 from .fixtures import (
     _FAKE_INGREDIENT_GROUPINGS,
     _FAKE_SECTION_MAP,
-    _FAKE_SUBSTITUTION_FLAGS,
     _FAKE_UNIT_CLASSIFICATIONS,
     _pick_fake_fixture,
 )
 from .prompts import (
     _MAX_GROUPING_REASON_CHARS,
-    _MAX_SUBSTITUTION_NOTE_CHARS,
     _STANDARD_UNITS,
     EXTRACTION_SYSTEM_PROMPT,
     INGREDIENT_GROUPING_SYSTEM_PROMPT,
@@ -64,18 +63,16 @@ from .prompts import (
     MAX_INPUT_TEXT_CHARS,
     MAX_USER_HINT_CHARS,
     SECTIONS_SYSTEM_PROMPT,
-    SUBSTITUTIONS_SYSTEM_PROMPT,
     UNIT_CLASSIFICATION_SYSTEM_PROMPT,
     format_hint_sections,
     _wrap_untrusted,
 )
-from .schemas import _GExtraction, _GFlags, _GGroupings, _GSections, _GUnitClassifications
+from .schemas import _GExtraction, _GGroupings, _GSections, _GUnitClassifications
 from .types import (
     AiExtractionError,
     ExtractedIngredient,
     ExtractionResult,
     GroupingSuggestion,
-    SubstitutionFlag,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,73 +200,7 @@ def extract_recipe(
     )
 
 
-# --- call 2: substitution flagging ----------------------------------------------
-
-
-def flag_substitutions(
-    db: Session, *, context_id: str | None, ingredient_names: list[str]
-) -> list[SubstitutionFlag]:
-    """Per-recipe substitution candidates for the given ingredient names. Enrichment — the
-    caller treats failure as "no flags". Fake mode returns canned flags for known names."""
-    names = [n for n in ingredient_names if n]
-    if not names:
-        return []
-
-    if settings.ai_extraction_fake_mode:
-        out = []
-        for n in names:
-            if n in _FAKE_SUBSTITUTION_FLAGS:
-                sub, note = _FAKE_SUBSTITUTION_FLAGS[n]
-                out.append(SubstitutionFlag(original=n, suggested_substitute=sub, note=note))
-        logger.info("AI flag_substitutions: FAKE MODE — %d flag(s)", len(out))
-        return out
-
-    _require_enabled("flag_substitutions")
-    parts = [genai_types.Part.from_text(text=_wrap_untrusted(json.dumps(names)))]
-    raw = _call_gemini(
-        db,
-        call_type="flag_substitutions",
-        context_id=context_id,
-        system_prompt=SUBSTITUTIONS_SYSTEM_PROMPT,
-        response_schema=_GFlags,
-        parts=parts,
-    )
-    try:
-        data = json.loads(_strip_code_fence(raw))
-        name_set = set(names)
-        flags = []
-        for f in data.get("flags", []):
-            if f.get("original") not in name_set or not f.get("suggested_substitute"):
-                continue
-            note = f.get("note")
-            # Capture-Fixes-Staged.md issue 4 (2026-09-07) — the prompt above asks for a
-            # ~10-word note, but nothing stops the model ignoring that. Cheap defensive
-            # backstop rather than trusting the wording alone: an overlong note (the kind of
-            # "why this works" rationale the maintainer doesn't want, e.g. "Regular butter
-            # contains milk solids that brown and burn faster than ghee...") is dropped, not
-            # truncated mid-sentence.
-            if isinstance(note, str) and len(note) > _MAX_SUBSTITUTION_NOTE_CHARS:
-                logger.info(
-                    "AI flag_substitutions: dropped an overlong note (%d chars) for %r",
-                    len(note), f.get("original"),
-                )
-                note = None
-            flags.append(
-                SubstitutionFlag(
-                    original=f["original"],
-                    suggested_substitute=f["suggested_substitute"],
-                    note=note,
-                )
-            )
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("AI flag_substitutions: bad response %r", raw, exc_info=True)
-        raise AiExtractionError("Gemini's substitution response could not be parsed.") from exc
-
-    logger.info("AI flag_substitutions: %d flag(s)", len(flags))
-    return flags
-
-
-# --- call 3: section suggestion -------------------------------------------------
+# --- call 2: section suggestion -------------------------------------------------
 
 
 def suggest_sections(
@@ -313,7 +244,7 @@ def suggest_sections(
     return out
 
 
-# --- call 4: unit-spelling classification (admin reduction, unrelated to capture) -------
+# --- call 3: unit-spelling classification (admin reduction, unrelated to capture) -------
 
 
 def classify_units(
@@ -364,7 +295,7 @@ def classify_units(
     return out
 
 
-# --- call 5: ingredient-grouping discovery (Fix 5, unrelated to capture) ---------------
+# --- call 4: ingredient-grouping discovery (Fix 5, unrelated to capture) ---------------
 
 
 def suggest_ingredient_groupings(
@@ -445,8 +376,10 @@ def suggest_ingredient_groupings(
 
 # Real, backend-driven step names for the capture progress UI (CLAUDE.md > UI/UX > Real
 # progress indicators) — polled via GET /api/v1/recipes/capture/progress/{token}, see
-# app/services/progress_tracker.py. Order matches the actual call sequence below.
-PROGRESS_STEPS = ["extract", "sections", "substitutions"]
+# app/services/progress_tracker.py. Order matches the actual call sequence below. Was
+# ["extract", "sections", "substitutions"] until the AI substitution-flagging call was
+# removed 2026-09-30 (manual substitution stays — see the module docstring).
+PROGRESS_STEPS = ["extract", "sections"]
 
 
 def capture_recipe(
@@ -459,10 +392,9 @@ def capture_recipe(
     image_media_type: str | None = None,
     progress_token: str | None = None,
 ) -> ExtractionResult:
-    """Run all three calls and merge. Call 1 (extraction) is required — its failure
-    propagates. Calls 2 and 3 are enrichment: an AiExtractionError from either is logged and
-    swallowed (the recipe is still usable). M3 turns a swallowed *quota* failure into a
-    queued retry instead.
+    """Run both calls and merge. Call 1 (extraction) is required — its failure propagates.
+    Call 2 is enrichment: an AiExtractionError from it is logged and swallowed (the recipe is
+    still usable). M3 turns a swallowed *quota* failure into a queued retry instead.
 
     `progress_token`, when given, drives `app.services.progress_tracker` — one real step per
     Gemini call, reported active/done/failed as each one actually happens (2026-09-23,
@@ -510,17 +442,5 @@ def capture_recipe(
         logger.warning("capture_recipe: section suggestion failed — will retry via the queue", exc_info=True)
         result.pending_tasks.append("suggest_sections")
         progress_tracker.step_failed(progress_token, "sections", str(exc))
-
-    progress_tracker.step_active(progress_token, "substitutions")
-    try:
-        result.substitution_flags = _pkg.flag_substitutions(
-            db, context_id=context_id, ingredient_names=names
-        )
-        progress_tracker.step_done(progress_token, "substitutions")
-    except AiExtractionError as exc:
-        # Not retried post-capture — it's only useful in the interactive review. No flags
-        # simply means the user swaps manually later if they want.
-        logger.warning("capture_recipe: substitution flagging failed — continuing without", exc_info=True)
-        progress_tracker.step_failed(progress_token, "substitutions", str(exc))
 
     return result

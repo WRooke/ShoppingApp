@@ -1,11 +1,12 @@
 /* Recipe capture — review + confirm screen. Takes capture.js's CaptureResult
-   (title/servings/cuisine/protein/ingredients + per-ingredient suggested_section + recipe-level
-   substitution_flags) and renders one fully editable form. Each ingredient row carries a
-   per-ingredient swap control (ingredient-swap.js): the AI's flagged substitution and any
-   saved swaps are offered, the user confirms per ingredient, and on confirm the chosen
-   resolved_ingredient / substitution_note go in the payload (a "save this swap" tick also
-   POSTs a remembered_substitutions row). See CLAUDE.md > AI Provider Migration >
-   Ingredient Substitution Flagging. */
+   (title/servings/cuisine/protein/ingredients + per-ingredient suggested_section) and renders
+   one fully editable form. Each ingredient row carries a per-ingredient swap control
+   (ingredient-swap.js): any saved swaps (quick-picks) are offered, the user confirms per
+   ingredient, and on confirm the chosen resolved_ingredient / substitution_note go in the
+   payload (a "save this swap" tick also POSTs a remembered_substitutions row). No AI
+   suggestion feeds this any more — the AI substitution-flagging call was removed 2026-09-30
+   (manual substitution stays; see CLAUDE.md > Deferred Decisions and
+   docs/ingredient-handling.md). */
 
 (function (global) {
   "use strict";
@@ -184,12 +185,6 @@
 
     var rows = []; // { nameInput, qtyInput, unitInput, prepInput, sectionSelect, swap, rowEl }
 
-    // Index the AI's per-recipe substitution flags by the ingredient name they apply to.
-    var flagsByName = {};
-    (captureResult.substitution_flags || []).forEach(function (f) {
-      flagsByName[(f.original || "").toLowerCase()] = f;
-    });
-
     // Fetch the section vocabulary + saved swaps once, then build the ingredient rows.
     Promise.all([
       api.settings.sectionVocabulary(),
@@ -234,7 +229,6 @@
 
           var removeBtn = el("button", "btn-sm", "Remove");
           var swap = global.IngredientSwap.create(
-            flagsByName[lname] || null,
             picksByName[lname] || [],
             ing.quantity != null ? ing.quantity : null,
             ing.unit || null

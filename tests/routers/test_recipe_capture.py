@@ -175,7 +175,9 @@ def test_capture_progress_reflects_a_real_capture(client):
     assert progress_resp.status_code == 200
     body = progress_resp.json()
     assert body["ok"] is True
-    assert [s["status"] for s in body["data"]["steps"]] == ["done", "done", "done"]
+    # 2 steps as of 2026-09-30 (was 3 — "substitutions" removed with the AI
+    # substitution-flagging call; manual substitution stays, see CLAUDE.md > Deferred Decisions).
+    assert [s["status"] for s in body["data"]["steps"]] == ["done", "done"]
 
 
 def test_capture_progress_unknown_token_returns_structured_404(client):

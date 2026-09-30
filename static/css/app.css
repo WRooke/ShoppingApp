@@ -206,8 +206,9 @@
 .ingredient-edit-wrap { border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px; }
 .ing-swap { margin: 2px 0 4px; font-size: 0.9rem; }
 /* .ing-swap-body removed Chunk 6.2 — the swap panel now uses .swap-panel (components.css) */
+/* .ing-swap-flag (the AI-suggested hint) removed 2026-09-30 with the AI substitution-flagging
+   call itself — manual substitution stays, just without an AI hint to style. */
 .ing-swap-picks { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px; }
-.ing-swap-flag { font-size: 0.85rem; margin-top: 2px; }
 .ing-swap-remember { font-size: 0.85rem; }
 .link-btn { min-height: 0; padding: 2px 6px; font-size: 0.85rem; }
 /* recipe detail: "using X instead" line */

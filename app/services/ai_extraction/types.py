@@ -39,13 +39,6 @@ class ExtractedIngredient:
 
 
 @dataclass(frozen=True)
-class SubstitutionFlag:
-    original: str
-    suggested_substitute: str
-    note: str | None = None
-
-
-@dataclass(frozen=True)
 class GroupingSuggestion:
     """One AI-suggested "these names are the same shopping item" group (Fix 5, F5.1 — see
     CLAUDE.md > Deferred Decisions > AI-assisted ingredient-grouping discovery). ``names`` is
@@ -79,11 +72,9 @@ class ExtractionResult:
     # Recipe Capture > After extraction).
     title: str | None = None
     servings: int | None = None
-    substitution_flags: list[SubstitutionFlag] = field(default_factory=list)
     # Enrichment sub-tasks that failed/queued during capture_recipe() and are still owed to
-    # the recipe (Phase 3.9 M6). Currently only "suggest_sections" is ever retried; a failed
-    # "flag_substitutions" is not (it's only useful in the interactive review). The save path
-    # writes this to recipes.ai_tasks_pending and enqueues the retry.
+    # the recipe (Phase 3.9 M6). Currently only "suggest_sections" is ever retried. The save
+    # path writes this to recipes.ai_tasks_pending and enqueues the retry.
     pending_tasks: list[str] = field(default_factory=list)
     model: str = MODEL_ID
 

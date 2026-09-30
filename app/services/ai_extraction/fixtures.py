@@ -59,13 +59,6 @@ _FAKE_FIXTURES: list[dict] = [
     },
 ]
 
-# Canned substitution flags for fake mode — keyed by ingredient name (see flag_substitutions).
-_FAKE_SUBSTITUTION_FLAGS: dict[str, tuple[str, str | None]] = {
-    "parmesan": ("pecorino", "a similar hard grating cheese"),
-    "tortillas": ("flatbread or roti", "close enough for wraps"),
-    "capsicum": ("bell pepper", "same thing, different name"),
-}
-
 _FAKE_SECTION_MAP: dict[str, str] = {
     ing["name"]: ing["suggested_section"]
     for fx in _FAKE_FIXTURES
