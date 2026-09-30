@@ -227,10 +227,11 @@ See [docs/ingredient-handling.md](./docs/ingredient-handling.md).
 ## Checklist, AnyList Push & Shopping List Layout
 
 The checklist screen's load/tap-cycle logic (including "the usuals" — recurring non-recipe
-household items on their own cadence), the push-to-AnyList algorithm (batched update,
-re-fetch-and-diff confirmation, `shopping_history` logging), and the store-specific
-walking-order rendering design (multi-store, AI-suggested sections, store layout kept
-independent of AnyList itself).
+household items on their own cadence), the per-row ingredient panel (pack size / substitute /
+alias / coarse item / merge, each "this list only" or "Always", replacing the standalone
+Review step — chunk 7.5), the push-to-AnyList algorithm (batched update, re-fetch-and-diff
+confirmation, `shopping_history` logging), and the store-specific walking-order rendering
+design (multi-store, AI-suggested sections, store layout kept independent of AnyList itself).
 
 See [docs/checklist-and-shopping.md](./docs/checklist-and-shopping.md).
 

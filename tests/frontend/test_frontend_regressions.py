@@ -416,12 +416,13 @@ def test_have_need_toggle_reaches_any_target_state_in_one_tap(browser, api, serv
     assert not browser.console_errors(), browser.console_errors()
 
 
-def test_inline_pack_size_entry_resolves_this_session_and_preserves_other_items(browser, api, server_url):
-    """2026-09-24 — inline "+ Add pack size" entry (checklist.js > packSizeForm()). An
-    ingredient with no seeded product_units row shows the affordance; saving a pack size
-    writes to the real product_units table and triggers a re-consolidate so the pack breakdown
-    appears THIS session (not just next time) — while an unrelated item's already-made "need
-    it" choice survives that re-consolidate untouched (the "merge, not rebuild" guarantee)."""
+def test_pack_size_chip_resolves_this_session_and_preserves_other_items(browser, api, server_url):
+    """2026-09-24, reworked 2026-09-30 (chunk 7.5) — the standalone "+ Add pack size" link is
+    gone; pack size is now the ingredient panel's Pack size chip (checklist-panel.js).
+    Defaults to "this list only" (session_ingredient_merges, not the real product_units table)
+    — still resolves the pack breakdown THIS session, while an unrelated item's already-made
+    "need it" choice survives the resulting re-consolidate untouched (the "merge, not rebuild"
+    guarantee)."""
     # Normalised immediately — see the have/need toggle test above for why.
     no_pack_item = normalise_ingredient_name(f"cdp-nopack-{uuid.uuid4().hex[:8]}")
     other_item = normalise_ingredient_name(f"cdp-other-{uuid.uuid4().hex[:8]}")
@@ -450,18 +451,32 @@ def test_inline_pack_size_entry_resolves_this_session_and_preserves_other_items(
     browser.navigate(f"{server_url}/#/checklist/{session['id']}")
     _wait_for_value_match_text(browser, ".name", no_pack_item)
 
-    result = browser.eval(
+    # Tap the row's name to expand it (recipe breakdown + the ingredient panel).
+    expand_result = browser.eval(
         "(function(name){"
         "var rows=Array.from(document.querySelectorAll('.checklist-row'));"
         "var row=rows.find(function(r){var n=r.querySelector('.name'); return n && n.textContent.indexOf(name)===0;});"
         "if(!row) return 'ROW_NOT_FOUND';"
-        "var btn=row.querySelector('.btn-link');"
-        "if(!btn) return 'ADD_PACK_BUTTON_NOT_FOUND';"
-        "btn.click();"
+        "row.querySelector('.name').click();"
         "return 'OK';"
         f"}})({json.dumps(no_pack_item)})"
     )
-    assert result == "OK", result
+    assert expand_result == "OK", expand_result
+    browser.wait_for(".edit-ingredient-toggle")
+
+    # Reveal the select-exclusive chip row, then tap Pack size.
+    browser.eval("document.querySelector('.edit-ingredient-toggle').click()")
+    browser.wait_for(".edit-chip-row")
+    pack_chip_result = browser.eval(
+        "(function(){"
+        "var btns=Array.from(document.querySelectorAll('.edit-chip-row .link-btn'));"
+        "var btn=btns.find(function(b){return b.textContent==='Pack size';});"
+        "if(!btn) return 'PACK_CHIP_NOT_FOUND';"
+        "btn.click();"
+        "return 'OK';"
+        "})()"
+    )
+    assert pack_chip_result == "OK", pack_chip_result
     browser.wait_for(".pack-size-form")
 
     fill_result = browser.eval(
@@ -471,7 +486,10 @@ def test_inline_pack_size_entry_resolves_this_session_and_preserves_other_items(
         "inputs[0].value='700g jar'; inputs[0].dispatchEvent(new Event('input',{bubbles:true}));"
         "inputs[1].value='700'; inputs[1].dispatchEvent(new Event('input',{bubbles:true}));"
         "inputs[2].value='g'; inputs[2].dispatchEvent(new Event('input',{bubbles:true}));"
-        "var saveBtn=Array.from(form.querySelectorAll('button')).find(function(b){return b.textContent==='Save';});"
+        # Scoped to .persist-actions -- the chip's own toggle buttons (This list only /
+        # Always) are also <button> elements sharing the form, just not this one.
+        "var saveBtn=Array.from(form.querySelectorAll('.persist-actions button')).find(function(b){return b.textContent==='Save';});"
+        "if(!saveBtn) return 'SAVE_BUTTON_NOT_FOUND';"
         "saveBtn.click();"
         "return 'OK';"
         "})()"
@@ -646,4 +664,161 @@ def test_plan_goes_straight_to_checklist_no_review_step(browser, api, server_url
     assert browser.text(".step-list").replace(" ", "") == "Plan→Checklist→Push"
     assert not browser.console_errors(), browser.console_errors()
     assert browser.eval("!document.querySelector('.ingredient-edit-row')")
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def _expand_and_open_edit(browser, item_name):
+    """Shared driver for the ingredient panel (chunk 7.5): tap a row's name to expand it, then
+    tap "Edit ingredient" to reveal the select-exclusive chip row. Returns nothing; raises via
+    assert if either step's target element never appears."""
+    expand_result = browser.eval(
+        "(function(name){"
+        "var rows=Array.from(document.querySelectorAll('.checklist-row'));"
+        "var row=rows.find(function(r){var n=r.querySelector('.name'); return n && n.textContent.indexOf(name)===0;});"
+        "if(!row) return 'ROW_NOT_FOUND';"
+        "row.querySelector('.name').click();"
+        "return 'OK';"
+        f"}})({json.dumps(item_name)})"
+    )
+    assert expand_result == "OK", expand_result
+    browser.wait_for(".edit-ingredient-toggle")
+    browser.eval("document.querySelector('.edit-ingredient-toggle').click()")
+    browser.wait_for(".edit-chip-row")
+
+
+def _click_chip(browser, label):
+    result = browser.eval(
+        "(function(label){"
+        "var btns=Array.from(document.querySelectorAll('.edit-chip-row .link-btn'));"
+        "var btn=btns.find(function(b){return b.textContent===label;});"
+        "if(!btn) return 'CHIP_NOT_FOUND:' + label;"
+        "btn.click();"
+        "return 'OK';"
+        f"}})({json.dumps(label)})"
+    )
+    assert result == "OK", result
+
+
+def test_edit_ingredient_chips_are_select_exclusive(browser, api, server_url):
+    """2026-09-30, chunk 7.5 — picking a chip closes whichever one was already open for that
+    row, so at most one sub-panel shows at a time (the mockup's approved design, settled after
+    the maintainer's own feedback round on chunk 7.1)."""
+    item_name = normalise_ingredient_name(f"cdp-chip-exclusive-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP chip exclusive test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 1, "unit": None}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    _wait_for_value_match_text(browser, ".name", item_name)
+    _expand_and_open_edit(browser, item_name)
+
+    _click_chip(browser, "Alias")
+    browser.wait_for(".swap-panel")
+    assert browser.eval("document.querySelectorAll('.swap-panel, .pack-size-form').length") == 1
+
+    _click_chip(browser, "Coarse item")
+    # Alias's sub-panel is replaced, not stacked alongside Coarse item's.
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline:
+        panels = browser.eval("document.querySelectorAll('.swap-panel, .pack-size-form').length")
+        if panels == 1:
+            break
+        time.sleep(0.2)
+    assert panels == 1
+    assert "Coarse item" in browser.html(".pack-size-form")
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def test_alias_chip_this_list_only_default_survives_reload(browser, api, server_url):
+    """2026-09-30, chunk 7.5 — the persistence toggle defaults to "this list only" (§0.3);
+    saving without touching the toggle writes a session-scoped session_ingredient_merges row
+    (not a durable ingredient_aliases one), which — unlike the old client-held override this
+    replaced — is real server-side state and survives a page reload."""
+    item_name = normalise_ingredient_name(f"cdp-alias-default-{uuid.uuid4().hex[:8]}")
+    alias_name = normalise_ingredient_name(f"cdp-alias-default-alt-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP alias default test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 1, "unit": None}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    _wait_for_value_match_text(browser, ".name", item_name)
+    _expand_and_open_edit(browser, item_name)
+    _click_chip(browser, "Alias")
+    browser.wait_for(".swap-panel")
+
+    # Confirm the default toggle state before touching it — "This list only" already active.
+    default_on = browser.eval(
+        "Array.from(document.querySelectorAll('.persist-btn'))"
+        ".find(function(b){return b.textContent==='This list only';}).className.indexOf('on') !== -1"
+    )
+    assert default_on is True
+
+    fill_result = browser.eval(
+        "(function(name){"
+        "var panel=document.querySelector('.swap-panel');"
+        "panel.querySelector('input').value=name;"
+        "panel.querySelector('input').dispatchEvent(new Event('input',{bubbles:true}));"
+        "var saveBtn=Array.from(panel.parentElement.querySelectorAll('.persist-actions button'))"
+        ".find(function(b){return b.textContent==='Save';});"
+        "if(!saveBtn) return 'SAVE_BUTTON_NOT_FOUND';"
+        "saveBtn.click();"
+        "return 'OK';"
+        f"}})({json.dumps(alias_name)})"
+    )
+    assert fill_result == "OK", fill_result
+    browser.wait_for(".saved-note")
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    _wait_for_value_match_text(browser, ".name", item_name)
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def test_have_need_buttons_work_without_opening_the_panel(browser, api, server_url):
+    """2026-09-30, chunk 7.5 — Have it / Need it stay on the collapsed row, independent of the
+    name's expand-to-panel toggle; tapping them must never also expand the row."""
+    item_name = normalise_ingredient_name(f"cdp-have-need-panel-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP have/need panel test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 1, "unit": None}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    browser.wait_for(".have-need-btn.have")
+    browser.eval("document.querySelector('.have-need-btn.have').click()")
+
+    deadline = time.monotonic() + TIMEOUT
+    have_it = None
+    while time.monotonic() < deadline:
+        items = api.get(f"/api/v1/checklist/{session['id']}").json()["data"]["items"]
+        row = next((i for i in items if i["ingredient_name"] == item_name), None)
+        if row and row["have_it"] == "yes":
+            have_it = row["have_it"]
+            break
+        time.sleep(0.1)
+    assert have_it == "yes"
+    # The row must NOT have expanded into the breakdown/panel slot as a side effect.
+    assert browser.eval("!document.querySelector('.edit-ingredient-toggle')")
     assert not browser.console_errors(), browser.console_errors()

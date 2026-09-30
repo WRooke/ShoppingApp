@@ -85,16 +85,18 @@
     return wrap;
   }
 
-  // Builds a row's name element plus (only when a breakdown actually exists — point-of-need
-  // guardrail, CLAUDE.md > UI/UX) a tap-to-expand breakdown slot the caller appends to the row
-  // itself (flex-basis: 100%, so it wraps beneath the row's other controls, not squeezed). The
-  // name is a real `<button>` when expandable (keyboard/screen-reader focusable, matching
-  // session-review.js's original), a plain `<div>` otherwise, same as every other row today.
-  // Returns { nameEl, slot } — slot is null when there's nothing to expand.
-  function rowNameParts(item) {
+  // Builds a row's name element plus a tap-to-expand slot the caller appends to the row
+  // itself (flex-basis: 100%, so it wraps beneath the row's other controls, not squeezed).
+  // Expandable — the name becomes a real `<button>` (keyboard/screen-reader focusable,
+  // matching the now-deleted session-review.js's original) — when there's a recipe breakdown
+  // to show, OR `extraBuilder` is given (the ingredient panel, itemsGroup()'s regular rows
+  // only — point-of-need guardrail, CLAUDE.md > UI/UX: reviewGroup()'s rows don't get one,
+  // matching the plan's decision to scope the panel to regular rows). A plain `<div>`
+  // otherwise. Returns { nameEl, slot } — slot is null when there's nothing to expand at all.
+  function rowNameParts(item, extraBuilder) {
     var text = item.display_name || item.ingredient_name;
     var hasBreakdown = (item.recipe_breakdown || []).length > 0;
-    if (!hasBreakdown) return { nameEl: el("div", "name", text), slot: null };
+    if (!hasBreakdown && !extraBuilder) return { nameEl: el("div", "name", text), slot: null };
 
     var nameEl = el("button", "name recipe-row-name-btn", text + " ▾");
     var slot = el("div");
@@ -105,7 +107,11 @@
         nameEl.textContent = text + " ▾";
         return;
       }
-      slot.appendChild(renderBreakdown(item));
+      if (hasBreakdown) slot.appendChild(renderBreakdown(item));
+      if (extraBuilder) {
+        var extra = extraBuilder();
+        if (extra) slot.appendChild(extra);
+      }
       nameEl.textContent = text + " ▴";
     });
     return { nameEl: nameEl, slot: slot };
@@ -151,8 +157,19 @@
     var mergeMode = false;
     var mergeSelected = {};
     var lastData = null;
+    // Ingredient panel's Substitute chip quick-picks (2026-09-30, chunk 7.5) — fetched once
+    // per load, same as the now-deleted session-review.js used to, keyed by original_name.
+    // A failure here is non-fatal (empty quick-picks, manual entry still works) — never blocks
+    // the checklist itself from loading.
+    var picksByName = {};
     function rerender() {
       if (lastData) render(lastData);
+    }
+
+    function onStartMerge(item) {
+      mergeMode = true;
+      mergeSelected[item.ingredient_name] = item;
+      rerender();
     }
 
     root.appendChild(global.BackLink.render("plan"));
@@ -178,6 +195,15 @@
     function load() {
       mergeMode = false;
       mergeSelected = {};
+      api.settings.substitutions
+        .list()
+        .then(function (data) {
+          picksByName = {};
+          (data.items || []).forEach(function (r) {
+            (picksByName[r.original_name] = picksByName[r.original_name] || []).push(r);
+          });
+        })
+        .catch(function () {});
       api.checklist
         .load(sessionId)
         .then(render)
@@ -362,40 +388,28 @@
         // "chicken thigh") for this line's own resolved amount — see
         // services/checklist_display.py. Falls back to ingredient_name for safety if an older
         // cached response is ever re-rendered without display_name.
-        // 2026-09-30 (chunk 7.4) — tap-to-expand recipe breakdown, ported from the now-deleted
-        // Review screen; only expandable when item.recipe_breakdown is non-empty.
-        var nameParts = rowNameParts(item);
+        // 2026-09-30 (chunk 7.4/7.5) — tap-to-expand recipe breakdown + the ingredient panel
+        // (pack size / substitute / alias / coarse item / merge), ported from the now-deleted
+        // Review screen and the old standalone "+ Add pack size" link respectively. Suppressed
+        // in merge-select mode, same as the have/need pair below — one row shouldn't carry two
+        // competing sets of controls.
+        var nameParts = rowNameParts(
+          item,
+          mergeMode
+            ? null
+            : function () {
+                return global.ChecklistPanel.build(sessionId, item, {
+                  picksByName: picksByName,
+                  canMerge: regular.length >= 2,
+                  onStartMerge: onStartMerge,
+                  onSaved: load,
+                });
+              }
+        );
         main.appendChild(nameParts.nameEl);
-
-        // 2026-09-24 — inline "+ Add pack size" entry, no navigation to Settings. Shown only
-        // when this item has a real quantity but no known product_units row at all (the exact
-        // condition qtyText()'s final fallback branch above already renders a bare quantity
-        // for — a coarse ingredient or a resolved pack-size item always has display_qty set,
-        // so no extra field is needed to detect this). Suppressed in merge-select mode, same
-        // as the have/need pair below — one row shouldn't carry two competing sets of controls.
         var metaRow = el("div", "meta-row");
         metaRow.appendChild(el("div", "meta", qtyText(item)));
-        if (!mergeMode && item.total_quantity != null && !item.display_qty) {
-          var addPackBtn = el("button", "btn-link", "+ Add pack size");
-          metaRow.appendChild(addPackBtn);
-          main.appendChild(metaRow);
-          var packForm = null;
-          addPackBtn.addEventListener("click", function () {
-            if (packForm) {
-              packForm.remove();
-              packForm = null;
-              return;
-            }
-            packForm = packSizeForm(item, function () {
-              packForm.remove();
-              packForm = null;
-              reconsolidateAndReload();
-            });
-            main.appendChild(packForm);
-          });
-        } else {
-          main.appendChild(metaRow);
-        }
+        main.appendChild(metaRow);
         row.appendChild(main);
 
         if (!mergeMode) {
@@ -590,79 +604,10 @@
       };
     }
 
-    // Inline "add a pack size" form for one checklist item (2026-09-24) — same expand-in-place,
-    // no-navigation interaction pattern as reviewGroup()'s needs_review resolve control above.
-    // Writes straight into the existing product_units table (POST /settings/product-units) so
-    // future sessions resolve this ingredient's pack size automatically with no repeated entry.
-    function packSizeForm(item, onSaved) {
-      var wrap = el("div", "pack-size-form");
-      var labelInput = el("input");
-      labelInput.type = "text";
-      labelInput.placeholder = "e.g. 500g pack";
-      var qtyInput = el("input");
-      qtyInput.type = "number";
-      qtyInput.step = "any";
-      qtyInput.inputMode = "decimal";
-      qtyInput.placeholder = "e.g. 500";
-      var unitInput = el("input");
-      unitInput.type = "text";
-      unitInput.placeholder = "e.g. g";
-      wrap.appendChild(miniField("Pack label", labelInput));
-      var grid = el("div", "ing-grid");
-      grid.style.gridTemplateColumns = "1fr 1fr";
-      grid.appendChild(miniField("Pack quantity", qtyInput));
-      grid.appendChild(miniField("Unit", unitInput));
-      wrap.appendChild(grid);
-
-      var err = el("span", "form-error");
-      var saveBtn = el("button", "btn-sm primary", "Save");
-      saveBtn.addEventListener("click", function () {
-        err.textContent = "";
-        var label = labelInput.value.trim();
-        var qty = parseFloat(qtyInput.value);
-        if (!label || isNaN(qty) || qty <= 0) {
-          err.textContent = "Pack label and a positive quantity are required.";
-          return;
-        }
-        saveBtn.disabled = true;
-        api.settings.productUnits
-          .create({
-            ingredient_name: item.ingredient_name,
-            purchase_label: label,
-            purchase_qty: qty,
-            purchase_unit: unitInput.value.trim() || null,
-            notes: null,
-          })
-          .then(onSaved)
-          .catch(function (e) {
-            saveBtn.disabled = false;
-            err.textContent = e.message;
-          });
-      });
-      var actions = el("div", "log-controls");
-      actions.appendChild(saveBtn);
-      actions.appendChild(err);
-      wrap.appendChild(actions);
-      return wrap;
-    }
-
-    // Re-consolidating is required for a just-added pack size to resolve THIS session — pack
-    // resolution only runs inside POST /consolidate, never on a plain checklist reload (see
-    // CLAUDE.md > Scaling Logic > Purchase unit resolution). Safe to call here: consolidation
-    // is a merge, not a rebuild — have_it/add_to_list/already_on_anylist are preserved for
-    // every line that persists, so this never discards a decision already made this session.
-    function reconsolidateAndReload() {
-      api.sessions
-        .consolidate(sessionId, [])
-        .then(function () {
-          global.Toast.show("Pack size saved — future sessions will show this automatically.");
-          load();
-        })
-        .catch(function (err) {
-          global.alert("Saved the pack size, but couldn't refresh the checklist: " + err.message);
-          load();
-        });
-    }
+    // packSizeForm()/reconsolidateAndReload() removed 2026-09-30 (chunk 7.5) — the standalone
+    // "+ Add pack size" link they powered is gone; pack size is now the ingredient panel's own
+    // Pack size chip (checklist-panel.js > packSizePanel()), which calls the new
+    // POST .../pack-size endpoint directly and reloads via the panel's own onSaved callback.
 
     // --- the usuals: a stock-check prompt, not a bare checkbox (kickoff decision #8) ---
     function usualsGroup(usuals) {

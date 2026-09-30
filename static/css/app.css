@@ -214,6 +214,16 @@
 .link-btn { min-height: 0; padding: 2px 6px; font-size: 0.85rem; }
 /* recipe detail: "using X instead" line */
 .ingredient-resolved { color: var(--accent); font-size: 0.85rem; }
+
+/* --- checklist ingredient panel (2026-09-30, chunk 7.5) — checklist-panel.js --- */
+.edit-ingredient-toggle { margin-top: 4px; }
+.edit-chip-row .link-btn.on { background: var(--accent-tint); color: var(--accent); border-radius: 999px; padding: 2px 8px; }
+/* the shared this-list-only/always segmented toggle every chip ends with */
+.persist-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px; margin-top: 8px; }
+.persist-btn { min-height: 0; padding: 4px 10px; font-size: 0.8rem; border: none; border-radius: 999px; background: none; }
+.persist-btn.on { background: var(--accent); color: var(--accent-contrast); }
+.persist-actions { align-items: center; margin-top: 6px; }
+.saved-note { color: var(--success); font-weight: 600; font-size: 0.85rem; }
 /* Ingredient Unit Handling Layers B+C (2026-09-12) — unit-hints.js */
 .unit-hints { flex-basis: 100%; font-size: 0.85rem; }
 .unit-hints-picks { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }

@@ -16,7 +16,6 @@ from app.models.planning import SessionRecipe as SessionRecipeModel
 from app.models.planning import PlanningSession as PlanningSessionModel
 from app.schemas.sessions import (
     ChecklistItemRead,
-    ConsolidateRequest,
     LeftoversSlotCreate,
     PlanningSessionCreate,
     PlanningSessionListItem,
@@ -148,17 +147,13 @@ def reorder_slots(
 
 
 @router.post("/{session_id}/consolidate")
-def consolidate_session(
-    session_id: int,
-    data: ConsolidateRequest | None = None,
-    db: Session = Depends(get_db),
-) -> dict:
+def consolidate_session(session_id: int, db: Session = Depends(get_db)) -> dict:
     # 2026-09-11 — recipe_breakdown ("which recipe is this ingredient from") is ephemeral:
     # computed fresh alongside this same consolidate pass, never persisted to
     # session_checklist_items. See CLAUDE.md > "Which recipe is this ingredient from".
-    rows, breakdown = sessions_service.consolidate_session_with_breakdown(
-        db, session_id, overrides=(data.overrides if data else None)
-    )
+    # 2026-09-30 (chunk 7.5) — no more request-body overrides; every session-scoped "this
+    # list only" edit is read internally now, see session_consolidation.py.
+    rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, session_id)
     items = [
         checklist_display.decorate(
             db, ChecklistItemRead.model_validate(row)

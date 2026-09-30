@@ -289,15 +289,19 @@ updated). Everything below describes the manual-only mechanism that remains.
   "save this swap" tick, after extraction, before the recipe is saved.
 - **Recipe editor** (`recipe-edit.js`) — the same per-ingredient controls, so a swap can be
   added / changed / cleared later. Clearing `resolved_ingredient` reverts to `name`.
-- **Planning, ad-hoc + session-only** — **in transition as of 2026-09-30.** Used to live on
-  the standalone Review screen (`session-review.js`), deleted in chunk 7.4 of the
-  Review→Checklist merge; the swap itself (a **session-only override**, resolved in
-  `consolidate_session()` before `consolidate()` — from M8 may also carry the equivalence
-  pair, `original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`, applied to the
-  scaled quantity where `original_unit` matches the line's unit; optional "also save this
-  swap" → `remembered_substitutions` row, never edits recipe data) is unchanged, but has no UI
-  home until chunk 7.5 lands it on Checklist's own ingredient panel — see
-  [Checklist Screen Logic](./checklist-and-shopping.md#checklist-screen-logic).
+- **Checklist ingredient panel** (`checklist-panel.js` — 2026-09-30, chunk 7.5) — the
+  Substitute chip, reached by tapping a row's name then "Edit ingredient". Moved here from the
+  now-deleted Review screen (`session-review.js`, chunk 7.4). No longer a purely client-held
+  override: `remember=False` (the default, §0.3) writes a real `session_ingredient_merges`
+  (kind='substitute') row, read by `session_consolidation.py` on every consolidate call — this
+  is what resolved the Review→Checklist merge's one blocking open question (an ad-hoc swap now
+  survives a page reload, since it's server-side, not in-memory JS). `remember=True` writes a
+  `remembered_substitutions` quick-pick (not the recipe's own `resolved_ingredient` — see
+  `schemas.checklist.ChecklistItemSubstituteRequest`'s docstring for why baking into a specific
+  recipe is deliberately not attempted from here). Still carries the M8 equivalence pair
+  (`original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`), applied to the scaled
+  quantity where `original_unit` matches the line's unit. See [Checklist Screen
+  Logic](./checklist-and-shopping.md#checklist-screen-logic).
 - **Settings** (`settings-substitutions.js`) — reframed: view / edit note / delete
   `remembered_substitutions` entries. A pure quick-pick library. No default toggle. Deleting
   never touches recipes or past sessions.

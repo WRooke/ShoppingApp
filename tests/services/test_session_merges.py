@@ -94,3 +94,66 @@ def test_deleting_a_session_cascades_to_its_merges(db):
     db.delete(session_row)
     db.commit()
     assert db.query(SessionIngredientMerge).count() == 0
+
+
+# --- generalised kinds (2026-09-30, chunk 7.5) ----------------------------------------
+
+
+def test_add_and_read_back_substitute(db):
+    s = _session(db)
+    sm.add_session_substitute(db, s.id, "bulgarian feta", "regular feta")
+    result = sm.session_substitute_map(db, s.id)
+    assert result["bulgarian feta"].canonical_name == "regular feta"
+    # kept out of the merge map — different kind, same table
+    assert sm.session_merge_map(db, s.id) == {}
+
+
+def test_merge_and_substitute_for_the_same_member_name_coexist(db):
+    # The whole reason the unique constraint widened to (session_id, member_name, kind):
+    # one ingredient can independently hold a merge row AND a substitute row.
+    s = _session(db)
+    sm.add_session_merge(db, s.id, "corn", "sweetcorn")
+    sm.add_session_substitute(db, s.id, "corn", "canned corn")
+    assert sm.session_merge_map(db, s.id)["corn"].canonical_name == "sweetcorn"
+    assert sm.session_substitute_map(db, s.id)["corn"].canonical_name == "canned corn"
+    assert (
+        db.query(SessionIngredientMerge)
+        .filter(SessionIngredientMerge.session_id == s.id, SessionIngredientMerge.member_name == "corn")
+        .count()
+        == 2
+    )
+
+
+def test_add_and_read_back_pack_size_override(db):
+    s = _session(db)
+    sm.add_session_pack_override(db, s.id, "passata", "700g jar", 700, "g")
+    result = sm.session_pack_override_map(db, s.id)
+    assert result["passata"].purchase_label == "700g jar"
+    assert result["passata"].purchase_qty == 700
+    assert result["passata"].purchase_unit == "g"
+
+
+def test_add_and_read_back_coarse_override(db):
+    s = _session(db)
+    sm.add_session_coarse_override(db, s.id, "parsley", 2, "bunch")
+    result = sm.session_coarse_override_map(db, s.id)
+    assert result["parsley"].recipes_per_pack == 2
+    assert result["parsley"].purchase_label == "bunch"
+
+
+def test_adding_a_second_pack_override_for_the_same_member_re_points(db):
+    s = _session(db)
+    sm.add_session_pack_override(db, s.id, "passata", "700g jar", 700, "g")
+    sm.add_session_pack_override(db, s.id, "passata", "400g can", 400, "g")
+    result = sm.session_pack_override_map(db, s.id)
+    assert result["passata"].purchase_label == "400g can"
+    assert (
+        db.query(SessionIngredientMerge)
+        .filter(
+            SessionIngredientMerge.session_id == s.id,
+            SessionIngredientMerge.member_name == "passata",
+            SessionIngredientMerge.kind == "pack_size",
+        )
+        .count()
+        == 1
+    )

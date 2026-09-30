@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.checklist import (
+    ChecklistItemAliasRequest,
+    ChecklistItemCoarseRequest,
+    ChecklistItemPackSizeRequest,
     ChecklistItemResolve,
+    ChecklistItemSubstituteRequest,
     ChecklistItemUpdate,
     ChecklistLoadResponse,
     ChecklistMergeRequest,
@@ -102,6 +106,76 @@ def merge_items(
         alias_unit=data.alias_unit,
         canonical_qty=data.canonical_qty,
         canonical_unit=data.canonical_unit,
+    )
+    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+
+
+@router.post("/{session_id}/items/{item_id}/substitute")
+def substitute_item(
+    session_id: int,
+    item_id: int,
+    data: ChecklistItemSubstituteRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Ingredient panel — Substitute chip (2026-09-30, chunk 7.5). Pre-push only (409
+    SESSION_ALREADY_PUSHED). `remember=True` writes a `remembered_substitutions` quick-pick —
+    see `ChecklistItemSubstituteRequest`'s docstring for why not the recipe's own
+    `resolved_ingredient`."""
+    rows = checklist_service.substitute_item(
+        db, session_id, item_id,
+        substitute_name=data.substitute_name,
+        original_qty=data.original_qty, original_unit=data.original_unit,
+        substitute_qty=data.substitute_qty, substitute_unit=data.substitute_unit,
+        remember=data.remember,
+    )
+    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+
+
+@router.post("/{session_id}/items/{item_id}/alias")
+def alias_item(
+    session_id: int,
+    item_id: int,
+    data: ChecklistItemAliasRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Ingredient panel — Alias chip. Pre-push only; `remember=True` and an already-aliased
+    name surfaces 409 DUPLICATE_INGREDIENT_ALIAS, same as Settings' own alias creation."""
+    rows = checklist_service.alias_item(
+        db, session_id, item_id, alias_name=data.alias_name, remember=data.remember
+    )
+    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+
+
+@router.post("/{session_id}/items/{item_id}/pack-size")
+def pack_size_item(
+    session_id: int,
+    item_id: int,
+    data: ChecklistItemPackSizeRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Ingredient panel — Pack size chip. Pre-push only; `remember=True` writes a real
+    `product_units` row (same endpoint Settings' own "Product units" card uses)."""
+    rows = checklist_service.pack_size_item(
+        db, session_id, item_id,
+        purchase_label=data.purchase_label, purchase_qty=data.purchase_qty,
+        purchase_unit=data.purchase_unit, remember=data.remember,
+    )
+    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+
+
+@router.post("/{session_id}/items/{item_id}/coarse")
+def coarse_item(
+    session_id: int,
+    item_id: int,
+    data: ChecklistItemCoarseRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Ingredient panel — Coarse item chip. Pre-push only; `remember=True` writes a real
+    `coarse_ingredients` row."""
+    rows = checklist_service.coarse_item(
+        db, session_id, item_id,
+        purchase_label=data.purchase_label, recipes_per_pack=data.recipes_per_pack,
+        remember=data.remember,
     )
     return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
 

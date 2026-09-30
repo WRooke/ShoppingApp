@@ -431,3 +431,167 @@ def test_merge_carries_forward_the_strongest_have_it_and_add_to_list(client, fak
     assert resp.status_code == 200
     merged = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz merge state b")
     assert merged["have_it"] == "no" and merged["add_to_list"] is True
+
+
+# --- ingredient panel (2026-09-30, chunk 7.5) ---------------------------------------------
+
+
+def test_substitute_not_remembered_renames_this_session_only(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-sub-feta", "quantity": 200, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/substitute",
+        json={"substitute_name": "zz sub goat cheese", "remember": False},
+    )
+    assert resp.status_code == 200
+    names = {i["ingredient_name"] for i in resp.json()["data"]["items"]}
+    assert "zz sub goat cheese" in names
+    assert "zz sub feta" not in names
+
+    # A second, unrelated session with the same original ingredient is untouched.
+    sid2 = _session_with_checklist(client, [{"name": "zz-sub-feta", "quantity": 50, "unit": "g"}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert [i["ingredient_name"] for i in items2] == ["zz sub feta"]
+
+
+def test_substitute_with_pair_converts_the_amount(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-sub-corn-cobs", "quantity": 4, "unit": "cob"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/substitute",
+        json={
+            "substitute_name": "zz sub canned corn", "remember": False,
+            "original_qty": 2, "original_unit": "cob", "substitute_qty": 1, "substitute_unit": "can",
+        },
+    )
+    assert resp.status_code == 200
+    item = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz sub canned corn")
+    assert item["total_quantity"] == 2 and item["total_unit"] == "can"  # 4 cob / 2 * 1
+
+
+def test_substitute_remember_true_creates_a_quick_pick_not_a_recipe_bake_in(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-sub-remember-feta", "quantity": 100, "unit": "g"}])
+    recipe_id = client.get(f"/api/v1/sessions/{sid}").json()["data"]["recipes"][0]["recipe_id"]
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/substitute",
+        json={"substitute_name": "zz sub remember goat cheese", "remember": True},
+    )
+    assert resp.status_code == 200
+
+    # §0.3's inference: "remember" is a quick-pick, NOT baked into the recipe's own
+    # resolved_ingredient — the recipe's own stored data is untouched.
+    recipe = client.get(f"/api/v1/recipes/{recipe_id}").json()["data"]
+    assert recipe["ingredients"][0]["resolved_ingredient"] is None
+
+    subs = client.get("/api/v1/settings/substitutions").json()["data"]["items"]
+    assert any(
+        s["original_name"] == "zz sub remember feta"
+        and s["substitute_name"] == "zz sub remember goat cheese"
+        for s in subs
+    )
+
+
+def test_substitute_refused_once_session_is_pushed(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-sub-pushed", "quantity": 1, "unit": None}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
+    client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []})
+
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/substitute",
+        json={"substitute_name": "zz sub too late", "remember": False},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "SESSION_ALREADY_PUSHED"
+
+
+def test_alias_not_remembered_scoped_to_this_session(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-alias-yoghurt", "quantity": 500, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/alias",
+        json={"alias_name": "zz alias natural yoghurt", "remember": False},
+    )
+    assert resp.status_code == 200
+
+    sid2 = _session_with_checklist(client, [{"name": "zz alias natural yoghurt", "quantity": 1, "unit": "g"}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    # untouched elsewhere — the alias is session-scoped to `sid`, not durable
+    assert [i["ingredient_name"] for i in items2] == ["zz alias natural yoghurt"]
+
+
+def test_alias_remember_true_creates_a_durable_alias(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-alias-remember-yoghurt", "quantity": 500, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/alias",
+        json={"alias_name": "zz alias remember natural yoghurt", "remember": True},
+    )
+    assert resp.status_code == 200
+
+    sid2 = _session_with_checklist(
+        client, [{"name": "zz alias remember natural yoghurt", "quantity": 250, "unit": "g"}]
+    )
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert [i["ingredient_name"] for i in items2] == ["zz alias remember yoghurt"]
+
+
+def test_pack_size_not_remembered_resolves_this_session_only(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-pack-passata", "quantity": 450, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/pack-size",
+        json={"purchase_label": "700g jar", "purchase_qty": 700, "purchase_unit": "g", "remember": False},
+    )
+    assert resp.status_code == 200
+    item = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz pack passata")
+    assert item["display_qty"]  # pack breakdown now resolves
+
+    sid2 = _session_with_checklist(client, [{"name": "zz-pack-passata", "quantity": 450, "unit": "g"}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert not items2[0]["display_qty"]  # untouched in a different session
+
+
+def test_pack_size_remember_true_writes_product_units(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-pack-remember-passata", "quantity": 450, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/pack-size",
+        json={"purchase_label": "700g jar", "purchase_qty": 700, "purchase_unit": "g", "remember": True},
+    )
+    assert resp.status_code == 200
+
+    sid2 = _session_with_checklist(client, [{"name": "zz-pack-remember-passata", "quantity": 450, "unit": "g"}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert items2[0]["display_qty"]  # resolves in a fresh session too — durable
+
+
+def test_coarse_not_remembered_this_session_only(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-coarse-parsley", "quantity": 10, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/coarse",
+        json={"purchase_label": "bunch", "recipes_per_pack": 2, "remember": False},
+    )
+    assert resp.status_code == 200
+    item = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz coarse parsley")
+    assert item["display_qty"] == "1 × bunch"
+
+    sid2 = _session_with_checklist(client, [{"name": "zz-coarse-parsley", "quantity": 10, "unit": "g"}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert items2[0]["display_qty"] != "1 × bunch"  # untouched elsewhere (plain gram total)
+
+
+def test_coarse_remember_true_writes_coarse_ingredients(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-coarse-remember-parsley", "quantity": 10, "unit": "g"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/items/{item_id}/coarse",
+        json={"purchase_label": "bunch", "recipes_per_pack": 2, "remember": True},
+    )
+    assert resp.status_code == 200
+
+    sid2 = _session_with_checklist(client, [{"name": "zz-coarse-remember-parsley", "quantity": 10, "unit": "g"}])
+    items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
+    assert items2[0]["display_qty"] == "1 × bunch"  # durable

@@ -30,46 +30,96 @@ At checklist screen load:
    accepted `have_it`/`add_to_list` independently, with no validation on the transition).
 5. Items marked 'no' or where `add_to_list` is True get pushed to AnyList
 
-### Inline pack-size entry (2026-09-24)
+### The ingredient panel (2026-09-30, chunk 7.5)
 
 The reference implementation of [UI/UX > Design principle: resolve at the point of
 need](./ui-ux.md#design-principle-resolve-at-the-point-of-need-not-in-settings) — fixing a
-missing pack size right here instead of sending the user to Settings.
+pack size, a substitution, an alias, or a coarse-ingredient marking right here instead of
+sending the user to Settings. Superseded the 2026-09-24 standalone "+ Add pack size" link
+(below is its full replacement, not an addition alongside it) after a maintainer mockup review
+(chunk 7.1, 4 revision rounds — https://claude.ai/artifact/B6SiNLcKvND7tWnjdrsXMf) settled the
+design: an inline expand-in-place panel, not a bottom sheet, matching this app's only existing
+pattern for this class of control (this section, the needs-review resolve control, and the
+merge panel below are all the same interaction idiom — the maintainer's own explicit
+preference, kept on record as a possible future reconsideration if rows ever feel cramped).
 
-An ingredient line with a real quantity but no matching `product_units` row shows a raw
-quantity with no pack breakdown (e.g. "1.05 kg" instead of "2 × 750 g jars · need ~1.05 kg" —
-see [Purchase unit resolution](./scaling-and-consolidation.md#scaling-logic)). Rather than requiring a trip to
-Settings to fix this, the checklist row itself now offers a **"+ Add pack size"** affordance
-(`checklist.js > packSizeForm()`) next to any such line — shown exactly when
-`item.total_quantity != null && !item.display_qty` (a coarse ingredient or an already-resolved
-pack-size item always has `display_qty` set, so no extra field was needed to detect this).
-Tapping it expands an inline form (pack label / quantity / unit — no navigation, no separate
-"item settings" screen), following the same expand-in-place interaction pattern as the
-`needs_review` resolve control just above it on this same screen. Saving writes a normal row
-into the existing `product_units` table (`POST /settings/product-units` — the same endpoint
-Settings' own "Product units" card uses), so every future session resolves this ingredient's
-pack size automatically with no repeated entry.
+**Two-level nested expand** (`checklist.js > rowNameParts()` + `checklist-panel.js`):
+1. Tapping a row's name (not Have it / Need it, which stay independent) expands it to show the
+   recipe breakdown, always, first — see the section below.
+2. An **"Edit ingredient ▾" toggle** underneath — shown only when there's something to edit
+   (see "which chips appear", below) — reveals a second level: a row of **select-exclusive
+   chips**. Tapping a chip replaces whichever one was already open for that row; at most one
+   sub-panel shows at a time no matter how many chips exist. Five chips: **Pack size**,
+   **Substitute**, **Alias**, **Coarse item**, **Merge**.
 
-**Re-consolidation, not just a reload, is required to see it resolve *this* session** — pack
-resolution only runs inside `POST /sessions/{id}/consolidate`
-(`session_pack_resolution.py`/`purchase_units.resolve_packs()`), never on a plain
-`GET /checklist/{id}` reload. `packSizeForm()`'s save handler therefore calls
-`POST /sessions/{id}/consolidate` (no overrides) itself before reloading the checklist. This is
-safe because consolidation is a **merge, not a rebuild** (see [Scaling Logic > "Re-running
-consolidation is a merge, not a rebuild"](./scaling-and-consolidation.md#scaling-logic)) —
-`have_it`/`add_to_list`/`already_on_anylist` are preserved for every line that persists, so
-adding a pack size for one ingredient never disturbs decisions already made on any other item
-in the same session.
+**Which chips appear** — point-of-need guardrail, only shown when the gap actually exists:
+Pack size only when `item.total_quantity != null && !item.display_qty` (the exact condition
+the old standalone link used); Merge only when 2+ regular rows exist to merge with. Substitute,
+Alias, and Coarse item are always offered — there's always a valid "add one" action for these,
+not a broken state to detect, same standing the now-deleted Review screen's own "Swap" button
+had on every row.
 
-### Checklist-time ingredient merge (Fix 3, 2026-09-27)
+**Every chip except Merge ends with the same shared persistence toggle** — "This list only"
+(default) vs. "Always…" (worded per chip, e.g. "Always (edits Settings)") — plus an explicit
+**Save** button and a **"Saved ✓"** confirmation once pressed (`checklist-panel.js >
+persistControls()`). Nothing commits as a side effect of typing or toggling; changing the
+toggle after a save clears the confirmation, so it's never ambiguous whether what's currently
+showing has actually been written anywhere. Default is "this list only" (not "Always") because
+Alias/Pack size/Coarse-item edits are otherwise global and retroactive to every future
+session — a slip-of-the-thumb permanent edit mid-shop has a bigger blast radius than a scoped
+one.
 
-A second point-of-need affordance alongside inline pack-size entry above: rather than requiring
-a trip to Settings to notice and fix an ingredient-name mismatch (e.g. a recipe's "corn" and
-another's "canned corn" showing as two separate lines), the checklist screen itself offers a
-**"Select to merge"** mode (`checklist.js`, screen-level toggle shown only when 2+ regular rows
-exist — not a permanent per-row control, matching the existing convention that a row shouldn't
-carry two competing sets of controls at once). Selecting 2+ rows and tapping "Merge (N)" opens a
-small panel:
+- **Pack size** (`packSizePanel`) — pack label / quantity / unit, same fields the old
+  standalone form had. "This list only" writes a session-scoped
+  `session_ingredient_merges` (kind='pack_size') row, read by `session_pack_resolution.py`
+  alongside real `product_units` rows for this consolidate pass only (nothing written to
+  `product_units`). "Always" writes a real `product_units` row (`POST
+  /settings/product-units`, the same endpoint Settings' own "Product units" card uses) — every
+  future session resolves it automatically from then on.
+- **Substitute** (`substitutePanel`) — an ad-hoc ingredient swap, moved here from the
+  now-deleted Review screen's own swap form (chunk 7.4/7.5). See [Ingredient
+  Substitution](./ingredient-handling.md#ingredient-substitution) for the full design,
+  including what "this list only" vs. "Always" write to and why "Always" here means a
+  `remembered_substitutions` quick-pick, not the recipe's own `resolved_ingredient`.
+- **Alias** (`aliasPanel`) — "Same item as…", a free-text name to fold into this ingredient.
+  Mechanically identical to Merge below (both are a `member_name -> canonical_name` fold); the
+  only difference is that Alias takes any typed name, not one picked from another checklist
+  row. "This list only" writes the same `session_ingredient_merges` (kind='merge') row Merge's
+  own session-scoped mode writes; "Always" writes a real
+  [`ingredient_aliases`](./ingredient-handling.md#ingredient-aliases) row.
+- **Coarse item** (`coarsePanel`) — pack label (optional) + recipes-per-pack, marking this
+  ingredient to skip quantity math for this session ("this list only",
+  `session_ingredient_merges` kind='coarse') or permanently ("Always",
+  [`coarse_ingredients`](./ingredient-handling.md#ingredient-unit-handling)).
+- **Merge** — no sub-panel of its own here; tapping it hands off to the existing
+  screen-level "Select to merge" mode below, pre-selecting this row, rather than building a
+  second, parallel merge mechanism.
+
+**Re-consolidation, not just a reload, is required for any of this to resolve *this*
+session** — as of chunk 7.3, `GET /checklist/{id}` already re-consolidates on every load, so a
+plain reload after any chip's save picks everything up automatically; no separate consolidate
+call is needed from the frontend any more (the panel's `onSaved` callback is just `load`).
+This is safe because consolidation is a **merge, not a rebuild** (see [Scaling Logic >
+"Re-running consolidation is a merge, not a
+rebuild"](./scaling-and-consolidation.md#scaling-logic)) — `have_it`/`add_to_list`/
+`already_on_anylist` are preserved for every line that persists.
+
+**The false-positive risk this inherits** (Merge and Alias both write `ingredient_aliases`
+when remembered) is documented, not silently accepted — see
+[deferred-decisions.md](./deferred-decisions.md)'s "No persistent 'don't suggest this pairing
+again' memory..." row.
+
+### Checklist-time ingredient merge (Fix 3, 2026-09-27; reachable from the ingredient panel's
+Merge chip since chunk 7.5)
+
+Rather than requiring a trip to Settings to notice and fix an ingredient-name mismatch (e.g. a
+recipe's "corn" and another's "canned corn" showing as two separate lines), the checklist
+screen itself offers a **"Select to merge"** mode (`checklist.js`, screen-level toggle shown
+only when 2+ regular rows exist — not a permanent per-row control, matching the existing
+convention that a row shouldn't carry two competing sets of controls at once). Reachable two
+ways: the heading's own "Select to merge" link (select 2+ rows by hand), or the ingredient
+panel's Merge chip on any single row (pre-selects that row, then prompts for a second).
+Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
 - **Keep which name?** — a radio choice of which selected item's name becomes canonical for the
   merge.
 - **An optional, dormant "different amount?" field** — collapsed by default (the same

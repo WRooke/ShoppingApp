@@ -14,7 +14,6 @@ from app.schemas.sessions import (
     LeftoversSlotCreate,
     PlanningSessionCreate,
     PlanningSessionUpdate,
-    SessionOverride,
     SessionRecipeCreate,
     SessionSlotUpdate,
 )
@@ -759,8 +758,12 @@ def test_consolidate_session_uses_per_recipe_resolved_ingredient(db):
 
 
 def test_consolidate_session_override_beats_resolved_ingredient(db):
-    # a session-only override keys off the DISPLAYED (already-resolved) name and wins for
-    # this run only — nothing is written back
+    # a session-only substitute keys off the DISPLAYED (already-resolved) name and wins for
+    # this run only — nothing is written back to the recipe. 2026-09-30 (chunk 7.5): the
+    # substitute is a real session_ingredient_merges (kind='substitute') row now, not a
+    # request-supplied SessionOverride.
+    from app.services import session_merges
+
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(
         db,
@@ -769,11 +772,9 @@ def test_consolidate_session_override_beats_resolved_ingredient(db):
           "resolved_ingredient": "regular feta"}],
     )
     sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    session_merges.add_session_substitute(db, s.id, "regular feta", "goat cheese")
 
-    items = sessions_service.consolidate_session(
-        db, s.id,
-        overrides=[SessionOverride(original_name="regular feta", substitute_name="goat cheese")],
-    )
+    items = sessions_service.consolidate_session(db, s.id)
     assert [i.ingredient_name for i in items] == ["goat cheese"]
 
     # the recipe's own data is untouched
@@ -859,48 +860,50 @@ def test_consolidate_transformed_line_merges_with_a_plain_line_of_the_same_name(
 
 
 def test_consolidate_session_override_carries_an_equivalence_pair(db):
+    # 2026-09-30 (chunk 7.5): a session-only substitute is a real session_ingredient_merges
+    # (kind='substitute') row now, not a request-supplied SessionOverride.
+    from app.services import session_merges
+
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "Chowder", [{"name": "corn", "quantity": 4, "unit": "cob"}])
     sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
-    items = sessions_service.consolidate_session(
-        db, s.id,
-        overrides=[SessionOverride(
-            original_name="corn", substitute_name="canned corn",
-            original_qty=2, original_unit="cob", substitute_qty=1, substitute_unit="can",
-        )],
+    session_merges.add_session_substitute(
+        db, s.id, "corn", "canned corn",
+        alias_qty=2, alias_unit="cob", canonical_qty=1, canonical_unit="can",
     )
+    items = sessions_service.consolidate_session(db, s.id)
     # 4 cob / 2 * 1 = 2 can
     assert [i.ingredient_name for i in items] == ["canned corn"]
     assert (items[0].total_quantity, items[0].total_unit) == (2, "can")
 
 
 def test_consolidate_session_override_pair_falls_back_to_name_only_on_unit_mismatch(db):
+    from app.services import session_merges
+
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "Chowder", [{"name": "corn", "quantity": 500, "unit": "g"}])
     sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
-    items = sessions_service.consolidate_session(
-        db, s.id,
-        overrides=[SessionOverride(
-            original_name="corn", substitute_name="canned corn",
-            original_qty=2, original_unit="cob", substitute_qty=1, substitute_unit="can",
-        )],
+    session_merges.add_session_substitute(
+        db, s.id, "corn", "canned corn",
+        alias_qty=2, alias_unit="cob", canonical_qty=1, canonical_unit="can",
     )
+    items = sessions_service.consolidate_session(db, s.id)
     # override unit "cob" != line unit "g" -> rename only, quantity/unit unchanged
     assert [i.ingredient_name for i in items] == ["canned corn"]
     assert (items[0].total_quantity, items[0].total_unit) == (500, "g")
 
 
 def test_consolidate_session_override_pair_skipped_for_to_taste_line(db):
+    from app.services import session_merges
+
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(db, "Season", [{"name": "saffron", "quantity": 1, "unit": "pinch"}])
     sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=8))
-    items = sessions_service.consolidate_session(
-        db, s.id,
-        overrides=[SessionOverride(
-            original_name="saffron", substitute_name="saffron threads",
-            original_qty=1, original_unit="pinch", substitute_qty=2, substitute_unit="g",
-        )],
+    session_merges.add_session_substitute(
+        db, s.id, "saffron", "saffron threads",
+        alias_qty=1, alias_unit="pinch", canonical_qty=2, canonical_unit="g",
     )
+    items = sessions_service.consolidate_session(db, s.id)
     # renamed, but still a "to taste" line — no number, no ratio applied. Singularised by the
     # 2026-09-27 shared normaliser ("threads" -> "thread"), same as any other plural.
     assert [i.ingredient_name for i in items] == ["saffron thread"]

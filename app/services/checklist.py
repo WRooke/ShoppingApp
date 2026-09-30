@@ -15,14 +15,20 @@ from sqlalchemy.orm import Session
 
 from app.database import utcnow
 from app.models.history import ShoppingHistory
+from app.schemas.coarse_ingredients import CoarseIngredientCreate
 from app.schemas.ingredient_aliases import IngredientAliasCreate
+from app.schemas.settings import ProductUnitCreate
+from app.schemas.substitutions import RememberedSubstitutionCreate
 from app.services import anylist_client
 from app.services import checklist_display
 from app.models.planning import SessionChecklistItem
+from app.services import coarse_ingredients as coarse_ingredients_service
 from app.services import ingredient_aliases as ingredient_aliases_service
 from app.services import progress_tracker
 from app.services import session_merges
 from app.services import sessions as sessions_service
+from app.services import settings as settings_service
+from app.services import substitutions as substitutions_service
 from app.services import text_normalize
 from app.services import usuals as usuals_service
 from app.services.anylist_client import AnyListError, PushItem
@@ -315,6 +321,180 @@ def merge_items(
     logger.info(
         "Checklist items merged: session_id=%s %r -> %r remember=%s",
         session_id, item_names, canonical_name, remember,
+    )
+    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
+
+
+# --- ingredient panel (2026-09-30, chunk 7.5) ---------------------------------------------
+#
+# Four sections of the Checklist ingredient panel (CLAUDE.md > Checklist Screen Logic) — each
+# writes either a session-scoped "this list only" edit (session_ingredient_merges, via
+# services/session_merges.py) or a permanent one (an existing global Settings table), per its
+# own `remember` flag. All four are pre-push only, same reasoning as merge_items() above:
+# renaming/re-resolving an ingredient after push risks a stray duplicate or a confusing
+# mismatch against what was actually sent to AnyList. Each re-consolidates before returning so
+# the effect is immediately visible, same pattern as merge_items().
+
+
+def substitute_item(
+    db: Session,
+    session_id: int,
+    item_id: int,
+    *,
+    substitute_name: str,
+    original_qty: float | None,
+    original_unit: str | None,
+    substitute_qty: float | None,
+    substitute_unit: str | None,
+    remember: bool,
+) -> list[SessionChecklistItem]:
+    """The ingredient panel's Substitute chip. `remember=True` writes a
+    `remembered_substitutions` quick-pick — NOT the recipe's own `resolved_ingredient` (see
+    `schemas.checklist.ChecklistItemSubstituteRequest`'s docstring for why baking into a
+    specific recipe is deliberately not attempted here)."""
+    session = sessions_service.get_session(db, session_id)
+    if session.status == "pushed":
+        raise SessionAlreadyPushedError(session_id)
+    item = _get_item(db, session_id, item_id)
+    member_name = item.ingredient_name
+    substitute_norm = text_normalize.normalise_ingredient_name(substitute_name)
+
+    if remember:
+        substitutions_service.create_substitution(
+            db,
+            RememberedSubstitutionCreate(
+                original_name=member_name,
+                substitute_name=substitute_norm,
+                original_qty=original_qty,
+                original_unit=original_unit,
+                substitute_qty=substitute_qty,
+                substitute_unit=substitute_unit,
+            ),
+        )
+    else:
+        session_merges.add_session_substitute(
+            db, session_id, member_name, substitute_norm,
+            alias_qty=original_qty, alias_unit=original_unit,
+            canonical_qty=substitute_qty, canonical_unit=substitute_unit,
+        )
+
+    sessions_service.consolidate_session(db, session_id)
+    logger.info(
+        "Checklist item substituted: session_id=%s %r -> %r remember=%s",
+        session_id, member_name, substitute_norm, remember,
+    )
+    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
+
+
+def alias_item(
+    db: Session, session_id: int, item_id: int, *, alias_name: str, remember: bool
+) -> list[SessionChecklistItem]:
+    """The ingredient panel's Alias chip — "same item as <alias_name>". Mechanically identical
+    to a 2-item Merge (member_name -> canonical_name fold); the only difference is that
+    `alias_name` is freely typed rather than picked from another checklist row, so this
+    doesn't need merge_items()'s have_it/add_to_list-preservation logic (there's no existing
+    row for the typed name to preserve state from)."""
+    session = sessions_service.get_session(db, session_id)
+    if session.status == "pushed":
+        raise SessionAlreadyPushedError(session_id)
+    item = _get_item(db, session_id, item_id)
+    canonical_name = item.ingredient_name
+    alias_norm = text_normalize.normalise_ingredient_name(alias_name)
+
+    if remember:
+        ingredient_aliases_service.create_alias(
+            db, IngredientAliasCreate(alias_name=alias_norm, canonical_name=canonical_name)
+        )
+    else:
+        session_merges.add_session_merge(db, session_id, alias_norm, canonical_name)
+
+    sessions_service.consolidate_session(db, session_id)
+    logger.info(
+        "Checklist item aliased: session_id=%s %r -> %r remember=%s",
+        session_id, alias_norm, canonical_name, remember,
+    )
+    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
+
+
+def pack_size_item(
+    db: Session,
+    session_id: int,
+    item_id: int,
+    *,
+    purchase_label: str,
+    purchase_qty: float,
+    purchase_unit: str | None,
+    remember: bool,
+) -> list[SessionChecklistItem]:
+    """The ingredient panel's Pack size chip. `remember=False` behaves like the existing
+    inline "+ Add pack size" form (`packSizeForm()` in checklist.js) except it doesn't write
+    to `product_units` at all — session-scoped only, via `session_ingredient_merges`."""
+    session = sessions_service.get_session(db, session_id)
+    if session.status == "pushed":
+        raise SessionAlreadyPushedError(session_id)
+    item = _get_item(db, session_id, item_id)
+    member_name = item.ingredient_name
+
+    if remember:
+        settings_service.create_product_unit(
+            db,
+            ProductUnitCreate(
+                ingredient_name=member_name,
+                purchase_label=purchase_label,
+                purchase_qty=purchase_qty,
+                purchase_unit=purchase_unit,
+                notes=None,
+            ),
+        )
+    else:
+        session_merges.add_session_pack_override(
+            db, session_id, member_name, purchase_label, purchase_qty, purchase_unit
+        )
+
+    sessions_service.consolidate_session(db, session_id)
+    logger.info(
+        "Checklist item pack size set: session_id=%s %r -> %s %s %r remember=%s",
+        session_id, member_name, purchase_qty, purchase_unit, purchase_label, remember,
+    )
+    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
+
+
+def coarse_item(
+    db: Session,
+    session_id: int,
+    item_id: int,
+    *,
+    purchase_label: str | None,
+    recipes_per_pack: int,
+    remember: bool,
+) -> list[SessionChecklistItem]:
+    """The ingredient panel's Coarse item chip — CLAUDE.md > Ingredient Unit Handling >
+    Layer D, applied "this list only" when not remembered."""
+    session = sessions_service.get_session(db, session_id)
+    if session.status == "pushed":
+        raise SessionAlreadyPushedError(session_id)
+    item = _get_item(db, session_id, item_id)
+    member_name = item.ingredient_name
+
+    if remember:
+        coarse_ingredients_service.create_coarse_ingredient(
+            db,
+            CoarseIngredientCreate(
+                name=member_name,
+                purchase_label=purchase_label,
+                recipes_per_pack=recipes_per_pack,
+                notes=None,
+            ),
+        )
+    else:
+        session_merges.add_session_coarse_override(
+            db, session_id, member_name, recipes_per_pack, purchase_label
+        )
+
+    sessions_service.consolidate_session(db, session_id)
+    logger.info(
+        "Checklist item marked coarse: session_id=%s %r recipes_per_pack=%s remember=%s",
+        session_id, member_name, recipes_per_pack, remember,
     )
     return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
 

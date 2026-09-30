@@ -37,9 +37,10 @@ contextual and dormant by default, not a permanent extra control cluttering ever
   always-visible secondary buttons.
 - The row's default, common-case appearance should look no busier than it does today.
 
-**Established reference example:** [Inline pack-size entry](./checklist-and-shopping.md#inline-pack-size-entry-2026-09-24)
-— tapping a raw quantity with no known pack size on the checklist expands an inline form that
-writes straight into the `product_units` table, no Settings trip required.
+**Established reference example:** [The ingredient panel](./checklist-and-shopping.md#the-ingredient-panel-2026-09-30-chunk-75)
+— tapping a checklist row expands pack size / substitute / alias / coarse-item / merge editing
+inline, each with an explicit "this list only" vs. "Always" choice, no Settings trip required
+unless "Always" is deliberately chosen.
 
 **What this means for future feature planning:** before adding a new Settings-screen field or
 table, ask whether a point-of-use screen (checklist, review, plan) could capture or correct the

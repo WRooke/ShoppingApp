@@ -345,13 +345,11 @@
           { ordered_ids: orderedIds }
         );
       },
-      consolidate: function (id, overrides) {
-        return jsonBody(
-          "POST",
-          "/api/v1/sessions/" + encodeURIComponent(id) + "/consolidate",
-          { overrides: overrides || [] }
-        );
-      },
+      // consolidate() removed 2026-09-30 (chunk 7.5) — no remaining frontend caller.
+      // checklist.js's own load() (GET /checklist/{id}) now always re-consolidates itself
+      // first (chunk 7.3), so nothing needs to POST /sessions/{id}/consolidate directly any
+      // more; the endpoint itself stays (still exercised by the backend test suite, still a
+      // reasonable standalone API surface), just unused from the UI.
     },
     checklist: {
       load: function (sessionId) {
@@ -394,6 +392,36 @@
       },
       merge: function (sessionId, data) {
         return jsonBody("POST", "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/merge", data);
+      },
+      // Ingredient panel (2026-09-30, chunk 7.5) — each writes either a session-scoped "this
+      // list only" edit or a permanent one, per `data.remember`. See routers/checklist.py.
+      substitute: function (sessionId, itemId, data) {
+        return jsonBody(
+          "POST",
+          "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/items/" + encodeURIComponent(itemId) + "/substitute",
+          data
+        );
+      },
+      alias: function (sessionId, itemId, data) {
+        return jsonBody(
+          "POST",
+          "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/items/" + encodeURIComponent(itemId) + "/alias",
+          data
+        );
+      },
+      packSize: function (sessionId, itemId, data) {
+        return jsonBody(
+          "POST",
+          "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/items/" + encodeURIComponent(itemId) + "/pack-size",
+          data
+        );
+      },
+      coarse: function (sessionId, itemId, data) {
+        return jsonBody(
+          "POST",
+          "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/items/" + encodeURIComponent(itemId) + "/coarse",
+          data
+        );
       },
     },
     diagnostics: {

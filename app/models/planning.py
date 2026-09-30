@@ -136,11 +136,31 @@ class SessionChecklistItem(Base):
 
 class SessionIngredientMerge(Base):
     """Fix 3, F3.1 (CLAUDE.md > Deferred Decisions > checklist-time merge) — a session-scoped,
-    ephemeral "fold these two checklist items into one, for this session only" rule, the
-    counterpart to a durable `ingredient_aliases` row (`remember=True` at the checklist merge
-    endpoint writes one of those instead — see `services/checklist.py::merge_items()`).
+    ephemeral "this list only" edit, the counterpart to writing a durable Settings row (the
+    checklist panel's "remember" tick writes one of those instead — see
+    `services/checklist.py::merge_items()` and the panel endpoints in `routers/checklist.py`).
 
-    Same cascade-delete pattern as `SessionRecipe`/`SessionChecklistItem` above — a merge that
+    **2026-09-30 (chunk 7.5, Checklist ingredient panel) — generalised beyond just "merge"**,
+    per `kind`, rather than building a sibling table per new session-scoped edit type (the
+    maintainer's own steer — this table already had the right shape: session-scoped row,
+    upsert-by-key, optional "remember" escape hatch to a permanent table):
+      - `merge`      (original, unchanged) — fold `member_name` into `canonical_name`.
+      - `substitute` — an ad-hoc ingredient swap, moved here from the now-deleted Review
+        screen's purely client-held `overrides` list (see CLAUDE.md > Deferred Decisions);
+        `member_name` = the original ingredient, `canonical_name` = the substitute.
+      - `pack_size`  — a "this list only" pack size; `purchase_label`/`purchase_qty`/
+        `purchase_unit` used instead of `canonical_name`/the alias/canonical qty-unit pair.
+      - `coarse`     — a "this list only" coarse-ingredient marking; `purchase_label`
+        (optional) + `recipes_per_pack` used, same as `coarse_ingredients`.
+    `member_name` means "the ingredient this row is about" for every kind — the one column
+    that generalises cleanly across all four. `canonical_name` is only meaningful for
+    `merge`/`substitute` (nullable at the DB level, enforced per-kind at the schema layer —
+    SQLite has no easy conditional-NOT-NULL); `purchase_label`/`purchase_qty`/`purchase_unit`/
+    `recipes_per_pack` only for `pack_size`/`coarse`. Each kind uses its own disjoint set of
+    extra columns rather than overloading `canonical_name`/`alias_qty` with a second meaning
+    per kind — self-documenting at the cost of a few more nullable columns, deliberately.
+
+    Same cascade-delete pattern as `SessionRecipe`/`SessionChecklistItem` above — a row that
     wasn't "remembered" disappears automatically when the session is archived/deleted, exactly
     "this week only" semantics with no manual cleanup code needed. `alias_qty`/`alias_unit`/
     `canonical_qty`/`canonical_unit` are the same optional equivalence-pair shape
@@ -149,18 +169,23 @@ class SessionIngredientMerge(Base):
     side is very often a bare discrete count)."""
 
     __tablename__ = "session_ingredient_merges"
-    __table_args__ = (UniqueConstraint("session_id", "member_name"),)
+    __table_args__ = (UniqueConstraint("session_id", "member_name", "kind"),)
 
     id = Column(Integer, primary_key=True)
     session_id = Column(
         Integer, ForeignKey("planning_sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    member_name = Column(Text, nullable=False)  # a merged-away checklist item's resolved name
-    canonical_name = Column(Text, nullable=False)  # the name it folds into, this session only
+    kind = Column(Text, nullable=False, default="merge", server_default="merge")
+    member_name = Column(Text, nullable=False)  # the ingredient this row is about, every kind
+    canonical_name = Column(Text, nullable=True)  # merge/substitute only — the name it becomes
     alias_qty = Column(Float, nullable=True)
     alias_unit = Column(Text, nullable=True)
     canonical_qty = Column(Float, nullable=True)
     canonical_unit = Column(Text, nullable=True)
+    purchase_label = Column(Text, nullable=True)  # pack_size/coarse only
+    purchase_qty = Column(Float, nullable=True)  # pack_size only
+    purchase_unit = Column(Text, nullable=True)  # pack_size only
+    recipes_per_pack = Column(Integer, nullable=True)  # coarse only
     created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
 
     session = relationship("PlanningSession", back_populates="ingredient_merges")

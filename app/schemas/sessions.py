@@ -12,9 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from app.schemas.substitutions import validate_equivalence_pair
+from pydantic import BaseModel, ConfigDict, Field
 
 SessionStatus = Literal["active", "pushed", "archived"]
 SlotType = Literal["recipe", "leftovers"]
@@ -120,34 +118,12 @@ class SlotOrderUpdate(BaseModel):
 # --- consolidation (Chunk 4.6) --------------------------------------------
 
 
-class SessionOverride(BaseModel):
-    """A one-off substitution that applies to THIS consolidate call only — nothing is
-    written to `remembered_substitutions`. Held client-side by the Chunk 4.7 UI and passed
-    in here (CLAUDE.md > Ingredient Substitution > Creation: "No -> applies to this
-    session's shopping list only").
-
-    Phase 3.9 M8: may also carry a quantity/unit equivalence pair (same all-or-none rule as a
-    saved swap). When present, it's applied to the *scaled* quantity of every line using
-    `original_name`, but only where `original_unit` matches that line's unit — otherwise the
-    override is name-only for that line. Resolved in `sessions.consolidate_session()`."""
-
-    original_name: str = Field(..., min_length=1)
-    substitute_name: str = Field(..., min_length=1)
-    original_qty: float | None = None
-    original_unit: str | None = None
-    substitute_qty: float | None = None
-    substitute_unit: str | None = None
-
-    @model_validator(mode="after")
-    def _check_pair(self) -> "SessionOverride":
-        validate_equivalence_pair(
-            self.original_qty, self.original_unit, self.substitute_qty, self.substitute_unit
-        )
-        return self
-
-
-class ConsolidateRequest(BaseModel):
-    overrides: list[SessionOverride] = Field(default_factory=list)
+# SessionOverride / ConsolidateRequest removed 2026-09-30 (chunk 7.5) — the ad-hoc,
+# session-only ingredient substitute used to be held client-side and sent in on every
+# consolidate call; it's now a real `session_ingredient_merges` (kind='substitute') row,
+# written via the checklist panel's own endpoint (routers/checklist.py) and read internally by
+# `session_consolidation.py`, regardless of what triggered consolidation. See
+# docs/checklist-and-shopping.md's "Review→Checklist merge — resolution" note.
 
 
 class ChecklistItemRead(BaseModel):
