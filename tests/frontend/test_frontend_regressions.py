@@ -822,3 +822,176 @@ def test_have_need_buttons_work_without_opening_the_panel(browser, api, server_u
     # The row must NOT have expanded into the breakdown/panel slot as a side effect.
     assert browser.eval("!document.querySelector('.edit-ingredient-toggle')")
     assert not browser.console_errors(), browser.console_errors()
+
+
+def test_back_closes_open_panel_before_navigating_away(browser, api, server_url):
+    """2026-09-30, chunk 7.6 — pressing Back once while a row's panel is open closes the panel
+    without changing the route (scenario the maintainer specifically asked to verify); a
+    second Back press then does the real navigation. Drives the real Plan -> Checklist button
+    click first so there's a genuine "real previous screen" to return to (not a bare
+    browser.navigate(), which starts a fresh page load with no history behind it)."""
+    item_name = normalise_ingredient_name(f"cdp-back-panel-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP back panel test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 1, "unit": None}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/plan/{session['id']}")
+    browser.click("button.primary", contains="Checklist")
+    browser.wait_for(".checklist-row")
+    checklist_hash = f"#/checklist/{session['id']}"
+    assert browser.eval("location.hash") == checklist_hash
+
+    _wait_for_value_match_text(browser, ".name", item_name)
+    expand_result = browser.eval(
+        "(function(name){"
+        "var rows=Array.from(document.querySelectorAll('.checklist-row'));"
+        "var row=rows.find(function(r){var n=r.querySelector('.name'); return n && n.textContent.indexOf(name)===0;});"
+        "if(!row) return 'ROW_NOT_FOUND';"
+        "row.querySelector('.name').click();"
+        "return 'OK';"
+        f"}})({json.dumps(item_name)})"
+    )
+    assert expand_result == "OK", expand_result
+    browser.wait_for(".recipe-breakdown")
+
+    # One Back press: the panel closes, the route does NOT change (no "dead" press, no skip).
+    browser.eval("history.back()")
+    deadline = time.monotonic() + TIMEOUT
+    closed = False
+    while time.monotonic() < deadline:
+        if browser.eval("!document.querySelector('.recipe-breakdown')"):
+            closed = True
+            break
+        time.sleep(0.1)
+    assert closed, "panel never closed on the first Back press"
+    assert browser.eval("location.hash") == checklist_hash
+
+    # A second Back press: now the real previous screen (Plan).
+    browser.eval("history.back()")
+    deadline = time.monotonic() + TIMEOUT
+    navigated = False
+    while time.monotonic() < deadline:
+        if browser.eval("location.hash") == f"#/plan/{session['id']}":
+            navigated = True
+            break
+        time.sleep(0.1)
+    assert navigated, "second Back press did not return to Plan"
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
+    """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
+    pressing Back first) must still leave the history stack balanced: Back from the recipe
+    detail this lands on must return straight to Checklist, no leftover dead press, no skipped
+    screen. This is the case a plain "push one entry, pop on popstate" guard gets wrong — a
+    forward link click fires no popstate at all, so the synthetic entry would otherwise dangle."""
+    item_name = normalise_ingredient_name(f"cdp-back-link-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP back link test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 1, "unit": None}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/plan/{session['id']}")
+    browser.click("button.primary", contains="Checklist")
+    browser.wait_for(".checklist-row")
+    checklist_hash = f"#/checklist/{session['id']}"
+
+    _wait_for_value_match_text(browser, ".name", item_name)
+    browser.eval(
+        "(function(name){"
+        "var rows=Array.from(document.querySelectorAll('.checklist-row'));"
+        "var row=rows.find(function(r){var n=r.querySelector('.name'); return n && n.textContent.indexOf(name)===0;});"
+        "row.querySelector('.name').click();"
+        f"}})({json.dumps(item_name)})"
+    )
+    browser.wait_for(".recipe-breakdown a")
+
+    # Tap the recipe-breakdown link directly -- no Back press first.
+    browser.eval("document.querySelector('.recipe-breakdown a').click()")
+    deadline = time.monotonic() + TIMEOUT
+    on_recipe = False
+    while time.monotonic() < deadline:
+        h = browser.eval("location.hash")
+        if h.startswith("#/recipes/") and h != checklist_hash:
+            on_recipe = True
+            break
+        time.sleep(0.1)
+    assert on_recipe, "tapping the breakdown link did not navigate to the recipe"
+
+    # One Back press from the recipe detail must land straight back on Checklist.
+    browser.eval("history.back()")
+    deadline = time.monotonic() + TIMEOUT
+    back_on_checklist = False
+    while time.monotonic() < deadline:
+        if browser.eval("location.hash") == checklist_hash:
+            back_on_checklist = True
+            break
+        time.sleep(0.1)
+    assert back_on_checklist, "Back from the recipe detail did not return straight to Checklist"
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def test_checklist_scroll_position_restored_after_visiting_a_recipe(browser, api, server_url):
+    """2026-09-30, chunk 7.6 — scrolling down on Checklist, visiting a recipe, then returning
+    restores the scroll position (checklist.js's savedScrollY, captured in unmount(), restored
+    once on the next mount())."""
+    item_name = normalise_ingredient_name(f"cdp-scroll-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP scroll test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            # Enough ingredients that the checklist genuinely overflows the viewport.
+            "ingredients": [
+                {"name": normalise_ingredient_name(f"{item_name}-{i}"), "quantity": 1, "unit": None}
+                for i in range(40)
+            ],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    browser.wait_for(".checklist-row")
+    browser.eval("window.scrollTo(0, 400)")
+    # Confirm the scroll actually took (the page really is tall enough) before relying on it.
+    deadline = time.monotonic() + TIMEOUT
+    scrolled = False
+    while time.monotonic() < deadline:
+        if browser.eval("window.scrollY") > 100:
+            scrolled = True
+            break
+        time.sleep(0.1)
+    assert scrolled, "page never actually scrolled — not enough content to test restoration"
+    scroll_before = browser.eval("window.scrollY")
+
+    browser.eval("location.hash = " + json.dumps(f"#/recipes/{recipe['id']}"))
+    browser.wait_for(".recipe-detail, h2")
+    browser.eval("history.back()")
+    browser.wait_for(".checklist-row")
+
+    deadline = time.monotonic() + TIMEOUT
+    restored = False
+    while time.monotonic() < deadline:
+        if abs(browser.eval("window.scrollY") - scroll_before) < 5:
+            restored = True
+            break
+        time.sleep(0.1)
+    assert restored, f"scroll position not restored (was {scroll_before}, now {browser.eval('window.scrollY')})"
+    assert not browser.console_errors(), browser.console_errors()

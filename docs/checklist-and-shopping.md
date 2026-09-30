@@ -109,6 +109,18 @@ when remembered) is documented, not silently accepted — see
 [deferred-decisions.md](./deferred-decisions.md)'s "No persistent 'don't suggest this pairing
 again' memory..." row.
 
+**Row expansion is screen-wide select-exclusive** (at most one row's breakdown/panel open at
+once, same one-open-at-a-time idiom as the chips within it), backed by a small shared module,
+`static/js/panel-back-guard.js` (2026-09-30, chunk 7.6) — pressing Back (hardware button,
+browser control, or an Android edge-swipe gesture; all fire the identical `popstate` event)
+closes an open row before navigating away, rather than skipping past it. Also intercepts —
+globally, in the capturing phase, before the link's own default navigation — any link tapped
+while a row is expanded (a recipe-breakdown link, a nav-bar link, anything else), since a plain
+forward link click fires `hashchange` but never `popstate`, and would otherwise leave the
+guard's synthetic history entry dangling. See the module's own docstring for the full
+"why a naive push-one-entry-pop-on-popstate approach silently eats a later Back press"
+reasoning — this was the maintainer's own specific concern during review.
+
 ### Checklist-time ingredient merge (Fix 3, 2026-09-27; reachable from the ingredient panel's
 Merge chip since chunk 7.5)
 

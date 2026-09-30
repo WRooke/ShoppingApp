@@ -85,35 +85,38 @@
     return wrap;
   }
 
-  // Builds a row's name element plus a tap-to-expand slot the caller appends to the row
-  // itself (flex-basis: 100%, so it wraps beneath the row's other controls, not squeezed).
-  // Expandable — the name becomes a real `<button>` (keyboard/screen-reader focusable,
-  // matching the now-deleted session-review.js's original) — when there's a recipe breakdown
-  // to show, OR `extraBuilder` is given (the ingredient panel, itemsGroup()'s regular rows
-  // only — point-of-need guardrail, CLAUDE.md > UI/UX: reviewGroup()'s rows don't get one,
-  // matching the plan's decision to scope the panel to regular rows). A plain `<div>`
-  // otherwise. Returns { nameEl, slot } — slot is null when there's nothing to expand at all.
-  function rowNameParts(item, extraBuilder) {
+  // Builds a row's name element plus a slot the caller appends to the row itself (flex-basis:
+  // 100%, so it wraps beneath the row's other controls, not squeezed). Expandable — the name
+  // becomes a real `<button>` (keyboard/screen-reader focusable, matching the now-deleted
+  // session-review.js's original) — when there's a recipe breakdown to show, OR `extraBuilder`
+  // is given (the ingredient panel, itemsGroup()'s regular rows only — point-of-need
+  // guardrail, CLAUDE.md > UI/UX: reviewGroup()'s rows don't get one, matching the plan's
+  // decision to scope the panel to regular rows). A plain `<div>` otherwise. Returns
+  // { nameEl, slot } — slot is null when there's nothing to expand at all.
+  //
+  // 2026-09-30 (chunk 7.6) — expansion is driven by the caller's own `isExpanded` state
+  // (screen-wide select-exclusive, see mount()'s expandedKey/toggleExpanded) rather than local
+  // DOM toggling, so it re-renders correctly from a single source of truth on every Back press
+  // (PanelBackGuard.close() calls rerender(), which rebuilds every row from expandedKey).
+  // Link clicks inside an expanded slot (recipe-breakdown links, chiefly) are handled globally
+  // by panel-back-guard.js's own capturing-phase click listener, not here — see its docstring
+  // for why a per-slot listener alone can't cover a nav-bar click too.
+  function rowNameParts(item, extraBuilder, isExpanded, onToggle) {
     var text = item.display_name || item.ingredient_name;
     var hasBreakdown = (item.recipe_breakdown || []).length > 0;
     if (!hasBreakdown && !extraBuilder) return { nameEl: el("div", "name", text), slot: null };
 
-    var nameEl = el("button", "name recipe-row-name-btn", text + " ▾");
+    var nameEl = el("button", "name recipe-row-name-btn", text + (isExpanded ? " ▴" : " ▾"));
+    nameEl.addEventListener("click", onToggle);
+    if (!isExpanded) return { nameEl: nameEl, slot: null };
+
     var slot = el("div");
     slot.style.flexBasis = "100%";
-    nameEl.addEventListener("click", function () {
-      if (slot.firstChild) {
-        slot.innerHTML = "";
-        nameEl.textContent = text + " ▾";
-        return;
-      }
-      if (hasBreakdown) slot.appendChild(renderBreakdown(item));
-      if (extraBuilder) {
-        var extra = extraBuilder();
-        if (extra) slot.appendChild(extra);
-      }
-      nameEl.textContent = text + " ▴";
-    });
+    if (hasBreakdown) slot.appendChild(renderBreakdown(item));
+    if (extraBuilder) {
+      var extra = extraBuilder();
+      if (extra) slot.appendChild(extra);
+    }
     return { nameEl: nameEl, slot: slot };
   }
 
@@ -133,9 +136,16 @@
     return wrap;
   }
 
+  // 2026-09-30 (chunk 7.6) — scroll position across a Back-then-forward round trip. Module
+  // level (not inside mount()'s own closure), since it must survive from one mount() call to
+  // the next one, across whatever screen was visited in between. Restored once per mount, on
+  // the first load() only — a later reload (e.g. after a panel save) shouldn't jump the page.
+  var savedScrollY = null;
+
   function mount(root, sessionId) {
     root.innerHTML = "";
     global.ChecklistPush.unmount(); // clears any push-progress timer from a prior mount
+    var restoredScroll = false;
     var pushUsualIds = {}; // id -> true, client-held until push
     // 2026-09-10 hand-testing ("0 items will go on the list" - was wrong): the summary line
     // used to be computed once at render() time and never touched again, so it went stale
@@ -166,10 +176,44 @@
       if (lastData) render(lastData);
     }
 
+    // 2026-09-30 (chunk 7.6) — screen-wide select-exclusive row expansion (at most one row's
+    // breakdown/panel open at a time), backed by PanelBackGuard so a Back press/gesture closes
+    // it before navigating away, rather than skipping straight past it. expandedKey is the
+    // expanded row's ingredient_name, or null.
+    var expandedKey = null;
+
+    function closeExpandedThen(fn) {
+      if (expandedKey === null) {
+        fn();
+        return;
+      }
+      global.PanelBackGuard.close(function () {
+        expandedKey = null;
+        fn();
+      });
+    }
+
+    function toggleExpanded(key) {
+      if (expandedKey === key) {
+        closeExpandedThen(rerender);
+        return;
+      }
+      closeExpandedThen(function () {
+        expandedKey = key;
+        global.PanelBackGuard.open(function () {
+          expandedKey = null;
+          rerender();
+        });
+        rerender();
+      });
+    }
+
     function onStartMerge(item) {
-      mergeMode = true;
-      mergeSelected[item.ingredient_name] = item;
-      rerender();
+      closeExpandedThen(function () {
+        mergeMode = true;
+        mergeSelected[item.ingredient_name] = item;
+        rerender();
+      });
     }
 
     root.appendChild(global.BackLink.render("plan"));
@@ -277,6 +321,16 @@
       });
       refreshSummary = pushSummary.refresh; // reassigned each render(); every state change calls this
       body.appendChild(pushSummary.el);
+
+      // 2026-09-30 (chunk 7.6) — restore scroll position from before the user last left this
+      // screen, once per mount only (a later reload, e.g. after a panel save, must not jump
+      // the page back to wherever they were before they even arrived this time).
+      if (!restoredScroll && savedScrollY != null) {
+        restoredScroll = true;
+        var restoreTo = savedScrollY;
+        savedScrollY = null;
+        window.scrollTo(0, restoreTo);
+      }
     }
 
     // --- needs-review ---
@@ -286,7 +340,11 @@
       review.forEach(function (item) {
         var row = el("div", "checklist-row");
         var main = el("div", "main");
-        var nameParts = rowNameParts(item);
+        var nameParts = rowNameParts(
+          item, null,
+          expandedKey === item.ingredient_name,
+          function () { toggleExpanded(item.ingredient_name); }
+        );
         main.appendChild(nameParts.nameEl);
         main.appendChild(el("div", "meta", item.note || "mixed units"));
         row.appendChild(main);
@@ -358,9 +416,11 @@
         var toggle = el("button", "btn-link", mergeMode ? "Cancel" : "Select to merge");
         toggle.style.marginLeft = "8px";
         toggle.addEventListener("click", function () {
-          mergeMode = !mergeMode;
-          mergeSelected = {};
-          rerender();
+          closeExpandedThen(function () {
+            mergeMode = !mergeMode;
+            mergeSelected = {};
+            rerender();
+          });
         });
         heading.appendChild(toggle);
       }
@@ -404,7 +464,9 @@
                   onStartMerge: onStartMerge,
                   onSaved: load,
                 });
-              }
+              },
+          expandedKey === item.ingredient_name,
+          function () { toggleExpanded(item.ingredient_name); }
         );
         main.appendChild(nameParts.nameEl);
         var metaRow = el("div", "meta-row");
@@ -672,6 +734,7 @@
 
   function unmount() {
     global.ChecklistPush.unmount();
+    savedScrollY = window.scrollY; // restored by the next mount() — see its own comment
   }
 
   global.ChecklistView = { mount: mount, unmount: unmount };
