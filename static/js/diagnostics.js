@@ -9,6 +9,7 @@
     timer: null,
     level: "",
     limit: 200,
+    lastErrors: [],
   };
 
   function el(tag, cls, text) {
@@ -194,6 +195,19 @@
     });
   }
 
+  // One line per entry: "timestamp | level | logger: message", then the full traceback (if
+  // any) on the following lines — plain text, suitable for pasting into a bug report or chat
+  // (diagnostics chunk 7.7, 5b). Always every entry currently shown on the Recent Errors
+  // card (ERROR+), never the level filter applied to the Live log tail below it.
+  function formatErrorsForClipboard(entries) {
+    return (entries || [])
+      .map(function (e) {
+        var header = fmtTime(e.time) + " | " + e.level + " | " + (e.logger ? e.logger + ": " : "") + e.message;
+        return e.traceback ? header + "\n" + e.traceback : header;
+      })
+      .join("\n\n");
+  }
+
   function refresh(root) {
     var statusPanel = root.querySelector("#diag-status");
     var errorsBox = root.querySelector("#diag-errors");
@@ -212,6 +226,7 @@
     api.diagnostics
       .recentErrors()
       .then(function (d) {
+        state.lastErrors = d.entries || [];
         if (errorsBox) renderLogLines(errorsBox, d.entries);
       })
       .catch(function () {});
@@ -245,7 +260,27 @@
 
     // recent errors
     var errCard = el("div", "card");
-    errCard.appendChild(el("h2", null, "Recent errors (last 10)"));
+    var errHead = el("div", "log-controls");
+    errHead.appendChild(el("h2", null, "Recent errors"));
+    var copyBtn = el("button", null, "Copy errors");
+    copyBtn.style.marginLeft = "auto";
+    copyBtn.addEventListener("click", function () {
+      var text = formatErrorsForClipboard(state.lastErrors);
+      if (!text) {
+        global.Toast.show("No errors to copy");
+        return;
+      }
+      navigator.clipboard
+        .writeText(text)
+        .then(function () {
+          global.Toast.show("Copied " + state.lastErrors.length + " error(s) to clipboard");
+        })
+        .catch(function (err) {
+          global.Toast.show("Couldn't copy: " + err.message);
+        });
+    });
+    errHead.appendChild(copyBtn);
+    errCard.appendChild(errHead);
     var errBox = el("div", "log-list errors-box");
     errBox.id = "diag-errors";
     errCard.appendChild(errBox);

@@ -2,7 +2,7 @@
 
 Provides:
   * GET  /api/v1/diagnostics/logs           live log tail (ring buffer)
-  * GET  /api/v1/diagnostics/recent-errors  last 10 ERROR+ entries
+  * GET  /api/v1/diagnostics/recent-errors  all ERROR+ entries currently in the ring buffer
   * GET  /api/v1/diagnostics/status         component status panel + AI quota / attempt log
 
 AnyList indicator is a stub until Phase 5. Phase 3.9 M5 replaced the USD "spend tracker" +
@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.log_config import get_log_entries
+from app.log_config import RING_BUFFER_MAXLEN, get_log_entries
 from app.models.history import ShoppingHistory
 from app.models.queue import CaptureQueueItem
 from app.services import ai_call_log
@@ -47,7 +47,11 @@ def logs(
 
 @router.get("/recent-errors")
 def recent_errors() -> dict:
-    entries = get_log_entries(limit=1000, level="ERROR")[:10]
+    # Returns every ERROR+ entry currently held in the ring buffer, not a fixed slice
+    # (diagnostics chunk 7.7, 5a — a truncated "last 10" was hiding real errors on a busy
+    # day). limit=RING_BUFFER_MAXLEN so nothing the buffer holds is ever cut off here; the
+    # buffer's own maxlen is what actually bounds how far back this can reach.
+    entries = get_log_entries(limit=RING_BUFFER_MAXLEN, level="ERROR")
     return {"ok": True, "data": {"entries": entries}}
 
 

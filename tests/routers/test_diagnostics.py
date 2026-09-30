@@ -8,6 +8,7 @@ The AI block now carries a daily quota indicator (`today_by_model`) + a recent-a
 
 from __future__ import annotations
 
+import logging as _logging
 from datetime import datetime, timezone
 
 # 2026-09-13 code review — `import app.database as database` + `database.SessionLocal()` at
@@ -146,7 +147,20 @@ def test_recent_errors_returns_ok_envelope(client):
     body = resp.json()
     assert body["ok"] is True
     assert isinstance(body["data"]["entries"], list)
-    assert len(body["data"]["entries"]) <= 10
+
+
+def test_recent_errors_returns_more_than_ten_when_more_than_ten_exist(client):
+    """2026-10-01 diagnostics chunk 7.7, 5a — /recent-errors used to hard-slice to the last
+    10 entries, hiding real errors on a busy day. It must now return every ERROR+ entry the
+    ring buffer holds, with no fixed cap of its own."""
+    logger = _logging.getLogger("tests.diagnostics.synthetic")
+    for i in range(15):
+        logger.error("synthetic diagnostics test error %d", i)
+
+    resp = client.get("/api/v1/diagnostics/recent-errors")
+    body = resp.json()
+    assert body["ok"] is True
+    assert len(body["data"]["entries"]) > 10
 
 
 def test_status_ai_block_reports_capture_queue(client):

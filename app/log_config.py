@@ -31,8 +31,12 @@ _LEVEL_ORDER = {
     "CRITICAL": 50,
 }
 
-# Newest entries are appended to the right. maxlen caps memory use.
-_ring: deque[dict] = deque(maxlen=1000)
+# Newest entries are appended to the right. maxlen caps memory use — worst case is
+# ~20MB (5000 entries × the 4000-char/entry traceback cap above). Raised from 1000 to 5000
+# 2026-10-01 (diagnostics chunk 7.7, 5a) alongside removing /recent-errors' [:10] slice, so a
+# burst of errors doesn't push genuinely recent ones out of the buffer before anyone's looked.
+RING_BUFFER_MAXLEN = 5000
+_ring: deque[dict] = deque(maxlen=RING_BUFFER_MAXLEN)
 
 
 class RingBufferHandler(logging.Handler):
@@ -76,6 +80,49 @@ def get_log_entries(limit: int = 200, level: str | None = None) -> list[dict]:
     return entries
 
 
+# WinError 10054 (WSAECONNRESET) constant, named rather than inlined so the filter below
+# reads as "the specific Windows reset error" rather than a bare magic number.
+_WSAECONNRESET = 10054
+
+
+class _WinsockResetNoiseFilter(logging.Filter):
+    """Downgrades the Proactor event loop's own WinError 10054 (ConnectionResetError)
+    noise from ERROR to DEBUG, instead of dropping it outright (diagnostics chunk 7.7, 5d).
+
+    On Windows, asyncio's ProactorEventLoop logs an ERROR via the ``asyncio`` logger
+    whenever a client (a phone's browser going to sleep mid-request, a flaky WiFi drop on
+    the household LAN) closes its TCP connection abruptly instead of a clean FIN — this is
+    routine on a home network, not an application fault, and was flooding /diagnostics'
+    Recent Errors card with entries that buried genuine errors underneath them.
+
+    Matched on the exception object itself (``isinstance`` + its ``.winerror`` attribute),
+    not a string search against the message — so it can't accidentally swallow an unrelated
+    real connection error that happens to share wording. Only ``ConnectionResetError``
+    records carrying exactly this Windows error code are touched; everything else, including
+    every other kind of connection failure, passes through unchanged at its original level.
+
+    Deliberately narrow (attached only to the ``asyncio`` logger, not root, and not a
+    blanket ``loop.set_exception_handler()`` override) per CLAUDE.md's "comment the why"
+    standard and the maintainer's explicit steer against anything broader.
+
+    Downgrading to DEBUG — rather than returning False to drop the record — keeps it
+    auditable: on a machine running with ``LOG_LEVEL=DEBUG`` the record still reaches
+    ``app.log``/the ring buffer (re-gated here to the same threshold every other DEBUG
+    record is already subject to via ``root.setLevel()``, since this one reaches that gate
+    late — the record was already created at ERROR before this filter ever saw it); at any
+    stricter level it's fully absent, same as any other DEBUG-level log line.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.exc_info:
+            exc = record.exc_info[1]
+            if isinstance(exc, ConnectionResetError) and getattr(exc, "winerror", None) == _WSAECONNRESET:
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+                return logging.getLogger().getEffectiveLevel() <= logging.DEBUG
+        return True
+
+
 _configured = False
 
 
@@ -107,6 +154,10 @@ def setup_logging() -> None:
 
     ring_handler = RingBufferHandler()
     root.addHandler(ring_handler)
+
+    # Attached to the "asyncio" logger specifically (not root — see the filter's own
+    # docstring for why a broader hook was deliberately rejected).
+    logging.getLogger("asyncio").addFilter(_WinsockResetNoiseFilter())
 
     # uvicorn's access log stays at INFO (its default) rather than being quietened to
     # WARNING: CLAUDE.md > Security §4 explicitly wants "light access logging on

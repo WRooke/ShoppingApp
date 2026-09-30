@@ -18,6 +18,16 @@ readily apparent when, where, why and how something has failed.
 ### Log file
 - Write to `logs/app.log` in the project root
 - Rotate daily, keep 14 days of history (`logging.handlers.TimedRotatingFileHandler`)
+- The in-memory ring buffer that backs the Diagnostics UI (`/logs`, `/recent-errors`) holds
+  the most recent 5000 entries (`app/log_config.py::RING_BUFFER_MAXLEN`, raised from 1000 at
+  chunk 7.7) — bounded, not unbounded, so `app.log` (unbounded, rotated daily instead) is the
+  place to look for anything older than the buffer currently holds
+- A `logging.Filter` on the `asyncio` logger downgrades WinError 10054
+  (`ConnectionResetError`, WSAECONNRESET) noise from a Windows client dropping its TCP
+  connection mid-request — routine on a home LAN/WiFi, not an application fault — from ERROR
+  to DEBUG, so it no longer floods `/recent-errors`; still visible at DEBUG when
+  `LOG_LEVEL=DEBUG` (`app/log_config.py::_WinsockResetNoiseFilter`, chunk 7.7 5d). Nothing
+  else is filtered this way — an unrelated real connection error still surfaces at ERROR.
 
 ### Diagnostics web UI
 A `/diagnostics` page in the web app (accessible from the main nav) must show:
@@ -35,7 +45,11 @@ A `/diagnostics` page in the web app (accessible from the main nav) must show:
 - **Recent capture attempt log**: last N `ai_call_log` rows — task type, model tried, outcome
   (`success` / `quota` / `error` / `queued`), error detail. Queued captures are also surfaced
   here.
-- **Recent errors**: last 10 ERROR-level entries highlighted prominently at the top
+- **Recent errors**: every ERROR-level (and above) entry currently in the ring buffer,
+  highlighted prominently at the top, with a "Copy errors" button that copies all of them
+  (timestamp, level, message, full traceback) to the clipboard in one go *(was a fixed "last
+  10" until 2026-10-01 diagnostics chunk 7.7, 5a/5b — a truncated slice was hiding real
+  errors on a busy day)*
 
 The diagnostics page must be built as a skeleton in Phase 1 and populated progressively as
 each component is added.

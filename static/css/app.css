@@ -28,7 +28,10 @@
 }
 .log-line {
   display: grid;
-  grid-template-columns: 128px 64px 1fr;
+  /* 2026-10-01 diagnostics chunk 7.7 (5c) — message column widened (was 1fr sharing a tight
+     128px/64px time/level split, squeezing real messages); time column narrowed since the
+     fixed-width monospace timestamp never needed 128px. */
+  grid-template-columns: 96px 64px 1fr;
   gap: 8px;
   padding: 4px 8px;
   border-top: 1px solid #efece8;
@@ -36,7 +39,9 @@
   word-break: break-word;
 }
 .log-line:first-child { border-top: none; }
-.log-time { color: var(--text-dim); }
+/* 2026-10-01 (5c): was --text-dim, too low-contrast for a reading-heavy log tail — switched
+   to the full-contrast --text token, same fix as .log-trace below. */
+.log-time { color: var(--text); }
 .log-level { font-weight: 700; }
 .log-level.DEBUG   { color: var(--grey); }
 .log-level.INFO    { color: var(--accent); }
@@ -50,7 +55,7 @@
   padding: 6px 8px;
   font-family: inherit;
   font-size: 0.85em;
-  color: var(--text-dim);
+  color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
   background: rgba(0, 0, 0, 0.03);
@@ -60,9 +65,11 @@
 .errors-box {
   border: 1px solid var(--red);
   border-radius: 6px;
-  background: #fdf3f3;
+  /* 2026-10-01 (5c): was a hardcoded #fdf3f3 — didn't adapt in dark mode (washed-out white-ish
+     pink on a dark background). var(--danger-tint) is the same idea, themed. */
+  background: var(--danger-tint);
 }
-.errors-box .log-line { border-top-color: #f3d6d6; }
+.errors-box .log-line { border-top-color: var(--border); }
 
 .updated-note {
   font-size: 0.75rem;
