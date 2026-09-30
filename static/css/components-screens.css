@@ -257,6 +257,14 @@
 .checklist-row {
   display: flex; align-items: center; gap: var(--sp-3);
   padding: var(--sp-3) 0; border-top: 1px solid var(--border);
+  /* 2026-10-01 phase-7-review fix — checklist.js's expand-slot (recipe breakdown + the
+     ingredient panel, chunks 7.4/7.5) is appended as a third flex child with an inline
+     flex-basis:100%, meant to drop onto its own full-width line below .main/.have-need-pair
+     (see rowNameParts()'s own docstring). Without flex-wrap here, a flex-basis alone never
+     forces that line break — flex-shrink:1 (the default) instead squeezed all three items
+     onto one line, crushing .meta's quantity text into a sliver narrow enough to wrap
+     character-by-character. Caught in the chunk 7.8 phase-end review screenshot pass. */
+  flex-wrap: wrap;
 }
 .checklist-row:first-of-type { border-top: none; }
 .checklist-row .main { flex: 1; min-width: 0; }

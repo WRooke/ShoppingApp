@@ -539,6 +539,12 @@ change chunk order and scope, not just because they happened.
       pills), expanding a past row to reveal its recipe name/day, and the full archive → Undo →
       re-verify-active round trip confirmed against the API at each step. Zero console errors
       throughout.
+**2026-10-01 note:** [Phase 7](./phase-7-checklist-consolidation-and-diagnostics.md) (Review→
+Checklist merge, the per-ingredient edit panel, AI substitution-flagging removal, back-
+navigation, diagnostics) ran to completion ahead of this chunk and the Phase 6 review below, to
+handle an urgent maintainer feedback batch — see that file's own out-of-sequence note. Chunk
+6.7 and the Phase 6 review are still open and still the next item on this phase's own roadmap.
+
 - [ ] **Chunk 6.7 — User testing with secondary users; gather feedback.** Manual pass with the
       secondary/non-technical household member(s), after the visual/usability work above, not
       before. Quick fixes land in this chunk; bigger findings become

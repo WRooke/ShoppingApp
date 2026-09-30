@@ -995,3 +995,54 @@ def test_checklist_scroll_position_restored_after_visiting_a_recipe(browser, api
         time.sleep(0.1)
     assert restored, f"scroll position not restored (was {scroll_before}, now {browser.eval('window.scrollY')})"
     assert not browser.console_errors(), browser.console_errors()
+
+
+def test_expanded_row_meta_text_is_not_squeezed_onto_its_own_line(browser, api, server_url):
+    """2026-10-01, chunk 7.8 phase-end review — caught live via a screenshot (and flagged
+    independently by the maintainer looking at the same one): `.checklist-row` is a `flex`
+    container with no `flex-wrap`, so the expand-slot (recipe breakdown + edit panel,
+    chunks 7.4/7.5), appended as a third flex child with an inline `flex-basis: 100%`, never
+    actually got its own line the way `rowNameParts()`'s docstring says it should — instead
+    `flex-shrink: 1` (the default) squeezed `.main`'s quantity text down to a sliver narrow
+    enough to wrap character-by-character. Fixed with `flex-wrap: wrap` on `.checklist-row`
+    (static/css/components-screens.css). Asserted here via actual geometry (the slot's top
+    must be below the meta text's bottom), not just a CSS property, so a future change that
+    achieves the same property a different, still-broken way would still be caught."""
+    item_name = normalise_ingredient_name(f"cdp-meta-squeeze-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP meta squeeze test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 400, "unit": "g"}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    _wait_for_value_match_text(browser, ".name", item_name)
+    _expand_and_open_edit(browser, item_name)
+
+    rects = browser.eval(
+        "(function(){"
+        "var row=Array.from(document.querySelectorAll('.checklist-row')).find(function(r){"
+        "  var n=r.querySelector('.name'); return n && n.textContent.indexOf(" + json.dumps(item_name) + ")===0;"
+        "});"
+        "var main=row.querySelector('.main');"
+        "var meta=row.querySelector('.meta');"
+        "var slot=row.querySelector('.edit-ingredient-toggle').closest('div[style]');"
+        "return {metaBottom: meta.getBoundingClientRect().bottom, slotTop: slot.getBoundingClientRect().top, "
+        "mainWidth: main.getBoundingClientRect().width, rowWidth: row.getBoundingClientRect().width};"
+        "})()"
+    )
+    # The panel must render below the meta line (own line), not overlapping/squeezed beside it.
+    assert rects["slotTop"] >= rects["metaBottom"] - 1, rects
+    # .main (name + meta) must still occupy most of the row's width, not be squeezed down to a
+    # sliver alongside the Have it/Need it buttons — the actual mechanism of the bug (meta's
+    # own text width varies by ingredient/pack data, so asserting on .main's column width
+    # directly is what catches a regression regardless of what a given test ingredient's
+    # quantity text happens to say).
+    assert rects["mainWidth"] > rects["rowWidth"] * 0.5, rects
+    assert not browser.console_errors(), browser.console_errors()
