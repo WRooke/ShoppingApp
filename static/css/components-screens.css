@@ -154,9 +154,10 @@
 }
 .draft-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 
-/* --- step indicator (sessions.js, session-review.js) — Chunk 6.3. Plan -> Review ->
-   Checklist -> Push; the last two stay inactive placeholders here since checklist.js's own
-   matching indicator is Chunk 6.3b's job (gated separately, see phase-6-polish.md). --- */
+/* --- step indicator (sessions.js, checklist.js) — Chunk 6.3. Plan -> Checklist -> Push
+   (was Plan -> Review -> Checklist -> Push until 2026-09-30, chunk 7.4, when the standalone
+   Review screen was deleted); the last two stay inactive placeholders on sessions.js's own
+   copy, active on checklist.js's through both the pre-push and pushing states. --- */
 .step-list {
   display: flex;
   gap: var(--sp-2);

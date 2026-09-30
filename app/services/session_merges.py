@@ -7,10 +7,11 @@ mirrors that module's own shape (`AliasResolution`, `alias_map()`-style bulk loa
 `services/checklist.py::merge_items()` and `session_consolidation.py::_apply_session_merge()`
 can treat a session merge exactly like an alias resolution wherever the two overlap.
 
-Built as the reusable precedent for `HANDOVER-review-checklist-merge.md`'s still-open
-"override persistence across page loads" question (same table shape, same
-bulk-load-once-per-consolidate convention) — this module does not implement that separate,
-undecided proposal, just avoids painting it into a corner.
+Built as the reusable precedent for the Review→Checklist merge's "override persistence across
+page loads" question (same table shape, same bulk-load-once-per-consolidate convention) —
+resolved 2026-09-30 by extending this same table with a `kind` discriminator rather than a
+parallel mechanism, see docs/checklist-and-shopping.md's "Review→Checklist merge — resolution"
+note (chunk 7.5 does the actual extension).
 
 Plain Python / SQLAlchemy — no ``fastapi`` import. Exceptions translate to the envelope in
 app/main.py.

@@ -87,9 +87,10 @@
 .recipe-row-meta { font-size: 0.85rem; }
 .recipe-row-rating { font-size: 1.1rem; }
 
-/* 2026-09-11 — the ingredient-review "which recipe is this from" expandable name (session-
-   review.js > renderItemRow). A <button> so it's tappable, styled to still read as a plain
-   heading label rather than a boxed button. */
+/* 2026-09-11 — the "which recipe is this from" expandable name; moved 2026-09-30 (chunk 7.4)
+   from the now-deleted session-review.js (Review screen) to checklist.js's own rows. A
+   <button> so it's tappable, styled to still read as a plain heading label rather than a
+   boxed button. */
 .recipe-row-name-btn {
   background: none;
   border: none;

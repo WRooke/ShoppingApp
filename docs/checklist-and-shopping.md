@@ -3,6 +3,14 @@
 ## Checklist Screen Logic
 
 At checklist screen load:
+0. **Consolidate the session first** (`services/checklist.py > load_checklist()`, **2026-09-30,
+   chunk 7.3**) — every load, not just the first. Checklist used to require a separate,
+   standalone "Review" screen to have already run `POST /sessions/{id}/consolidate` at least
+   once (raising `409 CHECKLIST_NOT_CONSOLIDATED` otherwise); that screen is deleted (chunk
+   7.4, below) and Checklist now works standalone, straight from Plan. Safe to do
+   unconditionally: consolidation's upsert already preserves `have_it`/`add_to_list`/
+   `already_on_anylist` for every line that persists (see [Scaling Logic > "Re-running
+   consolidation is a merge, not a rebuild"](./scaling-and-consolidation.md#scaling-logic)).
 1. Fetch current AnyList items (names + quantities)
 2. For each consolidated ingredient in `session_checklist_items`:
    a. Check if it appears in current AnyList list (fuzzy name match — normalised lowercase,
@@ -85,6 +93,36 @@ small panel:
 - Have-it/add-to-list state on a merged-away row is preserved onto the surviving canonical row
   (strongest value wins: "no" beats "yes" beats "unknown" for have-it; any "add to list" wins) —
   merging never silently discards an in-progress decision.
+
+### Review→Checklist merge — resolution of the 2026-09-24 handover (2026-09-30)
+
+A standalone Review screen (`session-review.js`, between Plan and Checklist) used to be the
+only place that triggered consolidation, showed the recipe breakdown, and offered an ad-hoc
+session-only ingredient swap. An investigation written 2026-09-24
+(`HANDOVER-review-checklist-merge.md`, since folded in here and deleted per its own stated
+lifecycle) found it mostly redundant with Checklist and proposed merging it in, but flagged one
+blocking question first: **how does an ad-hoc, not-yet-remembered swap survive Checklist
+re-consolidating on every load**, when two existing call sites (pack-size save, Fix-3 merge)
+already re-consolidate with no override list at all? Resolved as part of this merge (chunks
+7.3–7.5): a new session-scoped override store (generalising the existing
+`session_ingredient_merges` table Fix 3 already built, rather than a parallel mechanism) holds
+every "this list only" edit — including the ad-hoc swap — and `session_consolidation.py` reads
+it internally on every consolidate call, regardless of what triggered it. The three other
+open items the handover raised: the step indicator collapses to `Plan → Checklist → Push`
+(done, chunk 7.4); `session-review.js` is deleted outright, not kept dormant (done, chunk 7.4);
+row crowding is addressed by the ingredient panel's own mockup gate (chunk 7.1) rather than a
+separate pass.
+
+### Recipe breakdown — "which recipe is this from" (moved here 2026-09-30, chunk 7.4)
+
+Every regular and needs-review row's name becomes a tappable `▾`/`▴` toggle when
+`item.recipe_breakdown` is non-empty (`checklist.js > rowNameParts()`), expanding to a small
+list of "Recipe name — amount" rows, each linking to its recipe (`#/recipes/<id>`). Ported
+verbatim from the now-deleted standalone Review screen (`session-review.js`), which was the
+only place this ran before Checklist consolidated itself (chunk 7.3 makes `recipe_breakdown`
+available on every checklist load, not just a one-off review pass). Full design — one row per
+contributing recipe *slot*, never merged, ephemeral/recomputed every load — in [Scaling Logic
+\> Which Recipe Is This Ingredient From](./scaling-and-consolidation.md#which-recipe-is-this-ingredient-from).
 
 ### "The usuals" — household recurring items
 

@@ -453,7 +453,7 @@ def test_inline_pack_size_entry_resolves_this_session_and_preserves_other_items(
     result = browser.eval(
         "(function(name){"
         "var rows=Array.from(document.querySelectorAll('.checklist-row'));"
-        "var row=rows.find(function(r){var n=r.querySelector('.name'); return n && n.textContent===name;});"
+        "var row=rows.find(function(r){var n=r.querySelector('.name'); return n && n.textContent.indexOf(name)===0;});"
         "if(!row) return 'ROW_NOT_FOUND';"
         "var btn=row.querySelector('.btn-link');"
         "if(!btn) return 'ADD_PACK_BUTTON_NOT_FOUND';"
@@ -495,10 +495,13 @@ def test_inline_pack_size_entry_resolves_this_session_and_preserves_other_items(
 
 def _wait_for_value_match_text(browser, selector: str, text: str, *, timeout: float = TIMEOUT) -> None:
     """Like _wait_for_value_match, but for element .textContent instead of .value — used for
-    the checklist's .name divs, which aren't inputs."""
+    the checklist's .name divs/buttons, which aren't inputs. Prefix match, not exact equality
+    (2026-09-30, chunk 7.4): a row whose ingredient has a recipe breakdown renders its name as
+    "<name> ▾" (checklist.js > rowNameParts()) — true for virtually every real checklist row,
+    since any item consolidated from an actual recipe has at least one contributing recipe."""
     expr = (
         f"Array.from(document.querySelectorAll({json.dumps(selector)}))"
-        f".some(function(e){{return e.textContent === {json.dumps(text)};}})"
+        f".some(function(e){{return e.textContent.indexOf({json.dumps(text)}) === 0;}})"
     )
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -606,5 +609,41 @@ def test_queued_capture_shows_message_not_a_blank_review_form(browser, server_ur
     # The bug this regresses: landing on the real review form instead (blank, no
     # explanation) — assert its distinguishing markup is simply not there.
     assert "Review extracted recipe" not in browser.html("body")
+
+
+def test_plan_goes_straight_to_checklist_no_review_step(browser, api, server_url):
+    """2026-09-30, chunk 7.4 — the standalone Review screen ("Review ingredients & shopping
+    list") between Plan and Checklist is deleted; Plan's sticky action now links straight to
+    Checklist, which consolidates itself on load (chunk 7.3) with zero prior explicit
+    /consolidate call. Drives the real button click end to end (not just a direct
+    #/checklist/<id> navigation, which every other checklist test already covers) so a
+    regression in the button's own wiring would actually be caught."""
+    item_name = normalise_ingredient_name(f"cdp-plan-to-checklist-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP plan-to-checklist test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 500, "unit": "g"}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+    # Deliberately no POST /sessions/{id}/consolidate here — the whole point of chunk 7.3.
+
+    browser.navigate(f"{server_url}/#/plan/{session['id']}")
+    browser.wait_for(".step-list")
+    step_list_text = browser.text(".step-list")
+    assert step_list_text.replace(" ", "") == "Plan→Checklist→Push"
+    assert "Review" not in browser.html("body")
+
+    browser.click("button.primary", contains="Checklist")
+    browser.wait_for(".checklist-row")
+
+    assert browser.eval("location.hash") == f"#/checklist/{session['id']}"
+    assert item_name in browser.text(".checklist-row .name")
+    assert browser.text(".step-list").replace(" ", "") == "Plan→Checklist→Push"
+    assert not browser.console_errors(), browser.console_errors()
     assert browser.eval("!document.querySelector('.ingredient-edit-row')")
     assert not browser.console_errors(), browser.console_errors()

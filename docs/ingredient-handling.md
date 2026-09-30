@@ -289,13 +289,15 @@ updated). Everything below describes the manual-only mechanism that remains.
   "save this swap" tick, after extraction, before the recipe is saved.
 - **Recipe editor** (`recipe-edit.js`) — the same per-ingredient controls, so a swap can be
   added / changed / cleared later. Clearing `resolved_ingredient` reverts to `name`.
-- **Planning session review** (`session-review.js`) — the existing ad-hoc swap, now a
-  **session-only override** (client-held, passed in `ConsolidateRequest.overrides`, resolved
-  in `consolidate_session()` before `consolidate()`). From M8 an override may also carry the
-  equivalence pair (`SessionOverride` gains `original_qty`/`original_unit`/`substitute_qty`/
-  `substitute_unit`), applied to the scaled quantity for every line using that name — only
-  where `original_unit` matches the line's unit. Optional "also save this swap" →
-  `remembered_substitutions` row; never edits recipe data.
+- **Planning, ad-hoc + session-only** — **in transition as of 2026-09-30.** Used to live on
+  the standalone Review screen (`session-review.js`), deleted in chunk 7.4 of the
+  Review→Checklist merge; the swap itself (a **session-only override**, resolved in
+  `consolidate_session()` before `consolidate()` — from M8 may also carry the equivalence
+  pair, `original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`, applied to the
+  scaled quantity where `original_unit` matches the line's unit; optional "also save this
+  swap" → `remembered_substitutions` row, never edits recipe data) is unchanged, but has no UI
+  home until chunk 7.5 lands it on Checklist's own ingredient panel — see
+  [Checklist Screen Logic](./checklist-and-shopping.md#checklist-screen-logic).
 - **Settings** (`settings-substitutions.js`) — reframed: view / edit note / delete
   `remembered_substitutions` entries. A pure quick-pick library. No default toggle. Deleting
   never touches recipes or past sessions.

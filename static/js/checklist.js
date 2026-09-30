@@ -35,9 +35,9 @@
   function qtyText(item) {
     // 2026-09-10 hand-testing: a note on a normally-resolved line (an overage hint, "(+ to
     // taste)", or — new — an Ingredient Aliases conversion note like "from 4 tbsp lemon
-    // juice") used to only show up on the session-review screen, never here on the
-    // checklist, even though this is the screen right before push. Matched to
-    // session-review.js's renderItemRow so both screens show the same information.
+    // juice") used to only show up on the session-review screen (now deleted, 2026-09-30,
+    // chunk 7.4), never here on the checklist, even though this is the screen right before
+    // push. Fixed by matching that screen's own equivalent formatting at the time.
     if (item.needs_review) return item.note || "mixed units";
     var unit = item.display_unit || item.total_unit;
     if (item.display_qty) {
@@ -61,12 +61,64 @@
     return unit ? fmtNum(opt.quantity) + " " + unit : fmtNum(opt.quantity);
   }
 
-  // Shared Plan -> Review -> Checklist -> Push indicator (own small copy — see
-  // session-review.js/sessions.js's identical helper and this file family's
-  // self-contained-feature-file precedent). Push happens on this same screen (no separate
-  // route), so "Checklist" stays active through both the pre-push and pushing states.
+  // "Which recipe is this ingredient from" (CLAUDE.md > scaling-and-consolidation.md) — moved
+  // here 2026-09-30 (chunk 7.4) from the now-deleted session-review.js (Review screen), ported
+  // verbatim: one row per contributing recipe SLOT, never merged (even two slots of the same
+  // recipe show separately). Ephemeral display aid — the data itself is recomputed fresh on
+  // every checklist load (checklist.py > load_checklist(), chunk 7.3), never stored.
+  function fmtContribution(c) {
+    if (c.is_no_scale) return "to taste";
+    var n = c.quantity === Math.round(c.quantity) ? String(Math.round(c.quantity)) : String(c.quantity);
+    return c.unit ? n + " " + c.unit : n;
+  }
+
+  function renderBreakdown(item) {
+    var wrap = el("div", "recipe-breakdown");
+    (item.recipe_breakdown || []).forEach(function (c) {
+      var line = el("div", "recipe-breakdown-row muted");
+      var link = el("a", null, c.recipe_label);
+      if (c.recipe_id != null) link.href = "#/recipes/" + c.recipe_id;
+      line.appendChild(link);
+      line.appendChild(document.createTextNode(" — " + fmtContribution(c)));
+      wrap.appendChild(line);
+    });
+    return wrap;
+  }
+
+  // Builds a row's name element plus (only when a breakdown actually exists — point-of-need
+  // guardrail, CLAUDE.md > UI/UX) a tap-to-expand breakdown slot the caller appends to the row
+  // itself (flex-basis: 100%, so it wraps beneath the row's other controls, not squeezed). The
+  // name is a real `<button>` when expandable (keyboard/screen-reader focusable, matching
+  // session-review.js's original), a plain `<div>` otherwise, same as every other row today.
+  // Returns { nameEl, slot } — slot is null when there's nothing to expand.
+  function rowNameParts(item) {
+    var text = item.display_name || item.ingredient_name;
+    var hasBreakdown = (item.recipe_breakdown || []).length > 0;
+    if (!hasBreakdown) return { nameEl: el("div", "name", text), slot: null };
+
+    var nameEl = el("button", "name recipe-row-name-btn", text + " ▾");
+    var slot = el("div");
+    slot.style.flexBasis = "100%";
+    nameEl.addEventListener("click", function () {
+      if (slot.firstChild) {
+        slot.innerHTML = "";
+        nameEl.textContent = text + " ▾";
+        return;
+      }
+      slot.appendChild(renderBreakdown(item));
+      nameEl.textContent = text + " ▴";
+    });
+    return { nameEl: nameEl, slot: slot };
+  }
+
+  // Shared Plan -> Checklist -> Push indicator (own small copy — see sessions.js's identical
+  // helper and this file family's self-contained-feature-file precedent). Was
+  // Plan -> Review -> Checklist -> Push until 2026-09-30 (chunk 7.4), when the standalone
+  // Review screen was deleted and its useful parts (recipe breakdown, above) folded in here.
+  // Push happens on this same screen (no separate route), so "Checklist" stays active through
+  // both the pre-push and pushing states.
   function stepIndicator(activeLabel) {
-    var labels = ["Plan", "Review", "Checklist", "Push"];
+    var labels = ["Plan", "Checklist", "Push"];
     var wrap = el("div", "step-list");
     labels.forEach(function (label, i) {
       wrap.appendChild(el("span", label === activeLabel ? "on" : null, label));
@@ -208,9 +260,11 @@
       review.forEach(function (item) {
         var row = el("div", "checklist-row");
         var main = el("div", "main");
-        main.appendChild(el("div", "name", item.display_name || item.ingredient_name));
+        var nameParts = rowNameParts(item);
+        main.appendChild(nameParts.nameEl);
         main.appendChild(el("div", "meta", item.note || "mixed units"));
         row.appendChild(main);
+        if (nameParts.slot) row.appendChild(nameParts.slot);
         wrap.appendChild(row);
 
         var picks = el("div", "log-controls");
@@ -308,7 +362,10 @@
         // "chicken thigh") for this line's own resolved amount — see
         // services/checklist_display.py. Falls back to ingredient_name for safety if an older
         // cached response is ever re-rendered without display_name.
-        main.appendChild(el("div", "name", item.display_name || item.ingredient_name));
+        // 2026-09-30 (chunk 7.4) — tap-to-expand recipe breakdown, ported from the now-deleted
+        // Review screen; only expandable when item.recipe_breakdown is non-empty.
+        var nameParts = rowNameParts(item);
+        main.appendChild(nameParts.nameEl);
 
         // 2026-09-24 — inline "+ Add pack size" entry, no navigation to Settings. Shown only
         // when this item has a real quantity but no known product_units row at all (the exact
@@ -371,6 +428,7 @@
           pair.appendChild(needBtn);
           row.appendChild(pair);
         }
+        if (nameParts.slot) row.appendChild(nameParts.slot);
         wrap.appendChild(row);
       });
 

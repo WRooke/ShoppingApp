@@ -1,8 +1,9 @@
 /* Planning sessions view (#/plan) — session list + a session workspace where
-   recipes are added, scaled and slotted into days. The ingredient-review /
-   ad-hoc-swap / consolidated-summary screen lives in session-review.js (split
-   per CLAUDE.md > Code Architecture & Maintainability > file size discipline).
-   See CLAUDE.md > Build Phases > Phase 4 > Chunk 4.7. */
+   recipes are added, scaled and slotted into days. Goes straight to Checklist
+   (#/checklist/<id>) from here — the standalone Review screen this used to hand off to
+   (session-review.js) was deleted 2026-09-30 (chunk 7.4); Checklist now consolidates itself
+   and shows what Review used to (recipe breakdown; the ad-hoc swap moves there too, chunk
+   7.5). See CLAUDE.md > Build Phases > Phase 4 > Chunk 4.7. */
 
 (function (global) {
   "use strict";
@@ -32,10 +33,12 @@
     return null;
   }
 
-  // Shared Plan -> Review -> Checklist -> Push indicator (Chunk 6.3). The last two stay
-  // inactive placeholders here — checklist.js's own matching indicator is Chunk 6.3b's job.
+  // Shared Plan -> Checklist -> Push indicator (Chunk 6.3; was Plan -> Review -> Checklist ->
+  // Push until 2026-09-30, chunk 7.4, when the standalone Review screen was deleted). The
+  // last two stay inactive placeholders here — checklist.js's own matching indicator is
+  // active through both the pre-push and pushing states on that screen.
   function stepIndicator(activeLabel) {
-    var labels = ["Plan", "Review", "Checklist", "Push"];
+    var labels = ["Plan", "Checklist", "Push"];
     var wrap = el("div", "step-list");
     labels.forEach(function (label, i) {
       wrap.appendChild(el("span", label === activeLabel ? "on" : null, label));
@@ -354,17 +357,20 @@
     card.appendChild(weekSection);
     global.SessionWeek.render(weekSection, session, reload);
 
-    // --- review --- (sticky — kickoff decision #12, the primary forward action on a
-    // screen that can get long once several recipes are slotted in)
-    var reviewRow = el("div", "log-controls sticky-actions");
-    var reviewBtn = el("button", "primary", "Review ingredients & shopping list →");
-    reviewBtn.disabled = slots.length === 0;
-    reviewBtn.addEventListener("click", function () {
-      var root = card.parentNode;
-      global.SessionReviewView.mount(root, session.id);
+    // --- checklist --- (sticky — kickoff decision #12, the primary forward action on a
+    // screen that can get long once several recipes are slotted in). 2026-09-30 (chunk 7.4):
+    // used to mount the standalone Review screen (SessionReviewView) here first; that screen
+    // is deleted — Checklist now goes straight from Plan, consolidating itself on load
+    // (chunk 7.3) and showing the recipe-breakdown Review used to be the only place for
+    // (chunk 7.4, folded into checklist.js's own rows).
+    var checklistRow = el("div", "log-controls sticky-actions");
+    var checklistBtn = el("button", "primary", "Checklist →");
+    checklistBtn.disabled = slots.length === 0;
+    checklistBtn.addEventListener("click", function () {
+      global.Router.navigate("checklist", session.id);
     });
-    reviewRow.appendChild(reviewBtn);
-    card.appendChild(reviewRow);
+    checklistRow.appendChild(checklistBtn);
+    card.appendChild(checklistRow);
   }
 
   // --- entry point -----------------------------------------------
