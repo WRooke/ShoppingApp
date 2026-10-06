@@ -1,0 +1,96 @@
+/* PROPOSED new component styles for Chunk 6.7 (docs/mockups/chunk-6.7/). Everything here is built
+   from the existing design tokens only (no literals except sizes) and reuses the real classes in
+   static/css/components*.css. Once the mockups are approved this file moves, unchanged, into
+   static/css/components-screens.css — that is the "implementation" of the visual spec. */
+
+/* ---------- push tracker: Reading → Sending → Confirming → Done ---------- */
+.push-stages {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3);
+  list-style: none; margin: var(--sp-3) 0 var(--sp-2); padding: 0;
+  font-size: var(--text-sm); color: var(--text-faint);
+}
+.push-stages li { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.push-stages li::before {
+  content: ""; width: 14px; height: 14px; border-radius: 50%; box-sizing: border-box;
+  border: 2px solid var(--border-strong); flex-shrink: 0;
+}
+.push-stages li.done { color: var(--text); }
+.push-stages li.done::before { background: var(--success); border-color: var(--success); content: "✓"; color: var(--bg);
+  font-size: 10px; line-height: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.push-stages li.active { color: var(--text); font-weight: 600; }
+.push-stages li.active::before { border-color: var(--accent); border-top-color: transparent; animation: push-spin .8s linear infinite; }
+.push-stages li.failed { color: var(--danger); font-weight: 600; }
+.push-stages li.failed::before { background: var(--danger); border-color: var(--danger); content: "✕"; color: var(--bg);
+  font-size: 10px; line-height: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.push-stages .count { font-family: var(--font-mono); font-weight: 500; color: var(--text-dim); }
+@keyframes push-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .push-stages li.active::before { animation: none; } }
+
+/* the per-item list stays short: scrolls inside itself so the Push button never leaves the screen */
+.push-steps { max-height: 11.5rem; overflow-y: auto; border-top: 1px solid var(--border); margin-top: var(--sp-2); }
+.push-steps .step-label { font-size: var(--text-sm); }
+.push-note { font-size: var(--text-sm); color: var(--text-dim); margin-top: var(--sp-2); display: flex; gap: var(--sp-2); align-items: center; }
+
+/* ---------- push result ---------- */
+.push-result {
+  display: flex; gap: var(--sp-3); align-items: flex-start; margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); border: 1px solid var(--success); background: var(--success-tint);
+}
+.push-result.warn { border-color: var(--warning); background: var(--warning-tint); }
+.push-result.bad { border-color: var(--danger); background: var(--danger-tint); }
+.push-result .ico { font-size: 1.25rem; line-height: 1.2; }
+.push-result .body { flex: 1; min-width: 0; }
+.push-result .title { font-weight: 700; }
+.push-result .sub { font-size: var(--text-sm); color: var(--text-dim); margin-top: 2px; }
+.push-result .actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); flex-wrap: wrap; }
+.result-list { list-style: none; margin: var(--sp-2) 0 0; padding: 0; font-size: var(--text-sm); }
+.result-list li { display: grid; grid-template-columns: 1fr auto; gap: 2px var(--sp-2); padding: var(--sp-2) 0; border-top: 1px solid var(--border); }
+.result-list li:first-child { border-top: none; }
+.result-list .why { grid-column: 1 / -1; color: var(--danger); font-size: var(--text-xs); }
+.chip-out { font-size: var(--text-xs); font-weight: 700; padding: 1px 8px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text-dim); white-space: nowrap; }
+.chip-out.added { background: var(--success-tint); color: var(--success); }
+.chip-out.updated { background: var(--accent-tint); color: var(--accent); }
+.chip-out.uncrossed { background: var(--warning-tint); color: var(--warning); }
+.chip-out.failed { background: var(--danger-tint); color: var(--danger); }
+
+/* ---------- inline question / notice card (replaces native confirm()) ---------- */
+.inline-card {
+  margin-top: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md);
+  border: 1px solid var(--border-strong); background: var(--surface); box-shadow: var(--shadow-1);
+}
+.inline-card.warn { border-color: var(--warning); background: var(--warning-tint); }
+.inline-card .title { font-weight: 700; margin-bottom: var(--sp-1); }
+.inline-card .body { font-size: var(--text-sm); color: var(--text-dim); }
+.inline-card .actions { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+.inline-card .actions.row { flex-direction: row; flex-wrap: wrap; }
+.inline-card .actions button { flex: 1; min-width: 0; }
+.inline-card .fine { font-size: var(--text-xs); color: var(--text-dim); margin-top: var(--sp-1); }
+
+/* ---------- merge panel ---------- */
+.merge-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-3); font-size: var(--text-sm); }
+.name-chip { padding: 2px 10px; border-radius: var(--r-pill); background: var(--surface-2); border: 1px solid var(--border); font-weight: 600; }
+.name-chip.keep { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.radio-row { display: flex; align-items: center; gap: var(--sp-2); min-height: 44px; }
+.radio-row input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+.merge-pick { margin: 0 0 var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
+.merge-select-checkbox { width: 22px; height: 22px; accent-color: var(--accent); flex-shrink: 0; align-self: center; }
+
+/* ---------- toast: wrapping + error variant ---------- */
+.toast { white-space: normal; max-width: min(92vw, 28rem); }
+.toast.error { background: var(--danger); color: var(--bg); }
+.toast.error button { color: inherit; text-decoration: underline; }
+
+/* ---------- settings: where an alias came from ---------- */
+.source-tag { font-size: var(--text-xs); font-weight: 600; padding: 1px 8px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text-dim); white-space: nowrap; }
+.source-tag.merge { background: var(--accent-tint); color: var(--accent); }
+.source-tag.system { background: var(--surface-2); color: var(--text-faint); }
+
+/* ---------- diagnostics: push history + build ---------- */
+.push-history { margin-top: var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--surface); }
+.push-history .hdr { padding: var(--sp-2) var(--sp-3); background: var(--surface-2); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .04em; font-weight: 700; color: var(--text-dim); }
+.push-history .history-body { display: block; padding: 0 var(--sp-3) var(--sp-2); }
+.status-pill.confirmed { background: var(--success-tint); color: var(--success); }
+.status-pill.attention { background: var(--danger-tint); color: var(--danger); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--sp-3); font-size: var(--text-sm); margin-top: var(--sp-1); }
+.kv dt { color: var(--text-dim); } .kv dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); word-break: break-all; }
+.mono { font-family: var(--font-mono); }

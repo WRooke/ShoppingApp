@@ -1,0 +1,201 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AnyList push — progress, result and Diagnostics</title>
+<link rel="stylesheet" href="../../../static/css/components.css"><link rel="stylesheet" href="../../../static/css/components-screens.css">
+<link rel="stylesheet" href="../../../static/css/app.css"><link rel="stylesheet" href="proposed.css">
+<style>.theme-light {
+  
+
+  /* --- colour: light (default) --- */
+  --bg: #f6f3ee;
+  --surface: #fffdf9;
+  --surface-2: #efeae1;
+  --border: #ddd5c7;
+  --border-strong: #c9bfab;
+  --text: #2a2620;
+  --text-dim: #766e5f;
+  --text-faint: #a89d89;
+
+  --accent: #1f6b63;        /* Teal — decided 2026-09-19 over the originally-tried blue, which
+                                read poorly against this warm ground (blue works in dark mode
+                                instead, see the dark block below) */
+  --accent-hover: #17524c;
+  --accent-tint: #dceae7;
+  --accent-contrast: #fdfdfd;
+
+  --success: #3c7a4b;
+  --success-tint: #e4f0e5;
+  --warning: #a8752e;
+  --warning-tint: #f5ead9;
+  --danger: #a3352b;
+  --danger-tint: #f6e3e0;
+  --grey-state: #8a8375;
+  --focus: var(--accent);
+
+  --shadow-1: 0 1px 2px rgba(42, 38, 32, .06), 0 1px 1px rgba(42, 38, 32, .04);
+  --shadow-2: 0 4px 14px rgba(42, 38, 32, .10), 0 1px 3px rgba(42, 38, 32, .06);
+
+  /* legacy names (pre-Phase-6) — same values as their semantic equivalents above, kept so
+     app.css's not-yet-migrated rules (log levels, dup-warn, pending-ai badge, have-toggle, ...)
+     need no edits to pick up the new palette + dark mode */
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --grey: var(--grey-state);
+
+  /* --- type --- */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: .75rem;
+  --text-sm: .8125rem;
+  --text-base: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+
+  /* --- spacing --- */
+  --sp-1: .25rem;
+  --sp-2: .5rem;
+  --sp-3: .75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius --- */
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --nav-h: 64px; /* was 60px pre-Phase-6; the emoji icon set (Chunk 6.1) needs a touch more */
+color-scheme: light; }
+.theme-dark {
+  
+
+  /* --- colour: light (default) --- */
+  --bg: #f6f3ee;
+  --surface: #fffdf9;
+  --surface-2: #efeae1;
+  --border: #ddd5c7;
+  --border-strong: #c9bfab;
+  --text: #2a2620;
+  --text-dim: #766e5f;
+  --text-faint: #a89d89;
+
+  --accent: #1f6b63;        /* Teal — decided 2026-09-19 over the originally-tried blue, which
+                                read poorly against this warm ground (blue works in dark mode
+                                instead, see the dark block below) */
+  --accent-hover: #17524c;
+  --accent-tint: #dceae7;
+  --accent-contrast: #fdfdfd;
+
+  --success: #3c7a4b;
+  --success-tint: #e4f0e5;
+  --warning: #a8752e;
+  --warning-tint: #f5ead9;
+  --danger: #a3352b;
+  --danger-tint: #f6e3e0;
+  --grey-state: #8a8375;
+  --focus: var(--accent);
+
+  --shadow-1: 0 1px 2px rgba(42, 38, 32, .06), 0 1px 1px rgba(42, 38, 32, .04);
+  --shadow-2: 0 4px 14px rgba(42, 38, 32, .10), 0 1px 3px rgba(42, 38, 32, .06);
+
+  /* legacy names (pre-Phase-6) — same values as their semantic equivalents above, kept so
+     app.css's not-yet-migrated rules (log levels, dup-warn, pending-ai badge, have-toggle, ...)
+     need no edits to pick up the new palette + dark mode */
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --grey: var(--grey-state);
+
+  /* --- type --- */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: .75rem;
+  --text-sm: .8125rem;
+  --text-base: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+
+  /* --- spacing --- */
+  --sp-1: .25rem;
+  --sp-2: .5rem;
+  --sp-3: .75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius --- */
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --nav-h: 64px; /* was 60px pre-Phase-6; the emoji icon set (Chunk 6.1) needs a touch more */
+
+  --bg: #1b1916;
+  --surface: #242019;
+  --surface-2: #2e2a22;
+  --border: #3d372c;
+  --border-strong: #544c3c;
+  --text: #f1ece1;
+  --text-dim: #b6ab96;
+  --text-faint: #7f7461;
+
+  --accent: #7db0e0;
+  --accent-hover: #98c1e7;
+  --accent-tint: #233242;
+  --accent-contrast: #14202b;
+
+  --success: #7ec98b;
+  --success-tint: #20321f;
+  --warning: #dba75f;
+  --warning-tint: #3a2c17;
+  --danger: #e3897d;
+  --danger-tint: #3a201c;
+  --grey-state: #a49b89;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, .45);
+color-scheme: dark; }
+
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400 700; src: url("../../../static/fonts/ibm-plex-sans-var.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("../../../static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 600; src: url("../../../static/fonts/ibm-plex-mono-600.woff2") format("woff2"); }
+html { background: #d9d6cf; }
+body { margin: 0; padding: 24px 16px 80px; font-family: "IBM Plex Sans", system-ui, sans-serif; color: #2a2620; }
+.mock-wrap { max-width: 1000px; margin: 0 auto; }
+h1.mock { font-size: 1.5rem; margin: 0 0 4px; } p.lede { margin: 0 0 24px; max-width: 70ch; color: #4a463e; }
+.scene { margin: 0 0 40px; }
+.scene h2 { font-size: 1.05rem; margin: 0 0 2px; } .scene .note { margin: 0 0 12px; max-width: 80ch; color: #4a463e; font-size: .9rem; }
+.pair { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.frame { width: 390px; box-sizing: border-box; border-radius: 20px; overflow: hidden; position: relative; background: var(--bg); color: var(--text);
+  font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: var(--text-base); line-height: 1.5; border: 1px solid #00000033;
+  box-shadow: 0 6px 24px #00000026; }
+.cap { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #4a463e; margin: 0 0 4px 6px; font-weight: 700; }
+.frame .pad { padding: var(--sp-4); }
+.frame h3 { margin: 0 0 var(--sp-2); font-size: var(--text-md); }
+.frame .app-header { position: static; }
+.frame .bottom-nav { position: static; }
+.frame .sticky-actions { position: static; }
+.frame .update-banner { position: static; }
+.frame .toast-static { display: flex; justify-content: center; padding: var(--sp-3) var(--sp-3) var(--sp-4); }
+.frame .toast { position: static; transform: none; opacity: 1; }
+.frame .statusbar { display: flex; justify-content: space-between; padding: 6px 18px; font-size: 12px; font-weight: 600; background: var(--bg); color: var(--text); }
+.frame.phone-notch .update-banner { padding-top: calc(var(--sp-2) + 28px); }
+.cmp { display: flex; gap: 20px; flex-wrap: wrap; } .cmp .tag { font-weight: 700; margin: 0 0 6px; font-size: .85rem; }
+.nav-links a { margin-right: 16px; }
+.decide { background: #fff8; border: 1px solid #0003; border-radius: 12px; padding: 14px 18px; max-width: 80ch; }
+/* "AnyList app" imitation for the naming page */
+.al { background: #212226; color: #fff; font-family: Roboto, system-ui, sans-serif; }
+.al .top { padding: 14px 16px; border-bottom: 1px solid #0006; } .al .top b { font-size: 1.15rem; display: block; } .al .top span { color: #b9bbc2; font-size: .9rem; }
+.al .item { padding: 13px 16px; border-bottom: 1px solid #ffffff22; font-size: 1.05rem; } .al .item small { color: #9a9ca3; font-size: .9rem; } .al .item.sub small { display: block; margin-top: 2px; }
+.al .item .bad { background: #7a2a2a; border-radius: 4px; padding: 0 3px; } .al .item .good { background: #1f5d3a; border-radius: 4px; padding: 0 3px; }
+</style></head><body><div class="mock-wrap">
+<p class="nav-links"><a href="index.html">&larr; All mockups</a><a href="push.html">Push</a><a href="banner.html">Update banner</a><a href="popups.html">No popups</a><a href="names.html">Names</a></p>
+<h1 class="mock">AnyList push — progress, result and Diagnostics</h1><p class="lede">Everything visible about the push. The behaviour behind it is already built and live-tested (docs/anylist-push.md); these screens are the part waiting for your approval.</p><section class="scene"><h2>1. Push — idle</h2><p class="note">Unchanged from today: the summary line and the button. (Shown so the other states have context.)</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="step-list"><span class="">Plan</span><span class="sep">→</span><span class="on">Checklist</span><span class="sep">→</span><span class="">Push</span></div><div class="card"><h2>Shopping checklist</h2><div class="checklist-row"><div class="main"><button class="name recipe-row-name-btn">beef mince ▾</button><div class="meta-row"><div class="meta">500 g</div></div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="false">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="checklist-row"><div class="main"><button class="name recipe-row-name-btn">eggs ▾</button><div class="meta-row"><div class="meta">8</div></div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="false">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="checklist-row"><div class="main"><button class="name recipe-row-name-btn">salt ▾</button><div class="meta-row"><div class="meta">to taste</div></div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="true">Have it</button><button class="have-need-btn need" aria-pressed="false">Need it</button></div></div><div class="muted" style="margin-top:12px">31 ingredient(s) + 2 of 3 usual(s) selected will go on the list.</div><div class="sticky-actions"><button class="primary btn-block">Push to AnyList</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="step-list"><span class="">Plan</span><span class="sep">→</span><span class="on">Checklist</span><span class="sep">→</span><span class="">Push</span></div><div class="card"><h2>Shopping checklist</h2><div class="checklist-row"><div class="main"><button class="name recipe-row-name-btn">beef mince ▾</button><div class="meta-row"><div class="meta">500 g</div></div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="false">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="checklist-row"><div class="main"><button class="name recipe-row-name-btn">eggs ▾</button><div class="meta-row"><div class="meta">8</div></div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="false">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="checklist-row"><div class="main"><button class="name recipe-row-name-btn">salt ▾</button><div class="meta-row"><div class="meta">to taste</div></div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="true">Have it</button><button class="have-need-btn need" aria-pressed="false">Need it</button></div></div><div class="muted" style="margin-top:12px">31 ingredient(s) + 2 of 3 usual(s) selected will go on the list.</div><div class="sticky-actions"><button class="primary btn-block">Push to AnyList</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section><section class="scene"><h2>2. Push — sending</h2><p class="note">Terse, four stages: Reading your list → Sending (n of N) → Confirming → Done. Each item just shows its name with the existing spinner/tick icons (no 'Adding…/Added…' sentences). The list scrolls inside itself so the Push button never leaves the screen. Items are tracked by checklist row, so the ticks always line up (today they never do).</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sticky-actions"><button class="primary btn-block" disabled><span class="spinner"></span> Pushing…</button></div><ol class="push-stages"><li class="done">Reading your list</li><li class="active">Sending <span class="count">12 of 31</span></li><li class="">Confirming</li><li class="">Done</li></ol><div class="push-steps"><div class="step-list-vertical"><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Beef Mince</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Eggs</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Olive Oil</div></div><div class="step-row"><div class="step-icon active"></div><div class="step-label active">Red Capsicums</div></div><div class="step-row"><div class="step-icon pending"></div><div class="step-label pending">Salt</div></div><div class="step-row"><div class="step-icon pending"></div><div class="step-label pending">Spring Onions</div></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sticky-actions"><button class="primary btn-block" disabled><span class="spinner"></span> Pushing…</button></div><ol class="push-stages"><li class="done">Reading your list</li><li class="active">Sending <span class="count">12 of 31</span></li><li class="">Confirming</li><li class="">Done</li></ol><div class="push-steps"><div class="step-list-vertical"><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Beef Mince</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Eggs</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Olive Oil</div></div><div class="step-row"><div class="step-icon active"></div><div class="step-label active">Red Capsicums</div></div><div class="step-row"><div class="step-icon pending"></div><div class="step-label pending">Salt</div></div><div class="step-row"><div class="step-icon pending"></div><div class="step-label pending">Spring Onions</div></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section><section class="scene"><h2>3. Push — confirming</h2><p class="note">The new real step: after the last item is sent, the app re-reads the AnyList list and checks every item is there, uncrossed, with the right amount. Nothing is called 'done' until this passes. Any retries happen here.</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sticky-actions"><button class="primary btn-block" disabled><span class="spinner"></span> Pushing…</button></div><ol class="push-stages"><li class="done">Reading your list</li><li class="done">Sending</li><li class="active">Confirming</li><li class="">Done</li></ol><div class="push-steps"><div class="step-list-vertical"><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Beef Mince</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Eggs</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Olive Oil</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Red Capsicums</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Salt</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Spring Onions</div></div></div></div><div class="push-note"><span class="spinner"></span> Checking AnyList has everything…</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sticky-actions"><button class="primary btn-block" disabled><span class="spinner"></span> Pushing…</button></div><ol class="push-stages"><li class="done">Reading your list</li><li class="done">Sending</li><li class="active">Confirming</li><li class="">Done</li></ol><div class="push-steps"><div class="step-list-vertical"><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Beef Mince</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Eggs</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Olive Oil</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Red Capsicums</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Salt</div></div><div class="step-row"><div class="step-icon done">✓</div><div class="step-label done">Spring Onions</div></div></div></div><div class="push-note"><span class="spinner"></span> Checking AnyList has everything…</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section><section class="scene"><h2>4. Push — done (collapsed, then Details open)</h2><p class="note">Replaces the 5-second toast. It stays until you leave the screen, and only appears after the read-back passed. Details lists every item with what happened to it ('un-crossed' = it was ticked off on AnyList from last week and has been put back).</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="push-result"><span class="ico">✓</span><div class="body"><div class="title">31 on your list</div><div class="sub">27 added · 3 updated (1 un-crossed) · 1 already there</div></div><button class="btn-link">Details ▾</button></div><div class="push-result" style="margin-top:var(--sp-3)"><span class="ico">✓</span><div class="body"><div class="title">31 on your list</div><div class="sub">27 added · 3 updated (1 un-crossed) · 1 already there</div><ul class="result-list"><li><span>Beef Mince</span><span class="chip-out uncrossed">un-crossed</span></li><li><span>Eggs</span><span class="chip-out updated">updated</span></li><li><span>Olive Oil</span><span class="chip-out added">added</span></li><li><span>Red Capsicums</span><span class="chip-out added">added</span></li><li><span>Salt</span><span class="chip-out">already there</span></li><li><span>Spring Onions</span><span class="chip-out">already there</span></li></ul></div><button class="btn-link">Hide ▴</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="push-result"><span class="ico">✓</span><div class="body"><div class="title">31 on your list</div><div class="sub">27 added · 3 updated (1 un-crossed) · 1 already there</div></div><button class="btn-link">Details ▾</button></div><div class="push-result" style="margin-top:var(--sp-3)"><span class="ico">✓</span><div class="body"><div class="title">31 on your list</div><div class="sub">27 added · 3 updated (1 un-crossed) · 1 already there</div><ul class="result-list"><li><span>Beef Mince</span><span class="chip-out uncrossed">un-crossed</span></li><li><span>Eggs</span><span class="chip-out updated">updated</span></li><li><span>Olive Oil</span><span class="chip-out added">added</span></li><li><span>Red Capsicums</span><span class="chip-out added">added</span></li><li><span>Salt</span><span class="chip-out">already there</span></li><li><span>Spring Onions</span><span class="chip-out">already there</span></li></ul></div><button class="btn-link">Hide ▴</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section><section class="scene"><h2>5. Push — some items need attention</h2><p class="note">Never a green tick when something is missing. Failed items are named with the plain reason; everything else is already on the list. Try again re-reads the list and retries only the failed ones — no 'already pushed' prompt, no duplicates.</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="push-result warn"><span class="ico">⚠️</span><div class="body"><div class="title">2 items need attention</div><div class="sub">The other 29 are on your list.</div><ul class="result-list"><li><span>Red Capsicums</span><span class="chip-out failed">failed</span><span class="why">Not on the list after sending — AnyList ignored it 3 times.</span></li><li><span>Beef Mince</span><span class="chip-out failed">failed</span><span class="why">Quantity shows “1”, expected “500 g”.</span></li></ul><div class="actions"><button class="primary btn-sm">Try again</button><button class="btn-sm">Details ▾</button></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="push-result warn"><span class="ico">⚠️</span><div class="body"><div class="title">2 items need attention</div><div class="sub">The other 29 are on your list.</div><ul class="result-list"><li><span>Red Capsicums</span><span class="chip-out failed">failed</span><span class="why">Not on the list after sending — AnyList ignored it 3 times.</span></li><li><span>Beef Mince</span><span class="chip-out failed">failed</span><span class="why">Quantity shows “1”, expected “500 g”.</span></li></ul><div class="actions"><button class="primary btn-sm">Try again</button><button class="btn-sm">Details ▾</button></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section><section class="scene"><h2>6. Push — couldn't reach AnyList</h2><p class="note">If the very first read fails nothing has been changed, and it says so. Uses the existing error box (replaces the pop-up alert).</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sticky-actions"><button class="primary btn-block">Push to AnyList</button></div><div class="error-state" style="margin-top:var(--sp-3)"><div><b>Couldn’t reach AnyList.</b><br>Nothing was changed. Check the connection and try again.<div class="actions" style="margin-top:8px"><button class="btn-sm primary">Try again</button></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sticky-actions"><button class="primary btn-block">Push to AnyList</button></div><div class="error-state" style="margin-top:var(--sp-3)"><div><b>Couldn’t reach AnyList.</b><br>Nothing was changed. Check the connection and try again.<div class="actions" style="margin-top:8px"><button class="btn-sm primary">Try again</button></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section><section class="scene"><h2>7. Diagnostics — push history</h2><p class="note">The AnyList row keeps its dot and message; below it, recent pushes with the per-item result. This is the first place to look for 'why didn't X arrive' (the push id ties it to the log lines). 'Check AnyList now' stays as today.</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Diagnostics</h1></header><div class="pad"><div class="card"><h2>Component status</h2><div class="status-row"><span class="dot red"></span><div class="status-body"><div class="status-name">AnyList connection</div><div class="status-msg">Last push was not fully confirmed — 2 items need attention</div><div class="status-msg">enabled: yes · list: TestList · creds: keyring</div><div class="status-msg"><button class="btn-sm">Check AnyList now</button></div></div></div><div class="push-history"><div class="hdr">Recent pushes</div><div class="history-row open"><div class="history-head"><div class="main"><div class="name">Today 6:35 pm</div><div class="meta">31 lines · push 9d3a1c7e</div></div><span class="status-pill attention">2 failed</span><span class="chev">›</span></div><div class="history-body"><ul class="result-list"><li><span>Red Capsicums</span><span class="chip-out failed">failed</span><span class="why">Not on the list after sending (retried 2×)</span></li><li><span>Beef Mince</span><span class="chip-out failed">failed</span><span class="why">Quantity shows “1”, expected “500 g”</span></li><li><span>Eggs</span><span class="chip-out updated">updated</span></li><li><span>Salt</span><span class="chip-out">already there</span></li></ul><dl class="kv"><dt>Timings</dt><dd>read 0.6s · send 9.1s · confirm 1.2s</dd><dt>Log</dt><dd>grep 9d3a1c7e logs/app.log</dd></dl></div></div><div class="history-row"><div class="history-head"><div class="main"><div class="name">Today 9:12 am</div><div class="meta">27 lines · push 41be07a2</div></div><span class="status-pill confirmed">confirmed</span><span class="chev">›</span></div></div><div class="history-row"><div class="history-head"><div class="main"><div class="name">Mon 3:02 pm</div><div class="meta">19 lines · push 7c20de19</div></div><span class="status-pill confirmed">confirmed</span><span class="chev">›</span></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item active"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Diagnostics</h1></header><div class="pad"><div class="card"><h2>Component status</h2><div class="status-row"><span class="dot red"></span><div class="status-body"><div class="status-name">AnyList connection</div><div class="status-msg">Last push was not fully confirmed — 2 items need attention</div><div class="status-msg">enabled: yes · list: TestList · creds: keyring</div><div class="status-msg"><button class="btn-sm">Check AnyList now</button></div></div></div><div class="push-history"><div class="hdr">Recent pushes</div><div class="history-row open"><div class="history-head"><div class="main"><div class="name">Today 6:35 pm</div><div class="meta">31 lines · push 9d3a1c7e</div></div><span class="status-pill attention">2 failed</span><span class="chev">›</span></div><div class="history-body"><ul class="result-list"><li><span>Red Capsicums</span><span class="chip-out failed">failed</span><span class="why">Not on the list after sending (retried 2×)</span></li><li><span>Beef Mince</span><span class="chip-out failed">failed</span><span class="why">Quantity shows “1”, expected “500 g”</span></li><li><span>Eggs</span><span class="chip-out updated">updated</span></li><li><span>Salt</span><span class="chip-out">already there</span></li></ul><dl class="kv"><dt>Timings</dt><dd>read 0.6s · send 9.1s · confirm 1.2s</dd><dt>Log</dt><dd>grep 9d3a1c7e logs/app.log</dd></dl></div></div><div class="history-row"><div class="history-head"><div class="main"><div class="name">Today 9:12 am</div><div class="meta">27 lines · push 41be07a2</div></div><span class="status-pill confirmed">confirmed</span><span class="chev">›</span></div></div><div class="history-row"><div class="history-head"><div class="main"><div class="name">Mon 3:02 pm</div><div class="meta">19 lines · push 7c20de19</div></div><span class="status-pill confirmed">confirmed</span><span class="chev">›</span></div></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item active"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section><section class="scene"><h2>8. Diagnostics — running build</h2><p class="note">Answers 'is the NUC running the code I just deployed?' at a glance (and is what the update banner compares). Same status-row pattern as the others.</p><div class="pair"><div class="framewrap"><div class="cap">light</div><div class="frame theme-light "><header class="app-header"><h1>Diagnostics</h1></header><div class="pad"><div class="card"><h2>Component status</h2><div class="status-row"><span class="dot green"></span><div class="status-body"><div class="status-name">Running build</div><div class="status-msg">Started today 7:41 pm</div><dl class="kv"><dt>Build</dt><dd>37ef218b7f12</dd><dt>Release</dt><dd>release-20261006-091500Z</dd><dt>Process</dt><dd>boot a6e4ac08d401</dd></dl></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item active"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Diagnostics</h1></header><div class="pad"><div class="card"><h2>Component status</h2><div class="status-row"><span class="dot green"></span><div class="status-body"><div class="status-name">Running build</div><div class="status-msg">Started today 7:41 pm</div><dl class="kv"><dt>Build</dt><dd>37ef218b7f12</dd><dt>Release</dt><dd>release-20261006-091500Z</dd><dt>Process</dt><dd>boot a6e4ac08d401</dd></dl></div></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item active"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></section></div></body></html>

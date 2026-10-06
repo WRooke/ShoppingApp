@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -25,6 +25,7 @@ from app.config import settings
 from app.database import SessionLocal, init_db
 from app.log_config import setup_logging
 from app.seed_data import seed_reference_data
+from app.services import version as version_service
 from app.routers import (
     anylist,
     checklist,
@@ -86,7 +87,6 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_DIR = BASE_DIR / "static"
 
 
 @asynccontextmanager
@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
     logger.info(
         "=== ShoppingApp starting (port %s, log level %s) ===", settings.port, settings.log_level
     )
+    version_service.get_build_info()  # logs "Build: id=… label=… boot_id=…" so every restart is traceable
     # Phase 5 — nudge toward keyring storage for the AnyList credentials (CLAUDE.md > Security
     # §2). Logged here, not in config.py, because logging isn't configured at config import.
     if settings.anylist_secret_source in ("env", "mixed"):
@@ -457,13 +458,36 @@ app.include_router(settings_router.router)
 
 
 # --- static frontend --------------------------------------------------
+#
+# Cache policy (2026-10-06, update-banner work — docs/deployment-and-operations.md): the browser
+# must never run JS/CSS older than the server it is talking to. Starlette's StaticFiles sends
+# ETag/Last-Modified but no Cache-Control, so a phone may reuse an "old enough" file for hours
+# without asking — a reload after an update then ran NEW html with OLD scripts. Everything under
+# /static is therefore `no-cache` (always revalidate; an unchanged file costs a cheap 304), and
+# index.html carries `?v=<build id>` on every asset URL so a new build is a new URL anyway.
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+STATIC_DIR = version_service.static_dir()
+
+
+class _RevalidatingStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", _RevalidatingStaticFiles(directory=STATIC_DIR), name="static")
+
+_BUILD_TOKEN = "__BUILD__"
 
 
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    """index.html with the running build id stamped in (`<meta name="app-build">` + `?v=` on each
+    asset URL). Read per request — it is one small file — so an edited copy is picked up."""
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace(_BUILD_TOKEN, version_service.get_build_id())
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/favicon.ico", include_in_schema=False)

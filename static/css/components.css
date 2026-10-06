@@ -323,7 +323,11 @@ input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-4);
+  /* 2026-10-06: clears a phone's status bar/notch (viewport-fit=cover is set) and is a real
+     44px tap target. */
+  padding: calc(var(--sp-2) + env(safe-area-inset-top, 0px)) var(--sp-4) var(--sp-2);
+  min-height: 44px;
+  box-sizing: border-box;
   background: var(--accent-tint);
   border-bottom: 1px solid var(--accent);
   color: var(--text);
@@ -331,6 +335,10 @@ input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   font-weight: 600;
   cursor: pointer;
 }
+/* update-banner.js sets --update-banner-h to the banner's real height and adds this class, so
+   the page (and the sticky header) sit BELOW the fixed banner instead of being covered by it. */
+body.has-update-banner { padding-top: var(--update-banner-h, 0px); }
+body.has-update-banner .app-header { top: var(--update-banner-h, 0px); } /* the banner height already includes the safe-area inset */
 .update-banner .ico { flex-shrink: 0; }
 .update-banner .cta {
   margin-left: auto;

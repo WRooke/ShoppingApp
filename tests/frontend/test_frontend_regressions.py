@@ -182,53 +182,8 @@ def test_clearing_a_usual_items_note_persists_after_reload(browser, api, server_
     assert not browser.console_errors(), browser.console_errors()
 
 
-def test_update_banner_appears_on_version_mismatch_and_reloads_on_tap(browser, server_url):
-    """2026-09-23 — client auto-update notification (static/js/update-banner.js). Stubs
-    window.api.health() so no real server restart is needed: the banner's own first check
-    (page load) records the initial version, then a second stubbed response with a different
-    version, triggered via the UpdateBanner.checkNow() test hook rather than waiting for the
-    real 5-minute poll, must show the persistent banner. Also confirms tapping it reloads
-    (window.location.reload stubbed to a flag rather than actually reloading)."""
-    browser.navigate(f"{server_url}/#/home")
-    browser.wait_for(".nav-item")
-
-    # The page's own load-time check already recorded a real "loaded version" (whatever
-    # `git describe` returned) before this test can intervene — stub api.health() to echo
-    # that same real value first, confirming a same-version check is a no-op, before
-    # switching to a genuinely different value.
-    loaded = browser.eval("window.UpdateBanner.getLoadedVersion()")
-    browser.eval(
-        "window.__healthVersion = " + json.dumps(loaded) + ";"
-        "window.api.health = function(){"
-        "return Promise.resolve({version: window.__healthVersion});"
-        "};"
-    )
-    browser.eval("window.UpdateBanner.checkNow();")
-
-    assert browser.eval("!document.querySelector('.update-banner')")
-
-    browser.eval(
-        "window.__healthVersion = " + json.dumps(loaded + "-new") + ";"
-        "window.UpdateBanner.checkNow();"
-    )
-    browser.wait_for(".update-banner")
-    assert "Update available" in browser.text(".update-banner")
-
-    # Tapping it does a real reload (location.reload isn't reliably overridable across
-    # browsers) — set a marker that only a fresh page load would wipe, click, then confirm
-    # the marker is gone and the app shell has genuinely re-initialised.
-    browser.eval("window.__preClickMarker = 'still-here';")
-    browser.eval("document.querySelector('.update-banner').click()")
-    deadline = time.monotonic() + TIMEOUT
-    reloaded = False
-    while time.monotonic() < deadline:
-        if browser.eval("window.__preClickMarker") is None:
-            reloaded = True
-            break
-        time.sleep(0.1)
-    assert reloaded, "tapping the banner did not reload the page"
-    browser.wait_for(".nav-item")
-    assert not browser.console_errors(), browser.console_errors()
+# The client auto-update banner's tests moved to tests/frontend/test_update_banner.py (and the
+# real-restart flow to test_update_banner_e2e.py) when the banner was rewritten, 2026-10-06.
 
 
 def test_ingredient_alias_group_shows_count_and_fixed_name_field(browser, api, server_url):

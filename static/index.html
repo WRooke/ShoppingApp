@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ShoppingApp</title>
+  <!-- The server replaces __BUILD__ with the running build id (app/main.py > index()). The update
+       banner compares this with /api/v1/health, and every asset URL below carries it so a new
+       build is a new URL (see app/services/version.py). -->
+  <meta name="app-build" content="__BUILD__" />
   <script>
     // Apply a saved theme choice before first paint, so there's never a flash of the wrong
     // theme. Written by Settings' "Appearance" section (settings-appearance.js). No choice
@@ -20,10 +24,10 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="/static/css/tokens.css" />
-  <link rel="stylesheet" href="/static/css/components.css" />
-  <link rel="stylesheet" href="/static/css/components-screens.css" />
-  <link rel="stylesheet" href="/static/css/app.css" />
+  <link rel="stylesheet" href="/static/css/tokens.css?v=__BUILD__" />
+  <link rel="stylesheet" href="/static/css/components.css?v=__BUILD__" />
+  <link rel="stylesheet" href="/static/css/components-screens.css?v=__BUILD__" />
+  <link rel="stylesheet" href="/static/css/app.css?v=__BUILD__" />
 </head>
 <body>
   <header class="app-header">
@@ -60,42 +64,42 @@
     </a>
   </nav>
 
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/update-banner.js"></script>
-  <script src="/static/js/toast.js"></script>
-  <script src="/static/js/back-link.js"></script>
-  <script src="/static/js/nav-badges.js"></script>
-  <script src="/static/js/home.js"></script>
-  <script src="/static/js/draft-autosave.js"></script>
-  <script src="/static/js/diagnostics.js"></script>
-  <script src="/static/js/dup-warn.js"></script>
-  <script src="/static/js/ingredient-swap.js"></script>
-  <script src="/static/js/unit-hints.js"></script>
-  <script src="/static/js/ingredient-name-hints.js"></script>
-  <script src="/static/js/recipe-form.js"></script>
-  <script src="/static/js/recipe-edit-ingredients.js"></script>
-  <script src="/static/js/recipe-edit.js"></script>
-  <script src="/static/js/capture-review.js"></script>
-  <script src="/static/js/capture.js"></script>
-  <script src="/static/js/add-to-session.js"></script>
-  <script src="/static/js/recipe-detail.js"></script>
-  <script src="/static/js/recipes.js"></script>
-  <script src="/static/js/session-recipe-picker.js"></script>
-  <script src="/static/js/session-week.js"></script>
-  <script src="/static/js/sessions.js"></script>
-  <script src="/static/js/panel-back-guard.js"></script>
-  <script src="/static/js/checklist-push.js"></script>
-  <script src="/static/js/checklist-panel.js"></script>
-  <script src="/static/js/checklist.js"></script>
-  <script src="/static/js/settings-row-actions.js"></script>
-  <script src="/static/js/settings-appearance.js"></script>
-  <script src="/static/js/settings-product-units.js"></script>
-  <script src="/static/js/settings-substitutions.js"></script>
-  <script src="/static/js/settings-usuals.js"></script>
-  <script src="/static/js/settings-ingredient-aliases.js"></script>
-  <script src="/static/js/settings-unit-synonyms.js"></script>
-  <script src="/static/js/settings-coarse-ingredients.js"></script>
-  <script src="/static/js/settings.js"></script>
-  <script src="/static/js/router.js"></script>
+  <script src="/static/js/api.js?v=__BUILD__"></script>
+  <script src="/static/js/update-banner.js?v=__BUILD__"></script>
+  <script src="/static/js/toast.js?v=__BUILD__"></script>
+  <script src="/static/js/back-link.js?v=__BUILD__"></script>
+  <script src="/static/js/nav-badges.js?v=__BUILD__"></script>
+  <script src="/static/js/home.js?v=__BUILD__"></script>
+  <script src="/static/js/draft-autosave.js?v=__BUILD__"></script>
+  <script src="/static/js/diagnostics.js?v=__BUILD__"></script>
+  <script src="/static/js/dup-warn.js?v=__BUILD__"></script>
+  <script src="/static/js/ingredient-swap.js?v=__BUILD__"></script>
+  <script src="/static/js/unit-hints.js?v=__BUILD__"></script>
+  <script src="/static/js/ingredient-name-hints.js?v=__BUILD__"></script>
+  <script src="/static/js/recipe-form.js?v=__BUILD__"></script>
+  <script src="/static/js/recipe-edit-ingredients.js?v=__BUILD__"></script>
+  <script src="/static/js/recipe-edit.js?v=__BUILD__"></script>
+  <script src="/static/js/capture-review.js?v=__BUILD__"></script>
+  <script src="/static/js/capture.js?v=__BUILD__"></script>
+  <script src="/static/js/add-to-session.js?v=__BUILD__"></script>
+  <script src="/static/js/recipe-detail.js?v=__BUILD__"></script>
+  <script src="/static/js/recipes.js?v=__BUILD__"></script>
+  <script src="/static/js/session-recipe-picker.js?v=__BUILD__"></script>
+  <script src="/static/js/session-week.js?v=__BUILD__"></script>
+  <script src="/static/js/sessions.js?v=__BUILD__"></script>
+  <script src="/static/js/panel-back-guard.js?v=__BUILD__"></script>
+  <script src="/static/js/checklist-push.js?v=__BUILD__"></script>
+  <script src="/static/js/checklist-panel.js?v=__BUILD__"></script>
+  <script src="/static/js/checklist.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-row-actions.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-appearance.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-product-units.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-substitutions.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-usuals.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-ingredient-aliases.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-unit-synonyms.js?v=__BUILD__"></script>
+  <script src="/static/js/settings-coarse-ingredients.js?v=__BUILD__"></script>
+  <script src="/static/js/settings.js?v=__BUILD__"></script>
+  <script src="/static/js/router.js?v=__BUILD__"></script>
 </body>
 </html>

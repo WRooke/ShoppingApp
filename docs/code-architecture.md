@@ -364,7 +364,7 @@ ShoppingApp/
 │   │   ├── checklist.py         ← checklist load + AnyList push orchestrator (Phase 5)
 │   │   ├── usuals.py            ← "the usuals" recurring-items CRUD + due calc (Phase 5)
 │   │   ├── anylist_client.py    ← Python-native AnyList connector, small stable interface (Phase 5, from spike/)
-│   │   ├── version.py           ← app version string for the client auto-update banner (2026-09-23), see CLAUDE.md > UI/UX
+│   │   ├── version.py           ← build identity (content hash of app/ + static/) for the update banner; git describe is only a label — docs/deployment-and-operations.md
 │   │   └── progress_tracker.py  ← in-memory step tracking for the real capture/push progress UIs (2026-09-23), see CLAUDE.md > UI/UX
 │   ├── seed_data.py           ← product_units + section vocabulary starter data
 │   └── log_config.py          ← logging setup, in-memory ring buffer

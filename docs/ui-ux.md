@@ -67,27 +67,32 @@ primary or only way most of this data gets created or corrected day-to-day.
 
 ### Client auto-update notification
 
-**Built 2026-09-23.** When the NUC is updated (`scripts/update.py` pulls a new commit and
-restarts the server), a phone that already has the app open in a browser tab has no way to
-know the running server changed — the page itself is unchanged until reloaded. Rather than a
-service worker (deliberately not used — see "no PWA install, no service worker needed" above)
-or a forced silent reload (jarring mid-use, and could interrupt an in-progress capture or
-checklist edit), a small persistent banner: "Update available — tap to refresh", user-initiated
-only.
+**Built 2026-09-23, rewritten 2026-10-06 (Chunk 6.7).** When the NUC is updated (`update.bat` pulls
+a new commit and restarts the server), a phone that already has the app open can't know. A small
+persistent banner — "Update available — tap to refresh" — tells it; the user decides when to reload
+(never a forced reload: that could interrupt a capture or a checklist edit), and the reload really
+does fetch the new code. No service worker (deliberately — see "no PWA install" above).
 
-- **Mechanism:** `GET /api/v1/health` gains a `version` field (`app/services/version.py >
-  get_version()`, `git describe --tags --always`, computed once at process startup and cached
-  — matches exactly what `scripts/update.py` already logs after a NUC update, see [Deployment &
-  Operations](./deployment-and-operations.md#deployment--operations)). `static/js/update-banner.js` fetches
-  `/api/v1/health` once on load to record the version the page was served with, then polls the
-  same endpoint every 5 minutes; a mismatch means the server process has restarted since this
-  page loaded.
-- **Not the shared `Toast` component.** `Toast` (`static/js/toast.js`) auto-dismisses after 5s
-  and is torn down by `router.js` on every hash change (Phase 6 kickoff decision #12) — both
-  wrong here: an update notice must persist until the user actually acts, across as many
-  navigations as it takes them to notice it. The banner is its own small app-shell component,
-  fixed at the top of the viewport, non-blocking (no overlay/modal).
-- **User-initiated only** — tapping the banner reloads the page; nothing reloads on its own.
+**How it works, why the first version never fired, the failure modes and every test:** see
+[Deployment & Operations > How an open phone learns the NUC was updated](./deployment-and-operations.md#how-an-open-phone-learns-the-nuc-was-updated).
+Short version: the page's baseline is the build id the server stamped into the page it served
+(`<meta name="app-build">`), compared with `GET /api/v1/health`'s `build_id` (a hash of the code);
+checks run when they can be noticed (load, tab visible, `pageshow`, back online, focus, navigation,
+every 90 s while visible) with retries across the restart gap; the tap navigates to `/?b=<build>` so
+every asset is fetched fresh.
+
+**Look and behaviour** (`static/js/update-banner.js`, `.update-banner` in `components.css`; mockups
+in `docs/mockups/chunk-6.7/banner.html`):
+- Not the shared `Toast` (auto-dismisses after 5 s, torn down on every route change). Its own
+  app-shell component, fixed at the top, never a modal/overlay.
+- The page and its sticky header sit **below** the banner (it used to cover the header title);
+  it clears a phone's status bar (`env(safe-area-inset-top)`), is ≥44 px tall, a `role="button"`
+  reachable by keyboard.
+- Two states: **"Update available — Tap to refresh"** and, if a tap didn't bring the new build,
+  **"Update didn't load — Tap to try again"** (so it can never silently loop).
+- "Update pending" survives a reload (`sessionStorage`); nothing reloads on its own.
+- `window.UpdateBanner.getState()` / `.getLoadedVersion()` / `.checkNow()` exist for tests and for
+  debugging from a phone console.
 
 ---
 

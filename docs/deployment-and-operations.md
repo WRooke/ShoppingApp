@@ -34,10 +34,9 @@ walkthrough and one-time git/GitHub setup):
 - `update.bat` — runs `scripts/update.py` on the **NUC**, from the `production` branch:
   pulls the new commit (fast-forward only, never merges), reinstalls dependencies if
   `requirements.txt` changed, then stops and restarts the server. Aborts before touching the
-  running server if any step fails, so a bad update leaves the old version running. The same
-  `git describe --tags --always` this script logs after a successful update is also what
-  `GET /api/v1/health`'s `version` field reports at runtime — see [UI/UX > Client auto-update
-  notification](./ui-ux.md#client-auto-update-notification) for the banner that polls it.
+  running server if any step fails, so a bad update leaves the old version running. What a
+  phone that already has the app open does afterwards is in [How an open phone learns the NUC was
+  updated](#how-an-open-phone-learns-the-nuc-was-updated) below.
 
 Two branches, not one — see [Git branching strategy](./deferred-decisions.md#deferred-decisions), decided at the
 Phase 2 review: `develop` is where all work happens (dev PC), `production` is what the NUC
@@ -65,6 +64,63 @@ automated vs. still manual, and why.
 
 Windows Task Scheduler instructions (not a script — too brittle) for auto-start on boot and for
 the weekly backup are in `SETUP.md`.
+
+---
+
+## How an open phone learns the NUC was updated
+
+*(Rewritten 2026-10-06, Chunk 6.7 — the first version of the banner never fired in practice. The
+UI side is in [UI/UX > Client auto-update notification](./ui-ux.md#client-auto-update-notification).)*
+
+**The chain, end to end.** `update.bat` pulls new code and restarts the server → the server starts
+with a new **build id** → an open page notices its own build id differs from the server's → it shows
+"Update available" → the user taps → the browser fetches a fresh page whose scripts and styles are
+fetched fresh too. Every link below has a way to fail; each one now has a guard and a test.
+
+| Link | How it works now | Why it used to fail |
+|---|---|---|
+| **What a "build" is** | `build_id` = a 12-hex hash of every file under `app/` and `static/` (`app/services/version.py`). Changes exactly when the code changes; a docs/tests-only pull does not change it (no nagging for nothing). Needs no git. The git description (`release-…`) is only a human label. | It was `git describe` run once inside the server process, falling back to a constant `"dev"`. The server started by Task Scheduler (unelevated, different environment) may not have git on its PATH or may be refused by git's "dubious ownership" check, so every build said `"dev"` and nothing ever differed. |
+| **What the page remembers** | The server writes the build id into the page it serves (`<meta name="app-build">`, `app/main.py > index()`); that is the page's baseline, known with no network call. | The baseline used to be "whatever /health answered on first load". A tab restored from cache *after* the server updated adopted the NEW build as its baseline and never noticed it was old — the common phone case. |
+| **When it checks** | On load, when the tab becomes visible, on `pageshow` (back/forward cache), when the network returns, on focus, on navigation (≥30 s apart), and every 90 s while visible. A check that fails (the server is down ~10 s mid-restart) is retried at 5/10/20 s. Checks are coalesced (≥5 s apart). | A single 5-minute timer, which phones freeze when the tab is backgrounded; a check landing in the restart gap failed silently until the next tick. |
+| **What the tap does** | Navigates to `/?b=<new build>#<same route>`: a fresh document request (`index.html` is `no-cache`) whose asset URLs all carry `?v=<new build>`, so every script/style is a new URL. If the page still isn't the new build afterwards it says **"Update didn't load — tap to try again"** instead of looping. | `location.reload()` revalidates only the HTML; `StaticFiles` sent no `Cache-Control`, so a phone could keep using "old enough" JS/CSS for hours — new HTML running old scripts. |
+| **Cache policy** | `/` → `no-cache`; `/static/*` → `no-cache` (always revalidate; an unchanged file is a cheap 304); `/api/v1/health` → `no-store`. | none set |
+| **Restarting** | `update.bat` → `stop.bat` → `scripts/stop_server.ps1` stops every `app.main`/`uvicorn` process **and whatever still listens on the port**, reports anything it could not stop, waits for the port to be free and exits non-zero if it isn't; → `start.bat` refuses to start if the port is still held (`scripts/verify_server.py port-free`), and once the server answers it confirms **the running build equals the code on disk** (`verify_server.py serving`, printed in the window and logged to `logs/app.log`). | `stop.bat` swallowed kill failures and always printed "Done."; a stale old server kept serving old code while the new process died on "address already in use". |
+
+**Why `update.bat` itself was not changed.** `cmd.exe` re-reads a running batch file from disk by
+byte offset, and `update.bat` runs `git pull` — which replaces `update.bat` — and then keeps
+executing. Editing it risks garbage execution in the very update that deploys the edit (a likely
+cause of the earlier "update.bat bricked" episodes). All restart behaviour therefore lives in
+`stop.bat`, `start.bat` and `scripts/`, which `update.bat` merely `call`s — read fresh, after the pull.
+A test (`tests/test_verify_server.py`) fails if `update.bat` starts referencing the new scripts.
+Because `stop.bat`/`start.bat` are `call`ed *after* the pull, even the very first update that
+delivers this change already uses the new versions.
+
+**One-time thing for phones:** a tab that was loaded *before* this change has the old banner code,
+so it will not show the new banner until it has been reloaded once. After that it is self-maintaining.
+
+**Process model, for reference.** Normally the server is started at boot by Task Scheduler
+(`SETUP.md` §8, unelevated, "restart every 1 minute up to 3 times if it fails"), and `update.bat`
+stops it and starts a new one in the window you ran it from — **closing that window stops the
+server** (leave it open, or reboot to hand it back to Task Scheduler). When `update.bat` kills the
+Task Scheduler instance, the task sees a failure and retries in a minute; the retry finds the port
+busy and exits (that is now reported plainly by `start.bat` rather than mysteriously).
+
+**Checking it by hand.**
+- `http://<nuc>:8080/api/v1/health` → `data.build_id` (compare with the Diagnostics page and with
+  what the phone shows), `version` (label), `boot_id`/`started_at` (which process, since when).
+- `logs/app.log`: `Build: id=… label=… boot_id=…` at every start; `Verify: OK …` or `Verify: PROBLEM …`
+  after `start.bat`.
+- On a phone: after an update, with the app open, the banner should appear within seconds of
+  bringing the tab to the front.
+
+**Tests.** `tests/services/test_version.py` (the hash and the label), `tests/routers/test_health.py`
+and `test_static_serving.py` (headers, stamp, every asset URL versioned),
+`tests/test_verify_server.py` (the checks and the scripts' structure),
+`tests/frontend/test_update_banner.py` (the client in a real browser) and
+`tests/frontend/test_update_banner_e2e.py` (a real server restart on changed code, a real tap, and
+proof the new code is what runs — with every file dated 2000 so any heuristic caching would show).
+The restart scripts were also run on a throwaway copy of the repo on a scratch port: start, refuse
+a second start, simulate an update (build id changed), stop.
 
 ---
 

@@ -720,8 +720,14 @@ change chunk order and scope, not just because they happened.
         push marks the session pushed. 865 tests, branch coverage of the push path 98–99 %.
       - [ ] **#3 push UI** — the Reading → Sending → Confirming → Done tracker, the per-item result list and the Diagnostics
         push-history panel: **awaiting mockup approval** (standing rule); the payload they need is already in place.
-      - [ ] **#1 update banner** — design in the plan (build-id from `<meta>`, no-cache static files, `?v=` asset URLs, more check
-        triggers, update.bat verification).
+      - [x] **#1 update banner** — built and tested; docs in [Deployment & Operations](../deployment-and-operations.md#how-an-open-phone-learns-the-nuc-was-updated).
+        Build id = content hash (no git needed), baseline = the page's own stamp, `no-cache` static files + `?v=` asset URLs, checks
+        on visibility/pageshow/online/focus/navigation with retries, "Update didn't load" state, `stop_server.ps1` +
+        `verify_server.py` wired into `stop.bat`/`start.bat` (`update.bat` deliberately untouched), a latent `start.bat` bug fixed
+        (a batch variable named `PORT` overrode `.env`). Real-restart e2e test + restart scripts exercised on a scratch copy.
+        *Visual tweaks (header no longer covered, safe-area, "didn't load" state) per [mockup](../mockups/chunk-6.7/banner.html).*
+        **Still to confirm on the NUC:** open `http://<nuc>:8080/api/v1/health` after the next update (build id should change) and
+        reload each phone tab once (tabs loaded before this change still have the old banner code).
       - [ ] **#2 no native popups** — merge panel/inline cards/error toasts; **awaiting mockup approval**.
       - [ ] **#4 ingredient names** — display from the household's own recipe wording, small-word-aware title case.
 - [ ] **Phase 6 review** — re-check against [UI/UX](../ui-ux.md),
