@@ -157,6 +157,16 @@ they add; TestList was empty and restored to empty):
   request timeout to answer a read a handful of times during these runs — that is why list reads are
   retried (`_READ_ATTEMPTS`).
 
+**2026-10-07 — naming follow-up (4 more live pushes on TestList, `spike/anylist_push_live_names_test.py`):**
+N1 fresh add of tricky names → exactly "Black Beans", "Salt", "Vegetable Oil", "Cheddar Cheese or Monterey Jack",
+"Baker's Chocolate", "2% Milk" landed (no "Or", no "Baker'S", no "400G"); N2 immediate re-push → all six
+`already-active`, zero writes, list unchanged (the pushed names match their own rows); N3 old spellings on the list
+("Salts", "Vegetable Oils", "Black Bean", seeded with raw ADDs) → matched through the key, all `already-active`,
+nothing added or renamed. A first attempt at N3 reported "duplicates" only because the script had seeded the old
+spellings on top of N1's items (duplicates of its own making); the push handled it correctly (warned, wrote to the first
+match, added nothing) and the script was fixed to start N3 from an empty list. Reads timed out once or twice and were
+retried as designed. TestList restored to empty. Total live pushes this chunk: 5 + 4.
+
 ## 9. Test map
 
 | File | What it pins |
