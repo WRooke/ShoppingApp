@@ -729,7 +729,12 @@ change chunk order and scope, not just because they happened.
         **Still to confirm on the NUC:** open `http://<nuc>:8080/api/v1/health` after the next update (build id should change) and
         reload each phone tab once (tabs loaded before this change still have the old banner code).
       - [ ] **#2 no native popups** — merge panel/inline cards/error toasts; **awaiting mockup approval**.
-      - [ ] **#4 ingredient names** — display from the household's own recipe wording, small-word-aware title case.
+      - [x] **#4 ingredient names** — built and tested; analysis, rule, safety guarantee and trade-offs in
+        [Ingredient Handling > Display names](../ingredient-handling.md#display-names--what-an-ingredient-is-called-on-screen-and-on-anylist).
+        Display = the household's own recipe wording (never an invented plural), small-word-aware title case, extraction prompt
+        asks for shopping-list wording. Matching keys untouched; display is guaranteed to normalise back to its key (guarded + property-tested,
+        0 violations on the 176 real keys). Also fixed the "did you mean" nudge, which would otherwise have rewritten recipes toward singular.
+        Real-data preview: `python -m scripts.preview_display_names`.
 - [ ] **Phase 6 review** — re-check against [UI/UX](../ui-ux.md),
       [Checklist, AnyList Push & Shopping List Layout](../checklist-and-shopping.md) (confirm the
       store-layout deferral note landed correctly and nothing there was silently half-built),

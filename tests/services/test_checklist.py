@@ -436,13 +436,9 @@ def test_push_to_an_existing_item_drops_its_note(db):
     (2026-09-20, Phase B), which DOES sync the note; this test is specifically about the
     still-standing limitation on the simple bare-count update path.
 
-    Display note (2026-09-27, checklist_display.py): this fixture's own RecipeIngredient row
-    records "milk" with unit=None (quantity 3, bare count) -- exactly the signal
-    is_known_countable() uses to decide a name is a count noun. Real recipe data never records
-    milk that way (checked against both data/mealplanner.db and data/mealplanner_prod.db --
-    every real "milk" row carries a unit), so this is purely this test's own synthetic setup,
-    not a real-world case; the correct display for THIS test's data really is "Milks", not a
-    bug."""
+    Display note (2026-10-06, Chunk 6.7): this fixture's recipe writes "milk" (singular), so the
+    name pushed is "Milk" — the household's own wording. (Until 6.7 this synthetic bare-count row
+    made the old countability logic call milk a count noun and push "Milks".)"""
     s = _session_with_items(db, [{"name": "milk", "quantity": 3, "unit": None}])
     checklist_service.load_checklist(db, s.id)  # pre-ticks milk as already_on_anylist
     row = s.checklist_items[0]
@@ -451,7 +447,7 @@ def test_push_to_an_existing_item_drops_its_note(db):
     checklist_service.update_item(db, s.id, row.id, have_it="no")
 
     result = checklist_service.push_to_anylist(db, s.id)
-    assert "Milks" in result["updated"]
+    assert "Milk" in result["updated"]
 
     milk = next(i for i in anylist_client.get_items() if i.name == "milk")
     assert milk.note is None  # the note never reached AnyList -- the known limitation

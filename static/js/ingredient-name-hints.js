@@ -104,6 +104,11 @@
   // Module-level cache -- one flat GET, shared across every attach() call on the page (unlike
   // UnitHints' own per-ingredient-name cache, this list isn't parameterised).
   var _namesCache = null;
+  // key -> the household's own written form where it differs ("black bean" -> "black beans"). The
+  // nudge compares and aliases by KEY but OFFERS (and writes on "use it") the household's wording:
+  // offering the singular key would rewrite recipes toward singular, which the checklist/AnyList
+  // display (derived from the household's wording) would then follow. 2026-10-06, Chunk 6.7.
+  var _wordingCache = {};
   function fetchKnownNames(cb) {
     if (_namesCache) {
       cb(_namesCache);
@@ -113,11 +118,15 @@
       .ingredientNames()
       .then(function (data) {
         _namesCache = data.names || [];
+        _wordingCache = data.wording || {};
         cb(_namesCache);
       })
       .catch(function () {
         cb([]);
       });
+  }
+  function wordingFor(key) {
+    return _wordingCache[key] || key;
   }
 
   // This file's own local copy of the same 4-field amount/unit grid shape already duplicated in
@@ -185,13 +194,14 @@
         var suggestion = closestMatch(typed, knownNames);
         if (!suggestion) return;
 
+        var shown = wordingFor(suggestion); // the household's own form of the matching key
         var nudge = el("div", "ingredient-name-hints-nudge");
-        nudge.appendChild(document.createTextNode('did you mean "' + suggestion + '"? '));
+        nudge.appendChild(document.createTextNode('did you mean "' + shown + '"? '));
 
         var useBtn = el("button", "link-btn", "use it");
         useBtn.type = "button";
         useBtn.addEventListener("click", function () {
-          nameInput.value = suggestion;
+          nameInput.value = shown;
           clear();
         });
 
@@ -260,7 +270,7 @@
                 // The typed text is deliberately left in the field -- a recipe keeps showing
                 // exactly what it said (CLAUDE.md > Ingredient Aliases); the new alias is what
                 // makes it resolve correctly at consolidation time from here on.
-                global.Toast.show('Saved -- "' + typed + '" will be treated as "' + suggestion + '" from now on.');
+                global.Toast.show('Saved -- "' + typed + '" will be treated as "' + shown + '" from now on.');
                 clear();
               })
               .catch(function (e) {
@@ -280,5 +290,5 @@
     return wrap;
   }
 
-  global.IngredientNameHints = { attach: attach, closestMatch: closestMatch, normalise: normalise };
+  global.IngredientNameHints = { attach: attach, closestMatch: closestMatch, normalise: normalise, wordingFor: wordingFor };
 })(window);

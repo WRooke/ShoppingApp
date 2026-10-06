@@ -34,8 +34,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/checklist", tags=["checklist"])
 
 
-def _item(db: Session, row) -> dict:
-    return checklist_display.decorate(db, ChecklistItemRead.model_validate(row)).model_dump()
+def _item(db: Session, row, index=None) -> dict:
+    return checklist_display.decorate(db, ChecklistItemRead.model_validate(row), index).model_dump()
+
+
+def _items(db: Session, rows) -> list[dict]:
+    """Decorate many rows with ONE wording index (a single pass over the recipes)."""
+    index = checklist_display.WordingIndex.build(db)
+    return [_item(db, row, index) for row in rows]
 
 
 @router.get("/{session_id}")
@@ -45,12 +51,13 @@ def load_checklist(session_id: int, db: Session = Depends(get_db)) -> dict:
     # same ephemeral map routers/sessions.py's own consolidate endpoint has always attached —
     # see CLAUDE.md > "Which recipe is this ingredient from", no longer review-screen-only.
     items, anylist_ok, anylist_detail, breakdown = checklist_service.load_checklist(db, session_id)
+    index = checklist_display.WordingIndex.build(db)  # one pass over the recipes, not one per row
     body = ChecklistLoadResponse(
         session_id=session_id,
         anylist_ok=anylist_ok,
         anylist_detail=anylist_detail,
         items=[
-            checklist_display.decorate(db, ChecklistItemRead.model_validate(r)).model_copy(
+            checklist_display.decorate(db, ChecklistItemRead.model_validate(r), index).model_copy(
                 update={"recipe_breakdown": breakdown.get(r.ingredient_name, [])}
             )
             for r in items
@@ -107,7 +114,7 @@ def merge_items(
         canonical_qty=data.canonical_qty,
         canonical_unit=data.canonical_unit,
     )
-    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+    return {"ok": True, "data": {"items": _items(db, rows)}}
 
 
 @router.post("/{session_id}/items/{item_id}/substitute")
@@ -128,7 +135,7 @@ def substitute_item(
         substitute_qty=data.substitute_qty, substitute_unit=data.substitute_unit,
         remember=data.remember,
     )
-    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+    return {"ok": True, "data": {"items": _items(db, rows)}}
 
 
 @router.post("/{session_id}/items/{item_id}/alias")
@@ -143,7 +150,7 @@ def alias_item(
     rows = checklist_service.alias_item(
         db, session_id, item_id, alias_name=data.alias_name, remember=data.remember
     )
-    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+    return {"ok": True, "data": {"items": _items(db, rows)}}
 
 
 @router.post("/{session_id}/items/{item_id}/pack-size")
@@ -160,7 +167,7 @@ def pack_size_item(
         purchase_label=data.purchase_label, purchase_qty=data.purchase_qty,
         purchase_unit=data.purchase_unit, remember=data.remember,
     )
-    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+    return {"ok": True, "data": {"items": _items(db, rows)}}
 
 
 @router.post("/{session_id}/items/{item_id}/coarse")
@@ -177,7 +184,7 @@ def coarse_item(
         purchase_label=data.purchase_label, recipes_per_pack=data.recipes_per_pack,
         remember=data.remember,
     )
-    return {"ok": True, "data": {"items": [_item(db, row) for row in rows]}}
+    return {"ok": True, "data": {"items": _items(db, rows)}}
 
 
 @router.post("/usuals/{usual_id}/skip")

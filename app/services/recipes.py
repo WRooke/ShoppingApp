@@ -486,3 +486,26 @@ def known_ingredient_names(db: Session) -> list[str]:
     canonical_names = {row[0] for row in db.query(IngredientAlias.canonical_name).all() if row[0]}
     normalised = {text_normalize.normalise_ingredient_name(n) for n in raw_names | canonical_names}
     return sorted(normalised)
+
+
+def known_ingredient_wording(db: Session) -> dict[str, str]:
+    """{matching key: how this household writes it} for every known ingredient whose written form
+    differs from the key ("black bean" -> "black beans"). Sent alongside `known_ingredient_names`
+    so the on-the-fly alias nudge can OFFER the household's wording instead of the singular
+    matching key.
+
+    Why this matters (2026-10-06, Chunk 6.7): the nudge's "did you mean X? use it" writes X into the
+    recipe ingredient's name. X used to be the singular key, so each acceptance rewrote a plural
+    ("black beans") to a singular ("black bean") — and the checklist/AnyList display name is derived
+    from the household's own wording (services/checklist_display.py), so the wording would drift
+    to singular over time. Offering the existing wording keeps the household's form stable. Matching
+    is unaffected either way (the key is what is compared and aliased)."""
+    from app.services import checklist_display  # local: avoids a services import cycle at module load
+
+    index = checklist_display.WordingIndex.build(db)
+    out: dict[str, str] = {}
+    for key in index.forms:
+        wording = checklist_display.display_name(db, key, None, None, index)
+        if wording != key:
+            out[key] = wording
+    return out

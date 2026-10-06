@@ -1003,3 +1003,40 @@ def test_expanded_row_meta_text_is_not_squeezed_onto_its_own_line(browser, api, 
     # quantity text happens to say).
     assert rects["mainWidth"] > rects["rowWidth"] * 0.5, rects
     assert not browser.console_errors(), browser.console_errors()
+
+
+def test_name_nudge_offers_the_households_wording_and_use_it_writes_that(browser, server_url):
+    """Chunk 6.7: "did you mean ...?" must offer how the household writes the ingredient ("black
+    beans"), not the singular matching key ("black bean"), and "use it" must write that wording —
+    otherwise accepting nudges would rewrite recipes toward singular. The alias itself still goes
+    by the key (matching is by key)."""
+    browser.navigate(f"{server_url}/#/home")
+    browser.wait_for(".nav-item")
+    browser.eval(
+        "window.__aliasCall = null;"
+        "window.api.recipes.ingredientNames = function(){"
+        "return Promise.resolve({names:['black bean'], wording:{'black bean':'black beans'}});};"
+        "window.api.settings.ingredientAliases.create = function(body){"
+        "window.__aliasCall = body; return Promise.resolve({});};"
+        "window.__in = document.createElement('input'); window.__in.id='nudge-test-input';"
+        "document.body.appendChild(window.__in);"
+        "window.__in.parentNode.appendChild(window.IngredientNameHints.attach(window.__in));"
+        "window.__in.value = 'blak bean'; window.__in.dispatchEvent(new Event('blur'));"
+    )
+    browser.wait_for(".ingredient-name-hints-nudge")
+    assert 'did you mean "black beans"?' in browser.text(".ingredient-name-hints-nudge")
+
+    browser.click(".ingredient-name-hints-nudge .link-btn", contains="use it")
+    assert browser.eval("window.__in.value") == "black beans"  # the wording, not "black bean"
+    assert not browser.console_errors(), browser.console_errors()
+
+    # and the alias path still goes by the key
+    browser.eval("window.__in.value = 'blak bean'; window.__in.dispatchEvent(new Event('blur'));")
+    browser.wait_for(".ingredient-name-hints-nudge")
+    browser.click(".ingredient-name-hints-nudge .link-btn", contains="keep both")
+    browser.click(".ingredient-name-hints-nudge .btn-sm.primary", contains="Save")
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline and not browser.eval("window.__aliasCall"):
+        time.sleep(0.1)
+    call = browser.eval("window.__aliasCall")
+    assert call["canonical_name"] == "black bean" and call["alias_name"] == "blak bean"

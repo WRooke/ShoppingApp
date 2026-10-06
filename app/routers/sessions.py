@@ -154,9 +154,10 @@ def consolidate_session(session_id: int, db: Session = Depends(get_db)) -> dict:
     # 2026-09-30 (chunk 7.5) — no more request-body overrides; every session-scoped "this
     # list only" edit is read internally now, see session_consolidation.py.
     rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, session_id)
+    index = checklist_display.WordingIndex.build(db)
     items = [
         checklist_display.decorate(
-            db, ChecklistItemRead.model_validate(row)
+            db, ChecklistItemRead.model_validate(row), index
         ).model_copy(update={"recipe_breakdown": breakdown.get(row.ingredient_name, [])})
         for row in rows
     ]

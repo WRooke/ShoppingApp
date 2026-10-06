@@ -167,7 +167,9 @@ def ingredient_units(
 @router.get("/ingredient-names")
 def ingredient_names(db: Session = Depends(get_db)) -> dict:
     names = recipes_service.known_ingredient_names(db)
-    return {"ok": True, "data": {"names": names}}
+    # `wording`: key -> the household's own written form where it differs ("black bean" ->
+    # "black beans"), so the nudge offers the wording, not the singular matching key.
+    return {"ok": True, "data": {"names": names, "wording": recipes_service.known_ingredient_wording(db)}}
 
 
 @router.get("/{recipe_id}")

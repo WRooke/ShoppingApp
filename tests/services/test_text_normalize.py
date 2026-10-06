@@ -225,3 +225,52 @@ def test_pluralise_does_not_crash_on_us_whitelisted_words():
     # would never let a mass noun like this reach pluralise()), but must not raise either way.
     for word in ("asparagus", "hummus"):
         assert isinstance(pluralise(word), str)
+
+
+# --- title_case_name / looks_plural (Chunk 6.7, 2026-10-06) ---------------------------------------
+
+import pytest  # noqa: E402
+from app.services.text_normalize import looks_plural, title_case_name  # noqa: E402
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("cheddar cheese or monterey jack", "Cheddar Cheese or Monterey Jack"),
+    ("salt and pepper", "Salt and Pepper"),
+    ("pita bread or flatbreads", "Pita Bread or Flatbreads"),
+    ("hearts of palm", "Hearts of Palm"),
+    ("yoghurt with honey", "Yoghurt with Honey"),
+    ("or something", "Or Something"),                     # a small word is still capitalised first
+    ("baker's chocolate", "Baker's Chocolate"),          # str.title() gave "Baker'S"
+    ("2% milk", "2% Milk"),                                # a leading digit is not a word to capitalise
+    ("400g tin tomatoes", "400g Tin Tomatoes"),            # str.title() gave "400G"
+    ("extra virgin olive oil", "Extra Virgin Olive Oil"),
+    ("extra-virgin olive oil", "Extra-Virgin Olive Oil"),
+    ("tomatoes (canned)", "Tomatoes (Canned)"),
+    ("a2 milk", "A2 Milk"),
+    ("", ""),
+    ("  spaced   out  ", "Spaced Out"),
+])
+def test_title_case_name(raw, expected):
+    assert title_case_name(raw) == expected
+    assert title_case_name(expected) == expected  # idempotent
+
+
+def test_title_case_never_affects_matching():
+    # AnyList names are compared case-insensitively, so capitalisation can never change a match
+    for raw in ("cheddar cheese or monterey jack", "baker's chocolate", "extra-virgin olive oil", "2% milk"):
+        assert title_case_name(raw).lower() == raw.lower()
+
+
+@pytest.mark.parametrize("name,plural", [
+    ("black beans", True), ("black bean", False), ("chicken thighs", True), ("salt", False),
+    ("hummus", False), ("couscous", False), ("asparagus", False), ("glass", False), ("", False),
+    ("cherries", True), ("boxes", True), ("pita bread or flatbreads", True),
+])
+def test_looks_plural(name, plural):
+    assert looks_plural(name) is plural
+
+
+def test_normalise_is_cached_but_returns_the_same_values():
+    a = normalise_ingredient_name("Chicken Thighs")
+    assert a == "chicken thigh" == normalise_ingredient_name("Chicken Thighs")
+    assert normalise_ingredient_name.cache_info().hits >= 1

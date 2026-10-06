@@ -52,6 +52,7 @@ resolved via `ingredient_aliases`, never guessed at here. See CLAUDE.md > Ingred
 
 from __future__ import annotations
 
+import functools
 import re
 
 import inflect
@@ -128,13 +129,64 @@ def singularise(s: str) -> str:
     return f"{head}{sep}{_singularise_word(tail)}"
 
 
+@functools.lru_cache(maxsize=16384)
 def normalise_ingredient_name(name: str) -> str:
     """The one shared ingredient-name grouping/matching key — `singularise(base_norm(name))`.
     Used at consolidation-grouping time, at every reference-table write/match site
     (`product_units`, `coarse_ingredients`, `ingredient_aliases`, `remembered_substitutions`,
-    `usual_items`), and by the checklist's own AnyList fuzzy-match. Idempotent: normalising an
-    already-normalised name is a no-op."""
+    `usual_items`), and by the checklist's own AnyList fuzzy-match. Idempotent for ordinary
+    words: normalising an already-normalised name is a no-op (known exception: a few `-ses`/`-us`
+    words such as "cheeses" -> "chees" -> "chee"; see docs/deferred-decisions.md).
+
+    Cached (2026-10-06): a pure function of its argument, called thousands of times per request
+    now that display names are derived from every recipe ingredient (checklist_display.py) and
+    `inflect.singular_noun` is comparatively slow."""
     return singularise(base_norm(name))
+
+
+def looks_plural(name: str) -> bool:
+    """Does the trailing word of `name` look like a regular plural, i.e. would `singularise`
+    change it? ("black beans" yes, "black bean" no, "hummus"/"molasses"-style words are as good
+    as the singularise rules, no better). Used only to choose between a household's own written
+    forms of an ingredient (checklist_display.py), never to match anything."""
+    b = base_norm(name)
+    return bool(b) and singularise(b) != b
+
+
+# Words that stay lower-case inside a title-cased name ("Cheddar Cheese or Monterey Jack"). The
+# first word is always capitalised.
+_SMALL_WORDS = frozenset({"a", "an", "and", "or", "of", "the", "with", "in", "on", "at", "to", "for", "from", "by", "per", "&"})
+
+
+def _cap_token(tok: str) -> str:
+    """Capitalise the first LETTER of a token, leave the rest alone: "baker's" -> "Baker's"
+    (str.title() gave "Baker'S"), "(canned)" -> "(Canned)", "400g" and "2%" untouched."""
+    for i, ch in enumerate(tok):
+        if ch.isalpha():
+            return tok[:i] + ch.upper() + tok[i + 1:]
+        if ch.isdigit():
+            return tok  # starts with a number ("400g", "2%"): not a word to capitalise
+    return tok
+
+
+def title_case_name(text: str) -> str:
+    """Display/AnyList title case for an ingredient name (2026-10-06). Replaces `str.title()`,
+    which capitalised every word ("Cheddar Cheese Or Monterey Jack"), capitalised after
+    apostrophes ("Baker'S") and after digits ("400G"). Small words (`_SMALL_WORDS`) stay lower-case
+    except at the start; hyphenated compounds capitalise each part ("Extra-Virgin Olive Oil").
+
+    Safe for matching by construction: AnyList names are compared case-insensitively
+    (`checklist._names_match` lower-cases both sides), so capitalisation can never affect whether
+    an item is found. Idempotent."""
+    words = text.split()
+    out = []
+    for i, w in enumerate(words):
+        lower = w.lower()
+        if i > 0 and lower in _SMALL_WORDS:
+            out.append(lower)
+        else:
+            out.append("-".join(_cap_token(part) for part in w.split("-")))
+    return " ".join(out)
 
 
 def pluralise(name: str) -> str:

@@ -771,3 +771,15 @@ def test_quota_exhausted_is_an_ai_extraction_error_subclass(db, fake_mode):
     from app.services.ai_extraction import AiQuotaExhaustedError
 
     assert issubclass(AiQuotaExhaustedError, AiExtractionError)
+
+
+def test_extraction_prompt_asks_for_shopping_list_wording_and_hints_do_not_flip_number():
+    """Chunk 6.7: names are written plural for naturally plural nouns and singular for mass nouns,
+    as the recipe writes them; the household-alias heading must not tell the model to switch
+    number (alias pairs are stored as singular matching keys)."""
+    from app.services.ai_extraction import prompts
+
+    text = prompts.EXTRACTION_SYSTEM_PROMPT
+    assert "black beans" in text and "salt, olive oil" in text
+    assert "Do not singularise a plural" in text and '"cheddar cheese or monterey jack"' in text
+    assert "keep the singular/plural form the source itself uses" in prompts._USER_HINT_HEADING

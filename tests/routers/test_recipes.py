@@ -361,3 +361,19 @@ def test_ingredient_names_endpoint_returns_deduped_normalised_names(client):
     # normalised (singular) and deduped -- exactly one entry for this ingredient
     assert names.count("zz test carrot") == 1
     assert "zz test carrots" not in names
+
+
+def test_ingredient_names_offers_the_households_wording_not_the_singular_key(client):
+    """Chunk 6.7: the alias nudge must OFFER "zz wording beans" (how the household writes it), never
+    the singular matching key "zz wording bean" — accepting the key would rewrite the recipe toward
+    singular, and the checklist/AnyList display follows the household's own wording."""
+    _create_recipe(
+        client,
+        name="ZZ-Wording-Test",
+        ingredients=[{"name": "zz wording beans", "quantity": 400, "unit": "g"},
+                     {"name": "zz wording salt", "quantity": 1, "unit": "tsp"}],
+    )
+    data = client.get("/api/v1/recipes/ingredient-names").json()["data"]
+    assert "zz wording bean" in data["names"]  # matching still works on the key
+    assert data["wording"]["zz wording bean"] == "zz wording beans"
+    assert "zz wording salt" not in data["wording"]  # same as its key: nothing to say

@@ -45,6 +45,101 @@ matching" line no longer holds, superseded above:**
 
 ---
 
+## Display names — what an ingredient is *called* on screen and on AnyList
+
+*(Written 2026-10-06, Chunk 6.7. Code: `app/services/checklist_display.py`, `text_normalize.title_case_name`.
+Tests: `tests/services/test_checklist_display.py`, `test_text_normalize.py`. Real-data preview:
+`python -m scripts.preview_display_names [db]`.)*
+
+### Two different things — never confuse them
+
+| | **Matching key** | **Display name** |
+|---|---|---|
+| What | `text_normalize.normalise_ingredient_name()` — lower-case, hyphens folded, last word singularised ("chicken thigh") | how the name *reads* ("chicken thighs", "salt", "black beans") |
+| Where stored | `session_checklist_items.ingredient_name`, `product_units`, `coarse_ingredients`, `ingredient_aliases`, `remembered_substitutions`, `usual_items` | **nowhere** — derived on every read/push, like `recipe_breakdown` |
+| Used for | consolidation, aliases, pack sizes, substitutions, the AnyList name match, everything that must agree | the checklist row label, the merge panel, the name written to AnyList, push progress labels |
+| Change it and… | stored data and matching change (needs a data-preserving migration, rule 3) | nothing but how text looks |
+
+**Nothing in this section changes a key or any matching.** That is the point, and it is enforced (below).
+
+### The rule: the household's own wording
+
+The display name is the form this household's recipes actually use for that ingredient, taken from
+the recipe ingredients whose key is *exactly* that ingredient (`WordingIndex`, built once per
+request from `recipe_ingredients`; a confirmed substitution counts as the wording of the substitute,
+the same choice consolidation makes). Quantity only chooses between forms the household really wrote:
+
+| Amount | Shown |
+|---|---|
+| a bare count of 1 or less ("1 carrot", "0.5 onion") | the singular key |
+| a bare count above 1 ("6 carrots") | a plural form **if the household wrote one**, else the form as written |
+| anything with a unit ("500 g black beans", "2 tbsp olive oil", "12 clove garlic") or no amount ("salt, to taste") | the most-used written form (ties: longer, then alphabetical; hyphen/space spellings are one form) |
+| the household never wrote it under its own key (alias canonical like "canned tomato", a session substitute, a usual) | the key; pluralised **only** if the wording of its alias-group members is mostly plural, and never for names containing or/and/of/with/brackets |
+
+Nothing else is ever pluralised by computation. (A first draft pluralised "a bare count by
+definition"; running it on real recipe data immediately produced "black peppers", "flours" and
+"couscouses" from stray unitless rows, so it was removed — see *What went wrong before* below.)
+
+Title case for AnyList and usuals is `title_case_name()`: small words (or, and, of, with, in, to, for, the, a,
+an, per) stay lower-case except first; each part of a hyphenated word is capitalised; only the first *letter*
+of a word is (so "Baker's", never "Baker'S"; "2% Milk"; "400g Tin Tomatoes", never "400G"). Idempotent.
+
+Examples (real data): black beans · salt · olive oil · vegetable oil · parmesan · chicken thighs (but "1 chicken thigh")
+· carrots (written "carrot ×2, carrots ×1", a count of 3 shows the plural) · "Cheddar Cheese or Monterey Jack".
+
+### The safety guarantee, and how it is enforced
+
+> **Every display string normalises back to the key it was derived from, and the title-cased name pushed to
+> AnyList matches its own checklist row under `checklist._names_match`.**
+
+So a pushed item is always found again on the next push, whatever is shown. It is true by construction for
+forms taken from the household's own rows (they are indexed *by* their normalised form) and is **guarded** for
+anything computed: `_guard()` returns the key itself if a candidate would not normalise back. It is checked by
+`test_checklist_display.py::_check_property` over every awkward shape the audit found (molasses, hummus,
+cheeses, mangoes, half-and-half, "or" names, brackets, apostrophes, hyphens, 300 randomly generated wordings
+× 8 amounts) and by `scripts/preview_display_names.py` over the real recipe data (176 keys × 6 amounts: 0 violations).
+
+### How normalisation/canonicalisation interacts with this — the analysis
+
+1. **Keys, grouping, aliases, merges, substitutions, pack sizes, coarse items, usuals: unaffected.** None of
+   them ever read a display string; they key off `normalise_ingredient_name`. A recipe saying "salts" and one
+   saying "salt" still consolidate into one row.
+2. **Items already on AnyList under an older spelling** ("Salts", "Vegetable Oils", "Black Bean") are still
+   found: the match runs the AnyList name through the key function and compares it with the row's key, so the
+   spelling difference is invisible to it. They are left as they are (a push never renames an item it only
+   leaves alone or updates in place); only an item that is **re-created** (a quantity/note change that needs
+   a replace) takes the new name. No duplicates, no migration, and the lists tidy themselves over time.
+3. **The "did you mean…" nudge in recipe entry** offered the singular *key* and wrote it into the recipe on
+   "use it" — which would have slowly rewritten the household's wording to singular, and the display follows the
+   wording. It now offers the household's wording (`GET /recipes/ingredient-names` returns `wording`), while
+   comparing and aliasing by key. (Without this fix, accepting nudges would have been a slow leak of exactly the
+   plurals this feature restores.)
+4. **Extraction prompt:** new captures now write names the way a shopping list reads (plural for plural nouns,
+   singular for mass nouns, "or"/"and" lower-case), as the recipe writes them. Keys are unaffected (they
+   singularise anyway). The alias-hint heading was changed so hints ("X means Y", stored as singular keys) can't
+   tell the model to switch number.
+5. **Known `singularise` quirks** (`cheeses` → `chees`, `molasses` → `molass`, `hibiscus` → `hibiscu`; the key is not
+   a fixed point of normalise) are *not* fixed here — that changes stored keys and needs a data-preserving
+   migration (deferred-decisions.md). They are handled safely: `_key_text()` never shows such a key; it shows the
+   household's wording or a guarded plural ("chees" → "cheeses", which normalises back).
+6. **Performance:** `normalise_ingredient_name` is now `lru_cache`d (a pure function; `inflect` is slow) and the
+   checklist builds one `WordingIndex` per request instead of per row.
+7. **Honest trade-offs.** If the household wrote only the singular ("chicken thigh", "egg yolk"), that is what is
+   shown even for "8" — nothing is invented. New captures (point 4) write plurals, and editing a recipe's wording
+   updates the display immediately. A usual typed "coffee beans" is stored and shown as "coffee bean" (the original
+   wording isn't kept — deferred-decisions.md). A name containing "or"/"and" is shown exactly as written.
+
+### What went wrong before (the reason for the rewrite)
+
+The 2026-09-27 rule called an ingredient "countable" if *any* recipe row in its alias group had `unit IS NULL`, then
+pluralised it whenever the amount wasn't 1. Real data broke that two ways: a stray unitless "salt 2" or "parmesan"
+row (or one "oil spray" row in the "vegetable oil" group) made salt/parmesan/vegetable oil "countable" →
+**"salts", "parmesans", "vegetable oils", "olive oils"**; and plural-natural nouns that are always measured
+("black beans 800 g", "cashew nuts 175 g", "corn chips 300 g", "salted peanuts", "rice vermicelli noodles") never
+had a bare-count row → stayed singular. Separately `str.title()` produced "Cheddar Cheese Or Monterey Jack".
+
+---
+
 ## Ingredient Substitution
 
 **Status: in scope, manual only.** Design = the MERGE of the Phase 4 approach and the

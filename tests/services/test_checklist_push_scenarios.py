@@ -181,7 +181,7 @@ def test_a_household_note_survives_both_an_uncross_and_a_quantity_change(db, ser
 
 
 def test_a_failed_push_leaves_the_session_re_pushable_and_the_retry_heals_without_duplicates(db, server):
-    s = _session(db, [{"name": "milk", "quantity": 1, "unit": "l"}, {"name": "egg", "quantity": 6, "unit": None}])
+    s = _session(db, [{"name": "milk", "quantity": 1, "unit": "l"}, {"name": "eggs", "quantity": 6, "unit": None}])
     _need_all(db, s)
     server.post_rule = lambda n, op: "drop"  # AnyList swallows every write
     res = cl.push_to_anylist(db, s.id, progress_token="tok-fail")
@@ -200,7 +200,7 @@ def test_a_failed_push_leaves_the_session_re_pushable_and_the_retry_heals_withou
 
 
 def test_partial_failure_keeps_what_landed_and_retries_only_what_failed(db, server):
-    s = _session(db, [{"name": "milk", "quantity": 1, "unit": "l"}, {"name": "egg", "quantity": 6, "unit": None}])
+    s = _session(db, [{"name": "milk", "quantity": 1, "unit": "l"}, {"name": "eggs", "quantity": 6, "unit": None}])
     _need_all(db, s)
     server.post_rule = lambda n, op: "drop" if op["item"] and op["item"]["name"] == "Eggs" else None
     res = cl.push_to_anylist(db, s.id)
@@ -266,7 +266,7 @@ def test_a_usual_that_is_also_an_ingredient_line_is_pushed_once(db, server):
 
 def test_history_records_every_item_result_under_the_push_id(db, server):
     server.phone_add("Milk", "1 L", checked=True)
-    s = _session(db, [{"name": "milk", "quantity": 1, "unit": "l"}, {"name": "egg", "quantity": 6, "unit": None}])
+    s = _session(db, [{"name": "milk", "quantity": 1, "unit": "l"}, {"name": "eggs", "quantity": 6, "unit": None}])
     _need_all(db, s)
     res = cl.push_to_anylist(db, s.id)
     row = db.get(ShoppingHistory, res["history_id"])
@@ -463,3 +463,44 @@ def test_every_pre_push_edit_is_refused_once_the_session_is_pushed(db, server):
         cl.coarse_item(db, s.id, item_id, purchase_label=None, recipes_per_pack=2, remember=False)
     with pytest.raises(cl.SessionAlreadyPushedError):
         cl.merge_items(db, s.id, item_names=["milk"], canonical_name="milk", remember=False)
+
+
+# --- names pushed to AnyList (Chunk 6.7 naming rule) ---------------------------------------------
+
+
+def test_names_pushed_use_the_households_wording_and_correct_capitalisation(db, server):
+    s = _session(db, [
+        {"name": "black beans", "quantity": 800, "unit": "g"},
+        {"name": "salt", "quantity": 2, "unit": "tsp"},
+        {"name": "vegetable oil", "quantity": 4, "unit": "tbsp"},
+        {"name": "cheddar cheese or monterey jack", "quantity": 200, "unit": "g"},
+        {"name": "baker's chocolate", "quantity": 100, "unit": "g"},
+    ])
+    _need_all(db, s)
+    res = cl.push_to_anylist(db, s.id)
+    pushed = {i["name"] for i in res["items"]}
+    assert pushed == {"Black Beans", "Salt", "Vegetable Oil", "Cheddar Cheese or Monterey Jack", "Baker's Chocolate"}
+    assert res["confirmed"] and not _oracle(db, s, server, res)
+
+
+def test_items_pushed_earlier_under_old_spellings_are_still_found_not_duplicated(db, server):
+    # what the old display logic left on the list: "Salts", "Vegetable Oils", "Black Bean"
+    old = {n: server.phone_add(n, q) for n, q in (("Salts", "2 tsp"), ("Vegetable Oils", "4 tbsp"), ("Black Bean", "800 g"))}
+    s = _session(db, [{"name": "black beans", "quantity": 800, "unit": "g"},
+                      {"name": "salt", "quantity": 2, "unit": "tsp"},
+                      {"name": "vegetable oil", "quantity": 4, "unit": "tbsp"}])
+    items, _ok, _d, _b = cl.load_checklist(db, s.id)
+    assert all(i.already_on_anylist for i in items)  # matched through the key, despite the old spellings
+    _need_all(db, s)
+    res = cl.push_to_anylist(db, s.id)
+    assert sorted(i["outcome"] for i in res["items"]) == ["already-active"] * 3
+    assert server.posts == [] and set(old.values()) == set(server.items)  # nothing added, nothing renamed
+
+
+def test_a_replace_moves_an_old_spelling_to_the_new_name(db, server):
+    server.phone_add("Black Bean", "400 g")
+    s = _session(db, [{"name": "black beans", "quantity": 800, "unit": "g"}])
+    _need_all(db, s)
+    res = cl.push_to_anylist(db, s.id)
+    assert res["updated"] == ["Black Beans"] and res["confirmed"]
+    assert [i["name"] for i in server.items.values()] == ["Black Beans"]

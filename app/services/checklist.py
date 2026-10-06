@@ -588,12 +588,14 @@ def _anylist_note(item: SessionChecklistItem) -> str | None:
     return " · ".join(parts) if parts else None
 
 
-def _push_name(db: Session, ci: SessionChecklistItem) -> str:
-    """The name written to AnyList for one checklist row: the natural-English display form for
-    THIS line's own resolved amount (services/checklist_display.py), title-cased."""
-    return checklist_display.display_name(
-        db, ci.ingredient_name, ci.total_quantity, ci.total_unit
-    ).title()
+def _push_name(db: Session, ci: SessionChecklistItem, index: checklist_display.WordingIndex) -> str:
+    """The name written to AnyList for one checklist row: the household's own wording for THIS
+    line's resolved amount (services/checklist_display.py — guaranteed to normalise back to the
+    row's matching key, so it always matches the row on the next push), title-cased by
+    `text_normalize.title_case_name` (small words stay lower-case; no "Baker'S")."""
+    return text_normalize.title_case_name(
+        checklist_display.display_name(db, ci.ingredient_name, ci.total_quantity, ci.total_unit, index)
+    )
 
 
 def push_to_anylist(
@@ -644,6 +646,7 @@ def push_to_anylist(
 
     # Step names are row keys (two lines can share a display name); labels are what is shown.
     row_key = {ci.id: f"item:{ci.id}" for ci in to_push}
+    wording = checklist_display.WordingIndex.build(db)
     push_items: list[PushItem] = []
     for ci in to_push:
         matches = _matches(ci.ingredient_name, anylist_items)
@@ -656,7 +659,7 @@ def push_to_anylist(
             )
         push_items.append(
             PushItem(
-                name=_push_name(db, ci),
+                name=_push_name(db, ci, wording),
                 quantity=_anylist_quantity(ci),
                 existing_id=best.identifier if best else None,
                 # 2026-09-10 hand-testing: a checklist note ("to taste", an overage hint, a
@@ -682,7 +685,8 @@ def push_to_anylist(
             continue
         best = _best_match(_matches(u.name, anylist_items))
         pi = PushItem(
-            name=u.name.title(), quantity=None,
+            name=text_normalize.title_case_name(checklist_display.display_name(db, u.name, None, None, wording)),
+            quantity=None,
             existing_id=best.identifier if best else None, key=f"usual:{u.id}",
         )
         usual_key[u.id] = pi.key
@@ -712,7 +716,8 @@ def push_to_anylist(
             line = next((r for r in result.items if r.key == usual_covered[u.id]), None)
             ok = line is not None and line.ok
             result.items.append(PushItemResult(
-                key=usual_key[u.id], name=u.name.title(),
+                key=usual_key[u.id],
+                name=text_normalize.title_case_name(checklist_display.display_name(db, u.name, None, None, wording)),
                 outcome=OUTCOME_ACTIVE if ok else OUTCOME_FAILED, intended=OUTCOME_ACTIVE,
                 reason=("covered by the ingredient line" if ok else (line.reason if line else "not pushed")),
                 ident=line.ident if ok else None,

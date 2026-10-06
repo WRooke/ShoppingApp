@@ -57,7 +57,8 @@ _HINT_INTRO = (
 _SYSTEM_HINT_HEADING = "These are universal English facts, true for any household:"
 _USER_HINT_HEADING = (
     "This household also prefers these specific names when a source uses different wording "
-    "for the same product:"
+    "for the same product (they say which NAME to prefer, not whether it is singular or plural — "
+    "keep the singular/plural form the source itself uses):"
 )
 
 
@@ -152,6 +153,12 @@ Rules:
   product form — keep "coriander" separate from "ground coriander" or "coriander seeds",
   "ginger" from "ground ginger", "garlic" from "garlic powder", fresh chilli from "dried
   chilli" / "chilli flakes", and so on. When unsure, leave the name as written.
+- Write each ingredient name the way it reads on a shopping list and the way the recipe itself
+  writes it: plural for ingredients that are naturally plural (black beans, cashew nuts, corn
+  chips, chicken thighs, spring onions, chickpeas), singular for ingredients that are not
+  counted (salt, olive oil, flour, parmesan, butter, beef mince). Do not singularise a plural
+  name or pluralise a singular one, and keep small words such as "or" and "and" lowercase
+  ("cheddar cheese or monterey jack")
 - cuisine and protein are freetext, lowercase, one or two words; null if not clearly inferrable
 - Return ONLY valid JSON."""
 
