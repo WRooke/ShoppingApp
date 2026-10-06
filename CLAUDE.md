@@ -125,6 +125,7 @@ table before assuming something went missing.
 | [duplicate-recipe-prevention.md](./docs/duplicate-recipe-prevention.md) | Warn-with-override duplicate detection at recipe save time | Duplicate Recipe Prevention |
 | [ingredient-handling.md](./docs/ingredient-handling.md) | Normalisation, substitution (manual only since 2026-09-30 — the AI-flagging call was removed), aliases, and the four-layer unit-handling design | Ingredient Normalisation; Ingredient Substitution (minus its History subsection — see decision-history.md); Ingredient Aliases; Ingredient Unit Handling (minus its Build-chunks subsection — see build-status/); AI Provider Migration's substitution-merge table and "Substitution — the current spec" (formerly "Ingredient Substitution Flagging — the merged spec") |
 | [checklist-and-shopping.md](./docs/checklist-and-shopping.md) | Checklist load/tap logic, "the usuals", the AnyList push algorithm, store-layout sorting | Checklist Screen Logic; AnyList Push Logic; Shopping List Store Layout |
+| [anylist-push.md](./docs/anylist-push.md) | **Start here when an item didn't arrive on AnyList.** The push contract, the AnyList operations in use + proven behaviour, the per-line decision matrix, what "confirmed" means, per-item results, the log format, a troubleshooting runbook, the live-verification log, and the test map | (new 2026-10-06, Chunk 6.7 — expands AnyList Push Logic) |
 | [nutrition-mfp-export.md](./docs/nutrition-mfp-export.md) | Recipe → MyFitnessPal export design (post-MVP, unscheduled) | Nutrition & MyFitnessPal Export |
 | [diagnostics-and-logging.md](./docs/diagnostics-and-logging.md) | Logging rules, log file rotation, the `/diagnostics` page spec | Diagnostics & Logging |
 | [security.md](./docs/security.md) | §0a–0c (injection hardening, usage observability, the enable switch) + §1–5 (network, credentials, host, app, deployment) | Security |
@@ -229,8 +230,8 @@ See [docs/ingredient-handling.md](./docs/ingredient-handling.md).
 The checklist screen's load/tap-cycle logic (including "the usuals" — recurring non-recipe
 household items on their own cadence), the per-row ingredient panel (pack size / substitute /
 alias / coarse item / merge, each "this list only" or "Always", replacing the standalone
-Review step — chunk 7.5), the push-to-AnyList algorithm (batched update, re-fetch-and-diff
-confirmation, `shopping_history` logging), and the store-specific walking-order rendering
+Review step — chunk 7.5), the push-to-AnyList contract (every Need-it row ends up on the list, uncrossed, exactly once — confirmed by a read-back,
+reported per item, never silent; full detail in [docs/anylist-push.md](./docs/anylist-push.md)), `shopping_history` logging, and the store-specific walking-order rendering
 design (multi-store, AI-suggested sections, store layout kept independent of AnyList itself).
 
 See [docs/checklist-and-shopping.md](./docs/checklist-and-shopping.md).

@@ -710,6 +710,20 @@ change chunk order and scope, not just because they happened.
       lets you copy them out, and no longer drowns them in routine Windows connection-reset
       noise. **Chunk 6.7 itself stays open** — more user testing/feedback is still expected
       before it and the Phase 6 review below are checked off.
+      **2026-10-06 — feedback batch 2 (Chunk 6.7 stays open).** Four items from a live shopping run, plan agreed in conversation:
+      (1) AnyList push silently dropped ~4 items; (2) "Update available" banner never appears; (3) native `confirm()`/`alert()`
+      popups; (4) ingredient-name grammar (plural/singular, "Or" title-casing). Four separate commits, push first.
+      - [x] **#3 AnyList push** — backend, logging, docs and tests done and verified live on TestList (5 pushes, no problems; see
+        [anylist-push.md](../anylist-push.md)). Found and fixed: Need-it ticks lost on rename (consolidation), crossed-off items
+        treated as on the list and left crossed off, a weak verifier, mid-batch failures losing all results, name-keyed progress,
+        a matching bug on `-ses` words. Per-line results, push history on Diagnostics (API), `push_id` logging, only a confirmed
+        push marks the session pushed. 865 tests, branch coverage of the push path 98–99 %.
+      - [ ] **#3 push UI** — the Reading → Sending → Confirming → Done tracker, the per-item result list and the Diagnostics
+        push-history panel: **awaiting mockup approval** (standing rule); the payload they need is already in place.
+      - [ ] **#1 update banner** — design in the plan (build-id from `<meta>`, no-cache static files, `?v=` asset URLs, more check
+        triggers, update.bat verification).
+      - [ ] **#2 no native popups** — merge panel/inline cards/error toasts; **awaiting mockup approval**.
+      - [ ] **#4 ingredient names** — display from the household's own recipe wording, small-word-aware title case.
 - [ ] **Phase 6 review** — re-check against [UI/UX](../ui-ux.md),
       [Checklist, AnyList Push & Shopping List Layout](../checklist-and-shopping.md) (confirm the
       store-layout deferral note landed correctly and nothing there was silently half-built),

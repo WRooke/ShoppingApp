@@ -310,8 +310,14 @@
             lastDiscrepancies = res.discrepancies;
           } else {
             lastDiscrepancies = null;
+            // `updated` already includes the un-crossed ones; "already on the list" lines were left
+            // alone (nothing was written for them).
+            var already = (res.already_active || []).length;
+            var uncrossed = (res.uncrossed || []).length;
             var msg =
               "Pushed. Added " + (res.added || []).length + ", updated " + (res.updated || []).length +
+              (uncrossed ? " (" + uncrossed + " un-crossed)" : "") +
+              (already ? ", " + already + " already on the list" : "") +
               (res.usuals_added && res.usuals_added.length ? ", + " + res.usuals_added.length + " usual(s)" : "") +
               ".";
             global.Toast.show(msg);

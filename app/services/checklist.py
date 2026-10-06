@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
 from sqlalchemy.orm import Session
 
@@ -31,7 +32,14 @@ from app.services import settings as settings_service
 from app.services import substitutions as substitutions_service
 from app.services import text_normalize
 from app.services import usuals as usuals_service
-from app.services.anylist_client import AnyListError, PushItem
+from app.services.anylist_client import (
+    OUTCOME_ACTIVE,
+    OUTCOME_FAILED,
+    AnyListError,
+    PushItem,
+    PushItemResult,
+)
+from app.services.session_consolidation import HAVE_IT_STRENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +84,53 @@ def _singularise(s: str) -> str:
 
 
 def _names_match(ingredient_name: str, anylist_name: str | None) -> bool:
+    """Is this AnyList item name the same shopping item as this checklist row's key?
+
+    Three tiers, cheapest first. (1) Equal after lower-casing/space-folding. (2) The AnyList name
+    run through the app's own key function ONCE equals the stored key — `ingredient_name` is
+    already a key, so it must NOT be normalised a second time: `singularise` is not idempotent
+    for some `-ses` words (cheeses -> "chees" -> "chee"), which made an item never match its own
+    AnyList entry (Chunk 6.7, defect F; see docs/ingredient-handling.md). (3) The older
+    both-sides-singularised comparison, kept so nothing that matched before stops matching.
+    A false negative would add a duplicate on push; a false positive would update the wrong
+    item, so tier 3 is deliberately no looser than it was."""
     a, b = _norm(ingredient_name), _norm(anylist_name or "")
     if not a or not b:
         return False
-    return a == b or _singularise(a) == _singularise(b)
+    if a == b:
+        return True
+    if text_normalize.normalise_ingredient_name(anylist_name or "") == ingredient_name:
+        return True
+    return _singularise(a) == _singularise(b)
+
+
+def _matches(
+    ingredient_name: str, anylist_items: list[anylist_client.AnyListItem]
+) -> list[anylist_client.AnyListItem]:
+    """Every AnyList item that is this ingredient, in list order."""
+    return [i for i in anylist_items if _names_match(ingredient_name, i.name)]
+
+
+def _best_match(
+    matches: list[anylist_client.AnyListItem],
+) -> anylist_client.AnyListItem | None:
+    """The item a push should write to: an ACTIVE (uncrossed) one if there is any, else a
+    crossed-off one (the push will re-add it uncrossed), else None. List order is arbitrary, so
+    "first match" must never be allowed to pick last week's crossed-off item over this week's
+    live one (Chunk 6.7, defect B)."""
+    active = [m for m in matches if not m.checked]
+    return (active or matches or [None])[0]
 
 
 def _find_match(
     ingredient_name: str, anylist_items: list[anylist_client.AnyListItem]
 ) -> anylist_client.AnyListItem | None:
-    return next((i for i in anylist_items if _names_match(ingredient_name, i.name)), None)
+    """The ACTIVE item for this ingredient, or None. A crossed-off item is not "on the list" —
+    it is already bought — so it must neither pre-tick the row as "Have it" nor count as on
+    the list (Chunk 6.7, defect B). `_best_match` is the push-time twin that may return a
+    crossed-off item."""
+    active = [m for m in _matches(ingredient_name, anylist_items) if not m.checked]
+    return active[0] if active else None
 
 
 # --- load -----------------------------------------------------------------------------
@@ -131,6 +176,9 @@ def load_checklist(
     for ci in items:
         if not anylist_ok:
             continue  # keep whatever match state was there; don't wipe it on a transient fail
+        # Only an ACTIVE (uncrossed) AnyList item counts as "already on the list" - a crossed-off
+        # one is already bought and must neither pre-tick this row "Have it" nor be written to
+        # as if it were live (Chunk 6.7, defect B; _find_match is active-only).
         match = _find_match(ci.ingredient_name, anylist_items)
         if match is not None:
             ci.already_on_anylist = True
@@ -224,7 +272,7 @@ def resolve_item(
 
 # --- merge (Fix 3, F3.3 — CLAUDE.md > Deferred Decisions > checklist-time merge) -----------
 
-_HAVE_IT_STRENGTH = {"no": 2, "yes": 1, "unknown": 0, "partial": 0}
+_HAVE_IT_STRENGTH = HAVE_IT_STRENGTH  # shared with session_consolidation (rename state-carry)
 
 
 def merge_items(
@@ -540,6 +588,14 @@ def _anylist_note(item: SessionChecklistItem) -> str | None:
     return " · ".join(parts) if parts else None
 
 
+def _push_name(db: Session, ci: SessionChecklistItem) -> str:
+    """The name written to AnyList for one checklist row: the natural-English display form for
+    THIS line's own resolved amount (services/checklist_display.py), title-cased."""
+    return checklist_display.display_name(
+        db, ci.ingredient_name, ci.total_quantity, ci.total_unit
+    ).title()
+
+
 def push_to_anylist(
     db: Session,
     session_id: int,
@@ -548,87 +604,157 @@ def push_to_anylist(
     force: bool = False,
     progress_token: str | None = None,
 ) -> dict:
-    """Push the checklist to AnyList: every line the user needs (``add_to_list`` or
-    ``have_it == 'no'``), plus any ticked due "usuals". Existing items are updated in place
-    (no duplicates); new items are added. One batched call, then re-fetch + diff to confirm
-    (CLAUDE.md > AnyList Push Logic and > AnyList spike findings). On completion the session
-    is marked ``pushed`` and a ``shopping_history`` row is written — even if the diff wasn't
-    fully confirmed (the discrepancies are recorded and returned; a not-marked-pushed session
-    would re-push the confirmed items as duplicates on retry).
+    """Push the checklist to AnyList so that every line the user needs (``add_to_list`` or
+    ``have_it == 'no'``), plus any ticked due "usuals", ends up ON the list, NOT crossed off,
+    with the right quantity and note — and prove it. See CLAUDE.md > AnyList Push Logic and
+    docs/anylist-push.md (the authoritative description, runbook and test map).
 
-    ``progress_token``, when given, drives the real per-item push progress UI (CLAUDE.md >
-    UI/UX > Real progress indicators) via ``progress_tracker`` — one step per pushed item
-    (named by ingredient/usual name), reported active/done as ``anylist_client`` actually
-    works through them. A falsy token makes this entirely a no-op, same as capture's."""
+    Flow: (1) read the list fresh — nothing is changed if this fails (502); (2) match each wanted
+    line to an AnyList item BY NAME against that fresh read, preferring an active item over a
+    crossed-off duplicate (a stale id from an earlier page load can't matter); (3) let the
+    connector write and then read the list back — it reports a per-line outcome (added /
+    updated / un-crossed / already-active / failed + reason), keyed by row, confirmed by the
+    read-back and never by an HTTP status; (4) write the new AnyList ids back onto the rows, mark
+    the session ``pushed`` and stamp the usuals — but only if every line was confirmed, so a
+    partial failure leaves the session re-pushable without the "already pushed" prompt (the next
+    push re-reads the list, leaves what landed alone, and retries only what failed); (5) record
+    the whole per-line result in ``shopping_history`` and the log under one ``push_id``.
+
+    ``progress_token``, when given, drives the real push progress UI via ``progress_tracker``:
+    a coarse stage (reading / sending / confirming / done) plus one step per wanted line,
+    addressed by row key. A falsy token makes all of it a no-op, same as capture's."""
     session = sessions_service.get_session(db, session_id)
     if session.status == "pushed" and not force:
         raise SessionAlreadyPushedError(session_id)
 
+    push_id = uuid.uuid4().hex[:8]
     to_push = [
         ci for ci in session.checklist_items if ci.add_to_list or ci.have_it == "no"
     ]
-    push_items = [
-        PushItem(
-            # 2026-09-27 — the natural-English display form ("chicken thighs", not the
-            # matching key "chicken thigh") for THIS line's own resolved amount — see
-            # services/checklist_display.py. AnyList's own fuzzy-match on re-push (_find_match
-            # above) already tolerates a plural/singular difference via its own singularise
-            # fallback, so this doesn't affect existing-item matching.
-            name=checklist_display.display_name(db, ci.ingredient_name, ci.total_quantity, ci.total_unit).title(),
-            quantity=_anylist_quantity(ci),
-            existing_id=ci.anylist_item_id if ci.already_on_anylist else None,
-            # 2026-09-10 hand-testing: a checklist note ("to taste", an overage hint like
-            # "150 g spare", a needs_review breakdown) was silently dropped on push — it only
-            # ever showed up on the app's own checklist screen. Carried through to AnyList's
-            # details field (plus the pack breakdown, moved here at Chunk 5.7 — see
-            # `_anylist_note`) so it's visible from the real list too.
-            note=_anylist_note(ci),
-        )
-        for ci in to_push
-    ]
-
     wanted_usual_ids = set(usual_ids or [])
     due_usuals = [u for u in usuals_service.due_items(db) if u.id in wanted_usual_ids]
-    usual_names = {u.name.title() for u in due_usuals}
-    push_items += [PushItem(name=u.name.title(), quantity=None) for u in due_usuals]
+    logger.info(
+        "Checklist push %s: session_id=%s force=%s need_it_rows=%d usuals=%d",
+        push_id, session_id, force, len(to_push), len(due_usuals),
+    )
 
-    progress_tracker.start(progress_token, [p.name for p in push_items])
+    progress_tracker.start(progress_token, [])
+    progress_tracker.set_stage(progress_token, "reading")
+    anylist_items = anylist_client.get_items()  # AnyListError -> 502, before anything changes
 
-    def _on_item(name: str, status: str) -> None:
+    # Step names are row keys (two lines can share a display name); labels are what is shown.
+    row_key = {ci.id: f"item:{ci.id}" for ci in to_push}
+    push_items: list[PushItem] = []
+    for ci in to_push:
+        matches = _matches(ci.ingredient_name, anylist_items)
+        best = _best_match(matches)
+        actives = [m for m in matches if not m.checked]
+        if len(actives) > 1:
+            logger.warning(
+                "Checklist push %s: %r matches %d ACTIVE AnyList items (%s) — writing to the first",
+                push_id, ci.ingredient_name, len(actives), [m.name for m in actives],
+            )
+        push_items.append(
+            PushItem(
+                name=_push_name(db, ci),
+                quantity=_anylist_quantity(ci),
+                existing_id=best.identifier if best else None,
+                # 2026-09-10 hand-testing: a checklist note ("to taste", an overage hint, a
+                # needs_review breakdown) was silently dropped on push; it goes to AnyList's
+                # details field (plus the pack breakdown, see `_anylist_note`).
+                note=_anylist_note(ci),
+                key=row_key[ci.id],
+            )
+        )
+    usual_key: dict[int, str] = {}
+    usual_covered: dict[int, str] = {}  # usual id -> key of the ingredient line that already covers it
+    for u in due_usuals:
+        covering = next((ci for ci in to_push if _names_match(ci.ingredient_name, u.name)), None)
+        if covering is not None:
+            # The same item is already being pushed as an ingredient line: pushing the usual too
+            # would put it on the list twice. It is reported as covered, not written.
+            usual_covered[u.id] = row_key[covering.id]
+            usual_key[u.id] = f"usual:{u.id}"
+            logger.info(
+                "Checklist push %s: usual %r is already covered by ingredient line %r",
+                push_id, u.name, covering.ingredient_name,
+            )
+            continue
+        best = _best_match(_matches(u.name, anylist_items))
+        pi = PushItem(
+            name=u.name.title(), quantity=None,
+            existing_id=best.identifier if best else None, key=f"usual:{u.id}",
+        )
+        usual_key[u.id] = pi.key
+        push_items.append(pi)
+
+    progress_tracker.start(
+        progress_token, [p.ref for p in push_items], labels={p.ref: p.name for p in push_items}
+    )
+    progress_tracker.set_stage(progress_token, "reading")
+
+    def _on_item(ref: str, status: str) -> None:
         if status == "active":
-            progress_tracker.step_active(progress_token, name)
+            progress_tracker.step_active(progress_token, ref)
         elif status == "done":
-            progress_tracker.step_done(progress_token, name)
+            progress_tracker.step_done(progress_token, ref)
+        elif status == "failed":
+            progress_tracker.step_failed(progress_token, ref)
 
-    result = anylist_client.add_or_increment_items(push_items, on_item=_on_item)  # AnyListError -> 502
-    # Partition the connector's added/updated into ingredient lines vs usuals so the caller
-    # doesn't double-count a usual (it also appears in `usuals_added`).
-    added_ingredients = [n for n in result.added if n not in usual_names]
-    updated_ingredients = [n for n in result.updated if n not in usual_names]
+    result = anylist_client.add_or_increment_items(  # AnyListError (list read) -> 502
+        push_items,
+        on_item=_on_item,
+        on_stage=lambda stage: progress_tracker.set_stage(progress_token, stage),
+        push_id=push_id,
+    )
+    for u in due_usuals:  # usuals folded into an ingredient line share that line's fate
+        if u.id in usual_covered:
+            line = next((r for r in result.items if r.key == usual_covered[u.id]), None)
+            ok = line is not None and line.ok
+            result.items.append(PushItemResult(
+                key=usual_key[u.id], name=u.name.title(),
+                outcome=OUTCOME_ACTIVE if ok else OUTCOME_FAILED, intended=OUTCOME_ACTIVE,
+                reason=("covered by the ingredient line" if ok else (line.reason if line else "not pushed")),
+                ident=line.ident if ok else None,
+            ))
+    by_key = {r.key: r for r in result.items}
+    for key, r in by_key.items():  # the confirm read-back is the truth, not the send
+        if not r.ok:
+            progress_tracker.step_failed(progress_token, key, r.reason)
+    progress_tracker.set_stage(progress_token, "done" if result.confirmed else "needs-attention")
 
-    # 2026-09-18 fault-finding, mechanism #3 (docs/build-status/anylist-fault-finding-spike.md):
-    # without this, a checklist row that was just freshly ADDED stays already_on_anylist=False
-    # (load_checklist() only ever sets it from an AnyList fetch that happened BEFORE this push),
-    # so any push after this one -- in particular the UI's own "already pushed, push again?"
-    # retry (static/js/checklist.js), which never reloads first -- treats it as new again and
-    # duplicates it. `push_items[: len(to_push)]` lines up 1:1 with `to_push` (usuals are always
-    # appended after). Deliberately NOT gated on `pi.existing_id is None` (a fresh add) alone —
-    # 2026-09-20 fix (Phase B, same spike doc): a unit-bearing quantity update now goes through
-    # delete+re-add under a *new* id too (see anylist_client.py's "replace" branch), and
-    # `result.added_ids` covers that case exactly the same way. Without this, a replaced item's
-    # row would keep pointing at the now-deleted old id, and every future push would look for a
-    # phantom item forever.
-    for ci, pi in zip(to_push, push_items[: len(to_push)]):
-        if pi.name in result.added_ids:
+    # Write each landed line's AnyList id back onto its row, keyed by row (never by name), so the
+    # next push — and the next load — find it without relying on a name match.
+    for ci in to_push:
+        r = by_key.get(row_key[ci.id])
+        if r is not None and r.ok and r.ident:
             ci.already_on_anylist = True
-            ci.anylist_item_id = result.added_ids[pi.name]
+            ci.anylist_item_id = r.ident
 
-    session.status = "pushed"
-    session.pushed_at = utcnow()
-    if due_usuals:
-        usuals_service.mark_added(db, [u.id for u in due_usuals], when=session.pushed_at)
+    # Belt and braces: warn (loudly, with the push_id) about any pushed line that now has more
+    # than one ACTIVE match on the list — a duplicate, whoever made it.
+    for ci in to_push:
+        n_active = sum(
+            1 for m in _matches(ci.ingredient_name, result.after_items) if not m.checked
+        )
+        if n_active > 1:
+            logger.warning(
+                "Checklist push %s: DUPLICATE — %r now has %d active items on the list",
+                push_id, ci.ingredient_name, n_active,
+            )
+
+    ok_usuals = [u for u in due_usuals if usual_key[u.id] in by_key and by_key[usual_key[u.id]].ok]
+    pushed_at = utcnow()
+    if result.confirmed:
+        session.status = "pushed"
+        session.pushed_at = pushed_at
+    if ok_usuals:
+        usuals_service.mark_added(db, [u.id for u in ok_usuals], when=pushed_at)
+
+    ingredient_results = [r for r in result.items if r.key.startswith("item:")]
 
     snapshot = {
+        "push_id": push_id,
         "ingredients": [
             {"name": p.name, "quantity": p.quantity, "existing": p.existing_id is not None}
             for p in push_items
@@ -638,10 +764,17 @@ def push_to_anylist(
     }
     history = ShoppingHistory(
         session_id=session_id,
-        pushed_at=session.pushed_at,
+        pushed_at=pushed_at,
         items_json=json.dumps(snapshot),
         anylist_response_json=json.dumps(
-            {"raw": result.raw_response, "discrepancies": result.discrepancies}
+            {
+                "push_id": push_id,
+                "raw": result.raw_response,
+                "discrepancies": result.discrepancies,
+                "items": [r.as_dict() for r in result.items],
+                "timings": result.timings,
+                "retried": result.retried,
+            }
         ),
     )
     db.add(history)
@@ -649,15 +782,25 @@ def push_to_anylist(
     db.refresh(history)
 
     logger.info(
-        "Checklist pushed: session_id=%s added=%d updated=%d usuals=%d confirmed=%s",
-        session_id, len(added_ingredients), len(updated_ingredients), len(due_usuals), result.confirmed,
+        "Checklist push %s: session_id=%s added=%d updated=%d (un-crossed=%d) already_active=%d "
+        "failed=%d usuals=%d confirmed=%s timings=%s",
+        push_id, session_id, len(result.added), len(result.updated), len(result.uncrossed),
+        len(result.already_active), len(result.failed), len(ok_usuals), result.confirmed,
+        result.timings,
     )
     return {
         "session_id": session_id,
-        "added": added_ingredients,
-        "updated": updated_ingredients,
-        "usuals_added": [u.name for u in due_usuals],
+        "push_id": push_id,
+        # name lists for ingredient lines only (a usual is reported under usuals_added)
+        "added": [r.name for r in ingredient_results if r.outcome == "added"],
+        "updated": [r.name for r in ingredient_results if r.outcome in ("updated", "un-crossed")],
+        "uncrossed": [r.name for r in ingredient_results if r.outcome == "un-crossed"],
+        "already_active": [r.name for r in ingredient_results if r.outcome == "already-active"],
+        "failed": result.failed,
+        "usuals_added": [u.name for u in ok_usuals],
+        "items": [r.as_dict() for r in result.items],
         "confirmed": result.confirmed,
         "discrepancies": result.discrepancies,
+        "session_status": session.status,
         "history_id": history.id,
     }

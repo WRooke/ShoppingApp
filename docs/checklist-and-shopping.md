@@ -216,104 +216,78 @@ Built in [Phase 5 Chunks 5.4 / 5.5 / 5.6](./build-status/phase-5-checklist-anyli
 
 ## AnyList Push Logic
 
-Built in [Phase 5 Chunk 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration) —
-`services/checklist.py > push_to_anylist()`.
+> **Rewritten 2026-10-06 (Chunk 6.7).** The authoritative, detailed description — the operation
+> table, the decision matrix, verification semantics, per-item statuses, log format, a
+> troubleshooting runbook and the test map — now lives in **[anylist-push.md](./anylist-push.md)**.
+> This section is the summary; if the two ever disagree, anylist-push.md wins. The history of how
+> the write mechanisms were found is in
+> [build-status/anylist-fault-finding-spike.md](./build-status/anylist-fault-finding-spike.md).
 
-On push:
-1. Collect `session_checklist_items` where `add_to_list = True` **OR** `have_it = 'no'`
-   (the checklist tap sets `add_to_list` when you tap to "need it", so in practice these
-   coincide), plus any ticked **due "usuals"**.
-   - If `already_on_anylist = True` AND `anylist_item_id` is set, and the computed quantity is a
-     **bare AnyList-native count** (no unit, e.g. `"3"`): **update the existing item in place**
-     (`set-list-item-quantity`) — proven reliable for this shape, both live and at realistic
-     scale.
-   - If the same is true but the quantity has a **unit** (`"500 g"`, `"1.5 L"`, or a
-     non-numeric coarse-ingredient string) — the common case, since most ingredients here have
-     a unit: **replace the item** instead — delete it and add a fresh one under a new
-     identifier. **Fixed 2026-09-20** (fault-finding spike, full trail in
-     [docs/build-status/anylist-fault-finding-spike.md](./build-status/anylist-fault-finding-spike.md)'s
-     2026-09-19/20 addenda): `set-list-item-quantity` was root-caused as a genuine AnyList
-     server-side limitation for anything but a bare number or the literal tokens `"kg"`/`"lb"`
-     — confirmed via an exhaustive live investigation and, decisively, by running the real
-     unmodified reference `anylist` npm package against the identical case (it fails
-     identically, ruling out a bug in this app's own implementation). ADD is 100% reliable for
-     any quantity shape, so replacing is the fix. **Checked-state and the note both carry
-     across the replace explicitly** — checked from the item's state just before the push,
-     note from the freshly computed value (an improvement over the bare-count path below, which
-     still never syncs notes). Live-confirmed (wire-level and phone-checked) that quantity,
-     note, and checked all survive intact, and re-validated at realistic scale (8 simulated
-     weekly cycles, ~24 items, zero discrepancies).
-   - Otherwise (genuinely new): add as a new item (client-generated UUID identifier, per the
-     spike). **Fixed 2026-09-19** (fault-finding spike mechanism #3): `push_to_anylist()` writes
-     the new identifier straight back onto the checklist row (`already_on_anylist = True`,
-     `anylist_item_id = <new id>`) as soon as the add — or a replace, which is also a real add
-     under the hood — is confirmed. Before this fix, that write-back never happened for a fresh
-     add, so a re-push of the same session before its next `load_checklist()` call — exactly
-     what the checklist screen's own "already pushed, push again?" retry does — had no way to
-     know the ingredient was already there and added it a second time. Reproduces every time an
-     ingredient is new on the first push, confirmed live; not an edge case.
-2. Item name: `ingredient_name` `.title()`-cased; a usual uses its own name.
-3. **Item quantity and note (reworked at Chunk 5.7 live-verification, 2026-09-12, per the
-   maintainer's request).** `services/checklist.py > _anylist_quantity()` sends the plain
-   "need" total (`total_quantity`/`total_unit`) as AnyList's quantity — the amount to
-   actually buy, not a sentence describing how it's packed — falling back to the pack-count
-   string only when there's no numeric total at all (a coarse ingredient). `_anylist_note()`
-   sends the pack breakdown (e.g. "2 × 500g pack") *plus* whatever the checklist's own `note`
-   already carries (an overage hint, "to taste", a needs_review breakdown, an alias
-   conversion), combined with " · ". Example: `passata — 2 × 750 g jars · need ~1.05 kg` on
-   the app's own checklist becomes AnyList quantity `"1050 g"`, note
-   `"2 × 750g jars · 450 g spare"`.
-   **Known limitation, still standing for bare-count items only:** a note only lands correctly
-   on an item's *first* push via the simple update path. Updating an existing AnyList item's
-   note (`set-list-item-details`) was tried and reverted — it was found (Chunk 5.7) to reliably
-   break that same item's quantity on every future update (a 2026-09-19 controlled A/B found no
-   differential failure rate on this specific claim, casting some doubt, but it hasn't been
-   re-verified enough to act on). **This limitation no longer applies to unit-bearing items** —
-   those go through the replace path above, which syncs the note as a normal side effect of a
-   real add. Only a bare-count item's note stays frozen at whatever it was on first add.
-4. **One operation per HTTP request — never batched, even across different items**
-   (`services/anylist_client.py > add_or_increment_items()`, reworked at the same
-   Chunk 5.7 pass). AnyList's server was found to silently drop an operation whenever a
-   single request touched more than one distinct list item — confirmed reproducible, and
-   matching the reference `codetheweb/anylist` client's own behaviour (it never batches
-   either). A push of N items is therefore N sequential requests, each individually
-   **re-fetch + diff**-confirmed together at the end (an HTTP 200 alone is not proof — spike
-   finding #3). `confirmed` / `discrepancies` are recorded and returned.
-   **Retry added 2026-09-19** (fault-finding spike mechanism #1,
-   [docs/build-status/anylist-fault-finding-spike.md](./build-status/anylist-fault-finding-spike.md)):
-   a fraction of `set-list-item-quantity`/`add-shopping-list-item` calls were found to
-   intermittently persist nothing at all — a real AnyList-side failure, HTTP 200 either way,
-   with no identified trigger on our side. Any item still wrong after the initial confirm-diff
-   now gets its exact op resent up to `_MAX_RETRIES` (2) more times, each with its own fresh
-   confirm, before it's allowed to become a real discrepancy — see the spike doc's 2026-09-19
-   reliability-investigation addendum for what this looked like at realistic scale. `retried`
-   (names that needed at least one retry) is recorded on the result alongside
-   `confirmed`/`discrepancies` so real-world frequency stays visible without another spike.
-5. On completion: set `planning_sessions.status = 'pushed'` + `pushed_at`, stamp
-   `usual_items.last_added_at` for any pushed usuals, and write one `shopping_history` row
-   (`items_json` snapshot + `anylist_response_json` = the raw response summary +
-   discrepancies). The session is marked `pushed` **even if the diff wasn't fully confirmed**
-   — otherwise a retry would re-add the items that *did* land as duplicates. A re-push of an
-   already-`pushed` session is refused (`409 SESSION_ALREADY_PUSHED`) unless `?force=true`.
+**The contract of a push:** every row the user marked **Need it** (`add_to_list` or
+`have_it = 'no'`), plus any ticked due **"usual"**, ends up **on the AnyList list, NOT crossed
+off, exactly once, with the wanted quantity and note — and the push proves it by reading the list
+back.** Anything that did not make it is reported **by name with a reason**; a push never fails
+silently and never reports `confirmed` unless every line passed the read-back.
 
-### Real push progress UI (2026-09-23)
+How (`services/checklist.py > push_to_anylist()` + `services/anylist_client.py`):
+1. **Read the list fresh.** If that fails, nothing is changed (502).
+2. **Match each wanted line to an AnyList item by name against that fresh read** — the id stored on
+   the checklist row is only a hint and may be stale. An *active* (uncrossed) match is preferred
+   over a crossed-off duplicate. A crossed-off item is **not** "on the list" (it is already
+   bought): it does not pre-tick a row "Have it" and it is not counted as on the list.
+3. **Decide per line** (one function, `_decide`, shared by the real connector and the in-memory
+   fake): not on the list → **add**; active and identical → **leave alone** ("already active");
+   active, bare-count quantity changed → `set-list-item-quantity`; crossed off → **un-cross**
+   (`set-list-item-checked` `'n'`, then set the quantity if it changed — live-verified on TestList
+   2026-10-06); anything else that must change (unit-bearing quantity or a changed note) →
+   **replace** (remove + add under a new id, the only reliable write for those). The household's
+   own note on an item is never overwritten by a push that has no note of its own.
+4. **One operation per HTTP request**, then a **fresh read-back** of the whole list. Every line is
+   checked: present, **uncrossed**, right quantity, right note/name where this push set them, and —
+   for a replace — the old item gone. A read that merely lags is re-read before anything is
+   re-sent; a line still wrong is re-sent (same new id, so a retry can never duplicate), at most
+   `_MAX_RETRIES` times. If the old item of a replace will not go away it is crossed off instead
+   so it is not an active duplicate. One failing line never aborts the batch; after three failed
+   sends in a row the rest are marked "not sent" instead of waiting out a timeout per line.
+5. **Result per line:** `added`, `updated`, `un-crossed`, `already-active` or `failed(reason)`,
+   keyed by checklist row (`item:<id>` / `usual:<id>`), never by display name. `confirmed` is true
+   only when no line failed. The AnyList ids that landed are written back onto the rows.
+6. **Only a fully confirmed push marks the session `pushed`** (and stamps the usuals); a partial
+   failure leaves it re-pushable *without* the "already pushed" prompt — the next push re-reads
+   the list, leaves what landed alone and retries only what failed. A forced re-push of a fully
+   pushed session is still allowed (`?force=true`).
+7. **Recorded and visible:** one `shopping_history` row per push (`items_json` snapshot +
+   `anylist_response_json` with `push_id`, the per-item results, timings and retries), one
+   `push_id` on every log line, and the **Diagnostics** page (latest push + recent pushes with
+   per-item detail — `GET /diagnostics/pushes`).
 
-Like capture (see [Recipe Capture > Real capture progress
-UI](./recipe-capture.md#real-capture-progress-ui-2026-09-23)), a push is still one blocking
-HTTP request from the frontend's view even though `add_or_increment_items()` internally does
-one real HTTP call per item. Chunk 6.3b originally covered that with a client-side-only timer
-cycling through the known item-name list. That's replaced with genuine per-item progress: the
-frontend sends a `progress_token` on `POST /checklist/{id}/push`;
-`anylist_client.add_or_increment_items()` takes an optional `on_item(name, status)` callback
-(no `progress_tracker` import in that file itself, keeping the external-integration class's
-small stable interface — `checklist.py`'s own `push_to_anylist()` wires the callback to
-`progress_tracker`), called `"active"` before an item's op(s) and `"done"` right after they
-succeed. `static/js/checklist-push.js` polls `GET /checklist/push/progress/{token}` every
-500ms and renders a real per-item step list. Deliberately no `"failed"` callback from
-`anylist_client.py` itself — if the whole push dies mid-item, that item simply never gets its
-`"done"` call, and the frontend does one final progress fetch on the request's rejection to
-find whichever item is still `"active"` and mark that specific one as the failure, rather than
-only a generic "push failed" alert.
+Name and quantity formatting for what is sent: the name is the display name
+([Ingredient Handling](./ingredient-handling.md)), the quantity is `_anylist_quantity()` (the plain
+"need" total — not the pack sentence), the note is `_anylist_note()` (pack breakdown plus the
+checklist note, joined with " · ").
+
+### Rename-proof decisions (Chunk 6.7)
+
+A "Need it" tick lives on a row keyed by `ingredient_name`. When a row is renamed (an alias, a
+merge, a substitute, or a Settings alias added between visits) consolidation deletes the old row
+and creates a new one — which used to start as "unknown" and silently lose the tick (and, if the
+new name matched something on AnyList, get pre-ticked "Have it" and never pushed). Consolidation
+now carries the decision across (`session_consolidation._carry_state_across_renames`): the
+strongest `have_it` wins, `add_to_list` is OR-ed, a survivor is never downgraded, and a row whose
+ingredient truly disappeared is dropped as before.
+
+### Real push progress UI (2026-09-23, revised 2026-10-06)
+
+The frontend sends a `progress_token` on `POST /checklist/{id}/push` and polls
+`GET /checklist/push/progress/{token}` every 500 ms. The response is `{stage, steps}`: `stage` is
+the coarse phase of the whole push (`reading` → `sending` → `confirming` → `done` /
+`needs-attention`), and `steps` are one per wanted line, addressed by **row key** with the display
+name as `label` (2026-10-06: they used to be matched by display name, which the server
+title-cases/pluralises, so per-item progress never lined up). `anylist_client` reports through
+optional `on_item(ref, status)` / `on_stage(stage)` callbacks and imports nothing from
+`progress_tracker`; `checklist.push_to_anylist()` wires them up. A line is `done` once its write
+was *sent*; it only counts as landed after the read-back, which the **Confirming** stage covers —
+any line the read-back rejects is flipped to `failed` with its reason.
 
 ---
 

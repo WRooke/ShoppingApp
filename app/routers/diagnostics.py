@@ -173,11 +173,7 @@ def status(db: Session = Depends(get_db)) -> dict:
                 resp = _json.loads(last_push_row.anylist_response_json or "{}")
             except ValueError:
                 resp = {}
-            anylist["last_push"] = {
-                "session_id": last_push_row.session_id,
-                "pushed_at": str(last_push_row.pushed_at),
-                "confirmed": not resp.get("discrepancies"),
-            }
+            anylist["last_push"] = _summarise_push(last_push_row, resp)
         if not settings.anylist_enabled and not settings.anylist_fake_mode:
             anylist["state"], anylist["message"] = "grey", "AnyList sync is switched off (ANYLIST_ENABLED=false)"
         elif settings.anylist_fake_mode:
@@ -202,6 +198,42 @@ def status(db: Session = Depends(get_db)) -> dict:
             "anylist": anylist,
         },
     }
+
+
+def _summarise_push(row: ShoppingHistory, resp: dict | None = None) -> dict:
+    """One shopping_history row as the Diagnostics page shows it: when, which push (``push_id``
+    ties it to the log lines), whether every line was confirmed, counts per outcome, and — the
+    point of 6.7 — the full per-item result, so "why didn't X arrive?" is answerable from here
+    without reading logs (docs/anylist-push.md > Runbook). Older rows (pushed before per-item
+    results existed) simply have no ``items``."""
+    if resp is None:
+        try:
+            resp = _json.loads(row.anylist_response_json or "{}")
+        except ValueError:
+            resp = {}
+    items = resp.get("items") or []
+    counts: dict[str, int] = {}
+    for it in items:
+        counts[it.get("outcome", "?")] = counts.get(it.get("outcome", "?"), 0) + 1
+    return {
+        "history_id": row.id,
+        "session_id": row.session_id,
+        "pushed_at": str(row.pushed_at),
+        "push_id": resp.get("push_id"),
+        "confirmed": not resp.get("discrepancies"),
+        "counts": counts,
+        "discrepancies": resp.get("discrepancies") or [],
+        "items": items,
+        "timings": resp.get("timings") or {},
+        "retried": resp.get("retried") or [],
+    }
+
+
+@router.get("/pushes")
+def recent_pushes(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)) -> dict:
+    """The most recent AnyList pushes, newest first, each with its per-item results."""
+    rows = db.query(ShoppingHistory).order_by(ShoppingHistory.pushed_at.desc()).limit(limit).all()
+    return {"ok": True, "data": {"pushes": [_summarise_push(r) for r in rows]}}
 
 
 @router.post("/anylist-check")

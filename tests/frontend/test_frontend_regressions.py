@@ -562,6 +562,7 @@ def test_push_progress_step_list_shows_which_item_failed(browser, api, server_ur
     ):
         time.sleep(0.1)
 
+    row_id = api.get(f"/api/v1/checklist/{session['id']}").json()["data"]["items"][0]["id"]
     browser.eval(
         "window.__alerted = null;"
         "window.alert = function(msg){ window.__alerted = msg; };"
@@ -569,7 +570,8 @@ def test_push_progress_step_list_shows_which_item_failed(browser, api, server_ur
         "return Promise.reject({code: 'ANYLIST_FAILED', message: 'AnyList is unreachable'});"
         "};"
         "window.api.checklist.pushProgress = function(token){"
-        f"return Promise.resolve({{steps: [{{name: {json.dumps(item_name)}, status: 'active', detail: null}}]}});"
+        # steps are addressed by ROW KEY ("item:<id>") with the display name as `label`
+        f"return Promise.resolve({{stage: 'sending', steps: [{{name: 'item:{row_id}', label: {json.dumps(item_name)}, status: 'active', detail: null}}]}});"
         "};"
     )
     browser.click("button.primary", contains="Push to AnyList")

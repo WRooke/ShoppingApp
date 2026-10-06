@@ -41,15 +41,17 @@ class ProgressTokenNotFoundError(Exception):
 
 @dataclass
 class StepState:
-    name: str
+    name: str  # the key steps are addressed by (capture: a stage name; push: the row key)
     status: str = "pending"  # 'pending' | 'active' | 'done' | 'failed'
     detail: str | None = None
+    label: str | None = None  # what to show; falls back to `name` (push: the item's display name)
 
 
 @dataclass
 class _Entry:
     steps: list[StepState]
     updated_at: float = field(default_factory=time.monotonic)
+    stage: str | None = None  # coarse phase of the whole operation (push: reading/sending/confirming/done)
 
 
 _progress: dict[str, _Entry] = {}
@@ -65,17 +67,44 @@ def _sweep_expired() -> None:
         del _progress[token]
 
 
-def start(token: str, step_names: list[str]) -> None:
+def start(token: str, step_names: list[str], labels: dict[str, str] | None = None) -> None:
     """Register a new tracked operation, all steps 'pending'. Called once at the top of the
     long-running function, before its first real step begins. A falsy/empty token is a no-op
     (the frontend didn't opt into progress tracking for this call) — every step_/finish
     function below is likewise a no-op for an untracked token, so callers never need to
-    branch on whether a token was actually supplied."""
+    branch on whether a token was actually supplied.
+
+    `labels` (optional) maps a step name to the text the UI should show for it — the push uses
+    row keys as step names (two lines can share a display name) and the display name as label."""
     if not token:
         return
     with _LOCK:
         _sweep_expired()
-        _progress[token] = _Entry(steps=[StepState(name=n) for n in step_names])
+        _progress[token] = _Entry(
+            steps=[StepState(name=n, label=(labels or {}).get(n)) for n in step_names]
+        )
+
+
+def set_stage(token: str, stage: str) -> None:
+    """Record the coarse phase of the whole operation (the push's Reading -> Sending ->
+    Confirming -> Done). No-op for an untracked token, like every other writer here."""
+    if not token:
+        return
+    with _LOCK:
+        entry = _progress.get(token)
+        if not entry:
+            return
+        entry.stage = stage
+        entry.updated_at = time.monotonic()
+
+
+def get_stage(token: str) -> str | None:
+    """The current coarse phase, or None if unknown / never set."""
+    if not token:
+        return None
+    with _LOCK:
+        entry = _progress.get(token)
+        return entry.stage if entry else None
 
 
 def step_active(token: str, step_name: str) -> None:
@@ -132,4 +161,7 @@ def get(token: str) -> list[dict] | None:
         entry = _progress.get(token)
         if not entry:
             return None
-        return [{"name": s.name, "status": s.status, "detail": s.detail} for s in entry.steps]
+        return [
+            {"name": s.name, "status": s.status, "detail": s.detail, "label": s.label or s.name}
+            for s in entry.steps
+        ]

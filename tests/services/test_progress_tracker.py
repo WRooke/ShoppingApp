@@ -18,10 +18,25 @@ def test_start_registers_all_steps_pending():
     progress_tracker.start("tok1", ["a", "b", "c"])
     steps = progress_tracker.get("tok1")
     assert steps == [
-        {"name": "a", "status": "pending", "detail": None},
-        {"name": "b", "status": "pending", "detail": None},
-        {"name": "c", "status": "pending", "detail": None},
+        {"name": "a", "status": "pending", "detail": None, "label": "a"},
+        {"name": "b", "status": "pending", "detail": None, "label": "b"},
+        {"name": "c", "status": "pending", "detail": None, "label": "c"},
     ]
+
+
+def test_labels_and_stage_are_carried_for_the_push_ui():
+    # Chunk 6.7: the push addresses steps by row key and shows the display name as the label,
+    # and reports a coarse stage for the whole operation.
+    progress_tracker.start("tokL", ["item:1", "item:2"], labels={"item:1": "Milk"})
+    steps = progress_tracker.get("tokL")
+    assert [(s["name"], s["label"]) for s in steps] == [("item:1", "Milk"), ("item:2", "item:2")]
+    assert progress_tracker.get_stage("tokL") is None
+    progress_tracker.set_stage("tokL", "sending")
+    assert progress_tracker.get_stage("tokL") == "sending"
+    progress_tracker.step_failed("tokL", "item:1", "nope")
+    assert progress_tracker.get("tokL")[0]["status"] == "failed"
+    assert progress_tracker.get_stage("") is None and progress_tracker.get_stage("never") is None
+    progress_tracker.set_stage("", "x")  # untracked token: a silent no-op, like every writer here
 
 
 def test_step_active_then_done():

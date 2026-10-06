@@ -274,8 +274,12 @@ def test_push_reports_per_item_progress_when_given_a_token(db):
     checklist_service.push_to_anylist(db, s.id, progress_token="push-tok-1")
 
     steps = progress_tracker.get("push-tok-1")
-    assert {s["name"] for s in steps} == {"Milk", "Passata"}
+    # 6.7: steps are addressed by ROW KEY (two lines can share a display name); the display name
+    # travels as the label, and there is a coarse stage for the whole push.
+    assert {s["label"] for s in steps} == {"Milk", "Passata"}
+    assert {s["name"] for s in steps} == {f"item:{c.id}" for c in s.checklist_items}
     assert all(s["status"] == "done" for s in steps)
+    assert progress_tracker.get_stage("push-tok-1") == "done"
 
 
 def test_push_refuses_a_second_push_without_force(db):
@@ -290,7 +294,8 @@ def test_push_refuses_a_second_push_without_force(db):
     # 2026-09-18 fault-finding, mechanism #3: the force-repush above must have UPDATED the same
     # AnyList item the first push created, not added a second "Passata" — see the dedicated
     # test below for the full trace of why this used to fail.
-    assert "Passata" in again["updated"] and "Passata" not in again["added"]
+    # 6.7: nothing changed, so the re-push leaves it alone ("already active") instead of rewriting it
+    assert "Passata" in again["already_active"] and "Passata" not in again["added"]
     assert sum(1 for i in anylist_client.get_items() if i.name == "Passata") == 1
 
 
@@ -314,9 +319,10 @@ def test_force_repush_does_not_duplicate_a_freshly_added_item(db):
     assert "Brand New Ingredient" in first["added"] and "Milk" in first["updated"]
 
     second = checklist_service.push_to_anylist(db, s.id, force=True)  # no reload in between
-    assert "Brand New Ingredient" in second["updated"]  # now recognised, not re-added
+    # now recognised (by a fresh name match, no reload needed) and left alone, not re-added
+    assert "Brand New Ingredient" in second["already_active"]
     assert "Brand New Ingredient" not in second["added"]
-    assert "Milk" in second["updated"]
+    assert "Milk" in second["already_active"]
 
     on_list = [i.name for i in anylist_client.get_items()]
     assert on_list.count("Brand New Ingredient") == 1
@@ -459,7 +465,7 @@ def test_push_updates_an_item_with_no_quantity_string(db):
     up None, matching what it was handed (fake mode mirrors the connector's own field, not the
     real HTTP payload). The real connector's `_RealAnyList` additionally turns a None quantity
     into an explicit `updated_value=""` wire value for `set-list-item-quantity` -- see
-    `test_update_with_no_quantity_sends_empty_string_value` in test_anylist_client.py for that,
+    `test_wanting_no_quantity_is_a_noop_or_a_replace_never_an_empty_update` in test_anylist_client.py for that,
     and docs/build-status/anylist-fault-finding-spike.md (Part B, probe 6) for what AnyList's
     real server actually does with that empty value."""
     s = _session_with_items(db, [{"name": "milk", "quantity": 1, "unit": "L"}])
@@ -475,5 +481,8 @@ def test_push_updates_an_item_with_no_quantity_string(db):
     assert "Milk" in result["updated"]
     assert result["confirmed"] is True  # fake mode always confirms; see connector docstring
 
-    milk = next(i for i in anylist_client.get_items() if i.name == "milk")
-    assert milk.quantity is None  # PushItem.quantity=None passed straight through
+    # the seeded "milk" had a quantity and none is wanted: an empty set-list-item-quantity is a
+    # no-op on the real server, so the connector replaces it (the new item carries the title-cased
+    # name) and the quantity really is cleared
+    milks = [i for i in anylist_client.get_items() if i.name.lower() == "milk"]
+    assert len(milks) == 1 and milks[0].quantity is None

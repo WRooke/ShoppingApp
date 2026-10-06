@@ -44,10 +44,10 @@
     var box = el("div", "push-discrepancy");
     box.appendChild(el("span", "ico", "⚠️"));
     var b = el("div", "body");
-    b.appendChild(el("div", "title", "Pushed, but not fully confirmed"));
+    b.appendChild(el("div", "title", discrepancies.length + " item(s) didn't make it onto the list"));
     b.appendChild(
       document.createTextNode(
-        "AnyList didn't recognise these after the push — check the app in case they were added as new lines:"
+        "After pushing, AnyList did not show these as expected. Nothing was lost on this side — push again to retry just these:"
       )
     );
     var ul = el("ul");
@@ -57,14 +57,18 @@
     return box;
   }
 
+  // The lines about to be pushed, as {key, label}. `key` is the SAME row key the server uses for
+  // its progress steps ("item:<row id>" / "usual:<id>" — Chunk 6.7: progress used to be matched
+  // by display name, which the server title-cases/pluralises, so it never lined up); `label` is
+  // only what is shown.
   function pushItemNames(pushUsualIds, items, usuals) {
-    var names = items
+    var lines = items
       .filter(function (i) { return i.add_to_list || i.have_it === "no"; })
-      .map(function (i) { return i.ingredient_name; });
+      .map(function (i) { return { key: "item:" + i.id, label: i.display_name || i.ingredient_name }; });
     usuals
       .filter(function (u) { return pushUsualIds[u.id]; })
-      .forEach(function (u) { names.push(u.name); });
-    return names;
+      .forEach(function (u) { lines.push({ key: "usual:" + u.id, label: u.name }); });
+    return lines;
   }
 
   // opts: { sessionId, items, usuals, pushUsualIds, onResult(res), onReload() }
@@ -113,14 +117,14 @@
       stepsSlot.innerHTML = "";
       if (names.length) {
         var stepsWrap = el("div", "step-list-vertical");
-        names.forEach(function (name) {
+        names.forEach(function (line) {
           var row = el("div", "step-row");
           var icon = el("div", "step-icon pending");
-          var label = el("div", "step-label pending", "Adding " + name + "…");
+          var label = el("div", "step-label pending", "Adding " + line.label + "…");
           row.appendChild(icon);
           row.appendChild(label);
           stepsWrap.appendChild(row);
-          rows[name] = { icon: icon, label: label, name: name };
+          rows[line.key] = { icon: icon, label: label, name: line.label };
         });
         stepsSlot.appendChild(stepsWrap);
         pushNote.hidden = false;
@@ -137,7 +141,7 @@
           row.label.className = "step-label " + s.status;
           row.label.textContent =
             (s.status === "done" ? "Added " : s.status === "failed" ? "Couldn't add " : "Adding ") +
-            s.name +
+            (s.label || row.name) +
             (s.status === "done" || s.status === "failed" ? "" : "…");
           if (s.status === "done") doneCount++;
         });
@@ -218,7 +222,7 @@
                   row.icon.className = "step-icon failed";
                   row.icon.textContent = "✕";
                   row.label.className = "step-label failed";
-                  row.label.textContent = "Couldn't add " + stuck.name;
+                  row.label.textContent = "Couldn't add " + (stuck.label || row.name);
                 }
               })
               .catch(function () {})

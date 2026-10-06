@@ -595,3 +595,32 @@ def test_coarse_remember_true_writes_coarse_ingredients(client, fake_anylist):
     sid2 = _session_with_checklist(client, [{"name": "zz-coarse-remember-parsley", "quantity": 10, "unit": "g"}])
     items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
     assert items2[0]["display_qty"] == "1 × bunch"  # durable
+
+
+def test_push_progress_reports_stage_and_row_keyed_labelled_steps(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-stage-eggs", "quantity": 6, "unit": None}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
+    client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": [], "progress_token": "stage-tok"})
+
+    data = client.get("/api/v1/checklist/push/progress/stage-tok").json()["data"]
+    assert data["stage"] == "done"
+    assert data["steps"][0]["name"] == f"item:{item_id}"  # keyed by row, never by display name
+    assert data["steps"][0]["label"] and data["steps"][0]["status"] == "done"
+
+
+def test_diagnostics_shows_the_per_item_result_of_recent_pushes(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-diag-oats", "quantity": 2, "unit": "kg"}])
+    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
+    pushed = client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []}).json()["data"]
+    assert pushed["push_id"] and pushed["items"][0]["outcome"] == "added"
+
+    pushes = client.get("/api/v1/diagnostics/pushes").json()["data"]["pushes"]
+    latest = pushes[0]
+    assert latest["push_id"] == pushed["push_id"] and latest["session_id"] == sid
+    assert latest["confirmed"] is True and latest["counts"] == {"added": 1}
+    assert latest["items"][0]["name"] and latest["items"][0]["reason"] is None
+
+    last = client.get("/api/v1/diagnostics/status").json()["data"]["anylist"]["last_push"]
+    assert last["push_id"] == pushed["push_id"] and last["items"]

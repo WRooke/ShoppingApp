@@ -199,9 +199,9 @@ def test_fake_mode_add_and_bare_count_update(monkeypatch):
 
 def test_fake_mode_unit_bearing_update_replaces_under_a_new_id(monkeypatch):
     """2026-09-20 fix (Phase B): a unit-bearing quantity change goes through delete + re-add
-    under a new id (fake mode mirrors this, not just the real connector) — checked state
-    carries across, and unlike a bare-count update, the note DOES sync, since this is a real
-    add under the hood, not the update handler that's confirmed to never touch it."""
+    under a new id (fake mode mirrors this, not just the real connector) — a crossed-off item
+    comes back UN-crossed (Chunk 6.7), and unlike a bare-count update, the note DOES sync, since
+    this is a real add under the hood, not the update handler that's confirmed to never touch it."""
     _fake_mode(monkeypatch)
     monkeypatch.setattr(ac.settings, "anylist_target_list_name", "TestList", raising=False)
     existing = next(i for i in ac.get_items() if i.name == "butter")  # fake-seeded pre-checked
@@ -218,7 +218,10 @@ def test_fake_mode_unit_bearing_update_replaces_under_a_new_id(monkeypatch):
     assert now.identifier == res.added_ids["butter"]
     assert now.quantity == "250 g"
     assert now.note == "soft"  # synced, unlike the bare-count path
-    assert now.checked is True  # preserved from the old item, never silently un-ticked
+    # 2026-10-06 (Chunk 6.7): a pushed line is one the user NEEDS, so a crossed-off item comes
+    # back un-crossed (it used to keep the old checked flag, leaving it invisible on the phone).
+    assert now.checked is False
+    assert res.items[0].outcome == "un-crossed"
     assert sum(1 for i in ac.get_items() if i.name == "butter") == 1  # old one is gone, not duplicated
 
 
@@ -357,7 +360,8 @@ def test_real_client_reauthenticates_once_on_401(monkeypatch):
 
 
 def test_real_push_confirms_by_refetch_and_flags_a_silent_noop(monkeypatch):
-    # Spike finding #3: HTTP 200 but the add didn't land -> confirmed False, discrepancy.
+    # Spike finding #3: HTTP 200 but the add didn't land -> the line is reported FAILED by name,
+    # confirmed False, with a reason (Chunk 6.7: per-item results; it used to say "added").
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/auth/token":
             return httpx.Response(200, json={"access_token": "tok"})
@@ -370,10 +374,12 @@ def test_real_push_confirms_by_refetch_and_flags_a_silent_noop(monkeypatch):
         return httpx.Response(404)
 
     _real_client(monkeypatch, handler)
+    monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)
     res = ac.add_or_increment_items([PushItem(name="passata", quantity="400g")], list_name="TestList")
-    assert res.added == ["passata"]
+    assert res.added == [] and res.failed == ["passata"]
     assert res.confirmed is False
-    assert res.discrepancies and "did not land" in res.discrepancies[0]
+    assert res.discrepancies and "passata" in res.discrepancies[0]
+    assert "not on the list" in res.discrepancies[0]
 
 
 def test_real_push_confirms_when_the_item_shows_up(monkeypatch):
@@ -494,26 +500,30 @@ def test_real_update_of_bare_count_sends_only_quantity_never_details(monkeypatch
     assert res.updated == ["Milk"]
 
 
-def test_update_with_no_quantity_sends_empty_string_value(monkeypatch):
-    """checklist.py:292 sends `it.quantity or ""` — an already-on-the-list item that resolves to
-    no quantity string (e.g. a coarse ingredient with neither a numeric total nor a pack string)
-    pushes an explicit empty-string update rather than leaving the item's quantity untouched.
-    Pinning down today's actual wire behaviour rather than assuming it (see fault-finding spike
-    Part B, probe 6, for what AnyList's server actually does with an empty update)."""
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/auth/token":
-            return httpx.Response(200, json={"access_token": "tok"})
-        if request.url.path == "/data/user-data/get":
-            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", "2L")]))
-        if request.url.path == "/data/shopping-lists/update":
-            assert _updated_value_from_multipart(request.content) == ""
-            return httpx.Response(200, content=b"")
-        return httpx.Response(404)
+def test_wanting_no_quantity_is_a_noop_or_a_replace_never_an_empty_update(monkeypatch):
+    """Pre-6.7 this pinned that an already-listed item resolving to NO quantity string pushed an
+    explicit empty `set-list-item-quantity`. The fault-finding spike (probe 6) showed AnyList
+    treats an empty update as a silent no-op, so it could never clear a quantity, and the
+    read-back used to skip checking it. Now: an item with no quantity that wants none is left
+    alone (zero writes); an item that HAS a quantity but wants none is replaced (remove + add
+    with no quantity), which really does clear it."""
+    from tests.services.anylist_fake_server import FakeAnyListServer
 
-    _real_client(monkeypatch, handler)
-    ac.add_or_increment_items(
+    server = FakeAnyListServer([dict(name="Milk", ident="existing1")])  # no quantity, none wanted
+    server.install(monkeypatch)
+    res = ac.add_or_increment_items(
         [PushItem(name="Milk", quantity=None, existing_id="existing1")], list_name="TestList"
     )
+    assert server.posts == [] and res.items[0].outcome == "already-active"
+
+    monkeypatch.undo()
+    server = FakeAnyListServer([dict(name="Milk", qty="2L", ident="existing1")])  # has one, none wanted
+    server.install(monkeypatch)
+    res = ac.add_or_increment_items(
+        [PushItem(name="Milk", quantity=None, existing_id="existing1")], list_name="TestList"
+    )
+    assert [p["handler"] for p in server.posts] == ["remove-shopping-list-item", "add-shopping-list-item"]
+    assert res.confirmed and server.active("milk")[0]["qty"] is None
 
 
 def test_update_op_never_carries_a_checked_field():
@@ -535,28 +545,15 @@ def test_update_op_never_carries_a_checked_field():
 def test_real_update_retries_once_and_recovers(monkeypatch):
     """2026-09-19 fix (Phase B1, docs/build-status/anylist-fault-finding-spike.md): a fraction
     of set-list-item-quantity calls silently persist nothing at all (confirmed live, real
-    AnyList-side flakiness). The connector now retries a still-wrong item instead of surfacing
-    a discrepancy on the first confirm-refetch. This mock server rejects the first attempt
-    (state doesn't change) and accepts the retry -- proves the retry both fires and stops once
-    the item is actually correct."""
-    calls = {"gets": 0, "posts": 0}
+    AnyList-side flakiness). The connector retries a still-wrong item instead of surfacing a
+    discrepancy on the first read-back. The fake server swallows the first write and applies the
+    second -- proves the retry fires, fires ONCE, and stops once the item is actually correct.
+    (6.7: before re-sending it waits and RE-READS, so a merely lagging read costs no re-send.)"""
+    from tests.services.anylist_fake_server import FakeAnyListServer
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/auth/token":
-            return httpx.Response(200, json={"access_token": "tok"})
-        if request.url.path == "/data/user-data/get":
-            calls["gets"] += 1
-            # call 1: pre-push state. call 2: after the FIRST post -- simulate the silent
-            # failure (quantity unchanged). call 3+: after the retry -- now correct.
-            qty = "5" if calls["gets"] >= 3 else "2"
-            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", qty)]))
-        if request.url.path == "/data/shopping-lists/update":
-            calls["posts"] += 1
-            return httpx.Response(200, content=b"")
-        return httpx.Response(404)
-
-    _real_client(monkeypatch, handler)
-    monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)  # don't slow the test down
+    server = FakeAnyListServer([dict(name="Milk", qty="2", ident="existing1")])
+    server.post_rule = lambda n, op: "drop" if n == 1 else None
+    server.install(monkeypatch)
     res = ac.add_or_increment_items(
         [PushItem(name="Milk", quantity="5", existing_id="existing1")], list_name="TestList"
     )
@@ -564,8 +561,8 @@ def test_real_update_retries_once_and_recovers(monkeypatch):
     assert res.confirmed is True and not res.discrepancies
     assert res.retried == ["Milk"]
     assert res.updated == ["Milk"]
-    assert calls["posts"] == 2  # initial attempt + exactly one retry, no more
-    assert calls["gets"] == 3  # pre-push + post-initial-check + post-retry-check
+    assert server.post_count() == 2  # initial attempt + exactly one retry, no more
+    assert server.gets == 4  # pre-push + read-back + re-read-before-resend + read-back after resend
 
 
 def test_real_update_gives_up_after_exhausting_retries(monkeypatch):
@@ -592,7 +589,7 @@ def test_real_update_gives_up_after_exhausting_retries(monkeypatch):
 
     assert res.confirmed is False
     assert res.retried == ["Milk"] * ac._MAX_RETRIES
-    assert res.discrepancies and "quantity is" in res.discrepancies[0]
+    assert res.discrepancies and "quantity shows" in res.discrepancies[0]
     assert calls["posts"] == 1 + ac._MAX_RETRIES  # initial + every retry attempted
 
 
@@ -661,29 +658,13 @@ def test_real_replace_preserves_checked_state():
 
 def test_real_replace_retries_and_recovers(monkeypatch):
     """Retry applies to the replace path's add half too, same discipline as the bare-count
-    path — the remove already happened once; only the add gets retried."""
-    captured = {"posts": [], "add_attempts": 0, "new_id": None}
+    path — the remove already happened once (the server really removed it); only the add gets
+    re-sent, under the SAME new id."""
+    from tests.services.anylist_fake_server import FakeAnyListServer
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/auth/token":
-            return httpx.Response(200, json={"access_token": "tok"})
-        if request.url.path == "/data/user-data/get":
-            # the first add "fails" (server accepts it but it doesn't land); the retry "lands".
-            if captured["add_attempts"] >= 2:
-                return httpx.Response(200, content=_user_data_bytes([(captured["new_id"], "Milk", "3 L")]))
-            return httpx.Response(200, content=_user_data_bytes([("existing1", "Milk", "2 L")]))
-        if request.url.path == "/data/shopping-lists/update":
-            ops = _operations_from_multipart(request.content)
-            captured["posts"].append(ops)
-            handler_id, item_id = ops[0]
-            if handler_id == "add-shopping-list-item":
-                captured["add_attempts"] += 1
-                captured["new_id"] = item_id
-            return httpx.Response(200, content=b"")
-        return httpx.Response(404)
-
-    _real_client(monkeypatch, handler)
-    monkeypatch.setattr(ac, "_RETRY_BACKOFF_S", 0.0, raising=False)
+    server = FakeAnyListServer([dict(name="Milk", qty="2 L", ident="existing1")])
+    server.post_rule = lambda n, op: "drop" if op["handler"] == "add-shopping-list-item" and n == 2 else None
+    server.install(monkeypatch)
     res = ac.add_or_increment_items(
         [PushItem(name="Milk", quantity="3 L", existing_id="existing1")], list_name="TestList"
     )
@@ -691,11 +672,11 @@ def test_real_replace_retries_and_recovers(monkeypatch):
     assert res.confirmed is True
     assert res.retried == ["Milk"]
     # remove, add (fails to land), retry-add (lands) — never a second remove
-    assert [ops[0][0] for ops in captured["posts"]] == [
+    assert [p["handler"] for p in server.posts] == [
         "remove-shopping-list-item", "add-shopping-list-item", "add-shopping-list-item",
     ]
     # both add attempts used the SAME new id (retry rebuilds the identical op, not a fresh uuid)
-    assert captured["posts"][1][0][1] == captured["posts"][2][0][1]
+    assert server.posts[1]["item_id"] == server.posts[2]["item_id"]
 
 
 def test_real_get_items_unknown_list_raises(monkeypatch):

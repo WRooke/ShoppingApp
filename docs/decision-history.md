@@ -558,3 +558,23 @@ lists the most recent.
 7. **Phase numbering** — this is **Phase 3.9** in this document. The addendum's "Phase 1"
    references are wrong for this repo; capture is Phase 3.
 
+## 2026-10-06 — AnyList push: un-cross pushed items; only a confirmed push counts (Chunk 6.7)
+
+**Decision (maintainer, in conversation):** an item the user marks *Need it* must end up on AnyList **uncrossed**,
+even if it is sitting crossed off on the list; the push must never fail silently; every push is read back and reported
+per item; and the whole thing is logged well enough that the next problem explains itself.
+
+**Why it overrides an earlier rule:** the 2026-09-20 spike made the push *preserve* an item's checked state ("never lose a
+household member's tick"). That protects ticks on items the push has no business touching — which is still true — but for an
+item the user has just said they need again, a preserved crossed-off flag made it invisible on the phone while the push reported
+success. The rule now applies only to items *not* in the push.
+
+**Mechanism:** the spike believed there was no checked-state write; that conclusion came from a probe that sent the wrong value
+(`"1"`). The reference client sends `'y'`/`'n'`; verified live on TestList 6/6 each way with no collateral
+(`spike/anylist_checked_toggle_test.py`), so un-crossing is done in place (keeps the id and whatever the household typed on the
+item). `_UNCROSS_IN_PLACE` falls back to the older, also-proven remove + re-add.
+
+**Other decisions recorded in the same change:** a crossed-off AnyList item is not "on the list" (no pre-tick); an identical active
+item is left alone rather than rewritten; only a fully confirmed push marks the session `pushed`; progress and results are keyed by
+checklist row, not display name; the household's own note on an AnyList item is never overwritten by a push that has no note;
+the account email is no longer logged (PII policy). Detail: [anylist-push.md](./anylist-push.md).

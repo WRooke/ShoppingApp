@@ -138,6 +138,69 @@ def _apply_session_merge(
     return merge.canonical_name, qty, unit, None
 
 
+# How strongly a `have_it` value expresses a decision the user made — when several rows fold
+# into one (a merge, an alias, a substitute), the strongest wins so a "Need it" is never
+# silently downgraded. "partial" and "unknown" carry no decision. Also used by
+# checklist.merge_items().
+HAVE_IT_STRENGTH = {"no": 2, "yes": 1, "unknown": 0, "partial": 0}
+
+
+def _resolved_name(
+    name: str,
+    substitute_map: dict[str, ingredient_aliases.AliasResolution],
+    alias_map: dict[str, ingredient_aliases.AliasResolution],
+    merge_map: dict[str, ingredient_aliases.AliasResolution],
+) -> str:
+    """The name-only twin of the substitute -> alias -> merge chain `_scaled_lines()` applies to
+    every ingredient line: where would a row currently named `name` end up if consolidation ran
+    now? Used purely to find the *lineage* of a row whose name just changed (see
+    `_carry_state_across_renames`); the quantity transforms don't matter for that."""
+    for resolution_map in (substitute_map, alias_map, merge_map):
+        hit = resolution_map.get(_norm(name))
+        if hit is not None:
+            name = hit.canonical_name
+    return name
+
+
+def _carry_state_across_renames(
+    stale_rows: list[SessionChecklistItem],
+    rows_by_name: dict[str, SessionChecklistItem],
+    substitute_map: dict[str, ingredient_aliases.AliasResolution],
+    alias_map: dict[str, ingredient_aliases.AliasResolution],
+    merge_map: dict[str, ingredient_aliases.AliasResolution],
+) -> None:
+    """Preserve per-line checklist decisions across a rename.
+
+    Consolidation keys rows by `ingredient_name`, so an alias / merge / substitute (or a Settings
+    alias added between two visits) makes the old row stale and a brand-new row appear — which
+    used to start life as `have_it='unknown'`, silently discarding a "Need it" the user had
+    already set (and then, if the new name matched something already on AnyList, pre-ticking it
+    "Have it" so it was never pushed). 2026-10-06, Chunk 6.7 push-drop investigation, defect A:
+    see docs/anylist-push.md.
+
+    For every row about to be deleted, work out which surviving row its name now resolves to
+    and fold its state in: strongest `have_it` wins, `add_to_list` is OR-ed, and the AnyList
+    match fields are kept if the survivor has none. Never *downgrades* a survivor's own decision.
+    A stale row that doesn't resolve to any survivor (its ingredient really was removed from
+    every recipe) is simply dropped, as before."""
+    for stale in stale_rows:
+        target = rows_by_name.get(
+            _resolved_name(stale.ingredient_name, substitute_map, alias_map, merge_map)
+        )
+        if target is None or target is stale:
+            continue
+        if HAVE_IT_STRENGTH.get(stale.have_it, 0) > HAVE_IT_STRENGTH.get(target.have_it, 0):
+            target.have_it = stale.have_it
+        target.add_to_list = bool(target.add_to_list or stale.add_to_list)
+        if not target.already_on_anylist and stale.already_on_anylist:
+            target.already_on_anylist = True
+            target.anylist_item_id = stale.anylist_item_id
+        logger.info(
+            "Checklist state carried across rename: %r -> %r (have_it=%s add_to_list=%s)",
+            stale.ingredient_name, target.ingredient_name, target.have_it, target.add_to_list,
+        )
+
+
 def _recipe_label(slot) -> str:
     """Display label for one recipe slot's contributions to the "which recipe is this
     ingredient from" breakdown (CLAUDE.md). Just the recipe name, unless a day is set — the
@@ -356,12 +419,15 @@ def _consolidate_session_impl(
 ) -> tuple[list[SessionChecklistItem], list[consolidation.ConsolidatedItem]]:
     session = get_session(db, session_id)
 
+    substitute_map = session_merges.session_substitute_map(db, session_id)
+    alias_map = ingredient_aliases.alias_map(db)
+    merge_map = session_merges.session_merge_map(db, session_id)
     all_lines = _scaled_lines(
         session,
-        session_merges.session_substitute_map(db, session_id),
-        ingredient_aliases.alias_map(db),
+        substitute_map,
+        alias_map,
         unit_synonyms.synonym_map(db),
-        session_merges.session_merge_map(db, session_id),
+        merge_map,
     )
     # Ingredient Unit Handling Layer D (2026-09-12) — a coarse ingredient's lines never reach
     # the pure consolidate() below; they're grouped and resolved by _coarse_items() instead.
@@ -375,12 +441,14 @@ def _consolidate_session_impl(
     pack_overrides = session_merges.session_pack_override_map(db, session_id)
 
     existing = {ci.ingredient_name: ci for ci in session.checklist_items}
+    rows_by_name: dict[str, SessionChecklistItem] = {}
 
     for item in items:
         row = existing.pop(item.name, None)
         if row is None:
             row = SessionChecklistItem(session_id=session.id, ingredient_name=item.name)
             db.add(row)
+        rows_by_name[item.name] = row
 
         # 2026-09-10 hand-testing ("doesn't remember amounts under review") — a needs_review
         # conflict the user manually resolved (checklist.resolve_item(), which sets
@@ -462,6 +530,11 @@ def _consolidate_session_impl(
             frag = "from " + ", ".join(item.conversion_notes)
             row.note = f"{row.note} ({frag})" if row.note else frag
 
+    # Before the leftover rows are deleted: carry a renamed row's decisions onto the row it
+    # became (see _carry_state_across_renames — Chunk 6.7, defect A).
+    _carry_state_across_renames(
+        list(existing.values()), rows_by_name, substitute_map, alias_map, merge_map
+    )
     for stale in existing.values():
         db.delete(stale)
 

@@ -217,4 +217,6 @@ def push_progress(token: str) -> dict:
     steps = progress_tracker.get(token)
     if steps is None:
         raise progress_tracker.ProgressTokenNotFoundError(token)
-    return {"ok": True, "data": {"steps": steps}}
+    # `stage` (reading / sending / confirming / done / needs-attention) is the coarse phase of the
+    # whole push (Chunk 6.7); `steps` are the per-line states, addressed by row key.
+    return {"ok": True, "data": {"stage": progress_tracker.get_stage(token), "steps": steps}}

@@ -36,7 +36,12 @@ A `/diagnostics` page in the web app (accessible from the main nav) must show:
   - Database connection
   - AI extraction service (Gemini) — last successful call timestamp, and which model handled
     it (`flash` / `flash-lite`) or whether the last capture is queued
-  - AnyList connection (last successful auth timestamp)
+  - AnyList connection (last successful auth timestamp) — **plus, since 2026-10-06 (Chunk 6.7), the last push in full**:
+    its `push_id` (the same id is on every log line of that push), when, confirmed or not, counts per outcome and the
+    **per-item result** (added / updated / un-crossed / already-active / failed + the reason) and timings; and a list of recent
+    pushes (`GET /api/v1/diagnostics/pushes`). This is the first stop for "why didn't X arrive?" — see
+    [anylist-push.md > Runbook](./anylist-push.md#7-runbook--an-item-didnt-arrive-on-anylist). *(API in place; the Diagnostics
+    page's per-item rendering follows the approved mockup.)*
 - **Daily quota usage indicator**: observed Gemini request count today per model (from
   `ai_call_log`), plus a link to the Google AI Studio dashboard. Best-effort — exact free-tier
   caps are not reliably documented, so this is an observed count, not "X of Y". *(Replaced the

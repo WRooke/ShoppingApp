@@ -37,3 +37,6 @@ comprehensive-code-review-prompt.md
 node_modules/
 package-lock.json
 *.anylist_credentials*
+
+# Production logs pulled from the NUC for diagnosis: contain account identifiers, never commit
+_prod-logs/
