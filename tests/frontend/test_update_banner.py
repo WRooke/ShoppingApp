@@ -198,7 +198,9 @@ def test_tapping_navigates_to_a_fresh_document_keeps_the_route_and_tidies_the_ur
     assert _wait(browser, "window.__marker === undefined", timeout=8), "tapping did not load a new document"
     browser.wait_for(".nav-item")
     assert browser.eval("location.hash") == "#/recipes"  # the user lands where they were
-    assert browser.eval("location.search") == ""  # ?b= was tidied out of the address bar
+    # ?b= is tidied out of the address bar by the banner script once it has run. `.nav-item` is in the
+    # static HTML (before any script), so wait for the tidy-up instead of assuming it already happened.
+    assert _wait(browser, "location.search === ''", timeout=5), browser.eval("location.search")
     # the real server did NOT change build, so this page is still "stale" relative to the tap's
     # target and says so honestly instead of silently looping
     browser.wait_for(".update-banner")
