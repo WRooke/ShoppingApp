@@ -61,13 +61,14 @@
     actions.style.marginBottom = "16px";
     var newBtn = el("button", "primary", "New session");
     newBtn.addEventListener("click", function () {
+      global.Feedback.clear(actions);
       api.sessions
         .create({})
         .then(function (s) {
           global.Router.navigate("plan", s.id);
         })
         .catch(function (err) {
-          global.alert("Couldn't start a session: " + err.message);
+          global.Feedback.error(actions, "Couldn't start a session — " + global.Feedback.messageOf(err));
         });
     });
     actions.appendChild(newBtn);
@@ -274,8 +275,9 @@
       if (labelInput.value.trim() === (session.label || "")) return;
       api.sessions
         .update(session.id, { label: labelInput.value.trim() || null })
+        .then(function () { global.Feedback.clear(headFeedback); })
         .catch(function (err) {
-          global.alert("Couldn't rename: " + err.message);
+          global.Feedback.error(headFeedback, "Couldn't rename — " + global.Feedback.messageOf(err) + " (the old name is still saved)");
         });
     });
     head.appendChild(labelInput);
@@ -293,28 +295,30 @@
         api.sessions
           .archive(session.id)
           .then(function () {
-            global.Toast.show("Session archived", {
-              actionLabel: "Undo",
-              onAction: function () {
-                api.sessions
-                  .update(session.id, { status: "active" })
-                  .then(reload)
-                  .catch(function (err) {
-                    global.alert("Couldn't undo: " + err.message);
+            function undo() {
+              api.sessions
+                .update(session.id, { status: "active" })
+                .then(reload)
+                .catch(function (err) {
+                  global.Toast.show("Couldn't restore the session — " + global.Feedback.messageOf(err), {
+                    tone: "error", actionLabel: "Retry", onAction: undo,
                   });
-              },
-            });
+                });
+            }
+            global.Toast.show("Session archived", { actionLabel: "Undo", onAction: undo });
             reload();
           })
           .catch(function (err) {
             archiveBtn.disabled = false;
-            global.alert("Couldn't archive: " + err.message);
+            global.Feedback.error(headFeedback, "Couldn't archive — " + global.Feedback.messageOf(err));
           });
       });
       wsActions.appendChild(archiveBtn);
       head.appendChild(wsActions);
     }
     card.appendChild(head);
+    var headFeedback = el("div"); // rename / archive errors appear right under the header
+    card.appendChild(headFeedback);
     card.appendChild(el("div", "muted", "Status: " + session.status));
 
     // --- slots: a 7-day grid, not a flat list (Phase 6 Chunk 6.5 — see session-week.js) ---
@@ -345,11 +349,12 @@
       global.SessionRecipePicker.render(pickerSlot, session.id, nextEmptyDay(slots), reload);
     });
     addLeftoversBtn.addEventListener("click", function () {
+      global.Feedback.clear(addRow);
       api.sessions
         .addLeftovers(session.id, { day_of_week: nextEmptyDay(slots) })
         .then(reload)
         .catch(function (err) {
-          global.alert("Couldn't add leftovers: " + err.message);
+          global.Feedback.error(addRow, "Couldn't add a leftovers day — " + global.Feedback.messageOf(err));
         });
     });
 

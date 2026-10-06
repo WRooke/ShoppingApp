@@ -181,6 +181,7 @@
 
     cookBtn.addEventListener("click", function () {
       cookBtn.disabled = true;
+      global.Feedback.clear(cookedRow);
       api.recipes
         .markCooked(r.id)
         .then(function (updated) {
@@ -192,7 +193,8 @@
         })
         .catch(function (err) {
           cookBtn.disabled = false;
-          global.alert("Couldn't mark cooked: " + err.message);
+          // inline, under the "I cooked this" row — no native alert (docs/ui-ux.md > No native dialogs)
+          global.Feedback.error(cookedRow, "Couldn't mark it as cooked — " + global.Feedback.messageOf(err));
         });
     });
 

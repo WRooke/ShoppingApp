@@ -80,6 +80,7 @@
 /* --- recipe library --- */
 .recipe-row {
   display: flex;
+  flex-wrap: wrap; /* so inline feedback (add-to-session errors / questions) can take its own line */
   align-items: center;
   gap: 10px;
   padding: 12px 0;
@@ -121,6 +122,7 @@
 /* --- recipe edit / manual entry forms --- */
 .detail-head-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;

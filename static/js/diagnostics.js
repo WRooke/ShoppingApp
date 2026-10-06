@@ -24,6 +24,90 @@
     return String(iso).replace("T", " ");
   }
 
+  // Push history (Chunk 6.7): which pushes are expanded survives the 5-second auto-refresh that
+  // rebuilds this panel. Undefined = default (the newest push opens itself if it had a problem).
+  var openPushes = {};
+  var OUTCOME_LABEL = { "added": "added", "updated": "updated", "un-crossed": "un-crossed", "already-active": "already there", "failed": "failed" };
+  var OUTCOME_CLASS = { "added": "added", "updated": "updated", "un-crossed": "uncrossed", "already-active": "", "failed": "failed" };
+
+  function pushCountText(p) {
+    var c = p.counts || {};
+    if (c.failed) return c.failed + " failed";
+    return p.confirmed ? "confirmed" : "not confirmed";
+  }
+
+  function renderPushHistory(pushes) {
+    var wrap = el("div", "push-history");
+    wrap.appendChild(el("div", "hdr", "Recent pushes"));
+    pushes.forEach(function (p, idx) {
+      var bad = !p.confirmed;
+      var isOpen = openPushes[p.history_id] !== undefined ? openPushes[p.history_id] : idx === 0 && bad;
+      var row = el("div", "history-row" + (isOpen ? " open" : ""));
+      var head = el("button", "history-head");
+      head.type = "button";
+      var main = el("div", "main");
+      main.appendChild(el("div", "name", fmtTime(p.pushed_at)));
+      main.appendChild(
+        el("div", "meta", ((p.items || []).length || "?") + " lines" + (p.push_id ? " · push " + p.push_id : "") + " · session " + p.session_id)
+      );
+      head.appendChild(main);
+      head.appendChild(el("span", "status-pill " + (bad ? "attention" : "confirmed"), pushCountText(p)));
+      head.appendChild(el("span", "chev", "›"));
+      row.appendChild(head);
+
+      var body = el("div", "history-body");
+      if (p.items && p.items.length) {
+        var ul = el("ul", "result-list");
+        // failures first, then the rest in push order
+        p.items.slice().sort(function (a, b) { return (b.outcome === "failed") - (a.outcome === "failed"); }).forEach(function (it) {
+          var li = el("li");
+          li.appendChild(el("span", null, it.name));
+          li.appendChild(el("span", "chip-out " + (OUTCOME_CLASS[it.outcome] || ""), OUTCOME_LABEL[it.outcome] || it.outcome));
+          if (it.reason) li.appendChild(el("span", "why", it.reason + (it.retries ? " (retried " + it.retries + "×)" : "")));
+          ul.appendChild(li);
+        });
+        body.appendChild(ul);
+        var t = p.timings || {};
+        var kv = el("dl", "kv");
+        kv.appendChild(el("dt", null, "Timings"));
+        kv.appendChild(el("dd", null, "read " + (t.read || 0) + "s · send " + (t.send || 0) + "s · confirm " + (t.confirm || 0) + "s"));
+        if (p.push_id) {
+          kv.appendChild(el("dt", null, "Log"));
+          kv.appendChild(el("dd", null, "grep " + p.push_id + " logs/app.log"));
+        }
+        body.appendChild(kv);
+      } else {
+        body.appendChild(el("div", "status-msg", "No per-item detail was recorded for this push (it was made before results were kept)."));
+      }
+      row.appendChild(body);
+      head.addEventListener("click", function () {
+        var nowOpen = !row.classList.contains("open");
+        row.classList.toggle("open", nowOpen);
+        openPushes[p.history_id] = nowOpen;
+      });
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  function renderBuildRow(build) {
+    var row = el("div", "status-row");
+    row.appendChild(el("span", "dot " + (build.version_source === "git" ? "green" : "amber")));
+    var body = el("div", "status-body");
+    body.appendChild(el("div", "status-name", "Running build"));
+    body.appendChild(el("div", "status-msg", "Started " + fmtTime(build.started_at)));
+    var kv = el("dl", "kv");
+    kv.appendChild(el("dt", null, "Build"));
+    kv.appendChild(el("dd", null, build.build_id));
+    kv.appendChild(el("dt", null, "Release"));
+    kv.appendChild(el("dd", null, build.version + (build.version_source === "git" ? "" : " (git not available to the server — the build id above is unaffected)")));
+    kv.appendChild(el("dt", null, "Process"));
+    kv.appendChild(el("dd", null, "boot " + build.boot_id));
+    body.appendChild(kv);
+    row.appendChild(body);
+    return row;
+  }
+
   function renderStatusPanel(container, data) {
     container.innerHTML = "";
     var rows = [
@@ -169,12 +253,14 @@
         checkWrap.appendChild(checkBtn);
         checkWrap.appendChild(checkOut);
         body.appendChild(checkWrap);
+        if (d.recent_pushes && d.recent_pushes.length) body.appendChild(renderPushHistory(d.recent_pushes));
       }
 
       body.appendChild(el("div", "state-label", "state: " + (d.state || "grey")));
       row.appendChild(body);
       container.appendChild(row);
     });
+    if (data.build) container.appendChild(renderBuildRow(data.build));
   }
 
   function renderLogLines(container, entries) {

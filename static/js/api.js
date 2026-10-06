@@ -393,6 +393,9 @@
       merge: function (sessionId, data) {
         return jsonBody("POST", "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/merge", data);
       },
+      undoMerge: function (sessionId, data) {
+        return jsonBody("POST", "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/undo-merge", data);
+      },
       // Ingredient panel (2026-09-30, chunk 7.5) — each writes either a session-scoped "this
       // list only" edit or a permanent one, per `data.remember`. See routers/checklist.py.
       substitute: function (sessionId, itemId, data) {

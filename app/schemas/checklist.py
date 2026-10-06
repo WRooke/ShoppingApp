@@ -90,6 +90,16 @@ class ChecklistMergeRequest(BaseModel):
         return self
 
 
+class ChecklistUndoMergeRequest(BaseModel):
+    """POST /checklist/{id}/undo-merge body — what the "Merged into …" toast's Undo sends back:
+    the surviving name, the names that were folded into it, and (for a "merge every time") the ids
+    of the aliases the merge created (returned by POST /merge as `alias_ids`)."""
+
+    canonical_name: str = Field(..., min_length=1)
+    member_names: list[str] = Field(..., min_length=1)
+    alias_ids: list[int] = Field(default_factory=list)
+
+
 # --- ingredient panel (2026-09-30, chunk 7.5) ---------------------------------------------
 #
 # Four sections of the Checklist ingredient panel each write either a session-scoped "this

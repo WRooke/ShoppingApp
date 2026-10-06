@@ -484,70 +484,8 @@ def _wait_for_value_match_text(browser, selector: str, text: str, *, timeout: fl
     raise TimeoutError(f"no {selector} ever had text {text!r}")
 
 
-def test_push_progress_step_list_shows_which_item_failed(browser, api, server_url):
-    """2026-09-23 — real per-item push progress (static/js/checklist-push.js). Drives a real
-    checklist tap to "no" so the push list is non-empty, then stubs api.checklist.push to
-    reject and api.checklist.pushProgress to report the one item still "active" — confirming
-    the UI marks that specific item as the one that failed, not a generic alert alone."""
-    # Normalised immediately — see the have/need toggle test above for why.
-    item_name = normalise_ingredient_name(f"cdp-push-progress-{uuid.uuid4().hex[:8]}")
-    recipe = api.post(
-        "/api/v1/recipes",
-        json={
-            "name": f"CDP push progress test {uuid.uuid4().hex[:8]}",
-            "source_type": "manual",
-            "base_servings": 4,
-            "ingredients": [{"name": item_name, "quantity": 6, "unit": None}],
-        },
-    ).json()["data"]
-    session = api.post("/api/v1/sessions", json={}).json()["data"]
-    api.post(
-        f"/api/v1/sessions/{session['id']}/recipes",
-        json={"recipe_id": recipe["id"]},
-    )
-    api.post(f"/api/v1/sessions/{session['id']}/consolidate", json={})
-
-    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
-    browser.wait_for(".have-need-btn.need")
-    browser.eval("document.querySelector('.have-need-btn.need').click()")  # one tap -> "no"
-    deadline = time.monotonic() + TIMEOUT
-    while time.monotonic() < deadline and (
-        browser.eval("document.querySelector('.have-need-btn.need').getAttribute('aria-pressed')")
-        != "true"
-    ):
-        time.sleep(0.1)
-
-    row_id = api.get(f"/api/v1/checklist/{session['id']}").json()["data"]["items"][0]["id"]
-    browser.eval(
-        "window.__alerted = null;"
-        "window.alert = function(msg){ window.__alerted = msg; };"
-        "window.api.checklist.push = function(){"
-        "return Promise.reject({code: 'ANYLIST_FAILED', message: 'AnyList is unreachable'});"
-        "};"
-        "window.api.checklist.pushProgress = function(token){"
-        # steps are addressed by ROW KEY ("item:<id>") with the display name as `label`
-        f"return Promise.resolve({{stage: 'sending', steps: [{{name: 'item:{row_id}', label: {json.dumps(item_name)}, status: 'active', detail: null}}]}});"
-        "};"
-    )
-    browser.click("button.primary", contains="Push to AnyList")
-
-    deadline = time.monotonic() + TIMEOUT
-    alerted = None
-    while time.monotonic() < deadline:
-        alerted = browser.eval("window.__alerted")
-        if alerted:
-            break
-        time.sleep(0.1)
-    assert alerted and "AnyList is unreachable" in alerted
-
-    failed_label = browser.eval(
-        "(function(){"
-        "var row=document.querySelector('.step-icon.failed');"
-        "return row ? row.closest('.step-row').querySelector('.step-label').textContent : null;"
-        "})()"
-    )
-    assert failed_label == "Couldn't add " + item_name
-    assert not browser.console_errors(), browser.console_errors()
+# The push progress/failure tests moved to tests/frontend/test_no_popups_and_push_ui.py when the push
+# UI was rewritten (Chunk 6.7, 2026-10-06).
 
 
 def test_queued_capture_shows_message_not_a_blank_review_form(browser, server_url):

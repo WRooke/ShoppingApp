@@ -27,19 +27,21 @@
         .doDelete()
         .then(function () {
           opts.row.remove(); // in place — never a full-list rebuild
-          global.Toast.show('Deleted "' + opts.label + '"', {
-            actionLabel: "Undo",
-            onAction: function () {
-              opts
-                .recreate()
-                .then(function (created) {
-                  if (opts.onRestored) opts.onRestored(created);
-                })
-                .catch(function (err) {
-                  global.alert("Couldn't undo: " + err.message);
+          function undo() {
+            opts
+              .recreate()
+              .then(function (created) {
+                if (opts.onRestored) opts.onRestored(created);
+              })
+              .catch(function (err) {
+                // the row is gone, so no inline spot exists: an error toast with Retry (the shared
+                // handler for all six Settings lists)
+                global.Toast.show("Couldn't restore “" + opts.label + "” — " + global.Feedback.messageOf(err), {
+                  tone: "error", actionLabel: "Retry", onAction: undo,
                 });
-            },
-          });
+              });
+          }
+          global.Toast.show('Deleted "' + opts.label + '"', { actionLabel: "Undo", onAction: undo });
         })
         .catch(function (err) {
           deleteBtn.disabled = false;

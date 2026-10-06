@@ -142,10 +142,14 @@ Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
   "1 can"), converting the non-canonical line's amount onto the canonical unit before summing.
   A unit mismatch at consolidation time falls back to the existing `needs_review` UX — no new
   "combined item count" math.
-- **"Always treat these as the same ingredient?"** (yes/no, a plain `confirm()`) — yes writes a
-  durable `source='user'` [ingredient alias](./ingredient-handling.md#ingredient-aliases) (live
-  for every future recipe); no writes a session-scoped
-  `session_ingredient_merges` row instead (this week only, cascade-deleted with the session — see
+- **Two buttons, not a pop-up (2026-10-06):** **Merge every time — all future recipes** writes a
+  durable `source='merge'` [ingredient alias](./ingredient-handling.md#ingredient-aliases) (live
+  for every future recipe; tagged "from a checklist merge" in Settings); **Merge for this shopping list
+  only** writes a session-scoped
+  `session_ingredient_merges` row instead; either way a toast offers **Undo** (`POST .../undo-merge`; see
+  [UI/UX > No native dialogs](./ui-ux.md#no-native-dialogs--ask-and-report-inline-2026-10-06-chunk-67)). The old
+  yes/no `confirm()` is gone. The rest of this bullet describes the same two outcomes
+   (this week only, cascade-deleted with the session — see
   [Ingredient Aliases](./ingredient-handling.md#ingredient-aliases) for the table shape and how
   it slots into the resolution chain as the step after alias resolution).
 - **Merge is pre-push only** — disabled once `session.status == "pushed"` (avoids leaving an

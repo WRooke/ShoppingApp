@@ -165,7 +165,16 @@
       },
     });
 
-    wrap.appendChild(miniField("Ingredient name (fixed — delete and re-add to rename)", nameInput));
+    // Where a group came from (Chunk 6.7, mockups: popups.html #9): a small tag for built-in groups
+    // (migration-seeded, source "system") and for groups a checklist "merge every time" created
+    // (source "merge"), so a learned merge can be told apart from one typed by hand (no tag).
+    var nameLine = el("div");
+    nameLine.style.cssText = "display:flex;gap:8px;align-items:center";
+    nameInput.style.flex = "1";
+    nameLine.appendChild(nameInput);
+    var TAGS = { merge: ["merge", "from a checklist merge"], system: ["system", "built-in"] };
+    if (TAGS[row.source]) nameLine.appendChild(el("span", "source-tag " + TAGS[row.source][0], TAGS[row.source][1]));
+    wrap.appendChild(miniField("Ingredient name (fixed — delete and re-add to rename)", nameLine));
     wrap.appendChild(miniField("Note", noteInput));
     wrap.appendChild(el("div", "settings-sub-head", "Amount conversion (optional)"));
     wrap.appendChild(pair.grid);

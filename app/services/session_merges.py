@@ -249,6 +249,24 @@ def add_session_coarse_override(
     return row
 
 
+def remove_session_merge(db: Session, session_id: int, member_name: str, kind: str = "merge") -> int:
+    """Delete one session-scoped override (by member and kind). Returns how many rows went — 0 is
+    fine (Undo of something already gone is a no-op, not an error). Used by the checklist merge
+    Undo (services/checklist.py::undo_merge)."""
+    n = (
+        db.query(SessionIngredientMerge)
+        .filter(
+            SessionIngredientMerge.session_id == session_id,
+            SessionIngredientMerge.member_name == member_name,
+            SessionIngredientMerge.kind == kind,
+        )
+        .delete()
+    )
+    db.commit()
+    logger.info("Session %s removed: session_id=%s %r (%d row)", kind, session_id, member_name, n)
+    return n
+
+
 def clear_session_merges(db: Session, session_id: int) -> None:
     """Remove every session-scoped override for one session, any kind — basic CRUD
     completeness (every other reference table in this app has a delete path); no UI calls

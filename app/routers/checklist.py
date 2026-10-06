@@ -22,6 +22,7 @@ from app.schemas.checklist import (
     ChecklistLoadResponse,
     ChecklistMergeRequest,
     ChecklistPushRequest,
+    ChecklistUndoMergeRequest,
 )
 from app.schemas.sessions import ChecklistItemRead
 from app.services import checklist as checklist_service
@@ -103,6 +104,7 @@ def merge_items(
     checklist-time merge). Pre-push only (409 SESSION_ALREADY_PUSHED once pushed); a
     `remember=True` merge that names an already-aliased item surfaces 409
     DUPLICATE_INGREDIENT_ALIAS, same as Settings' own alias creation."""
+    alias_ids: list[int] = []
     rows = checklist_service.merge_items(
         db,
         session_id,
@@ -113,6 +115,24 @@ def merge_items(
         alias_unit=data.alias_unit,
         canonical_qty=data.canonical_qty,
         canonical_unit=data.canonical_unit,
+        created_alias_ids=alias_ids,
+    )
+    # `alias_ids` (a "merge every time") + the merged-away names let the client offer Undo.
+    return {"ok": True, "data": {"items": _items(db, rows), "alias_ids": alias_ids}}
+
+
+@router.post("/{session_id}/undo-merge")
+def undo_merge(
+    session_id: int,
+    data: ChecklistUndoMergeRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Reverse a checklist merge (the Undo on the "Merged into …" toast). Pre-push only (409
+    SESSION_ALREADY_PUSHED). Idempotent. The Need it / Have it decision on the merged line is
+    given to the restored lines."""
+    rows = checklist_service.undo_merge(
+        db, session_id, canonical_name=data.canonical_name,
+        member_names=data.member_names, alias_ids=data.alias_ids,
     )
     return {"ok": True, "data": {"items": _items(db, rows)}}
 

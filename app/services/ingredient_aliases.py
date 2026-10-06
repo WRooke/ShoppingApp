@@ -112,12 +112,22 @@ def _flatten(db: Session, canonical_name: str, *, exclude_id: int | None = None)
     return current
 
 
-def create_alias(db: Session, data: IngredientAliasCreate) -> IngredientAlias:
+def create_alias(
+    db: Session, data: IngredientAliasCreate, *, source: str = "user"
+) -> IngredientAlias:
     """Add one ``alias_name -> canonical_name`` mapping. ``canonical_name`` is flattened to
     its final target first (see ``_flatten``); any existing rows that were pointing at
     ``alias_name`` as *their* canonical target are re-pointed at the same final target too, so
     the whole table stays flat, not just the new row. Raises InvalidIngredientAliasError for a
-    self-alias, DuplicateIngredientAliasError if ``alias_name`` is already grouped."""
+    self-alias, DuplicateIngredientAliasError if ``alias_name`` is already grouped.
+
+    ``source`` records where the row came from: "user" (typed in Settings or the name nudge — the
+    default), or "merge" (created by a checklist "merge every time", 2026-10-06 Chunk 6.7, so
+    Settings can tag it "from a checklist merge" and a learned merge is distinguishable from a
+    hand-made one). It is NOT a field of ``IngredientAliasCreate``: a client can never choose
+    it ("system" rows are written by migrations only) — only server code passes it."""
+    if source not in ("user", "merge"):
+        raise ValueError(f"unsupported alias source {source!r}")
     alias = _normalise(data.alias_name)
     canonical = _flatten(db, _normalise(data.canonical_name))
     if alias == canonical:
@@ -131,6 +141,7 @@ def create_alias(db: Session, data: IngredientAliasCreate) -> IngredientAlias:
         alias_unit=_clean_unit(data.alias_unit),
         canonical_qty=data.canonical_qty,
         canonical_unit=_clean_unit(data.canonical_unit),
+        source=source,
     )
     db.add(row)
     try:

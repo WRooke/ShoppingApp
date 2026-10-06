@@ -624,3 +624,49 @@ def test_diagnostics_shows_the_per_item_result_of_recent_pushes(client, fake_any
 
     last = client.get("/api/v1/diagnostics/status").json()["data"]["anylist"]["last_push"]
     assert last["push_id"] == pushed["push_id"] and last["items"]
+
+
+def test_merge_every_time_reports_alias_ids_settings_tags_the_source_and_undo_reverses_it(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-undo-a", "quantity": 1, "unit": None},
+                 {"name": "zz-undo-b", "quantity": 2, "unit": None}]
+    )
+    items = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"]
+    a = next(i for i in items if i["ingredient_name"] == "zz undo a")
+    client.patch(f"/api/v1/checklist/{sid}/items/{a['id']}", json={"have_it": "no", "add_to_list": True})
+
+    merged = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={"item_names": ["zz undo a", "zz undo b"], "canonical_name": "zz undo a", "remember": True},
+    ).json()["data"]
+    assert len(merged["alias_ids"]) == 1 and [i["ingredient_name"] for i in merged["items"]] == ["zz undo a"]
+
+    listed = client.get("/api/v1/settings/ingredient-aliases?limit=500").json()["data"]["items"]
+    mine = next(x for x in listed if x["id"] == merged["alias_ids"][0])
+    assert mine["source"] == "merge" and mine["alias_name"] == "zz undo b"
+
+    undone = client.post(
+        f"/api/v1/checklist/{sid}/undo-merge",
+        json={"canonical_name": "zz undo a", "member_names": ["zz undo b"], "alias_ids": merged["alias_ids"]},
+    )
+    assert undone.status_code == 200
+    rows = {i["ingredient_name"]: i for i in undone.json()["data"]["items"]}
+    assert set(rows) == {"zz undo a", "zz undo b"} and rows["zz undo b"]["add_to_list"] is True
+    listed = client.get("/api/v1/settings/ingredient-aliases?limit=500").json()["data"]["items"]
+    assert all(x["id"] != merged["alias_ids"][0] for x in listed)  # the saved group is gone too
+
+
+def test_undo_merge_is_refused_after_push_and_validates_its_body(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-undo2-a", "quantity": 1, "unit": None},
+                 {"name": "zz-undo2-b", "quantity": 2, "unit": None}]
+    )
+    client.post(f"/api/v1/checklist/{sid}/merge",
+                json={"item_names": ["zz undo2 a", "zz undo2 b"], "canonical_name": "zz undo2 a", "remember": False})
+    assert client.post(f"/api/v1/checklist/{sid}/undo-merge", json={"canonical_name": "x"}).status_code == 422
+    items = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"]
+    client.patch(f"/api/v1/checklist/{sid}/items/{items[0]['id']}", json={"have_it": "no"})
+    assert client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []}).status_code == 200
+    again = client.post(f"/api/v1/checklist/{sid}/undo-merge",
+                        json={"canonical_name": "zz undo2 a", "member_names": ["zz undo2 b"]})
+    assert again.status_code == 409 and again.json()["error"]["code"] == "SESSION_ALREADY_PUSHED"

@@ -55,7 +55,7 @@ def test_status_reports_ok_envelope_and_component_shapes(client):
     assert body["ok"] is True
 
     data = body["data"]
-    assert set(data.keys()) == {"database", "ai_extraction", "anylist"}
+    assert set(data.keys()) == {"database", "ai_extraction", "anylist", "build"}
     assert data["database"]["state"] == "green"
 
     ai = data["ai_extraction"]
@@ -213,3 +213,11 @@ def test_status_ai_block_flags_a_stalled_queue_item(client):
         db.query(CaptureQueueItem).filter(CaptureQueueItem.id.in_(ids)).delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+def test_status_carries_the_running_build_for_the_diagnostics_panel(client):
+    data = client.get("/api/v1/diagnostics/status").json()["data"]
+    build = data["build"]
+    assert build["build_id"] and build["boot_id"] and build["started_at"].endswith("+00:00")
+    health = client.get("/api/v1/health").json()["data"]
+    assert build["build_id"] == health["build_id"] and build["boot_id"] == health["boot_id"]

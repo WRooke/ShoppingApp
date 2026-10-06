@@ -231,6 +231,15 @@ class Browser:
         with contextlib.suppress(Exception):
             self._proc.terminate()
             self._proc.wait(timeout=5)
+        # terminate() only ends the launcher; Edge's renderer/GPU children can outlive it and keep
+        # holding the debug port, so the NEXT Browser silently attaches to a stale page whose server
+        # is gone (2026-10-07: that made unrelated tests fail with "Failed to fetch"). Kill the tree.
+        if sys.platform == "win32":
+            with contextlib.suppress(Exception):
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                )
 
     # -- actions --
     def navigate(self, url: str) -> None:

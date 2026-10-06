@@ -153,10 +153,11 @@
     // a full page reload. Reassigned by summary() below; every state-changing handler calls
     // it so the count stays live. No-op until the first render.
     var refreshSummary = function () {};
-    // Set when a push comes back with res.confirmed === false; render() re-shows the banner
-    // across the load() this triggers (a plain body rebuild would otherwise wipe it the
-    // instant the "confirmed" push response arrives) until a later push confirms cleanly.
-    var lastDiscrepancies = null;
+    // The last push's response (2026-10-06, Chunk 6.7). A push triggers a load() that rebuilds the
+    // whole body, which would wipe its result the instant it arrives; render() hands this back to
+    // ChecklistPush, which shows it as the result card (counts, per-item Details, or "N items need
+    // attention") until the user leaves the screen or pushes again.
+    var lastPush = null;
 
     // Fix 3 — "Select to merge" mode (checklist-time merge, CLAUDE.md > Deferred Decisions).
     // Screen-level toggle, not a permanent per-row control — entering it hides the existing
@@ -258,7 +259,11 @@
         });
     }
 
-    function patchItem(item, changes, onDone) {
+    // `errSlot` (the row's own feedback line) gets "Couldn't save" if the PATCH fails, in place — no
+    // native alert() (docs/ui-ux.md > No native dialogs). The pressed state is only updated on
+    // success, so a failed tap visibly did not happen.
+    function patchItem(item, changes, onDone, errSlot) {
+      if (errSlot) global.Feedback.clear(errSlot);
       api.checklist
         .updateItem(sessionId, item.id, changes)
         .then(function (updated) {
@@ -267,7 +272,7 @@
           if (onDone) onDone();
         })
         .catch(function (err) {
-          global.alert("Couldn't save: " + err.message);
+          global.Feedback.error(errSlot, "Couldn't save — " + global.Feedback.messageOf(err) + ". Tap again to retry.");
         });
     }
 
@@ -284,8 +289,6 @@
             : "⚠ Couldn't reach AnyList (" + (data.anylist_detail || "unknown") + ") — nothing pre-ticked."
         )
       );
-
-      if (lastDiscrepancies) body.appendChild(global.ChecklistPush.renderDiscrepancyBanner(lastDiscrepancies));
 
       var items = data.items || [];
       var usuals = data.usuals || [];
@@ -305,24 +308,8 @@
         items: items,
         usuals: usuals,
         pushUsualIds: pushUsualIds,
-        onResult: function (res) {
-          if (!res.confirmed && res.discrepancies && res.discrepancies.length) {
-            lastDiscrepancies = res.discrepancies;
-          } else {
-            lastDiscrepancies = null;
-            // `updated` already includes the un-crossed ones; "already on the list" lines were left
-            // alone (nothing was written for them).
-            var already = (res.already_active || []).length;
-            var uncrossed = (res.uncrossed || []).length;
-            var msg =
-              "Pushed. Added " + (res.added || []).length + ", updated " + (res.updated || []).length +
-              (uncrossed ? " (" + uncrossed + " un-crossed)" : "") +
-              (already ? ", " + already + " already on the list" : "") +
-              (res.usuals_added && res.usuals_added.length ? ", + " + res.usuals_added.length + " usual(s)" : "") +
-              ".";
-            global.Toast.show(msg);
-          }
-        },
+        lastPush: lastPush,
+        onResult: function (res) { lastPush = res; },
         onReload: load,
       });
       refreshSummary = pushSummary.refresh; // reassigned each render(); every state change calls this
@@ -371,10 +358,11 @@
         (item.review_options || []).forEach(function (opt) {
           var btn = el("button", "btn-sm", "use " + optionLabel(opt));
           btn.addEventListener("click", function () {
+            global.Feedback.clear(picks);
             api.checklist
               .resolveItem(sessionId, item.id, { total_quantity: opt.quantity, total_unit: opt.unit })
               .then(load)
-              .catch(function (err) { global.alert(err.message); });
+              .catch(function (err) { global.Feedback.error(picks, global.Feedback.messageOf(err)); });
           });
           picks.appendChild(btn);
         });
@@ -388,11 +376,12 @@
         var mb = el("button", "btn-sm primary", "use this");
         mb.addEventListener("click", function () {
           var q = parseFloat(mq.value);
-          if (isNaN(q) || q <= 0) { global.alert("Enter a positive amount."); return; }
+          global.Feedback.clear(manualActions);
+          if (isNaN(q) || q <= 0) { global.Feedback.error(manualActions, "Enter an amount greater than 0."); return; }
           api.checklist
             .resolveItem(sessionId, item.id, { total_quantity: q, total_unit: mu.value.trim() || null })
             .then(load)
-            .catch(function (err) { global.alert(err.message); });
+            .catch(function (err) { global.Feedback.error(manualActions, global.Feedback.messageOf(err)); });
         });
         var manualActions = el("div", "log-controls");
         manualActions.style.marginTop = "6px";
@@ -478,6 +467,8 @@
         var metaRow = el("div", "meta-row");
         metaRow.appendChild(el("div", "meta", qtyText(item)));
         main.appendChild(metaRow);
+        var rowFeedback = el("div"); // "Couldn't save" appears here, on the row that failed
+        main.appendChild(rowFeedback);
         row.appendChild(main);
 
         if (!mergeMode) {
@@ -491,7 +482,7 @@
           var pair = el("div", "have-need-pair");
           var haveBtn = el("button", "have-need-btn have", "Have it");
           var needBtn = el("button", "have-need-btn need", "Need it");
-          (function (item, haveBtn, needBtn) {
+          (function (item, haveBtn, needBtn, rowFeedback) {
             function syncPressed() {
               haveBtn.setAttribute("aria-pressed", item.have_it === "yes" ? "true" : "false");
               needBtn.setAttribute("aria-pressed", item.have_it === "no" ? "true" : "false");
@@ -499,13 +490,13 @@
             syncPressed();
             haveBtn.addEventListener("click", function () {
               var next = item.have_it === "yes" ? "unknown" : "yes";
-              patchItem(item, { have_it: next, add_to_list: false }, syncPressed);
+              patchItem(item, { have_it: next, add_to_list: false }, syncPressed, rowFeedback);
             });
             needBtn.addEventListener("click", function () {
               var next = item.have_it === "no" ? "unknown" : "no";
-              patchItem(item, { have_it: next, add_to_list: next === "no" }, syncPressed);
+              patchItem(item, { have_it: next, add_to_list: next === "no" }, syncPressed, rowFeedback);
             });
-          })(item, haveBtn, needBtn);
+          })(item, haveBtn, needBtn, rowFeedback);
           pair.appendChild(haveBtn);
           pair.appendChild(needBtn);
           row.appendChild(pair);
@@ -527,7 +518,7 @@
                 mergeMode = false;
                 mergeSelected = {};
                 load(); // full reload -- names/totals genuinely changed server-side
-              })
+              }, rerender)
             );
           });
           actions.appendChild(mergeBtn);
@@ -539,15 +530,38 @@
       return wrap;
     }
 
-    // Fix 3 — the merge confirmation panel: canonical-name choice, an optional dormant
-    // amount-equivalence field (point-of-need's own guardrail — collapsed by default, matching
-    // the common case where a merge needs no ratio at all, e.g. "capsicum"/"red capsicum"),
-    // and the existing "remember this?" confirm pattern session-review.js's askRemember()
-    // already establishes (a plain browser confirm(), not a custom control).
-    function mergePanel(selected, onDone) {
-      var wrap = el("div", "pack-size-form"); // same inline-expansion visual treatment
-      wrap.appendChild(el("div", "sub-group-heading", "Keep which name?"));
+    // Fix 3 — the merge panel. Rewritten 2026-10-06 (Chunk 6.7) to the approved mockup
+    // (docs/mockups/chunk-6.7/popups.html): the old flow asked "Always treat these as the same
+    // ingredient?" in a native confirm() that named nothing. Now the panel says what will happen —
+    // "parmesans + parmesan -> parmesan" — and the choice IS the two buttons: merge for this shopping
+    // list only, or merge every time (all future recipes, said plainly, with where to undo it). Either
+    // way a toast offers Undo. Keeps the optional, collapsed amount-equivalence field (point-of-need's
+    // own guardrail — the common case, e.g. "capsicum"/"red capsicum", needs no ratio).
+    function shownName(item) { return item.display_name || item.ingredient_name; }
+
+    function mergePanel(selected, onDone, onCancel) {
+      var wrap = el("div", "inline-card");
+      wrap.appendChild(el("div", "title", "Merge these ingredients"));
+
       var canonicalName = selected[0].ingredient_name;
+      var summary = el("div", "merge-summary");
+      wrap.appendChild(summary);
+      function paintSummary() {
+        summary.innerHTML = "";
+        var members = selected.filter(function (i) { return i.ingredient_name !== canonicalName; });
+        var kept = selected.filter(function (i) { return i.ingredient_name === canonicalName; })[0];
+        members.forEach(function (m, i) {
+          if (i > 0) summary.appendChild(document.createTextNode(" + "));
+          summary.appendChild(el("span", "name-chip", shownName(m)));
+        });
+        summary.appendChild(document.createTextNode(" + "));
+        summary.appendChild(el("span", "name-chip", shownName(kept)));
+        summary.appendChild(document.createTextNode(" → "));
+        summary.appendChild(el("span", "name-chip keep", shownName(kept)));
+      }
+      // "a + b -> c" reads best as "members + kept -> kept"; the kept name appears on both sides
+      // so it is clear nothing is lost, only the other names fold into it.
+      wrap.appendChild(el("div", "merge-pick", "Keep which name?"));
       selected.forEach(function (item, i) {
         var row = el("label", "radio-row");
         var radio = el("input");
@@ -557,25 +571,25 @@
         radio.checked = i === 0;
         radio.addEventListener("change", function () {
           canonicalName = item.ingredient_name;
+          paintSummary();
         });
         row.appendChild(radio);
-        row.appendChild(document.createTextNode(" " + (item.display_name || item.ingredient_name)));
+        row.appendChild(document.createTextNode(shownName(item)));
         wrap.appendChild(row);
       });
+      paintSummary();
 
       var pairLinkRow = el("div", "meta-row");
-      var pairLink = el("button", "btn-link", "Not the same amount? Tap to set the equivalent");
+      var pairLink = el("button", "btn-link", "Not the same amount? Set the equivalent");
+      pairLink.type = "button";
       var pair = null; // { grid, values() } from pairFields(), only when expanded
       pairLinkRow.appendChild(pairLink);
       wrap.appendChild(pairLinkRow);
-      // `actions` (declared further below, `var`-hoisted) is only ever read here once the
-      // user actually clicks this link, by which point mergePanel()'s own setup below —
-      // including `actions`'s assignment — has already finished running.
       pairLink.addEventListener("click", function () {
         if (pair) {
           pair.grid.remove();
           pair = null;
-          pairLink.textContent = "Not the same amount? Tap to set the equivalent";
+          pairLink.textContent = "Not the same amount? Set the equivalent";
           return;
         }
         pair = pairFields();
@@ -583,50 +597,106 @@
         pairLink.textContent = "Hide the amount equivalence";
       });
 
-      var err = el("span", "form-error");
-      var confirmBtn = el("button", "btn-sm primary", "Merge");
-      confirmBtn.addEventListener("click", function () {
-        err.textContent = "";
+      var errSlot = el("div");
+      var thisListBtn = el("button", "primary", "Merge for this shopping list only");
+      thisListBtn.type = "button";
+      var everyTimeBtn = el("button", null, "Merge every time — all future recipes");
+      everyTimeBtn.type = "button";
+      var fine = el("div", "fine");
+      var cancelBtn = el("button", "btn-sm", "Cancel");
+      cancelBtn.type = "button";
+      var actions = el("div", "actions");
+      actions.appendChild(thisListBtn);
+      actions.appendChild(everyTimeBtn);
+      wrap.appendChild(actions);
+      wrap.appendChild(fine);
+      var cancelRow = el("div", "actions row");
+      cancelRow.style.marginTop = "var(--sp-2)";
+      cancelRow.appendChild(cancelBtn);
+      wrap.appendChild(cancelRow);
+      wrap.appendChild(errSlot);
+
+      function paintFine() {
+        var members = selected.filter(function (i) { return i.ingredient_name !== canonicalName; });
+        var kept = shownName(selected.filter(function (i) { return i.ingredient_name === canonicalName; })[0]);
+        fine.textContent =
+          "Every time: any future recipe that says " +
+          members.map(function (m) { return "“" + shownName(m) + "”"; }).join(" or ") +
+          " will list it as “" + kept + "”. You can undo this any time in Settings → Ingredient groups.";
+      }
+      paintFine();
+      wrap.addEventListener("change", paintFine); // keep the fine print in step with the radio choice
+
+      cancelBtn.addEventListener("click", function () { if (onCancel) onCancel(); });
+
+      function doMerge(remember) {
+        global.Feedback.clear(errSlot);
         var values = pair ? pair.values() : {};
         if (pair && (values.alias_qty == null || values.canonical_qty == null)) {
-          err.textContent = "Enter both amounts, or collapse the equivalence field to skip it.";
+          global.Feedback.error(errSlot, "Enter both amounts, or hide the equivalence to skip it.");
           return;
         }
-        var remember = global.confirm(
-          "Always treat these as the same ingredient? This will apply to every future recipe " +
-            "using these names, not just this session."
-        );
-        confirmBtn.disabled = true;
+        var keptKey = canonicalName;
+        var memberKeys = selected
+          .map(function (i) { return i.ingredient_name; })
+          .filter(function (n) { return n !== keptKey; });
+        var keptShown = shownName(selected.filter(function (i) { return i.ingredient_name === keptKey; })[0]);
+        thisListBtn.disabled = everyTimeBtn.disabled = true;
         api.checklist
           .merge(sessionId, {
             item_names: selected.map(function (i) { return i.ingredient_name; }),
-            canonical_name: canonicalName,
+            canonical_name: keptKey,
             remember: remember,
             alias_qty: values.alias_qty != null ? values.alias_qty : null,
             alias_unit: values.alias_unit || null,
             canonical_qty: values.canonical_qty != null ? values.canonical_qty : null,
             canonical_unit: values.canonical_unit || null,
           })
-          .then(function () {
-            global.Toast.show("Merged.");
+          .then(function (res) {
+            offerUndo(keptKey, memberKeys, keptShown, remember, (res && res.alias_ids) || []);
             onDone();
           })
           .catch(function (e) {
-            confirmBtn.disabled = false;
+            thisListBtn.disabled = everyTimeBtn.disabled = false;
             // Merge is pre-push only — same reactive-409 handling as the Push button's own
             // "already pushed" case (checklist-push.js), rather than fetching session status
             // just to hide this control proactively.
-            err.textContent =
+            global.Feedback.error(
+              errSlot,
               e.code === "SESSION_ALREADY_PUSHED"
                 ? "This session has already been pushed — merging isn't available after push."
-                : e.message;
+                : e.code === "DUPLICATE_INGREDIENT_ALIAS"
+                ? "One of these names is already grouped under another ingredient (Settings → Ingredient groups). Choose a different name to keep, or merge for this shopping list only."
+                : global.Feedback.messageOf(e)
+            );
           });
-      });
-      var actions = el("div", "log-controls");
-      actions.appendChild(confirmBtn);
-      actions.appendChild(err);
-      wrap.appendChild(actions);
+      }
+      thisListBtn.addEventListener("click", function () { doMerge(false); });
+      everyTimeBtn.addEventListener("click", function () { doMerge(true); });
       return wrap;
+    }
+
+    // The "Merged into …" toast with Undo. Undo reverses exactly what this merge did (the
+    // this-list-only merge rows and/or the saved groups it created) and hands the merged line's
+    // Need it / Have it back to the restored lines (POST /checklist/{id}/undo-merge).
+    function offerUndo(keptKey, memberKeys, keptShown, remember, aliasIds) {
+      function undo() {
+        api.checklist
+          .undoMerge(sessionId, { canonical_name: keptKey, member_names: memberKeys, alias_ids: aliasIds })
+          .then(function () {
+            global.Toast.show("Merge undone.");
+            load();
+          })
+          .catch(function (err) {
+            global.Toast.show("Couldn't undo the merge — " + global.Feedback.messageOf(err), {
+              tone: "error", actionLabel: "Retry", onAction: undo,
+            });
+          });
+      }
+      global.Toast.show(
+        "Merged into “" + keptShown + "” — " + (remember ? "every time" : "this list only"),
+        { actionLabel: "Undo", onAction: undo }
+      );
     }
 
     // Fix 3's own small local copy of the same four-field amount/unit grid shape
@@ -652,7 +722,7 @@
       var cqty = num();
       var cunit = txt();
       var grid = el("div", "ing-grid");
-      grid.style.gridTemplateColumns = "1fr 1fr 1fr 1fr";
+      grid.style.gridTemplateColumns = "1fr 1fr"; // two across: four narrow fields don't fit a phone
       grid.appendChild(miniField("This amount", mqty));
       grid.appendChild(miniField("Unit", munit));
       grid.appendChild(miniField("= Kept amount", cqty));
@@ -724,7 +794,7 @@
             })
             .catch(function (err) {
               skipBtn.disabled = false;
-              global.alert("Couldn't skip: " + err.message);
+              global.Feedback.error(card, "Couldn't skip — " + global.Feedback.messageOf(err));
             });
         });
 

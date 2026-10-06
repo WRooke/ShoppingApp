@@ -165,9 +165,7 @@
       api.recipes
         .deleteIngredient(recipeId, ing.id)
         .then(function () {
-          global.Toast.show('Deleted "' + snapshot.name + '"', {
-            actionLabel: "Undo",
-            onAction: function () {
+          function undo() {
               // deleteIngredient has no undo of its own — re-create the row from the
               // snapshot instead (add, then a follow-up update for the substitution
               // fields addIngredient's own schema doesn't accept).
@@ -193,10 +191,13 @@
                 })
                 .then(reload)
                 .catch(function (err) {
-                  global.alert("Couldn't undo: " + err.message);
+                  // the row is gone, so there is nowhere inline to put this: an error toast with Retry
+                  global.Toast.show("Couldn't restore “" + snapshot.name + "” — " + global.Feedback.messageOf(err), {
+                    tone: "error", actionLabel: "Retry", onAction: undo,
+                  });
                 });
-            },
-          });
+          }
+          global.Toast.show('Deleted "' + snapshot.name + '"', { actionLabel: "Undo", onAction: undo });
           reload();
         })
         .catch(function (err) {

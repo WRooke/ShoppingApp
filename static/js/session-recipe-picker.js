@@ -24,6 +24,8 @@
     search.type = "text";
     search.placeholder = "Search the library...";
     box.appendChild(search);
+    var addError = el("div"); // "Couldn't add" appears right under the search box
+    box.appendChild(addError);
     var results = el("div");
     results.style.marginTop = "8px";
     box.appendChild(results);
@@ -43,6 +45,7 @@
             b.style.display = "block";
             b.style.marginBottom = "4px";
             b.addEventListener("click", function () {
+              global.Feedback.clear(addError);
               api.sessions
                 .addRecipe(sessionId, { recipe_id: r.id, day_of_week: dayOfWeek })
                 .then(function () {
@@ -50,7 +53,7 @@
                   reload();
                 })
                 .catch(function (err) {
-                  global.alert("Couldn't add: " + err.message);
+                  global.Feedback.error(addError, "Couldn't add “" + r.name + "” — " + global.Feedback.messageOf(err));
                 });
             });
             results.appendChild(b);

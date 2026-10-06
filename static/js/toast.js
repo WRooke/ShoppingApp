@@ -14,6 +14,7 @@
   "use strict";
 
   var AUTO_DISMISS_MS = 5000;
+  var ERROR_DISMISS_MS = 9000; // an error needs longer to read (and its Retry to be tapped)
   var root = null;
   var hideTimer = null;
   var currentToastEl = null;
@@ -43,7 +44,8 @@
     }
   }
 
-  /* show(message, opts) — opts.actionLabel / opts.onAction for an "Undo"-style button.
+  /* show(message, opts) — opts.actionLabel / opts.onAction for an "Undo"/"Retry"-style button;
+     opts.tone === "error" for an error (danger colour, role=alert, stays a little longer).
      Undoing is the caller's job (re-POST the just-deleted data, etc.) — this component only
      renders the prompt and the button, per CLAUDE.md > Code Architecture ("a small, stable
      interface", same discipline as the external-integration clients). */
@@ -52,8 +54,10 @@
     dismiss();
 
     var el = document.createElement("div");
-    el.className = "toast";
-    el.setAttribute("role", "status");
+    var isError = opts.tone === "error";
+    el.className = isError ? "toast error" : "toast";
+    // role=alert makes a screen reader announce an error immediately; status is the polite default.
+    el.setAttribute("role", isError ? "alert" : "status");
 
     var text = document.createElement("span");
     text.textContent = message;
@@ -80,7 +84,7 @@
       });
     });
 
-    hideTimer = setTimeout(dismiss, AUTO_DISMISS_MS);
+    hideTimer = setTimeout(dismiss, isError ? ERROR_DISMISS_MS : AUTO_DISMISS_MS);
   }
 
   global.Toast = { show: show, dismiss: dismiss };

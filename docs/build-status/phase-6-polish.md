@@ -718,8 +718,10 @@ change chunk order and scope, not just because they happened.
         treated as on the list and left crossed off, a weak verifier, mid-batch failures losing all results, name-keyed progress,
         a matching bug on `-ses` words. Per-line results, push history on Diagnostics (API), `push_id` logging, only a confirmed
         push marks the session pushed. 865 tests, branch coverage of the push path 98–99 %.
-      - [ ] **#3 push UI** — the Reading → Sending → Confirming → Done tracker, the per-item result list and the Diagnostics
-        push-history panel: **awaiting mockup approval** (standing rule); the payload they need is already in place.
+      - [x] **#3 push UI** (mockups approved 2026-10-07) — Reading → Sending (n of N) → Confirming → Done tracker keyed by row,
+        result card (counts, per-item Details, "N items need attention" with reasons + Try again), inline "already pushed" card,
+        Diagnostics recent-pushes with per-item results + running-build row. Found by screenshotting the real app: the
+        "Checking AnyList…" note showed during Sending (a `display:flex` defeating `hidden`) — fixed and pinned.
       - [x] **#1 update banner** — built and tested; docs in [Deployment & Operations](../deployment-and-operations.md#how-an-open-phone-learns-the-nuc-was-updated).
         Build id = content hash (no git needed), baseline = the page's own stamp, `no-cache` static files + `?v=` asset URLs, checks
         on visibility/pageshow/online/focus/navigation with retries, "Update didn't load" state, `stop_server.ps1` +
@@ -728,7 +730,10 @@ change chunk order and scope, not just because they happened.
         *Visual tweaks (header no longer covered, safe-area, "didn't load" state) per [mockup](../mockups/chunk-6.7/banner.html).*
         **Still to confirm on the NUC:** open `http://<nuc>:8080/api/v1/health` after the next update (build id should change) and
         reload each phone tab once (tabs loaded before this change still have the old banner code).
-      - [ ] **#2 no native popups** — merge panel/inline cards/error toasts; **awaiting mockup approval**.
+      - [x] **#2 no native popups** — all 3 `confirm()` and 22 `alert()` replaced (`Feedback.error` / `Feedback.card` /
+        error toasts with Retry), merge panel with the two named buttons + Undo (`POST /checklist/{id}/undo-merge`, restores the
+        Need it decision), merge-created groups tagged `source="merge"` and shown in Settings, `tests/test_no_native_dialogs.py`
+        guard + a dialog trap in the browser tests. Rule and catalogue: [UI/UX > No native dialogs](../ui-ux.md#no-native-dialogs--ask-and-report-inline-2026-10-06-chunk-67).
       - [x] **#4 ingredient names** — built and tested; analysis, rule, safety guarantee and trade-offs in
         [Ingredient Handling > Display names](../ingredient-handling.md#display-names--what-an-ingredient-is-called-on-screen-and-on-anylist).
         Display = the household's own recipe wording (never an invented plural), small-word-aware title case, extraction prompt

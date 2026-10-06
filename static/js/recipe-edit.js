@@ -198,20 +198,24 @@
           // navigate is deferred until just past the toast's own lifetime, rather than
           // racing it. Undo cancels the deferred navigate and re-renders in place instead.
           var leaveTimer = global.setTimeout(onDeleted, 5300);
-          global.Toast.show('Deleted "' + r.name + '"', {
-            actionLabel: "Undo",
-            onAction: function () {
-              global.clearTimeout(leaveTimer);
-              api.recipes
-                .restore(r.id)
-                .then(function () {
-                  render(card, r, onCancel, onDeleted);
-                })
-                .catch(function (err) {
-                  global.alert("Couldn't undo: " + err.message);
+          function undoDelete() {
+            global.clearTimeout(leaveTimer);
+            api.recipes
+              .restore(r.id)
+              .then(function () {
+                render(card, r, onCancel, onDeleted);
+              })
+              .catch(function (err) {
+                // The card says "Recipe deleted." and we are about to leave the screen; show the
+                // failure IN the card (an inline box with Retry) and keep the deferred navigation
+                // going so the user is never stranded on a dead screen. No native alert().
+                leaveTimer = global.setTimeout(onDeleted, 9000);
+                global.Feedback.error(card, "Couldn't restore the recipe — " + global.Feedback.messageOf(err), {
+                  box: true, retry: undoDelete, retryLabel: "Retry",
                 });
-            },
-          });
+              });
+          }
+          global.Toast.show('Deleted "' + r.name + '"', { actionLabel: "Undo", onAction: undoDelete });
         })
         .catch(function (err) {
           archiveBtn.disabled = false;

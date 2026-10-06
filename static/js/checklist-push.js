@@ -1,17 +1,26 @@
-/* Checklist screen — the "push to AnyList" summary line, sticky button, real per-item
-   progress list, and discrepancy banner. Split out of checklist.js per CLAUDE.md > Code
-   Architecture & Maintainability > file size discipline (checklist.js passed ~400 lines once
-   Chunk 6.3b's design-system pass + the stock-check/push-progress/discrepancy additions all
-   landed in one file).
+/* Checklist screen — the "push to AnyList" summary line, sticky button, progress tracker and
+   result. Split out of checklist.js per CLAUDE.md > Code Architecture & Maintainability > file
+   size discipline.
 
-   Phase 6 Chunk 6.3b built a "Pushing…" state that cycled through the actual item names via
-   a client-side timer — an honest-looking simulation, not real backend signal. 2026-09-23:
-   replaced with real per-item progress, polled from GET /checklist/push/progress/{token}
-   (app/services/progress_tracker.py, written to by anylist_client.py's on_item callback as
-   it actually works through the batch) — the same real-step approach capture.js's
-   startProgress() uses for the AI capture calls. Also a discrepancy warning banner when a
-   push comes back with confirmed: false — see checklist.js's own header comment for why that
-   banner has to survive the load() a push triggers. */
+   Rewritten 2026-10-06 (Chunk 6.7) to the approved mockups (docs/mockups/chunk-6.7/push.html);
+   behaviour and verification: docs/anylist-push.md. What you see, in order:
+
+     idle      "N ingredient(s) will go on the list." + the Push button
+     pushing   four stages — Reading your list -> Sending (n of N) -> Confirming -> Done — and one
+               row per line, addressed by checklist-row key (the server reports "item:<id>"/
+               "usual:<id>" with the display name as `label`; matching by display name never lined
+               up). "Confirming" is the real read-back of the AnyList list; a line only counts as on
+               the list after it passes.
+     done      a result card that stays until you leave the screen: "N on your list", counts, and a
+               Details list of what happened to each item (added / updated / un-crossed / already
+               there). Replaces the 5-second toast.
+     problems  "N items need attention": failed items by name with the plain reason, a Try again
+               that retries only those (the session isn't marked pushed after a failure, so no
+               "already pushed" prompt), never a green tick.
+     no AnyList  if the list couldn't even be read, nothing was changed and it says so (error box +
+               Try again).
+
+   The "already pushed" question is an inline card (Feedback.card), not a native confirm(). */
 
 (function (global) {
   "use strict";
@@ -40,28 +49,9 @@
     }
   }
 
-  function renderDiscrepancyBanner(discrepancies) {
-    var box = el("div", "push-discrepancy");
-    box.appendChild(el("span", "ico", "⚠️"));
-    var b = el("div", "body");
-    b.appendChild(el("div", "title", discrepancies.length + " item(s) didn't make it onto the list"));
-    b.appendChild(
-      document.createTextNode(
-        "After pushing, AnyList did not show these as expected. Nothing was lost on this side — push again to retry just these:"
-      )
-    );
-    var ul = el("ul");
-    discrepancies.forEach(function (d) { ul.appendChild(el("li", null, String(d))); });
-    b.appendChild(ul);
-    box.appendChild(b);
-    return box;
-  }
-
   // The lines about to be pushed, as {key, label}. `key` is the SAME row key the server uses for
-  // its progress steps ("item:<row id>" / "usual:<id>" — Chunk 6.7: progress used to be matched
-  // by display name, which the server title-cases/pluralises, so it never lined up); `label` is
-  // only what is shown.
-  function pushItemNames(pushUsualIds, items, usuals) {
+  // its progress steps ("item:<row id>" / "usual:<id>"); `label` is only what is shown.
+  function pushLines(pushUsualIds, items, usuals) {
     var lines = items
       .filter(function (i) { return i.add_to_list || i.have_it === "no"; })
       .map(function (i) { return { key: "item:" + i.id, label: i.display_name || i.ingredient_name }; });
@@ -71,10 +61,127 @@
     return lines;
   }
 
-  // opts: { sessionId, items, usuals, pushUsualIds, onResult(res), onReload() }
-  // onResult receives the raw push response so the caller can decide whether to stash
-  // discrepancies for the next render(); onReload is called after every settled push
-  // (success or a confirmed discrepancy) to refresh the checklist from the server.
+  // ---- stages ----
+
+  var STAGE_NAMES = ["Reading your list", "Sending", "Confirming", "Done"];
+
+  function stageStates(stage) {
+    switch (stage) {
+      case "sending": return ["done", "active", "", ""];
+      case "confirming": return ["done", "done", "active", ""];
+      case "done": return ["done", "done", "done", "done"];
+      case "needs-attention": return ["done", "done", "done", "failed"];
+      default: return ["active", "", "", ""]; // "reading", or not known yet
+    }
+  }
+
+  function renderStages(list, stage, sentCount, total) {
+    var states = stageStates(stage);
+    list.innerHTML = "";
+    STAGE_NAMES.forEach(function (name, i) {
+      var li = el("li", states[i]);
+      li.appendChild(document.createTextNode(name));
+      if (i === 1 && stage === "sending" && total) {
+        li.appendChild(document.createTextNode(" "));
+        li.appendChild(el("span", "count", sentCount + " of " + total));
+      }
+      list.appendChild(li);
+    });
+  }
+
+  // ---- result ----
+
+  var OUTCOME_LABEL = {
+    "added": "added", "updated": "updated", "un-crossed": "un-crossed",
+    "already-active": "already there", "failed": "failed",
+  };
+  var OUTCOME_CLASS = {
+    "added": "added", "updated": "updated", "un-crossed": "uncrossed",
+    "already-active": "", "failed": "failed",
+  };
+
+  function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+
+  function resultList(items, onlyFailed) {
+    var ul = el("ul", "result-list");
+    items.forEach(function (it) {
+      if (onlyFailed && it.outcome !== "failed") return;
+      var li = el("li");
+      li.appendChild(el("span", null, it.name));
+      li.appendChild(el("span", "chip-out " + (OUTCOME_CLASS[it.outcome] || ""), OUTCOME_LABEL[it.outcome] || it.outcome));
+      if (it.reason) li.appendChild(el("span", "why", it.reason));
+      ul.appendChild(li);
+    });
+    return ul;
+  }
+
+  function counts(res) {
+    var c = { added: 0, updated: 0, uncrossed: 0, already: 0, failed: 0 };
+    (res.items || []).forEach(function (it) {
+      if (it.outcome === "added") c.added++;
+      else if (it.outcome === "updated") c.updated++;
+      else if (it.outcome === "un-crossed") { c.updated++; c.uncrossed++; }
+      else if (it.outcome === "already-active") c.already++;
+      else if (it.outcome === "failed") c.failed++;
+    });
+    return c;
+  }
+
+  // The result card for a settled push (res = the POST /push response).
+  function renderResult(res, onRetry) {
+    var items = res.items || [];
+    var c = counts(res);
+    var total = items.length;
+    var onList = total - c.failed;
+    var bad = c.failed > 0;
+    var open = false;
+
+    var box = el("div", "push-result" + (bad ? " warn" : ""));
+    box.setAttribute("role", bad ? "alert" : "status");
+    box.appendChild(el("span", "ico", bad ? "⚠️" : "✓"));
+    var body = el("div", "body");
+    body.appendChild(el("div", "title", bad ? plural(c.failed, "item") + " need" + (c.failed === 1 ? "s" : "") + " attention" : onList + " on your list"));
+
+    var parts = [];
+    if (c.added) parts.push(c.added + " added");
+    if (c.updated) parts.push(c.updated + " updated" + (c.uncrossed ? " (" + c.uncrossed + " un-crossed)" : ""));
+    if (c.already) parts.push(c.already + " already there");
+    body.appendChild(el("div", "sub", bad ? "The other " + onList + " " + (onList === 1 ? "is" : "are") + " on your list." : parts.join(" · ")));
+
+    var listSlot = el("div");
+    body.appendChild(listSlot);
+    box.appendChild(body);
+
+    var toggle = el("button", bad ? "btn-sm" : "btn-link", "Details ▾");
+    toggle.type = "button";
+
+    function paint() {
+      listSlot.innerHTML = "";
+      if (bad) listSlot.appendChild(resultList(items, !open));
+      else if (open) listSlot.appendChild(resultList(items, false));
+      toggle.textContent = open ? (bad ? "Hide details ▴" : "Hide ▴") : "Details ▾";
+    }
+
+    toggle.addEventListener("click", function () { open = !open; paint(); });
+    if (bad) {
+      var actions = el("div", "actions");
+      var retry = el("button", "primary btn-sm", "Try again");
+      retry.type = "button";
+      retry.addEventListener("click", onRetry);
+      actions.appendChild(retry);
+      actions.appendChild(toggle);
+      body.appendChild(actions);
+    } else {
+      box.appendChild(toggle);
+    }
+    paint();
+    return box;
+  }
+
+  // opts: { sessionId, items, usuals, pushUsualIds, lastPush, onResult(res), onReload() }
+  // `lastPush` is the previous push's response (kept by checklist.js across the reload a push
+  // triggers) and is shown as the result card; onResult receives each settled push so the caller
+  // can keep it; onReload refreshes the checklist from the server afterwards.
   function renderSummary(opts) {
     var wrap = el("div");
     wrap.style.marginTop = "12px";
@@ -82,16 +189,13 @@
     wrap.appendChild(line);
     var actions = el("div", "sticky-actions");
     var pushBtn = el("button", "primary btn-block", "Push to AnyList");
-    var pushNote = el("div", "push-progress-note muted");
-    pushNote.hidden = true;
-    pushBtn.addEventListener("click", function () {
-      doPush(false);
-    });
+    pushBtn.addEventListener("click", function () { doPush(false); });
     actions.appendChild(pushBtn);
-    actions.appendChild(pushNote);
     wrap.appendChild(actions);
-    var stepsSlot = el("div");
+    var stepsSlot = el("div"); // stages + per-line rows while pushing; errors/questions after
     wrap.appendChild(stepsSlot);
+    var resultSlot = el("div");
+    wrap.appendChild(resultSlot);
 
     function update() {
       var toAdd = opts.items.filter(function (i) { return i.add_to_list || i.have_it === "no"; }).length;
@@ -104,71 +208,87 @@
     }
     update();
 
+    if (opts.lastPush) resultSlot.appendChild(renderResult(opts.lastPush, function () { doPush(false); }));
+
+    function resetButton() {
+      pushBtn.disabled = false;
+      pushBtn.innerHTML = "";
+      pushBtn.textContent = "Push to AnyList";
+    }
+
     function doPush(force) {
       pushBtn.disabled = true;
-      var names = pushItemNames(opts.pushUsualIds, opts.items, opts.usuals);
+      global.Feedback.clear(stepsSlot);
+      stepsSlot.innerHTML = "";
+      resultSlot.innerHTML = "";
+      var lines = pushLines(opts.pushUsualIds, opts.items, opts.usuals);
       var token = makeToken();
 
       pushBtn.innerHTML = "";
       pushBtn.appendChild(el("span", "spinner"));
       pushBtn.appendChild(document.createTextNode(" Pushing…"));
 
-      var rows = {};
-      stepsSlot.innerHTML = "";
-      if (names.length) {
-        var stepsWrap = el("div", "step-list-vertical");
-        names.forEach(function (line) {
-          var row = el("div", "step-row");
-          var icon = el("div", "step-icon pending");
-          var label = el("div", "step-label pending", "Adding " + line.label + "…");
-          row.appendChild(icon);
-          row.appendChild(label);
-          stepsWrap.appendChild(row);
-          rows[line.key] = { icon: icon, label: label, name: line.label };
-        });
-        stepsSlot.appendChild(stepsWrap);
-        pushNote.hidden = false;
-        pushNote.textContent = "0 of " + names.length + " confirmed";
-      }
+      var stageList = el("ol", "push-stages");
+      var stepsScroll = el("div", "push-steps");
+      var stepsWrap = el("div", "step-list-vertical");
+      stepsScroll.appendChild(stepsWrap);
+      var note = el("div", "push-note");
+      note.hidden = true;
+      note.appendChild(el("span", "spinner"));
+      note.appendChild(document.createTextNode(" Checking AnyList has everything…"));
+      stepsSlot.appendChild(stageList);
+      if (lines.length) stepsSlot.appendChild(stepsScroll);
+      stepsSlot.appendChild(note);
 
-      function applyProgress(steps) {
-        var doneCount = 0;
-        (steps || []).forEach(function (s) {
+      var rows = {};
+      lines.forEach(function (ln) {
+        var row = el("div", "step-row");
+        var icon = el("div", "step-icon pending");
+        var label = el("div", "step-label pending", ln.label);
+        row.appendChild(icon);
+        row.appendChild(label);
+        stepsWrap.appendChild(row);
+        rows[ln.key] = { icon: icon, label: label, row: row, status: "pending" };
+      });
+      var stage = "reading";
+      renderStages(stageList, stage, 0, lines.length);
+
+      function applyProgress(data) {
+        var sent = 0;
+        (data.steps || []).forEach(function (s) {
           var row = rows[s.name];
           if (!row) return;
+          if (s.label) row.label.textContent = s.label;
           row.icon.className = "step-icon " + s.status;
           row.icon.textContent = s.status === "done" ? "✓" : s.status === "failed" ? "✕" : "";
           row.label.className = "step-label " + s.status;
-          row.label.textContent =
-            (s.status === "done" ? "Added " : s.status === "failed" ? "Couldn't add " : "Adding ") +
-            (s.label || row.name) +
-            (s.status === "done" || s.status === "failed" ? "" : "…");
-          if (s.status === "done") doneCount++;
+          if (s.status === "done" || s.status === "failed") sent++;
+          if (s.status === "active" && row.status !== "active") {
+            // keep the line being sent in view inside the short scrolling list
+            stepsScroll.scrollTop = Math.max(0, row.row.offsetTop - stepsScroll.clientHeight + row.row.offsetHeight);
+          }
+          row.status = s.status;
         });
-        if (names.length) pushNote.textContent = doneCount + " of " + names.length + " confirmed";
-        return steps;
+        stage = data.stage || stage;
+        renderStages(stageList, stage, sent, lines.length);
+        note.hidden = stage !== "confirming";
       }
 
-      activePushTimer = names.length
-        ? global.setInterval(function () {
-            api.checklist
-              .pushProgress(token)
-              .then(function (res) {
-                applyProgress(res.steps);
-              })
-              .catch(function () {
-                // 404 until the backend's first on_item("active") call actually lands —
-                // expected right at the very start, just keep polling.
-              });
-          }, 500)
-        : null;
+      activePushTimer = global.setInterval(function () {
+        api.checklist
+          .pushProgress(token)
+          .then(applyProgress)
+          .catch(function () {
+            // 404 until the backend has registered the token — expected right at the very start,
+            // just keep polling.
+          });
+      }, 500);
 
       function stopProgress() {
         if (activePushTimer) {
           global.clearInterval(activePushTimer);
           activePushTimer = null;
         }
-        pushNote.hidden = true;
       }
 
       api.checklist
@@ -180,58 +300,34 @@
         .then(function (res) {
           stopProgress();
           stepsSlot.innerHTML = "";
-          opts.onResult(res);
+          opts.onResult(res); // checklist.js keeps it and re-renders, which shows the result card
           opts.onReload();
         })
         .catch(function (err) {
           stopProgress();
-          pushBtn.disabled = false;
-          pushBtn.innerHTML = "";
-          pushBtn.textContent = "Push to AnyList";
+          resetButton();
+          stepsSlot.innerHTML = "";
           if (err.code === "SESSION_ALREADY_PUSHED") {
-            // "It will re-add items" read as "this will duplicate everything" (2026-09-10
-            // hand-testing) — in the common case it won't: anything AnyList still recognises
-            // just gets its quantity updated in place. The real risk is narrower (an item
-            // AnyList can no longer match, e.g. renamed/removed by hand since the last push)
-            // and worth naming specifically instead of a blanket "re-add".
-            stepsSlot.innerHTML = "";
-            if (
-              global.confirm(
-                "This session was already pushed. Push again? Items AnyList still recognises " +
-                  "will just have their quantity updated — anything it can no longer match " +
-                  "will be added as a new line, which could be a duplicate."
-              )
-            )
-              doPush(true);
+            // Not a native confirm(): an inline card, in plain words, buttons named for what they do.
+            global.Feedback.card(stepsSlot, {
+              into: true,
+              tone: "warn",
+              title: "Already pushed to AnyList",
+              body:
+                "Pushing again checks the list and only changes what's different — items already " +
+                "there are left alone.",
+              confirmLabel: "Push again",
+              cancelLabel: "Not now",
+              onConfirm: function () { doPush(true); },
+            });
             return;
           }
-          // Which item was actually in flight when the whole push died (CLAUDE.md > UI/UX >
-          // Real progress indicators — "the UI must show which specific stage failed"): one
-          // last progress fetch, then mark whichever row never reached "done" as the culprit
-          // — anylist_client.py's on_item callback only ever reports "active"/"done" (see its
-          // docstring), so a row stuck on "active" here is exactly the one mid-flight when
-          // the surrounding request raised.
-          if (names.length) {
-            api.checklist
-              .pushProgress(token)
-              .then(function (res) {
-                var steps = applyProgress(res.steps);
-                var stuck = (steps || []).find(function (s) { return s.status === "active"; });
-                if (stuck) {
-                  var row = rows[stuck.name];
-                  row.icon.className = "step-icon failed";
-                  row.icon.textContent = "✕";
-                  row.label.className = "step-label failed";
-                  row.label.textContent = "Couldn't add " + (stuck.label || row.name);
-                }
-              })
-              .catch(function () {})
-              .then(function () {
-                global.alert("Push failed: " + err.message);
-              });
-          } else {
-            global.alert("Push failed: " + err.message);
-          }
+          // The list couldn't even be read (or the server couldn't be reached): nothing was changed.
+          global.Feedback.error(
+            stepsSlot,
+            "Couldn't push to AnyList. Nothing was changed. (" + global.Feedback.messageOf(err) + ")",
+            { box: true, retry: function () { doPush(false); }, retryLabel: "Try again" }
+          );
         });
     }
 
@@ -240,7 +336,7 @@
 
   global.ChecklistPush = {
     renderSummary: renderSummary,
-    renderDiscrepancyBanner: renderDiscrepancyBanner,
+    renderResult: renderResult,
     unmount: unmount,
   };
 })(window);

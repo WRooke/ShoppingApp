@@ -85,7 +85,17 @@
         .updateSlot(session.id, slotId, { day_of_week: dayOfWeek })
         .then(reload)
         .catch(function (err) {
-          global.alert("Couldn't move: " + err.message);
+          // The move banner turns into the error (with Dismiss) instead of a native alert().
+          moveBanner.innerHTML = "";
+          moveBanner.hidden = false;
+          moveBanner.setAttribute("role", "alert");
+          moveBanner.appendChild(el("span", "lbl", "Couldn't move it — " + global.Feedback.messageOf(err)));
+          var dismiss = el("button", null, "Dismiss");
+          dismiss.addEventListener("click", function () {
+            moveBanner.hidden = true;
+            moveBanner.removeAttribute("role");
+          });
+          moveBanner.appendChild(dismiss);
           renderWeek();
         });
     }
@@ -154,11 +164,14 @@
 
       var controls = el("div", "controls");
       if (!isLeftovers) {
-        controls.appendChild(
-          servingsSelect(slot.scaled_servings, function (n) {
-            api.sessions.updateSlot(session.id, slot.id, { scaled_servings: n }).catch(barf);
-          })
-        );
+        var servings = servingsSelect(slot.scaled_servings, function (n) {
+          global.Feedback.clear(slotFeedback);
+          api.sessions.updateSlot(session.id, slot.id, { scaled_servings: n }).catch(function (err) {
+            servings.value = String(slot.scaled_servings); // show what is actually saved
+            barf(err);
+          });
+        });
+        controls.appendChild(servings);
       }
 
       var moveBtn = el("button", "move-btn", "📅");
@@ -186,9 +199,7 @@
         api.sessions
           .removeSlot(session.id, slot.id)
           .then(function () {
-            global.Toast.show('Removed "' + label + '"', {
-              actionLabel: "Undo",
-              onAction: function () {
+            function undo() {
                 // removeSlot has no undo of its own — re-add from the snapshot, then a
                 // follow-up update for the day/servings addRecipe/addLeftovers' own create
                 // payload already covers (day_of_week), or doesn't (scaled_servings on an
@@ -210,10 +221,12 @@
                 })
                   .then(reload)
                   .catch(function (err) {
-                    global.alert("Couldn't undo: " + err.message);
+                    global.Toast.show("Couldn't put “" + label + "” back — " + global.Feedback.messageOf(err), {
+                      tone: "error", actionLabel: "Retry", onAction: undo,
+                    });
                   });
-              },
-            });
+            }
+            global.Toast.show('Removed "' + label + '"', { actionLabel: "Undo", onAction: undo });
             reload();
           })
           .catch(function (err) {
@@ -224,10 +237,12 @@
       controls.appendChild(removeBtn);
 
       row.appendChild(controls);
+      var slotFeedback = el("div"); // "Couldn't update" appears on the slot that failed
+      row.appendChild(slotFeedback);
       return row;
 
       function barf(err) {
-        global.alert("Couldn't update: " + err.message);
+        global.Feedback.error(slotFeedback, "Couldn't update this — " + global.Feedback.messageOf(err) + " (it was not saved)");
       }
     }
 

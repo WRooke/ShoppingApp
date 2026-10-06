@@ -286,6 +286,7 @@ def merge_items(
     alias_unit: str | None = None,
     canonical_qty: float | None = None,
     canonical_unit: str | None = None,
+    created_alias_ids: list[int] | None = None,
 ) -> list[SessionChecklistItem]:
     """Fold 2+ already-consolidated checklist lines into one, either for this session only
     (`remember=False` -> `session_merges.add_session_merge()`) or as a durable household
@@ -333,14 +334,17 @@ def merge_items(
         # on (pick a different canonical, or fix the existing alias first) — same "surface it,
         # don't silently swallow it" convention as every other structured error in this app.
         for member in members:
-            ingredient_aliases_service.create_alias(
+            alias = ingredient_aliases_service.create_alias(
                 db,
                 IngredientAliasCreate(
                     alias_name=member, canonical_name=canonical_name,
                     alias_qty=alias_qty, alias_unit=alias_unit,
                     canonical_qty=canonical_qty, canonical_unit=canonical_unit,
                 ),
+                source="merge",  # Settings tags these "from a checklist merge"
             )
+            if created_alias_ids is not None:
+                created_alias_ids.append(alias.id)  # so the caller can offer Undo
     else:
         for member in members:
             session_merges.add_session_merge(
@@ -369,6 +373,58 @@ def merge_items(
     logger.info(
         "Checklist items merged: session_id=%s %r -> %r remember=%s",
         session_id, item_names, canonical_name, remember,
+    )
+    return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
+
+
+def undo_merge(
+    db: Session,
+    session_id: int,
+    *,
+    canonical_name: str,
+    member_names: list[str],
+    alias_ids: list[int] | None = None,
+) -> list[SessionChecklistItem]:
+    """Reverse a checklist merge (the Undo on the "Merged into …" toast, Chunk 6.7): delete the
+    session-only merge rows for `member_names` (a "this list only" merge) and/or the saved aliases
+    in `alias_ids` (a "merge every time"), re-consolidate so the members come back as their own
+    lines, and give each restored line the same Need it / Have it decision the merged line had —
+    otherwise Undo would silently drop a decision the user had made (the same class of loss as
+    docs/anylist-push.md defect A). Idempotent: undoing something already undone changes nothing.
+    Pre-push only, like the merge it reverses."""
+    session = sessions_service.get_session(db, session_id)
+    if session.status == "pushed":
+        raise SessionAlreadyPushedError(session_id)
+    merged = (
+        db.query(SessionChecklistItem)
+        .filter(SessionChecklistItem.session_id == session_id,
+                SessionChecklistItem.ingredient_name == canonical_name)
+        .first()
+    )
+    decision = (merged.have_it, merged.add_to_list) if merged is not None else ("unknown", False)
+
+    for member in member_names:
+        session_merges.remove_session_merge(db, session_id, member, "merge")
+    for alias_id in alias_ids or []:
+        try:
+            ingredient_aliases_service.delete_alias(db, alias_id)
+        except Exception:  # noqa: BLE001 — already deleted (e.g. removed in Settings meanwhile): fine
+            db.rollback()
+    sessions_service.consolidate_session(db, session_id)
+
+    for member in member_names:
+        row = (
+            db.query(SessionChecklistItem)
+            .filter(SessionChecklistItem.session_id == session_id,
+                    SessionChecklistItem.ingredient_name == member)
+            .first()
+        )
+        if row is not None and row.have_it == "unknown" and not row.add_to_list:
+            row.have_it, row.add_to_list = decision
+    db.commit()
+    logger.info(
+        "Checklist merge undone: session_id=%s %r <- %r alias_ids=%s",
+        session_id, canonical_name, member_names, alias_ids or [],
     )
     return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
 

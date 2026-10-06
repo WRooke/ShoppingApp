@@ -16,7 +16,25 @@
     return node;
   }
 
+  // One feedback holder per host button, inserted right after it: errors and the "start a session?"
+  // card appear there (docs/ui-ux.md > No native dialogs). The library row is a full-card <a>, so
+  // the holder swallows clicks (preventDefault + stopPropagation, as recipes.js's own button does) or
+  // tapping "Retry" / "Not now" would also navigate to the recipe. `flex: 1 0 100%` puts it on its own
+  // line in both the library row and the detail header.
+  function holderFor(hostEl) {
+    var holder = hostEl.nextSibling && hostEl.nextSibling.className === "add-feedback" ? hostEl.nextSibling : null;
+    if (!holder) {
+      holder = el("div", "add-feedback");
+      holder.style.flex = "1 0 100%";
+      holder.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); });
+      hostEl.parentNode.insertBefore(holder, hostEl.nextSibling);
+    }
+    return holder;
+  }
+
   function doAdd(sessionId, recipeId, hostEl) {
+    var holder = holderFor(hostEl);
+    global.Feedback.clear(holder);
     return api.sessions
       .addRecipe(sessionId, { recipe_id: recipeId })
       .then(function () {
@@ -30,7 +48,9 @@
       })
       .catch(function (err) {
         hostEl.disabled = false;
-        global.alert("Couldn't add to session: " + err.message);
+        global.Feedback.error(holder, "Couldn't add to session — " + global.Feedback.messageOf(err), {
+          retry: function () { doAdd(sessionId, recipeId, hostEl); },
+        });
       });
   }
 
@@ -59,6 +79,7 @@
   // in flight, and the anchor a multi-session picker is inserted after).
   function run(recipeId, hostEl) {
     hostEl.disabled = true;
+    global.Feedback.clear(holderFor(hostEl));
     api.sessions
       .list({ status: "active" })
       .then(function (res) {
@@ -72,16 +93,33 @@
           return null;
         }
         hostEl.disabled = false;
-        if (global.confirm("No session in progress yet. Start a new one with this recipe?")) {
-          return api.sessions.create({}).then(function (s) {
-            return doAdd(s.id, recipeId, hostEl);
-          });
-        }
+        // No native confirm(): an inline card right under the button, buttons named for what they do.
+        global.Feedback.card(holderFor(hostEl), {
+          into: true,
+          title: "No shopping session yet",
+          body: "Start one with this recipe in it?",
+          confirmLabel: "Start one with this recipe",
+          cancelLabel: "Not now",
+          onConfirm: function () {
+            hostEl.disabled = true;
+            api.sessions
+              .create({})
+              .then(function (s) { return doAdd(s.id, recipeId, hostEl); })
+              .catch(function (err) {
+                hostEl.disabled = false;
+                global.Feedback.error(holderFor(hostEl), "Couldn't start a session — " + global.Feedback.messageOf(err), {
+                  retry: function () { run(recipeId, hostEl); },
+                });
+              });
+          },
+        });
         return null;
       })
       .catch(function (err) {
         hostEl.disabled = false;
-        global.alert("Couldn't check sessions: " + err.message);
+        global.Feedback.error(holderFor(hostEl), "Couldn't check your sessions — " + global.Feedback.messageOf(err), {
+          retry: function () { run(recipeId, hostEl); },
+        });
       });
   }
 

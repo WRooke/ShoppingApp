@@ -65,6 +65,51 @@ primary or only way most of this data gets created or corrected day-to-day.
 - Typography: one sans-serif family, clear hierarchy, no decorative type.
 - No animations except functional transitions (e.g. checklist item ticked → slides/fades out).
 
+### No native dialogs — ask and report inline (2026-10-06, Chunk 6.7)
+
+**Rule: the app never uses the browser's own `alert()`, `confirm()` or `prompt()`.** They are clunky,
+hide the page, can't say what a button does ("OK"/"Cancel"), and on a phone show the server's raw
+address in their title. Questions and errors appear **inline, in plain words, where they happened**,
+and buttons are named for what they do. Enforced by `tests/test_no_native_dialogs.py` (fails with file
+and line if one is added) and, in the browser tests, a trap on `window.alert/confirm/prompt`.
+Approved mockups: [`docs/mockups/chunk-6.7/popups.html`](./mockups/chunk-6.7/popups.html).
+
+**Which tool to use when** (all in `static/js/inline-feedback.js` + `toast.js`):
+
+| Situation | Use | Example |
+|---|---|---|
+| An error next to the thing you just did | `Feedback.error(slot, msg, {retry})` — one red line, `role="alert"` | "Couldn't save — … Tap again to retry." under a checklist row; "Enter an amount greater than 0." beside "use this" |
+| A whole section failed | `Feedback.error(slot, msg, {box: true, retry})` — the boxed `.error-state` | "Couldn't push to AnyList. Nothing was changed." + Try again |
+| A question that needs a decision | `Feedback.card(host, {title, body, confirmLabel, cancelLabel, tone, onConfirm})` — an inline card right under what triggered it; focus on the first button, **Escape = the cancel action** | "Already pushed to AnyList" → **Push again** / **Not now**; "No shopping session yet" → **Start one with this recipe** / **Not now** |
+| The thing you tapped is already gone (an Undo that failed) | `Toast.show(msg, {tone: "error", actionLabel: "Retry", onAction})` — danger toast, wraps, `role="alert"`, stays 9 s | "Couldn't restore “olive oil” — …" after deleting a Settings row |
+| An action that is easy to reverse | do it, then a toast with **Undo** (never ask first) | "Merged into “parmesan” — this list only  Undo" |
+
+Rules: errors say what went wrong and what to do, with no apology; one error per slot (a new one
+replaces the old); nothing blocks the page; tap targets stay ≥44 px; a card never needs a "close" because
+it always has a named cancel. The library row (`<a>`) and detail header wrap so a card/error can take its
+own line. Where an error needs to survive a screen change (a delete that is about to navigate away) the
+failure is shown *in* the screen and the deferred navigation is kept running so the user is never stranded.
+
+**What was replaced** (3 `confirm()`, 22 `alert()`): merge "Always treat these as the same ingredient?" →
+the merge panel below; "already pushed, push again?" → inline card; "start a new session?" → inline card;
+push failure → error box / failed-item list; save/skip/resolve/rename/archive/add/move/update failures →
+`Feedback.error` on the row/button/section; every "Couldn't undo" → error toast with Retry.
+
+**The merge panel** (`checklist.js > mergePanel`): shows what will happen — **parmesans + parmesan → parmesan**
+(the radio chooses the surviving name) — and the choice *is* the two buttons: **Merge for this shopping list only**
+or **Merge every time — all future recipes**, with a plain sentence under them ("any future recipe that says
+“parmesans” will list it as “parmesan”. You can undo this any time in Settings → Ingredient groups."), plus an
+optional collapsed amount-equivalence field and a Cancel. Afterwards a toast offers **Undo**:
+`POST /checklist/{id}/undo-merge` removes the session merge rows and/or the saved groups the merge created and
+hands the merged line's Need it / Have it back to the restored lines.
+
+**Reviewing and reversing a learned merge:** Settings → Ingredient groups lists every group with Delete + Undo.
+A group made by "merge every time" is tagged **from a checklist merge** (`ingredient_aliases.source = "merge"`),
+migration-seeded groups are tagged **built-in** (`"system"`), hand-made ones have no tag. A "this list only"
+merge lives only as long as that shopping list (and has Undo right after).
+
+---
+
 ### Client auto-update notification
 
 **Built 2026-09-23, rewritten 2026-10-06 (Chunk 6.7).** When the NUC is updated (`update.bat` pulls

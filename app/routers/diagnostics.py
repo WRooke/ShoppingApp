@@ -27,6 +27,7 @@ from app.models.queue import CaptureQueueItem
 from app.services import ai_call_log
 from app.services import anylist_client
 from app.services import capture_queue
+from app.services.version import get_build_info
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,10 @@ def status(db: Session = Depends(get_db)) -> dict:
             except ValueError:
                 resp = {}
             anylist["last_push"] = _summarise_push(last_push_row, resp)
+            recent = (
+                db.query(ShoppingHistory).order_by(ShoppingHistory.pushed_at.desc()).limit(5).all()
+            )
+            anylist["recent_pushes"] = [_summarise_push(r) for r in recent]
         if not settings.anylist_enabled and not settings.anylist_fake_mode:
             anylist["state"], anylist["message"] = "grey", "AnyList sync is switched off (ANYLIST_ENABLED=false)"
         elif settings.anylist_fake_mode:
@@ -190,12 +195,19 @@ def status(db: Session = Depends(get_db)) -> dict:
         logger.error("Diagnostics: anylist status build failed", exc_info=True)
         anylist["state"], anylist["message"] = "red", "status query failed"
 
+    build = get_build_info()
     return {
         "ok": True,
         "data": {
             "database": database,
             "ai_extraction": ai,
             "anylist": anylist,
+            # Which code is running, since when — answers "is the NUC on what I just deployed?"
+            # (docs/deployment-and-operations.md). Same values as /health.
+            "build": {
+                "build_id": build.build_id, "version": build.label, "version_source": build.label_source,
+                "boot_id": build.boot_id, "started_at": build.started_at,
+            },
         },
     }
 
