@@ -26,15 +26,24 @@ docstring for the full reasoning.
 
 from __future__ import annotations
 
+import re
+
 from app.seed_data import SECTION_VOCABULARY
 
 # Untrusted content wrapper — the system prompts tell Gemini never to treat it as
-# instructions. Random-looking so injected text can't spoof its own closing tag.
+# instructions. Random-looking so injected text is unlikely to guess its own closing tag.
 _UNTRUSTED_CONTENT_TAG = "untrusted_recipe_source_7f3a"
+
+# The tag name is static (and lives in a repo), so "random-looking" alone is not a defence:
+# anything inside the untrusted text that spells the tag — opening or closing, any case, stray
+# whitespace — is neutralised before wrapping, so scraped text can never close the block early and
+# have the rest read as instructions (CLAUDE.md > Non-Negotiable Operating Rules, rule 1).
+_DELIMITER_SPOOF_RE = re.compile(r"<\s*/?\s*" + re.escape(_UNTRUSTED_CONTENT_TAG), re.IGNORECASE)
 
 
 def _wrap_untrusted(text: str) -> str:
-    return f"<{_UNTRUSTED_CONTENT_TAG}>\n{text}\n</{_UNTRUSTED_CONTENT_TAG}>"
+    safe = _DELIMITER_SPOOF_RE.sub("[removed: fake delimiter]", text)
+    return f"<{_UNTRUSTED_CONTENT_TAG}>\n{safe}\n</{_UNTRUSTED_CONTENT_TAG}>"
 
 
 # Defensive ceiling on input text length (§0a) — bounds any injected payload, and

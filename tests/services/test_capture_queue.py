@@ -125,11 +125,6 @@ def test_run_once_suggest_sections_orphan_task_is_dropped(db):
     assert db.query(CaptureQueueItem).count() == 0
 
 
-# test_run_once_flag_substitutions_task_is_dropped removed 2026-09-30 along with the
-# flag_substitutions branch in run_once() itself — nothing ever enqueued that task type (see
-# capture_queue.py's own docstring note), so there's no longer a real scenario to cover.
-
-
 def test_run_once_suggest_sections_retry_tags_sections_and_clears_pending(db, fake_mode):
     from app.models.recipes import Recipe
     from app.models.store import ProductSection
