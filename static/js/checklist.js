@@ -248,7 +248,9 @@
             (picksByName[r.original_name] = picksByName[r.original_name] || []).push(r);
           });
         })
-        .catch(function () {});
+        .catch(function (e) {
+          if (global.ErrorReport) global.ErrorReport.reportCaught("checklist quick-picks", e);
+        });
       api.checklist
         .load(sessionId)
         .then(render)

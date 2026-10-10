@@ -62,25 +62,33 @@ def dump_db_to_json(db_path: Path) -> dict:
         con.close()
 
 
-def commit_and_push() -> None:
+class BackupGitError(RuntimeError):
+    """The backup FILE was written, but committing/pushing it failed. Distinct from "nothing to
+    do" (no repo / no remote yet), which stays a warning: this one means the off-machine copy the
+    maintainer is relying on did NOT happen, so the scheduled task must not report success."""
+
+
+def commit_and_push() -> bool:
+    """Commit (and push) backups/. True when everything that could be done was done; False when
+    a commit/rebase/push FAILED (already logged at ERROR with git's own output)."""
     is_repo, _ = run_git(BASE_DIR, "rev-parse", "--is-inside-work-tree")
     if not is_repo:
         logger.warning("Backup: not a git repository yet - backup saved locally only.")
-        return
+        return True
 
     status_ok, status_out = run_git(BASE_DIR, "status", "--porcelain", "--", "backups")
     if not status_ok:
         logger.warning("Backup: could not check git status: %s", status_out)
-        return
+        return True
     if not status_out.strip():
         logger.info("Backup: no changes under backups/ to commit.")
-        return
+        return True
 
     add_ok, add_out = run_git(BASE_DIR, "add", "backups")
     if not add_ok:
         logger.error("Backup: git add failed: %s", add_out)
         run_git(BASE_DIR, "reset", "-q", "--", "backups")
-        return
+        return False
 
     # Fall back to a generic identity only when none is configured on this machine, so a
     # fresh NUC checkout can't fail the commit for want of user.name/user.email. The
@@ -98,13 +106,13 @@ def commit_and_push() -> None:
         # followed by hand-deleting the files. Unstaging only touches the index; the backup
         # files on disk are untouched.
         run_git(BASE_DIR, "reset", "-q", "--", "backups")
-        return
+        return False
     logger.info("Backup: committed locally.")
 
     remote_ok, _ = run_git(BASE_DIR, "remote", "get-url", "origin")
     if not remote_ok:
         logger.warning("Backup: no 'origin' remote configured yet - commit created locally only.")
-        return
+        return True
 
     # This same branch (normally `production` - see CLAUDE.md > Deferred Decisions > Git
     # branching strategy and DEPLOY.md) also receives fast-forwards from the dev PC's
@@ -128,13 +136,14 @@ def commit_and_push() -> None:
                 branch,
                 rebase_out,
             )
-            return
+            return False
 
     push_ok, push_out = run_git(BASE_DIR, "push", "origin", "HEAD")
     if push_ok:
         logger.info("Backup: pushed to origin.")
-    else:
-        logger.error("Backup: git push failed: %s", push_out)
+        return True
+    logger.error("Backup: git push failed: %s", push_out)
+    return False
 
 
 def trim_old_backups() -> None:
@@ -180,7 +189,10 @@ def _backup_db_file(db_path: Path, dest_db: Path) -> None:
         raise RuntimeError(f"Backup integrity check failed for {dest_db.name}: {result}")
 
 
-def run_backup() -> Path:
+def run_backup(*, strict: bool = False) -> Path:
+    """Back up the database. With ``strict`` (the scheduled-task entry point below) a failed git
+    commit/push raises `BackupGitError` AFTER the backup file itself is safely on disk, so the
+    process exits non-zero instead of Task Scheduler recording a success."""
     db_path = Path(settings.database_path)
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found at {db_path} - nothing to back up.")
@@ -201,7 +213,16 @@ def run_backup() -> Path:
     logger.info("Backup: wrote %s and %s (rows: %s)", dest_db.name, dest_json.name, row_counts)
 
     trim_old_backups()
-    commit_and_push()
+    git_ok = commit_and_push()
+
+    if not git_ok:
+        logger.error(
+            "Backup: the backup file %s is saved locally but was NOT committed/pushed - see the "
+            "git errors above. The off-machine copy is out of date.", dest_db.name,
+        )
+        if strict:
+            raise BackupGitError(f"{dest_db.name} saved locally; git commit/push failed")
+        return dest_db
 
     logger.info("Backup: complete.")
     return dest_db
@@ -209,7 +230,7 @@ def run_backup() -> Path:
 
 if __name__ == "__main__":
     try:
-        run_backup()
+        run_backup(strict=True)
     except Exception:
         logger.error("Backup: failed", exc_info=True)
         raise

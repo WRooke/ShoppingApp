@@ -9,6 +9,13 @@
     try {
       res = await fetch(path, options);
     } catch (networkErr) {
+      if (global.ErrorReport) {
+        global.ErrorReport.report(
+          "api",
+          "request failed: " + ((options && options.method) || "GET") + " " + String(path).split("?")[0] +
+            " - " + networkErr
+        );
+      }
       throw new ApiError(
         "NETWORK_ERROR",
         "Couldn't reach the server. Check that it's running and try again.",
@@ -31,6 +38,13 @@
       throw new ApiError(body.error.code, body.error.message, body.error.detail);
     }
 
+    if (global.ErrorReport) {
+      global.ErrorReport.report(
+        "api",
+        "unexpected response: HTTP " + res.status + " from " + ((options && options.method) || "GET") +
+          " " + String(path).split("?")[0]
+      );
+    }
     throw new ApiError(
       "BAD_RESPONSE",
       "The server returned an unexpected response (HTTP " + res.status + ").",

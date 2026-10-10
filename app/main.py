@@ -22,13 +22,15 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.database import SessionLocal, init_db
+from app.database import SessionLocal, engine, init_db
 from app.log_config import setup_logging
 from app.seed_data import seed_reference_data
+from app.services import schema_check
 from app.services import version as version_service
 from app.routers import (
     anylist,
     checklist,
+    client_log,
     diagnostics,
     health,
     recipes,
@@ -113,6 +115,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.error("Database initialisation failed during startup", exc_info=True)
         raise
+    schema_check.check_schema_revision(engine)  # warns loudly if the schema is behind the code
 
     # Reference data (product_units starter list) — idempotent, safe to
     # run on every startup. See CLAUDE.md > Build Phases > Phase 2, Chunk 2.1.
@@ -480,6 +483,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 # --- routers ------------------------------------------------------------
 
 app.include_router(health.router)
+app.include_router(client_log.router)
 app.include_router(diagnostics.router)
 app.include_router(recipes.router)
 app.include_router(sessions.router)

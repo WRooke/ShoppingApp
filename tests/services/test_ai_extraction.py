@@ -808,3 +808,47 @@ def test_extraction_prompt_asks_for_shopping_list_wording_and_hints_do_not_flip_
     assert "black beans" in text and "salt, olive oil" in text
     assert "Do not singularise a plural" in text and '"cheddar cheese or monterey jack"' in text
     assert "keep the singular/plural form the source itself uses" in prompts._USER_HINT_HEADING
+
+
+# --- failure logging (2026-10-07 logging audit) ------------------------------------------
+
+
+def test_unparseable_reply_logs_a_bounded_excerpt_and_flips_the_success_row(db, api_enabled, caplog):
+    huge_garbage = "{not json " + ("X" * 5000)
+    bad = SimpleNamespace(
+        text=huge_garbage,
+        usage_metadata=SimpleNamespace(prompt_token_count=10, candidates_token_count=10),
+    )
+    import logging
+
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(bad)):
+        with caplog.at_level(logging.INFO):
+            with pytest.raises(AiExtractionError):
+                extract_recipe(db, call_type="recipe_url", context_id="ctx-1", text="a recipe")
+
+    # the whole reply is never logged ...
+    assert "X" * 1000 not in caplog.text
+    # ... but its size and a short head are, with the call's context
+    assert "5010 chars" in caplog.text and "ctx-1" in caplog.text
+    # and Diagnostics no longer shows a green "success" for a call that produced nothing
+    (row,) = db.query(AiCallLog).all()
+    assert row.outcome == "error" and "could not be parsed" in row.error_detail
+
+
+def test_empty_reply_is_reported_as_blocked_not_as_a_parse_error(db, api_enabled):
+    empty = SimpleNamespace(
+        text="",
+        usage_metadata=SimpleNamespace(prompt_token_count=10, candidates_token_count=0),
+    )
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(empty)):
+        with pytest.raises(AiExtractionError, match="no content"):
+            extract_recipe(db, call_type="recipe_url", context_id="ctx-2", text="a recipe")
+    (row,) = db.query(AiCallLog).all()
+    assert row.outcome == "error" and "empty response" in row.error_detail
+
+
+def test_a_bookkeeping_failure_does_not_mask_the_gemini_error(db, api_enabled):
+    with patch("app.services.ai_extraction.genai.Client", _mock_client(side_effect=RuntimeError("net down"))):
+        with patch("app.services.ai_extraction.client.ai_call_log.log_ai_call", side_effect=OSError("db locked")):
+            with pytest.raises(AiExtractionError, match="Could not reach"):
+                extract_recipe(db, call_type="recipe_url", context_id="ctx-3", text="a recipe")

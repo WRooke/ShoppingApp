@@ -368,7 +368,9 @@
           draft.clear();
           // fire-and-forget the "save this swap" ticks — a duplicate is fine
           remembered.forEach(function (s) {
-            api.settings.substitutions.create(s).catch(function () {});
+            api.settings.substitutions.create(s).catch(function (e) {
+              if (global.ErrorReport) global.ErrorReport.reportCaught("save-this-swap", e);
+            });
           });
           global.Router.navigate("recipes", saved.id);
         })

@@ -82,6 +82,7 @@ rather than trusting the DOM alone — same discipline as prior chunks.
 | Symptom | Cause | Handled by |
 |---|---|---|
 | Edge "opens" but nothing happens / hangs | stale/locked `--user-data-dir`, or it reused an already-running Edge | `Browser` always makes a **fresh** temp profile dir |
+| `BrowserProcess` raises "Something is already listening on the DevTools port" | a stale headless Edge from an aborted run still holds 9222 | `taskkill /F /IM msedge.exe`, then re-run (the test suite refuses to attach to an unknown browser) |
 | `--dump-dom` shows an empty `#view` | dump happened before the SPA's JS/fetch ran | `_settle()` after navigate; `wait_for(selector)` polls |
 | Can't click buttons with `--dump-dom` | `--dump-dom` is read-only | CDP `Runtime.evaluate` → `element.click()` |
 | `ERR_BLOCKED_BY_CLIENT` / CSP weirdness on assets | none — this app serves its own assets | n/a, local only |

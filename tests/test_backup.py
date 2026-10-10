@@ -100,3 +100,29 @@ def test_dump_db_to_json_reads_every_table(tmp_path):
     dump = dump_db_to_json(source)
 
     assert dump == {"widgets": [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]}
+
+
+# --- a failed git commit/push is a failed run (2026-10-07 logging audit) ----------------------
+
+
+def test_strict_backup_raises_after_saving_when_the_git_step_fails(tmp_path, monkeypatch, caplog):
+    """Task Scheduler judges success by exit code. The backup FILE is written either way, but if
+    committing/pushing it failed the off-machine copy is stale, so the run must not look green."""
+    import logging
+
+    from scripts import backup
+
+    source = tmp_path / "live.db"
+    _make_db(source)
+    monkeypatch.setattr(backup.settings, "database_path", str(source), raising=False)
+    monkeypatch.setattr(backup, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(backup, "commit_and_push", lambda: False)
+
+    with caplog.at_level(logging.INFO):
+        with pytest.raises(backup.BackupGitError):
+            backup.run_backup(strict=True)
+
+    assert list((tmp_path / "backups").glob("mealplanner_*.db")), "the backup file must still be saved"
+    assert "was NOT committed/pushed" in caplog.text
+    # the non-strict (programmatic) call still just returns the saved file
+    assert backup.run_backup().exists()

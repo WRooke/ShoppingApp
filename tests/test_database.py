@@ -127,3 +127,44 @@ def test_column_default_and_onupdate_round_trip_as_aware_utc(db):
     reloaded = db.get(Staple, fetched_id)
     assert reloaded.updated_at.tzinfo == timezone.utc
     assert reloaded.updated_at >= reloaded.created_at
+
+
+# --- schema revision check (2026-10-07 logging audit) -----------------------------------------
+
+
+def _engine_with_revision(tmp_path, revision):
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'rev.db'}", future=True)
+    with engine.begin() as conn:
+        if revision is not None:
+            conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)"))
+            conn.execute(text("INSERT INTO alembic_version VALUES (:v)"), {"v": revision})
+        else:
+            conn.execute(text("CREATE TABLE unrelated (x INTEGER)"))
+    return engine
+
+
+def test_schema_check_reports_current_behind_and_unstamped(tmp_path, caplog):
+    import logging
+
+    from app.services import schema_check
+
+    head = schema_check._code_heads()[0]
+
+    engine = _engine_with_revision(tmp_path, head)
+    assert schema_check.check_schema_revision(engine) == "current"
+    engine.dispose()
+
+    (tmp_path / "rev.db").unlink()
+    engine = _engine_with_revision(tmp_path, "0000_an_old_revision")
+    with caplog.at_level(logging.INFO):
+        assert schema_check.check_schema_revision(engine) == "behind"
+    assert "0000_an_old_revision" in caplog.text and head in caplog.text
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+    engine.dispose()
+
+    (tmp_path / "rev.db").unlink()
+    engine = _engine_with_revision(tmp_path, None)
+    assert schema_check.check_schema_revision(engine) == "unstamped"
+    engine.dispose()

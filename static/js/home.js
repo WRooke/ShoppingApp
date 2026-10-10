@@ -82,7 +82,8 @@
         renderContinueCards(wrap, items);
         renderActions(wrap);
       })
-      .catch(function () {
+      .catch(function (e) {
+        if (global.ErrorReport) global.ErrorReport.reportCaught("home", e);
         // A failed lookup shouldn't block the two actions that always work — degrade to just
         // those rather than an error screen for what's meant to be the app's landing page.
         wrap.innerHTML = "";

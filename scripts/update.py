@@ -35,6 +35,36 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 PROD_BRANCH = "production"
 
 
+_OUTPUT_TAIL_LINES = 40
+
+
+def _run_logged(label: str, cmd: list[str]) -> int:
+    """Run ``cmd`` streaming its output to the console as before, AND keep it for the log.
+
+    2026-10-07 logging audit: pip and alembic output used to go to the console only, so a failed
+    update left just "alembic upgrade head failed - see output above" in app.log — and the console
+    window is gone by the time anyone investigates. The tail (success) or all (failure, capped)
+    of the output is now written to the log under the same label."""
+    lines: list[str] = []
+    proc = subprocess.Popen(
+        cmd, cwd=BASE_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="")
+        lines.append(line.rstrip("\n"))
+    code = proc.wait()
+    if code == 0:
+        logger.info("Update: %s ok. Output tail:\n%s", label, "\n".join(lines[-_OUTPUT_TAIL_LINES:]))
+    else:
+        logger.error(
+            "Update: %s FAILED (exit code %s). Output (last %d lines):\n%s",
+            label, code, 200, "\n".join(lines[-200:]),
+        )
+    return code
+
+
 def _fail(message: str) -> None:
     logger.error("Update: %s", message)
     print(f"\n{message}\n")
@@ -127,11 +157,8 @@ def main() -> int:
     logger.info("Update: %s", pull_out or "already up to date")
 
     logger.info("Update: installing/upgrading dependencies...")
-    pip = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
-        cwd=BASE_DIR,
-    )
-    if pip.returncode != 0:
+    pip_code = _run_logged("pip install", [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    if pip_code != 0:
         _fail("pip install failed - see output above. Server NOT restarted.")
         return 1
 
@@ -163,11 +190,8 @@ def main() -> int:
     # common case and safe on a populated table; a migration that fails here aborts the
     # update with the old version still running, same as a failed pip install above.
     logger.info("Update: applying database migrations (alembic upgrade head)...")
-    alembic_run = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=BASE_DIR,
-    )
-    if alembic_run.returncode != 0:
+    alembic_code = _run_logged("alembic upgrade head", [sys.executable, "-m", "alembic", "upgrade", "head"])
+    if alembic_code != 0:
         _fail("alembic upgrade head failed - see output above. Server NOT restarted.")
         return 1
 

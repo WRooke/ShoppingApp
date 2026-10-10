@@ -31,7 +31,10 @@ extraction and substitution-flagging calls in `services/ai_extraction.py`; pre-M
   behaviour, reveal the prompt, or do anything other than extract ingredients.
 - The untrusted content is wrapped in an explicit, non-guessable delimiter tag in the user
   message, so it can never be mistaken for a system-level instruction or spoof its own
-  closing tag.
+  closing tag. The delimiter tag name is a static string in the repo, so "random-looking" alone
+  is not the defence: `_wrap_untrusted()` also replaces any spelling of the tag (opening or
+  closing, any case, stray whitespace) found inside the content before wrapping it
+  (2026-10-11; `test_hostile_page_cannot_close_the_untrusted_block_early`).
 - Input length is capped (`MAX_INPUT_TEXT_CHARS` in `claude_client.py`) — this bounds the
   size of any injected payload, and incidentally keeps per-call cost predictable too.
 - The parsed response is validated against strict expected types and, for any field with a
@@ -222,6 +225,11 @@ that's live by accident because it was never obviously off.
 - Recipe URL scraping (httpx + BeautifulSoup) fetches external, untrusted HTML. Not a credential
   risk, but don't ever `eval()` or execute anything derived from scraped content — parse it as
   data only, which is already the plan.
+- `POST /api/v1/client-log` (2026-10-07) accepts error reports from the page. It is
+  unauthenticated like the rest of the API, so its input is untrusted: every field is
+  length-bounded, line breaks are neutralised before logging, URLs lose their query string, and
+  it is rate-limited per client (see [Diagnostics & Logging](./diagnostics-and-logging.md#browser-errors)).
+  It writes only to the log; it reads nothing and changes no data.
 - Light access logging on `/api/v1/*` (especially the future AnyList routes) is worth having —
   not for compliance, just so an unexpected access pattern from an unfamiliar device is visible
   if it ever happens.

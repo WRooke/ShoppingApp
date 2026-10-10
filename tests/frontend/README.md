@@ -34,12 +34,17 @@ skipping the suite.
 `HEADLESS_VERIFY.md`'s own manual TL;DR recipe: one throwaway `app.main` subprocess for the
 whole test session, on its own scratch `DATABASE_PATH`/`LOGS_PATH`/`IMAGES_PATH` (never the
 real `data/mealplanner.db`), `AI_EXTRACTION_FAKE_MODE=true` (zero key, zero cost), a free
-port. The per-test `browser` fixture gives each test its own `scripts.cdp.Browser` (its own
-fresh Edge profile); the per-test `api` fixture gives each test a plain `httpx.Client` against
+port. A session-scoped `browser_process` launches ONE headless Edge; the per-test `browser`
+fixture gives each test its own `scripts.cdp.Browser` in an isolated browser context inside it
+(empty localStorage/sessionStorage/cookies/cache, same 492x757 viewport a launched Edge renders),
+so a test starts clean without paying for a launch. Anything else that needs a `Browser` must use
+`process=browser_process` — the shared Edge holds DevTools port 9222. `Browser._settle()` waits
+for the page to be idle (loaded, no fetch/XHR/short timer in flight, DOM quiet) rather than
+sleeping a fixed time; use `wait_for`/a polling `_wait` for anything slower. The per-test `api` fixture gives each test a plain `httpx.Client` against
 the same scratch server, for setup and for cross-checking a UI action's result against the API
 directly rather than trusting the DOM alone — the same discipline `HEADLESS_VERIFY.md` already
 asks for in a manual session.
 
 These tests are slower/heavier than the rest of `tests/` (a real browser + a real server
-subprocess per session) — that's an accepted, deliberate cost for the coverage, not something
-to optimise away.
+subprocess per session) — that's an accepted, deliberate cost for the coverage. They carry the
+`frontend` marker, so `pytest -m "not frontend"` skips them for a fast loop.

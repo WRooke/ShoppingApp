@@ -34,9 +34,10 @@
         var items = (res && res.items) || [];
         setBadge("plan", items.length > 0);
       })
-      .catch(function () {
+      .catch(function (e) {
         // Diagnostics-adjacent, not load-bearing — a failed check just leaves the dot as it
-        // was rather than surfacing its own error.
+        // was rather than surfacing its own error (a JS bug in the handler is still reported).
+        if (global.ErrorReport) global.ErrorReport.reportCaught("plan badge", e);
       });
   }
 

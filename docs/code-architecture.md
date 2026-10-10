@@ -92,6 +92,14 @@ cases a first-pass hand-rolled version hasn't yet.
   [Build Phases](./build-status/process.md#build-phases).
 - Claude API and AnyList calls are mocked in tests. Automated tests never hit the real network or
   spend real API budget — that's what the Phase 1.5 spike and manual verification are for.
+- **Running the suite (2026-10-07).** `pytest -m "not frontend"` is the fast loop (no browser;
+  ~1.5 min). `pytest` runs everything, including `tests/frontend/` (needs Edge/Chrome; ~100 s
+  more) — run it after touching `static/`, and before deploying. `FULL_PUSH_MATRIX=1 pytest`
+  additionally runs the full AnyList push matrix and fuzz — required before changing the push
+  path. Speed levers worth knowing: router tests copy a once-built seeded DB template
+  (`tests/conftest.py::_seeded_db_template`); the frontend suite shares one headless Edge and
+  gives each test an isolated browser context (`scripts/cdp.py::BrowserProcess`) and its
+  `_settle` waits for the page to be idle instead of sleeping.
 - `pytest` is a dev dependency from Phase 2 onward (the first phase with real logic to test);
   add it to `requirements.txt` when that work starts, not before.
 - **Test-DB isolation is fragile to a specific mistake — read `tests/conftest.py`'s

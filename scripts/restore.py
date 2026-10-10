@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +49,17 @@ def resolve_target(identifier: str) -> Path:
     raise FileNotFoundError(f"No backup matching '{identifier}' in {BACKUP_DIR}")
 
 
+def _verify_db(path: Path) -> None:
+    """Raise if ``path`` is not an intact SQLite database (PRAGMA integrity_check)."""
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        result = conn.execute("PRAGMA integrity_check").fetchone()
+    finally:
+        conn.close()
+    if result != ("ok",):
+        raise RuntimeError(f"{path.name} failed PRAGMA integrity_check: {result}")
+
+
 def do_restore(target: Path, confirmed: bool) -> None:
     db_path = Path(settings.database_path)
 
@@ -57,6 +69,11 @@ def do_restore(target: Path, confirmed: bool) -> None:
     if not confirmed:
         print("\nDry run only - nothing changed. Re-run with --yes to actually restore.")
         return
+
+    # Verify the BACKUP before anything is touched: restoring a damaged file over the live database
+    # is the one way this script can make things worse (CLAUDE.md > Non-Negotiable rule 3).
+    _verify_db(target)
+    logger.info("Restore: %s passed PRAGMA integrity_check", target.name)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists():
@@ -84,7 +101,8 @@ def do_restore(target: Path, confirmed: bool) -> None:
             logger.info("Restore: removed stale %s", stale.name)
 
     shutil.copy2(target, db_path)
-    logger.info("Restore: restored %s -> %s", target, db_path)
+    _verify_db(db_path)
+    logger.info("Restore: restored %s -> %s (verified)", target, db_path)
     print(f"Restored. {db_path} now matches {target.name}.")
 
 
@@ -109,7 +127,13 @@ def main(argv: list[str]) -> int:
         print(str(exc))
         return 1
 
-    do_restore(target, confirmed)
+    try:
+        do_restore(target, confirmed)
+    except Exception as exc:  # noqa: BLE001 — report it, in the log AND on the console, then fail
+        logger.error("Restore: FAILED restoring %s: %s: %s", target.name, type(exc).__name__, exc, exc_info=True)
+        print(f"Restore FAILED: {type(exc).__name__}: {exc}\nSee logs\\app.log. The live database was not replaced "
+              "unless the line above says it was restored.")
+        return 1
     return 0
 
 

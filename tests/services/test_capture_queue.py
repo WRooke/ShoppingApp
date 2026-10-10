@@ -183,3 +183,43 @@ def test_run_once_extract_records_pending_and_queues_followup(db, fake_mode):
     assert recipe.ai_pending_tasks == ["suggest_sections"]
     followup = db.query(CaptureQueueItem).filter_by(task="suggest_sections").one()
     assert followup.recipe_id == recipe.id
+
+
+# --- failure logging (2026-10-07 logging audit) ------------------------------------------
+
+
+def test_quota_retry_is_logged_with_the_item_and_attempt(db, caplog):
+    import logging
+
+    item = capture_queue.enqueue(db, task="extract_url", payload={"url": "https://example.com/r"})
+    with patch(
+        "app.services.capture_queue.capture_url.fetch_and_extract",
+        side_effect=ai_extraction.AiQuotaExhaustedError("over quota"),
+    ):
+        with caplog.at_level(logging.INFO):
+            capture_queue.run_once(db)
+
+    assert f"id={item.id} still over quota (attempt 1)" in caplog.text
+
+
+def test_failure_after_the_recipe_was_created_does_not_leave_the_item_to_create_it_twice(db, fake_mode, caplog):
+    import logging
+
+    from app.models.recipes import Recipe
+
+    capture_queue.enqueue(
+        db, task="extract_url",
+        payload={"url": "https://example.com/r", "source_type": "url", "url_title": "T"},
+    )
+    result = ai_extraction.ExtractionResult(
+        cuisine=None, protein=None, ingredients=[], title="T", servings=4, pending_tasks=["suggest_sections"],
+    )
+    with patch("app.services.capture_queue.capture_url.fetch_and_extract", return_value=result):
+        with patch("app.services.capture_queue.enqueue", side_effect=RuntimeError("queue write failed")):
+            with caplog.at_level(logging.INFO):
+                summary = capture_queue.run_once(db)
+
+    assert summary["succeeded"] == 1
+    assert db.query(CaptureQueueItem).count() == 0  # not kept for a re-run
+    assert db.query(Recipe).count() == 1  # created exactly once
+    assert "could not queue its suggest_sections follow-up" in caplog.text

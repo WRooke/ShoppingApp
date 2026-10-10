@@ -86,7 +86,10 @@
     if (typeof activeCleanup === "function") {
       try {
         activeCleanup();
-      } catch (_) {}
+      } catch (cleanupErr) {
+        // Swallowed so navigation still works — but a view whose cleanup throws has a bug.
+        if (global.ErrorReport) global.ErrorReport.reportCaught("view cleanup", cleanupErr);
+      }
       activeCleanup = null;
     }
 
@@ -100,7 +103,14 @@
       a.classList.toggle("active", a.getAttribute("data-nav") === parsed.key);
     });
 
-    route.mount(viewEl, parsed.param);
+    try {
+      route.mount(viewEl, parsed.param);
+    } catch (mountErr) {
+      // A view that throws while mounting used to be an uncaught error nobody saw. Report it,
+      // then rethrow so the browser console still shows it exactly as before.
+      if (global.ErrorReport) global.ErrorReport.report("route", "mount " + parsed.key + ": " + mountErr, mountErr && mountErr.stack);
+      throw mountErr;
+    }
     activeCleanup = route.unmount || null;
   }
 

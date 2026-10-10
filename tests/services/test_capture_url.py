@@ -170,3 +170,36 @@ def test_fetch_and_extract_raises_on_connection_error():
     with patch("app.services.capture_url.httpx.get", side_effect=httpx.ConnectError("refused")):
         with pytest.raises(RecipeFetchError):
             fetch_and_extract("fake-db", "https://example.com/down")
+
+
+# --- failure logging (2026-10-07 logging audit) ------------------------------------------
+
+
+def test_url_is_logged_without_its_query_string_and_expected_failures_have_no_traceback(caplog):
+    import logging
+
+    url = "https://example.com/recipe?token=SECRET123&utm=x#frag"
+    with patch("app.services.capture_url.httpx.get", side_effect=httpx.TimeoutException("timed out")):
+        with caplog.at_level(logging.INFO):
+            with pytest.raises(RecipeFetchError):
+                fetch_and_extract("fake-db", url)
+
+    assert "SECRET123" not in caplog.text and "utm=x" not in caplog.text
+    (record,) = [r for r in caplog.records if "timed out" in r.getMessage()]
+    assert record.levelno == logging.WARNING and record.exc_info is None
+    assert "example.com/recipe" in record.getMessage()
+
+
+def test_unexpected_transport_fault_is_an_error_with_traceback_and_a_safe_client_reason(caplog):
+    import logging
+
+    exc = httpx.ConnectError("[Errno 11001] getaddrinfo failed for internal-resolver-detail")
+    with patch("app.services.capture_url.httpx.get", side_effect=exc):
+        with caplog.at_level(logging.INFO):
+            with pytest.raises(RecipeFetchError) as info:
+                fetch_and_extract("fake-db", "https://example.com/down")
+
+    assert "internal-resolver-detail" not in info.value.reason  # raw exception text never reaches the client
+    assert "ConnectError" in info.value.reason
+    (record,) = [r for r in caplog.records if "fetch failed" in r.getMessage()]
+    assert record.levelno == logging.ERROR and record.exc_info is not None
