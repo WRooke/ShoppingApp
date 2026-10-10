@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from sqlalchemy import Column, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base, UTCDateTime, utcnow
+
+logger = logging.getLogger(__name__)
 
 
 class Recipe(Base):
@@ -66,9 +69,15 @@ class Recipe(Base):
             return []
         try:
             value = json.loads(self.ai_tasks_pending)
-            return [str(v) for v in value] if isinstance(value, list) else []
+            if isinstance(value, list):
+                return [str(v) for v in value]
         except (ValueError, TypeError):
-            return []
+            pass
+        logger.warning(
+            "Recipe id=%s has an unreadable ai_tasks_pending value; treating it as no pending tasks",
+            self.id,
+        )
+        return []
 
 
 class RecipeIngredient(Base):

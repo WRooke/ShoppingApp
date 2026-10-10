@@ -1,5 +1,5 @@
-"""Logging setup: rotating file handler, console handler, and an in-memory
-ring buffer that backs the /diagnostics log tail.
+"""Logging setup: rotating file handler, console handler, and in-memory
+ring buffers that back the /diagnostics log tail.
 
 Format (per CLAUDE.md): ``%(asctime)s [%(levelname)s] %(name)s: %(message)s``
 File: ``logs/app.log``, rotated daily, 14 days retained.
@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import re
+import sys
 import traceback
 from collections import deque
 from datetime import datetime
@@ -22,6 +24,10 @@ LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 # can't blow out the in-memory buffer's size — full tracebacks are still written to
 # logs/app.log unbounded via the file handler below.
 _MAX_TRACEBACK_CHARS = 4000
+
+# One message can be arbitrarily large (a logged payload, a model reply). The file keeps the full
+# line; the in-memory rings and the /diagnostics page get a bounded one.
+_MAX_MESSAGE_CHARS = 2000
 
 _LEVEL_ORDER = {
     "DEBUG": 10,
@@ -38,17 +44,54 @@ _LEVEL_ORDER = {
 RING_BUFFER_MAXLEN = 5000
 _ring: deque[dict] = deque(maxlen=RING_BUFFER_MAXLEN)
 
+# WARNING-and-above also go into their OWN, smaller ring (2026-10-07 logging audit). With
+# everything in one ring, routine INFO traffic (every access line, the diagnostics page's own 5 s
+# polling) evicted genuine errors within ~2 hours, so "Recent errors" went blank while the problem
+# was still real. Errors are rare, so 500 of them is days of history; the INFO ring can churn
+# without losing them.
+ERROR_RING_MAXLEN = 500
+_error_ring: deque[dict] = deque(maxlen=ERROR_RING_MAXLEN)
+
+# --- redaction (2026-10-07 logging audit) ------------------------------------------------------
+# Secrets must never reach app.log, the console or /diagnostics even if some code path formats one
+# into an exception message or a debug dump (CLAUDE.md > Security §2, Personal Data Policy). Two
+# layers: (1) the configured credential VALUES, read from settings at call time so a key added
+# later is covered, and (2) the Google API key shape, for a key that isn't the configured one.
+# Applied in the formatter (file + console) and in the ring buffers.
+_GOOGLE_KEY_RE = re.compile(r"AIza[0-9A-Za-z_\-]{30,}")
+_MIN_SECRET_LEN = 6  # anything shorter would start masking ordinary words
+
+
+def redact(text: str) -> str:
+    """Return ``text`` with configured credentials and Google-API-key-shaped strings masked."""
+    if not text:
+        return text
+    for secret in (settings.gemini_api_key, settings.anylist_password, settings.anylist_email):
+        if secret and len(secret) >= _MIN_SECRET_LEN and secret in text:
+            text = text.replace(secret, "[redacted]")
+    return _GOOGLE_KEY_RE.sub("[redacted]", text)
+
+
+class _RedactingFormatter(logging.Formatter):
+    """The standard format, run through `redact()` — covers the message AND any traceback."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact(super().format(record))
+
 
 class RingBufferHandler(logging.Handler):
     """Keeps the most recent log records in memory as plain dicts."""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            message = redact(record.getMessage())
+            if len(message) > _MAX_MESSAGE_CHARS:
+                message = message[:_MAX_MESSAGE_CHARS] + f"... ({len(message)} chars, truncated)"
             entry = {
                 "time": datetime.fromtimestamp(record.created).isoformat(timespec="seconds"),
                 "level": record.levelname,
                 "logger": record.name,
-                "message": record.getMessage(),
+                "message": message,
             }
             # The file handler gets the full traceback via exc_info=True, but until now the
             # ring buffer (and so the /diagnostics UI) silently dropped it, only ever showing
@@ -59,8 +102,10 @@ class RingBufferHandler(logging.Handler):
                 tb = "".join(traceback.format_exception(*record.exc_info))
                 if len(tb) > _MAX_TRACEBACK_CHARS:
                     tb = tb[:_MAX_TRACEBACK_CHARS] + "\n... (truncated)"
-                entry["traceback"] = tb
+                entry["traceback"] = redact(tb)
             _ring.append(entry)
+            if record.levelno >= logging.WARNING:
+                _error_ring.append(entry)
         except Exception:  # noqa: BLE001 — logging must never raise
             self.handleError(record)
 
@@ -69,11 +114,12 @@ def get_log_entries(limit: int = 200, level: str | None = None) -> list[dict]:
     """Return up to ``limit`` most-recent entries, newest first.
 
     ``level`` filters to that level and above (e.g. level='ERROR' also
-    includes CRITICAL).
+    includes CRITICAL). WARNING-and-above reads come from the dedicated error ring, so a flood of
+    INFO lines can't have evicted them.
     """
-    entries = list(_ring)
-    if level:
-        threshold = _LEVEL_ORDER.get(level.upper(), 0)
+    threshold = _LEVEL_ORDER.get(level.upper(), 0) if level else 0
+    entries = list(_error_ring if threshold >= logging.WARNING else _ring)
+    if threshold:
         entries = [e for e in entries if _LEVEL_ORDER.get(e["level"], 0) >= threshold]
     entries = entries[-limit:]
     entries.reverse()
@@ -123,31 +169,78 @@ class _WinsockResetNoiseFilter(logging.Filter):
         return True
 
 
+# Requests the app's own pages make on a timer (the diagnostics page polls every 5 s, the nav badge
+# on every route change, capture/push progress every ~600 ms). Successful ones are demoted to DEBUG
+# so they don't bury everything else; failures (status >= 400) and every other request keep their
+# INFO line — CLAUDE.md > Security §4 still wants /api/v1 access visible.
+_POLLING_PATH_PREFIXES = (
+    "/api/v1/health",
+    "/api/v1/diagnostics/status",
+    "/api/v1/diagnostics/logs",
+    "/api/v1/diagnostics/recent-errors",
+    "/api/v1/recipes/capture/progress/",
+    "/api/v1/checklist/push/progress/",
+)
+
+
+class _PollingAccessFilter(logging.Filter):
+    """Downgrades successful polling access lines on ``uvicorn.access`` from INFO to DEBUG (same
+    re-gating approach as `_WinsockResetNoiseFilter`). uvicorn's access record carries
+    ``args = (client_addr, method, full_path, http_version, status_code)``."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 5:
+            path, status = str(args[2]), args[4]
+            if isinstance(status, int) and status < 400 and path.startswith(_POLLING_PATH_PREFIXES):
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+                return logging.getLogger().getEffectiveLevel() <= logging.DEBUG
+        return True
+
+
 _configured = False
 
 
-def setup_logging() -> None:
-    """Idempotent: safe to call more than once (e.g. under uvicorn reload)."""
+def setup_logging(*, rotate: bool = True) -> None:
+    """Idempotent: safe to call more than once (e.g. under uvicorn reload).
+
+    ``rotate=False`` is for the short-lived helper scripts (backup/update/restore/verify_server),
+    which append to the same ``app.log`` as the server but must never perform the midnight
+    rollover themselves: on Windows two processes holding the file make the rename raise
+    PermissionError and lose records (2026-10-07 logging audit). Only the server rotates."""
     global _configured
     if _configured:
         return
 
     Path(settings.logs_path).mkdir(parents=True, exist_ok=True)
-    formatter = logging.Formatter(LOG_FORMAT)
+    formatter = _RedactingFormatter(LOG_FORMAT)
+
+    # An unrecognised LOG_LEVEL (a typo in .env) used to raise ValueError from setLevel() at
+    # import, killing the app with nothing logged. Fall back to INFO and say so once handlers exist.
+    bad_level = settings.log_level not in _LEVEL_ORDER
+    level_name = "INFO" if bad_level else settings.log_level
 
     root = logging.getLogger()
-    root.setLevel(settings.log_level)
+    root.setLevel(level_name)
     root.handlers.clear()
 
-    file_handler = logging.handlers.TimedRotatingFileHandler(
-        Path(settings.logs_path) / "app.log",
-        when="midnight",
-        backupCount=14,
-        encoding="utf-8",
-    )
+    log_path = Path(settings.logs_path) / "app.log"
+    if rotate:
+        file_handler: logging.Handler = logging.handlers.TimedRotatingFileHandler(
+            log_path, when="midnight", backupCount=14, encoding="utf-8"
+        )
+    else:
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
 
+    # A redirected console on a cp1252 box (Task Scheduler, start.bat) can't encode every character
+    # a log line may carry; replace rather than letting the handler's error path drop the line.
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass  # not a reconfigurable text stream (e.g. pytest capture) — nothing to do
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     root.addHandler(console_handler)
@@ -158,13 +251,22 @@ def setup_logging() -> None:
     # Attached to the "asyncio" logger specifically (not root — see the filter's own
     # docstring for why a broader hook was deliberately rejected).
     logging.getLogger("asyncio").addFilter(_WinsockResetNoiseFilter())
+    logging.getLogger("uvicorn.access").addFilter(_PollingAccessFilter())
 
     # uvicorn's access log stays at INFO (its default) rather than being quietened to
     # WARNING: CLAUDE.md > Security §4 explicitly wants "light access logging on
     # /api/v1/*" so an unfamiliar device's request pattern is visible, and uvicorn's
     # access log almost never emits above INFO — filtering to WARNING here would have
-    # silently discarded it entirely rather than "quietening" it. Daily rotation + 14-day
-    # retention (below) is what keeps this from growing unbounded, not a level filter.
+    # silently discarded it entirely rather than "quietening" it. Only the app's own
+    # successful polling requests are demoted (see `_PollingAccessFilter`). Daily rotation +
+    # 14-day retention is what keeps the rest from growing unbounded.
 
     _configured = True
-    logging.getLogger(__name__).info("Logging configured (level=%s)", settings.log_level)
+    log = logging.getLogger(__name__)
+    if bad_level:
+        log.warning(
+            "LOG_LEVEL=%r is not a valid level (use one of %s); using INFO",
+            settings.log_level,
+            ", ".join(_LEVEL_ORDER),
+        )
+    log.info("Logging configured (level=%s)", level_name)

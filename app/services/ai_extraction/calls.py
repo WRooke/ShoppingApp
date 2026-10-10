@@ -38,9 +38,10 @@ from google.genai import types as genai_types
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.services import ingredient_aliases, progress_tracker
+from app.services import ai_call_log, ingredient_aliases, progress_tracker
 
 from .client import (
+    describe_raw,
     _call_gemini,
     _clean_servings,
     _clean_suggested_section,
@@ -187,7 +188,8 @@ def extract_recipe(
             for i in data["ingredients"]
         ]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("AI extract_recipe: bad response %r", raw, exc_info=True)
+        logger.error("AI extract_recipe: bad response (%s), context=%s", describe_raw(raw), context_id, exc_info=True)
+        ai_call_log.mark_unparseable(db, call_type=call_type, context_id=context_id, reason="response could not be parsed")
         raise AiExtractionError("Gemini's response could not be parsed.") from exc
 
     logger.info("AI extract_recipe: %d ingredient(s)", len(ingredients))
@@ -237,7 +239,8 @@ def suggest_sections(
             if n in name_set and section is not None:
                 out[n] = section
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("AI suggest_sections: bad response %r", raw, exc_info=True)
+        logger.error("AI suggest_sections: bad response (%s), context=%s", describe_raw(raw), context_id, exc_info=True)
+        ai_call_log.mark_unparseable(db, call_type="suggest_sections", context_id=context_id, reason="response could not be parsed")
         raise AiExtractionError("Gemini's section response could not be parsed.") from exc
 
     logger.info("AI suggest_sections: %d section(s)", len(out))
@@ -288,7 +291,8 @@ def classify_units(
             if unit in text_set and canonical in _STANDARD_UNITS and canonical != unit:
                 out[unit] = canonical
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("AI classify_units: bad response %r", raw, exc_info=True)
+        logger.error("AI classify_units: bad response (%s), context=%s", describe_raw(raw), context_id, exc_info=True)
+        ai_call_log.mark_unparseable(db, call_type="classify_units", context_id=context_id, reason="response could not be parsed")
         raise AiExtractionError("Gemini's unit classification response could not be parsed.") from exc
 
     logger.info("AI classify_units: %d match(es)", len(out))
@@ -365,7 +369,8 @@ def suggest_ingredient_groupings(
                 GroupingSuggestion(names=valid_names, suggested_canonical=canonical, reason=reason)
             )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("AI suggest_ingredient_groupings: bad response %r", raw, exc_info=True)
+        logger.error("AI suggest_ingredient_groupings: bad response (%s), context=%s", describe_raw(raw), context_id, exc_info=True)
+        ai_call_log.mark_unparseable(db, call_type="suggest_ingredient_groupings", context_id=context_id, reason="response could not be parsed")
         raise AiExtractionError("Gemini's grouping response could not be parsed.") from exc
 
     logger.info("AI suggest_ingredient_groupings: %d group(s)", len(groups))

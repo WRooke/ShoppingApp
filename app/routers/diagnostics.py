@@ -170,11 +170,7 @@ def status(db: Session = Depends(get_db)) -> dict:
             db.query(ShoppingHistory).order_by(ShoppingHistory.pushed_at.desc()).first()
         )
         if last_push_row is not None:
-            try:
-                resp = _json.loads(last_push_row.anylist_response_json or "{}")
-            except ValueError:
-                resp = {}
-            anylist["last_push"] = _summarise_push(last_push_row, resp)
+            anylist["last_push"] = _summarise_push(last_push_row)
             recent = (
                 db.query(ShoppingHistory).order_by(ShoppingHistory.pushed_at.desc()).limit(5).all()
             )
@@ -212,17 +208,31 @@ def status(db: Session = Depends(get_db)) -> dict:
     }
 
 
+def _load_push_response(row: ShoppingHistory) -> tuple[dict, bool]:
+    """(parsed anylist_response_json, readable?). A blank column is a legitimately empty older
+    row (readable, empty); invalid JSON or a non-object is NOT readable and is logged."""
+    try:
+        value = _json.loads(row.anylist_response_json or "{}")
+        if isinstance(value, dict):
+            return value, True
+    except ValueError:
+        pass
+    logger.warning(
+        "Diagnostics: shopping_history id=%s has an unreadable anylist_response_json; "
+        "reporting that push as NOT confirmed", row.id,
+    )
+    return {}, False
+
+
 def _summarise_push(row: ShoppingHistory, resp: dict | None = None) -> dict:
     """One shopping_history row as the Diagnostics page shows it: when, which push (``push_id``
     ties it to the log lines), whether every line was confirmed, counts per outcome, and — the
     point of 6.7 — the full per-item result, so "why didn't X arrive?" is answerable from here
     without reading logs (docs/anylist-push.md > Runbook). Older rows (pushed before per-item
     results existed) simply have no ``items``."""
+    readable = True
     if resp is None:
-        try:
-            resp = _json.loads(row.anylist_response_json or "{}")
-        except ValueError:
-            resp = {}
+        resp, readable = _load_push_response(row)
     items = resp.get("items") or []
     counts: dict[str, int] = {}
     for it in items:
@@ -232,7 +242,10 @@ def _summarise_push(row: ShoppingHistory, resp: dict | None = None) -> dict:
         "session_id": row.session_id,
         "pushed_at": str(row.pushed_at),
         "push_id": resp.get("push_id"),
-        "confirmed": not resp.get("discrepancies"),
+        # An unreadable stored response used to come out as {} -> "no discrepancies" -> confirmed
+        # (a corrupt row showed green). Unknown is not confirmed.
+        "confirmed": readable and not resp.get("discrepancies"),
+        "response_unreadable": not readable,
         "counts": counts,
         "discrepancies": resp.get("discrepancies") or [],
         "items": items,
@@ -253,6 +266,7 @@ def anylist_check() -> dict:
     """On-demand AnyList auth round-trip (fake or real) — the /diagnostics page's
     "Check AnyList now" button. Never raises; returns a timestamped status."""
     status = anylist_client.check_auth()
+    logger.info("Diagnostics: AnyList check -> ok=%s detail=%s", status.ok, status.detail)
     return {
         "ok": True,
         "data": {"ok": status.ok, "detail": status.detail, "checked_at": str(status.checked_at)},

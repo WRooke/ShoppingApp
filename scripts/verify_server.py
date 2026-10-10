@@ -35,7 +35,7 @@ from app.config import settings
 from app.log_config import setup_logging
 from app.services.version import compute_build_id
 
-setup_logging()
+setup_logging(rotate=False)  # the server alone rotates app.log
 logger = logging.getLogger(__name__)
 
 

@@ -147,15 +147,30 @@ def _process_extract(db: Session, item: CaptureQueueItem) -> None:
     )
     # M6 — an auto-saved queued capture with enrichment still owed: record it on the recipe
     # (badge) and queue the retry.
+    #
+    # 2026-10-07 logging audit: the recipe is already COMMITTED at this point. If this follow-up
+    # raised, run_once()'s generic handler kept the queue item and the next hourly poll re-ran the
+    # whole extraction and created the same recipe again (allow_duplicate=True). The follow-up is
+    # an enrichment — losing it is recoverable (the recipe simply isn't tagged), a duplicate recipe
+    # is not — so it is isolated here and the item is removed either way.
     if "suggest_sections" in result.pending_tasks:
-        recipe.ai_tasks_pending = json.dumps(["suggest_sections"])
-        db.commit()
-        enqueue(
-            db,
-            task="suggest_sections",
-            payload={"recipe_id": recipe.id},
-            recipe_id=recipe.id,
-        )
+        try:
+            recipe.ai_tasks_pending = json.dumps(["suggest_sections"])
+            db.commit()
+            enqueue(
+                db,
+                task="suggest_sections",
+                payload={"recipe_id": recipe.id},
+                recipe_id=recipe.id,
+            )
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            logger.error(
+                "capture_queue: task=%s id=%s created recipe %s but could not queue its "
+                "suggest_sections follow-up; removing the queue item so the recipe is not "
+                "created twice",
+                item.task, item.id, recipe.id, exc_info=True,
+            )
     logger.info(
         "capture_queue: task=%s id=%s succeeded on retry -> recipe %s (pending=%s)",
         item.task,
@@ -201,10 +216,20 @@ def run_once(db: Session) -> dict:
             summary["succeeded"] += 1
         except ai_extraction.AiQuotaExhaustedError:
             record_attempt(db, item, error="still over quota")
+            # Silent until now: a capture could sit here for a day with nothing in the log saying
+            # it was being retried and why it was still waiting.
+            logger.warning(
+                "capture_queue: task=%s id=%s still over quota (attempt %d) — will retry next poll",
+                item.task, item.id, item.attempt_count,
+            )
             summary["still_queued"] += 1
         except Exception as exc:  # noqa: BLE001 — keep the item, try again next hour
-            logger.error("capture_queue: task id=%s failed on retry", item.id, exc_info=True)
-            record_attempt(db, item, error=str(exc))
+            logger.error(
+                "capture_queue: task=%s id=%s failed on retry (attempt %d): %s: %s",
+                item.task, item.id, item.attempt_count + 1, type(exc).__name__, exc, exc_info=True,
+            )
+            db.rollback()  # a failed commit mid-task must not poison record_attempt below
+            record_attempt(db, item, error=f"{type(exc).__name__}: {exc}"[:500])
             summary["still_queued"] += 1
     if summary["processed"]:
         logger.info("capture_queue.run_once: %s", summary)

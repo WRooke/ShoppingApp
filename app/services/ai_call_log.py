@@ -73,6 +73,33 @@ def log_ai_call(
     return row
 
 
+def mark_unparseable(db: Session, *, call_type: str, context_id: str | None, reason: str) -> None:
+    """Flip the most recent ``success`` row for this call to ``error``.
+
+    The success row is written as soon as Gemini answers, i.e. before the caller has tried to parse
+    the reply — so a reply that turns out unusable used to leave a green "success" in Diagnostics
+    (and in ``last_success``) for a call that produced nothing (2026-10-07 logging audit). Never
+    raises: this runs inside an error path and must not mask the real failure."""
+    try:
+        row = (
+            db.query(AiCallLog)
+            .filter(
+                AiCallLog.task == task_for(call_type),
+                AiCallLog.context_id == context_id,
+                AiCallLog.outcome == "success",
+            )
+            .order_by(AiCallLog.id.desc())
+            .first()
+        )
+        if row is not None:
+            row.outcome = "error"
+            row.error_detail = reason[:2000]
+            db.commit()
+    except Exception:  # noqa: BLE001
+        logger.error("ai_call_log: could not mark call %s/%s unparseable", call_type, context_id, exc_info=True)
+        db.rollback()
+
+
 def _local_midnight_utc() -> datetime:
     """Start of today in the machine's local time, as an aware UTC datetime (ai_call_log
     timestamps are UTC — see app.database.utcnow)."""

@@ -36,7 +36,7 @@ from app.routers import (
 )
 from app.routers import settings as settings_router
 from app.services.capture_photo import InvalidImageError
-from app.services.capture_url import RecipeFetchError
+from app.services.capture_url import RecipeFetchError, loggable_url
 from app.services.progress_tracker import ProgressTokenNotFoundError
 from app.services.ai_extraction import AiExtractionDisabledError, AiExtractionError
 from app.services.anylist_client import (
@@ -210,15 +210,32 @@ def _domain_error_handler(
     return handler
 
 
-def _external_error_handler(status_code: int, code: str, message: str, *, log_prefix: str) -> Callable:
+def _external_error_handler(
+    status_code: int,
+    code: str,
+    message: str,
+    *,
+    log_prefix: str,
+    log_level: int = logging.ERROR,
+) -> Callable:
     """Factory for a call into an external system (Gemini/AnyList) whose own exception text
     can carry detail we don't control — CLAUDE.md > Security §4: this is a LAN-only app with
     no login, so raw internal/external exception text must never cross the wire to an
     unauthenticated client. The client always gets a fixed, safe `message` with `None`
-    detail; the raw exception is still logged in full server-side for diagnostics."""
+    detail; the raw exception is still logged in full server-side for diagnostics.
+
+    2026-10-07 logging audit: logged at ERROR with the exception type and traceback (it was a
+    one-line WARNING), so a failed AnyList call lights up Diagnostics' Recent errors and carries
+    enough to tell WHAT failed. A caller that has already logged its own ERROR at the point of
+    failure (the AI path) passes ``log_level=logging.WARNING`` to avoid double-counting."""
 
     async def handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.warning("%s: %s %s (%s)", log_prefix, request.method, request.url.path, exc)
+        logger.log(
+            log_level,
+            "%s: %s %s -> %s: %s",
+            log_prefix, request.method, request.url.path, type(exc).__name__, exc,
+            exc_info=log_level >= logging.ERROR,
+        )
         return JSONResponse(status_code=status_code, content=_error_body(code, message, None))
 
     return handler
@@ -339,6 +356,7 @@ _EXTERNAL_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         "EXTRACTION_FAILED",
         "Couldn't extract ingredients from that. Try again, or add the recipe manually.",
         log_prefix="AI extraction failed",
+        log_level=logging.WARNING,  # already ERROR-logged at the point of failure (see below)
         # Already logged at ERROR with exc_info=True inside ai_extraction.py at the point of
         # failure too (CLAUDE.md > Diagnostics & Logging) — this WARNING is just the envelope
         # translation's own record of which request it surfaced on.
@@ -367,8 +385,15 @@ for _exc_type, _handler in {**_DOMAIN_ERROR_HANDLERS, **_EXTERNAL_ERROR_HANDLERS
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # 2026-10-07 logging audit: 4xx used to vanish from the log entirely and 5xx carried no
+    # detail. 404/405 are routine (a stale link, a probe) so INFO; other 4xx WARNING; 5xx ERROR.
     if exc.status_code >= 500:
-        logger.error("HTTP %s on %s %s", exc.status_code, request.method, request.url.path)
+        level = logging.ERROR
+    elif exc.status_code in (404, 405):
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+    logger.log(level, "HTTP %s on %s %s: %s", exc.status_code, request.method, request.url.path, exc.detail)
     return JSONResponse(
         status_code=exc.status_code,
         content=_error_body(f"HTTP_{exc.status_code}", str(exc.detail)),
@@ -377,7 +402,13 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.warning("Validation error on %s %s", request.method, request.url.path)
+    # Field locations and messages only — never the submitted values (they can be user text or
+    # scraped content; pydantic's own `input` is deliberately left out).
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in err.get('loc', ()))}: {err.get('msg', '?')}"
+        for err in exc.errors()
+    )
+    logger.warning("Validation error on %s %s: %s", request.method, request.url.path, problems)
     return JSONResponse(
         status_code=422,
         content=_error_body(
@@ -420,7 +451,7 @@ async def possible_duplicate_recipe_handler(request: Request, exc: PossibleDupli
 
 @app.exception_handler(RecipeFetchError)
 async def recipe_fetch_error_handler(request: Request, exc: RecipeFetchError):
-    logger.warning("Recipe URL fetch failed: %s (%s)", exc.url, exc.reason)
+    logger.warning("Recipe URL fetch failed: %s (%s)", loggable_url(exc.url), exc.reason)
     return JSONResponse(
         status_code=502,
         content=_error_body(

@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.database import Base, UTCDateTime, utcnow
+
+logger = logging.getLogger(__name__)
 
 
 class PlanningSession(Base):
@@ -124,8 +127,12 @@ class SessionChecklistItem(Base):
         try:
             value = json.loads(self.review_options_json)
         except (ValueError, TypeError):
-            return []
+            value = None
         if not isinstance(value, list):
+            logger.warning(
+                "Checklist item id=%s has an unreadable review_options_json; treating it as no options",
+                self.id,
+            )
             return []
         return [
             o for o in value

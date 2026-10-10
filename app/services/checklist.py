@@ -408,7 +408,15 @@ def undo_merge(
     for alias_id in alias_ids or []:
         try:
             ingredient_aliases_service.delete_alias(db, alias_id)
-        except Exception:  # noqa: BLE001 — already deleted (e.g. removed in Settings meanwhile): fine
+        except ingredient_aliases_service.IngredientAliasNotFoundError:
+            db.rollback()  # already deleted (e.g. removed in Settings meanwhile): fine
+        except Exception:  # noqa: BLE001 — anything else is NOT fine: say so, then carry on
+            # 2026-10-07 logging audit: this used to swallow every failure silently, hiding real
+            # database errors behind the "already deleted" case it was written for.
+            logger.error(
+                "Checklist merge undo: could not delete alias_id=%s (session_id=%s)",
+                alias_id, session_id, exc_info=True,
+            )
             db.rollback()
     sessions_service.consolidate_session(db, session_id)
 
@@ -698,7 +706,16 @@ def push_to_anylist(
 
     progress_tracker.start(progress_token, [])
     progress_tracker.set_stage(progress_token, "reading")
-    anylist_items = anylist_client.get_items()  # AnyListError -> 502, before anything changes
+    try:
+        anylist_items = anylist_client.get_items()  # AnyListError -> 502, before anything changes
+    except Exception as exc:
+        # The push never reached the write stage: no history row is written, so without this the
+        # only trace was a generic 502 line with no push_id to correlate it with.
+        logger.error(
+            "Checklist push %s: session_id=%s could not read the AnyList list; nothing was written "
+            "(%s: %s)", push_id, session_id, type(exc).__name__, exc,
+        )
+        raise
 
     # Step names are row keys (two lines can share a display name); labels are what is shown.
     row_key = {ci.id: f"item:{ci.id}" for ci in to_push}
@@ -761,12 +778,22 @@ def push_to_anylist(
         elif status == "failed":
             progress_tracker.step_failed(progress_token, ref)
 
-    result = anylist_client.add_or_increment_items(  # AnyListError (list read) -> 502
-        push_items,
-        on_item=_on_item,
-        on_stage=lambda stage: progress_tracker.set_stage(progress_token, stage),
-        push_id=push_id,
-    )
+    try:
+        result = anylist_client.add_or_increment_items(  # AnyListError (list read) -> 502
+            push_items,
+            on_item=_on_item,
+            on_stage=lambda stage: progress_tracker.set_stage(progress_token, stage),
+            push_id=push_id,
+        )
+    except Exception as exc:
+        # Some lines may already have been written when this fires; the push_id ties this record
+        # to the per-operation lines the connector logged under the same id.
+        logger.error(
+            "Checklist push %s: session_id=%s failed part-way with %d line(s) attempted — AnyList "
+            "may be partly updated (%s: %s)",
+            push_id, session_id, len(push_items), type(exc).__name__, exc, exc_info=True,
+        )
+        raise
     for u in due_usuals:  # usuals folded into an ingredient line share that line's fate
         if u.id in usual_covered:
             line = next((r for r in result.items if r.key == usual_covered[u.id]), None)
@@ -839,7 +866,17 @@ def push_to_anylist(
         ),
     )
     db.add(history)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        # The lines HAVE landed on AnyList but our record of the push was not saved — the one
+        # state a re-push could make worse (duplicates), so it must be unmistakable in the log.
+        logger.error(
+            "Checklist push %s: session_id=%s items were written to AnyList (confirmed=%s) but "
+            "saving the push history FAILED — do not re-push without checking the list",
+            push_id, session_id, result.confirmed, exc_info=True,
+        )
+        raise
     db.refresh(history)
 
     logger.info(

@@ -15,6 +15,7 @@ object every call site actually uses, package split or not).
 from __future__ import annotations
 
 import logging
+import time
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -102,6 +103,32 @@ def _require_enabled(task: str) -> None:
         raise AiExtractionDisabledError()
 
 
+_RAW_LOG_CHARS = 200
+
+
+def describe_raw(raw: str | None) -> str:
+    """A bounded, safe stand-in for a model reply in a log line: its length plus the first
+    ``_RAW_LOG_CHARS`` characters. The full reply derives from scraped pages / photographed
+    cookbooks (untrusted, possibly personal) and can be 8k tokens, so it is never logged whole
+    (CLAUDE.md > Security §0a, Personal Data Policy)."""
+    raw = raw or ""
+    head = raw[:_RAW_LOG_CHARS].replace("\n", " ")
+    return f"{len(raw)} chars: {head!r}{'...' if len(raw) > _RAW_LOG_CHARS else ''}"
+
+
+def _record_call(db: Session, **kwargs) -> None:
+    """`ai_call_log.log_ai_call`, but a bookkeeping failure (a locked/full DB) is logged and
+    swallowed so it can't replace the Gemini error actually being handled."""
+    try:
+        ai_call_log.log_ai_call(db, **kwargs)
+    except Exception:  # noqa: BLE001
+        logger.error(
+            "AI %s: could not write the ai_call_log row (outcome=%s)",
+            kwargs.get("call_type"), kwargs.get("outcome"), exc_info=True,
+        )
+        db.rollback()
+
+
 def _is_quota_error(exc: Exception) -> bool:
     return isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 429
 
@@ -131,18 +158,25 @@ def _call_gemini(
             temperature=0,
             thinking_config=_THINKING_CONFIG,
         )
+        started = time.monotonic()
+        logger.info(
+            "AI %s: calling %s (context=%s, %d part(s), attempt %d/%d)",
+            call_type, model, context_id, len(parts), i + 1, len(_MODEL_CHAIN),
+        )
         try:
             response = client.models.generate_content(model=model, contents=parts, config=config)
         except genai_errors.ClientError as exc:
             if _is_quota_error(exc):
                 is_last = i == len(_MODEL_CHAIN) - 1
-                ai_call_log.log_ai_call(
+                _record_call(
                     db, call_type=call_type, model=model, outcome="quota", context_id=context_id
                 )
                 logger.warning(
-                    "AI %s: %s quota-exhausted (429)%s",
+                    "AI %s: %s quota-exhausted (429) after %.1fs, context=%s%s",
                     call_type,
                     model,
+                    time.monotonic() - started,
+                    context_id,
                     " — chain exhausted, will queue" if is_last else " — trying fallback",
                 )
                 if is_last:
@@ -150,25 +184,37 @@ def _call_gemini(
                         "All Gemini models are over quota — the capture has been queued."
                     ) from exc
                 continue
-            ai_call_log.log_ai_call(
+            _record_call(
                 db, call_type=call_type, model=model, outcome="error",
                 error_detail=str(exc), context_id=context_id,
             )
-            logger.error("AI %s failed: client error %s", call_type, exc.code, exc_info=True)
+            logger.error(
+                "AI %s failed: %s client error %s after %.1fs, context=%s: %s",
+                call_type, model, exc.code, time.monotonic() - started, context_id,
+                str(exc)[:300], exc_info=True,
+            )
             raise AiExtractionError(f"Gemini API returned an error ({exc.code}).") from exc
         except genai_errors.APIError as exc:
-            ai_call_log.log_ai_call(
+            _record_call(
                 db, call_type=call_type, model=model, outcome="error",
                 error_detail=str(exc), context_id=context_id,
             )
-            logger.error("AI %s failed: API error", call_type, exc_info=True)
+            logger.error(
+                "AI %s failed: %s API error (%s) after %.1fs, context=%s: %s",
+                call_type, model, type(exc).__name__, time.monotonic() - started, context_id,
+                str(exc)[:300], exc_info=True,
+            )
             raise AiExtractionError("Gemini API returned an error.") from exc
         except Exception as exc:  # network / DNS / transport
-            ai_call_log.log_ai_call(
+            _record_call(
                 db, call_type=call_type, model=model, outcome="error",
                 error_detail=str(exc), context_id=context_id,
             )
-            logger.error("AI %s: call failed", call_type, exc_info=True)
+            logger.error(
+                "AI %s: %s call failed (%s) after %.1fs, context=%s: %s",
+                call_type, model, type(exc).__name__, time.monotonic() - started, context_id,
+                str(exc)[:300], exc_info=True,
+            )
             raise AiExtractionError("Could not reach the Gemini API — check network/DNS.") from exc
 
         usage = response.usage_metadata
@@ -183,14 +229,14 @@ def _call_gemini(
         candidates = getattr(response, "candidates", None) or []
         finish_reason = str(getattr(candidates[0], "finish_reason", "") or "") if candidates else ""
         if "MAX_TOKENS" in finish_reason.upper():
-            ai_call_log.log_ai_call(
+            _record_call(
                 db, call_type=call_type, model=model, outcome="error",
                 error_detail="response truncated at MAX_TOKENS", context_id=context_id,
                 input_tokens=input_tokens, output_tokens=output_tokens,
             )
             logger.error(
-                "AI %s: %s response truncated at MAX_TOKENS (%d output tokens)",
-                call_type, model, output_tokens,
+                "AI %s: %s response truncated at MAX_TOKENS (%d output tokens), context=%s",
+                call_type, model, output_tokens, context_id,
             )
             raise AiExtractionError(
                 "The recipe was too large for one extraction pass and the response got cut "
@@ -198,7 +244,25 @@ def _call_gemini(
                 "excerpt of the page."
             )
 
-        ai_call_log.log_ai_call(
+        text = response.text or ""
+        if not text.strip():
+            # A safety block / empty candidate used to fall through as "" and surface as the
+            # misleading "could not be parsed". Say what actually happened.
+            reason = (
+                f"empty response (finish_reason={finish_reason or 'unknown'}, "
+                f"candidates={len(candidates)})"
+            )
+            _record_call(
+                db, call_type=call_type, model=model, outcome="error", error_detail=reason,
+                context_id=context_id, input_tokens=input_tokens, output_tokens=output_tokens,
+            )
+            logger.error(
+                "AI %s: %s returned no content after %.1fs, context=%s: %s",
+                call_type, model, time.monotonic() - started, context_id, reason,
+            )
+            raise AiExtractionError("Gemini returned no content for that (it may have been blocked).")
+
+        _record_call(
             db,
             call_type=call_type,
             model=model,
@@ -207,8 +271,12 @@ def _call_gemini(
             output_tokens=output_tokens,
             context_id=context_id,
         )
+        logger.info(
+            "AI %s: %s answered in %.1fs (%s in / %s out tokens), context=%s",
+            call_type, model, time.monotonic() - started, input_tokens, output_tokens, context_id,
+        )
         if model != MODEL_ID:
             logger.info("AI %s: answered by fallback model %s", call_type, model)
-        return response.text or ""
+        return text
 
     raise AiQuotaExhaustedError("All Gemini models are over quota.")  # unreachable

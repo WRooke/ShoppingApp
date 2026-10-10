@@ -432,6 +432,7 @@ class _RealAnyList:
     # -- auth --
     def login(self) -> None:
         logger.info("AnyList: authenticating")  # never log the account email (PII policy)
+        started = time.monotonic()
         try:
             resp = self._http.post(
                 "/auth/token",
@@ -439,15 +440,30 @@ class _RealAnyList:
                 files={"email": (None, self._email), "password": (None, self._password)},
             )
         except httpx.HTTPError as exc:
+            # 2026-10-07 logging audit: a transport failure here used to be logged nowhere at the
+            # point it happened. Log what failed (exception type, how long we waited) — the
+            # request that surfaces it gets the traceback from the 502 handler.
+            logger.warning(
+                "AnyList auth: could not reach AnyList after %.1fs (%s: %s)",
+                time.monotonic() - started, type(exc).__name__, exc,
+            )
             raise AnyListAuthError(f"could not reach AnyList to authenticate: {exc}") from exc
         if resp.status_code != 200:
-            logger.error("AnyList auth failed: status=%s body=%s", resp.status_code, resp.text[:300])
+            # Status and size only — the body can echo account details back (PII policy).
+            logger.error(
+                "AnyList auth failed: status=%s body_bytes=%d after %.1fs",
+                resp.status_code, len(resp.content), time.monotonic() - started,
+            )
             raise AnyListAuthError(f"AnyList rejected the credentials (HTTP {resp.status_code})")
         try:
             self._token = resp.json()["access_token"]
         except (ValueError, KeyError) as exc:
+            logger.error(
+                "AnyList auth response was not usable (%s: %s); body_bytes=%d",
+                type(exc).__name__, exc, len(resp.content),
+            )
             raise AnyListAuthError("AnyList auth response had no access_token") from exc
-        logger.info("AnyList: authenticated")
+        logger.info("AnyList: authenticated in %.1fs", time.monotonic() - started)
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -461,18 +477,28 @@ class _RealAnyList:
         if self._token is None:
             self.login()
         for attempt in (1, 2):
+            started = time.monotonic()
             try:
                 resp = self._http.post(path, headers=self._headers(), files=files)
             except httpx.HTTPError as exc:
+                logger.warning(
+                    "AnyList request %s failed after %.1fs (attempt %d/2): %s: %s",
+                    path, time.monotonic() - started, attempt, type(exc).__name__, exc,
+                )
                 raise AnyListError(f"AnyList request to {path} failed: {exc}") from exc
             if resp.status_code == 401 and attempt == 1:
                 logger.warning("AnyList: 401 on %s — re-authenticating and retrying once", path)
                 self.login()
                 continue
             if resp.status_code != 200:
-                logger.error("AnyList %s failed: status=%s body=%r", path, resp.status_code, resp.content[:300])
+                logger.error(
+                    "AnyList %s failed: status=%s body_bytes=%d after %.1fs (attempt %d/2)",
+                    path, resp.status_code, len(resp.content), time.monotonic() - started, attempt,
+                )
                 raise AnyListError(f"AnyList {path} returned HTTP {resp.status_code}")
+            logger.debug("AnyList %s ok in %.2fs", path, time.monotonic() - started)
             return resp
+        logger.error("AnyList %s still 401 after re-authenticating", path)
         raise AnyListError(f"AnyList {path} still 401 after re-authenticating")
 
     # -- reads --
@@ -497,6 +523,10 @@ class _RealAnyList:
         except AnyListError:
             raise
         except Exception as exc:  # noqa: BLE001 — a decode failure is still an AnyListError
+            logger.error(
+                "Could not parse the AnyList user-data response (%d bytes): %s: %s",
+                len(resp.content), type(exc).__name__, exc, exc_info=True,
+            )
             raise AnyListError(f"could not parse AnyList user-data response: {exc}") from exc
 
     def _resolve_list(self, list_name: str) -> _WireList:
@@ -517,6 +547,8 @@ class _RealAnyList:
             self.login()
             return AuthStatus(True, "Authenticated", utcnow())
         except AnyListError as exc:
+            # Reported to the caller as a status, never raised — so nothing else would log it.
+            logger.error("AnyList auth check failed: %s: %s", type(exc).__name__, exc)
             return AuthStatus(False, str(exc), utcnow())
 
     # -- writes --
@@ -981,6 +1013,8 @@ def check_auth() -> AuthStatus:
             _mark_ok()
         return status
     except AnyListDisabledError as exc:
-        return AuthStatus(False, str(exc), utcnow())
+        return AuthStatus(False, str(exc), utcnow())  # the §2 gate working as designed
     except AnyListError as exc:
+        # e.g. credentials not configured — _get_client() raises before the connector can log.
+        logger.error("AnyList auth check failed: %s: %s", type(exc).__name__, exc)
         return AuthStatus(False, str(exc), utcnow())

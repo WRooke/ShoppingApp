@@ -22,7 +22,7 @@ from app.config import settings
 from app.log_config import setup_logging
 from scripts.backup import _backup_db_file
 
-setup_logging()
+setup_logging(rotate=False)  # the server alone rotates app.log
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent

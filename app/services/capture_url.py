@@ -10,6 +10,8 @@ Security §0a and §4).
 from __future__ import annotations
 
 import logging
+import time
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -138,6 +140,13 @@ def _extract_title(html: str) -> str | None:
     return None
 
 
+def loggable_url(url: str) -> str:
+    """The URL without its query string or fragment — those can carry tokens or tracking ids and
+    add nothing to a diagnosis (host + path identify the page)."""
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def fetch_and_extract(
     db: Session, url: str, *, progress_token: str | None = None
 ) -> ai_extraction.ExtractionResult:
@@ -151,7 +160,9 @@ def fetch_and_extract(
     progress UI (CLAUDE.md > UI/UX) — the fetch itself has no separate tracked step, since a
     slow/blocked page fetch surfaces as a plain RecipeFetchError before any step is even
     started, same as today."""
-    logger.info("Recipe URL fetch attempt: %s", url)
+    shown = loggable_url(url)
+    started = time.monotonic()
+    logger.info("Recipe URL fetch attempt: %s", shown)
     try:
         response = httpx.get(
             url,
@@ -161,11 +172,17 @@ def fetch_and_extract(
         )
         response.raise_for_status()
     except httpx.TimeoutException as exc:
-        logger.error("Recipe URL fetch timed out: %s", url, exc_info=True)
+        # A slow or dead site is the user's/URL's problem, not an app fault: WARNING, no traceback.
+        logger.warning(
+            "Recipe URL fetch timed out after %.1fs (limit %ss): %s",
+            time.monotonic() - started, FETCH_TIMEOUT_SECONDS, shown,
+        )
         raise RecipeFetchError(url, "the request timed out") from exc
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
-        logger.error("Recipe URL fetch failed: HTTP %s for %s", status, url)
+        logger.warning(
+            "Recipe URL fetch failed: HTTP %s for %s after %.1fs", status, shown, time.monotonic() - started
+        )
         # 403/406/429 on a page that opens fine in a browser is almost always anti-bot
         # blocking (the tasty.co 406 that prompted the header fix above was exactly this),
         # not a broken URL — say so, since "HTTP 406" alone gives the user nothing to act on.
@@ -177,14 +194,27 @@ def fetch_and_extract(
             ) from exc
         raise RecipeFetchError(url, f"the page returned HTTP {status}") from exc
     except httpx.HTTPError as exc:
-        logger.error("Recipe URL fetch failed: %s", url, exc_info=True)
-        raise RecipeFetchError(url, str(exc)) from exc
+        # An unexpected transport fault (DNS, TLS, reset): the traceback is wanted.
+        logger.error(
+            "Recipe URL fetch failed after %.1fs (%s): %s",
+            time.monotonic() - started, type(exc).__name__, shown, exc_info=True,
+        )
+        # The exception text can carry internal detail (resolver output, local paths), and this
+        # reason is shown to the (unauthenticated, LAN) client — name the failure kind only.
+        raise RecipeFetchError(url, f"the page could not be reached ({type(exc).__name__})") from exc
 
-    logger.info("Recipe URL fetch succeeded: %s (%d bytes)", url, len(response.content))
+    logger.info(
+        "Recipe URL fetch succeeded: %s (%d bytes, %.1fs)",
+        shown, len(response.content), time.monotonic() - started,
+    )
     html = response.text
     text = _extract_text(html)
+    logger.info("Recipe URL text extracted: %d chars from %d chars of HTML", len(text), len(html))
     if _looks_like_an_empty_js_shell(html, text):
-        logger.warning("Recipe URL looks like a JS-rendered page with no server-side content: %s", url)
+        logger.warning(
+            "Recipe URL looks like a JS-rendered page with no server-side content: %s (%d chars of text)",
+            shown, len(text),
+        )
         raise RecipeFetchError(
             url,
             "this page's content is loaded by JavaScript after it opens, so it can't be read "
