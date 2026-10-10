@@ -26,6 +26,7 @@ a script's own status messages.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -44,8 +45,32 @@ import app.main as main_module  # noqa: E402
 from app.main import app  # noqa: E402
 
 
+@pytest.fixture(scope="session")
+def _seeded_db_template(tmp_path_factory) -> Path:
+    """A SQLite file with every table created and the reference data seeded, built ONCE per
+    session (2026-10-07 test-suite audit: ~150 router tests each used to pay for a fresh
+    ``create_all`` + seed inside the app lifespan). ``client`` copies this file per test, so the
+    lifespan's own ``init_db()``/``seed_reference_data()`` become cheap no-ops (both are
+    idempotent by design — CLAUDE.md > Data Model) while every test still gets its own private
+    database. Journal mode is left at the default here and the engine is disposed before the
+    copy so the file is self-contained (no ``-wal`` sidecar to lose)."""
+    from app import models  # noqa: F401  (registers every ORM class on Base.metadata)
+    from app.seed_data import seed_reference_data
+
+    path = tmp_path_factory.mktemp("db_template") / "template.db"
+    engine = create_engine(f"sqlite:///{path}", future=True)
+    database.Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
+    try:
+        seed_reference_data(session)
+    finally:
+        session.close()
+        engine.dispose()
+    return path
+
+
 @pytest.fixture()
-def client(monkeypatch, tmp_path):
+def client(monkeypatch, tmp_path, _seeded_db_template):
     """A TestClient against the real app (routes + error handlers + lifespan), on its OWN
     fresh SQLite file for this one test — not the single on-disk file the whole session used
     to share.
@@ -73,8 +98,10 @@ def client(monkeypatch, tmp_path):
     pragmas on the new one to keep test behaviour matching production (in particular, FK
     enforcement matters for any test that depends on cascade/ON DELETE behaviour).
     """
+    db_file = tmp_path / "router_test.db"
+    shutil.copyfile(_seeded_db_template, db_file)
     test_engine = create_engine(
-        f"sqlite:///{tmp_path / 'router_test.db'}",
+        f"sqlite:///{db_file}",
         connect_args={"check_same_thread": False},
         future=True,
     )

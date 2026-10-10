@@ -109,12 +109,32 @@ def api(server_url):
         yield client
 
 
-@pytest.fixture()
-def browser(server_url):
-    """One fresh headless-Edge `Browser` per test (own temp profile — see scripts/cdp.py),
-    parked on #/home until a test navigates it somewhere specific."""
+def pytest_collection_modifyitems(items):
+    """Everything under tests/frontend needs a real browser: mark it so `pytest -m "not frontend"`
+    is the fast loop that never launches Edge (2026-10-07 test-suite audit)."""
+    for item in items:
+        if "tests/frontend" in str(item.fspath).replace("\\", "/"):
+            item.add_marker(pytest.mark.frontend)
+
+
+@pytest.fixture(scope="session")
+def browser_process():
+    """ONE headless Edge for the whole frontend session; each test gets its own isolated browser
+    context in it (see scripts.cdp.BrowserProcess). Holds the DevTools port (9222) for the
+    session, so anything else that needs a `Browser` must also go through this fixture."""
     sys.path.insert(0, str(PROJECT_ROOT))
+    from scripts.cdp import BrowserProcess
+
+    with BrowserProcess() as proc:
+        yield proc
+
+
+@pytest.fixture()
+def browser(server_url, browser_process):
+    """A fresh, isolated headless-Edge `Browser` per test (own browser context: empty
+    localStorage/sessionStorage/cookies/cache — see scripts/cdp.py), parked on #/home until a
+    test navigates it somewhere specific."""
     from scripts.cdp import Browser
 
-    with Browser(f"{server_url}/#/home") as b:
+    with Browser(f"{server_url}/#/home", process=browser_process) as b:
         yield b

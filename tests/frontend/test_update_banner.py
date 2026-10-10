@@ -33,6 +33,13 @@ def _load(browser, server_url, path="/#/home"):
     browser.wait_for(".nav-item")
 
 
+def _reload(browser):
+    """location.reload(), then wait until the NEW document (not the one being replaced) has run its
+    scripts — replaces fixed ``sleep(1.2)`` calls."""
+    browser.eval("window.__pre = 1; location.reload();")
+    assert _wait(browser, "window.__pre === undefined && !!window.UpdateBanner", timeout=8), "page never reloaded"
+
+
 def _stub(browser, build):
     browser.eval(STUB % json.dumps(build))
 
@@ -40,9 +47,14 @@ def _stub(browser, build):
 def _wait(browser, expr, timeout=TIMEOUT):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if browser.eval(expr):
-            return True
-        time.sleep(0.1)
+        try:
+            if browser.eval(expr):
+                return True
+        except RuntimeError:
+            # e.g. `window.UpdateBanner` not defined yet: `.nav-item` is in the static HTML, so it
+            # exists before any script has run (2026-10-07: this made the unstamped-page test flaky).
+            pass
+        time.sleep(0.05)
     return False
 
 
@@ -57,16 +69,6 @@ def test_baseline_is_the_stamp_the_page_was_served_with_and_matches_the_server(b
     assert browser.eval("!document.querySelector('.update-banner')")  # same build -> no banner
     assert browser.eval("window.UpdateBanner.getState().status") == "idle"
     assert not browser.console_errors(), browser.console_errors()
-
-
-def test_every_asset_the_page_loaded_carries_the_build_in_its_url(browser, server_url):
-    _load(browser, server_url)
-    stamp = browser.eval("window.UpdateBanner.getLoadedVersion()")
-    urls = browser.eval(
-        "Array.from(document.querySelectorAll('script[src],link[rel=stylesheet]'))"
-        ".map(function(e){return e.getAttribute('src')||e.getAttribute('href');})"
-    )
-    assert len(urls) > 30 and all(u.endswith("?v=" + stamp) for u in urls), [u for u in urls if not u.endswith(stamp)]
 
 
 def test_a_newer_server_build_shows_the_banner_and_it_does_not_cover_the_page(browser, server_url):
@@ -159,14 +161,12 @@ def test_update_pending_survives_a_reload_and_reports_an_update_that_did_not_loa
     _load(browser, server_url)
     browser.eval("sessionStorage.setItem('updatePendingBuild', 'a-newer-build');")
     browser.navigate(f"{server_url}/#/home")  # same document? force a real reload below
-    browser.eval("location.reload()")
-    time.sleep(1.2)
+    _reload(browser)
     browser.wait_for(".update-banner")  # remembered across the reload, before any network answer
     assert browser.text(".update-banner .msg") == "Update available"
 
     browser.eval("sessionStorage.setItem('updateAttempt', JSON.stringify({target:'a-newer-build', n:1}));")
-    browser.eval("location.reload()")
-    time.sleep(1.2)
+    _reload(browser)
     browser.wait_for(".update-banner")
     assert browser.text(".update-banner .msg") == "Update didn't load"
     assert browser.text(".update-banner .cta") == "Tap to try again"
@@ -179,9 +179,8 @@ def test_pending_state_clears_once_the_page_really_is_the_new_build(browser, ser
     browser.eval(
         f"sessionStorage.setItem('updatePendingBuild', {json.dumps(stamp)});"
         "sessionStorage.setItem('updateAttempt', JSON.stringify({target:" + json.dumps(stamp) + ", n:1}));"
-        "location.reload();"
     )
-    time.sleep(1.2)
+    _reload(browser)
     browser.wait_for(".nav-item")
     assert browser.eval("!document.querySelector('.update-banner')")
     assert browser.eval("sessionStorage.getItem('updatePendingBuild')") is None

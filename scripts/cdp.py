@@ -138,38 +138,212 @@ class _WS:
 # --- the driver ----------------------------------------------------------------------------
 
 
+def _launch_edge(port: int, window: str) -> tuple[subprocess.Popen, str]:
+    """Start a headless browser on a FRESH profile (no lock/reuse) and return (process, profile)."""
+    profile = tempfile.mkdtemp(prefix="cdp-edge-")
+    proc = subprocess.Popen(
+        [
+            _find_browser(),
+            "--headless=new",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--no-first-run",
+            "--disable-extensions",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile}",
+            f"--window-size={window}",
+            "about:blank",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return proc, profile
+
+
+def _kill_browser(proc: subprocess.Popen) -> None:
+    with contextlib.suppress(Exception):
+        proc.terminate()
+        proc.wait(timeout=5)
+    # terminate() only ends the launcher; Edge's renderer/GPU children can outlive it and keep
+    # holding the debug port, so the NEXT Browser silently attaches to a stale page whose server
+    # is gone (2026-10-07: that made unrelated tests fail with "Failed to fetch"). Kill the tree.
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+            )
+
+
+class BrowserProcess:
+    """ONE headless browser process that many `Browser`s share (2026-10-07 test-suite audit).
+
+    Launching Edge costs ~1.5 s, and the frontend suite used to do it for every test. Each
+    `Browser(url, process=...)` instead opens its own *browser context* inside this process —
+    Chromium's incognito-style isolation: separate cookies, localStorage, sessionStorage and
+    cache — so a test still starts from a clean slate, exactly as with a fresh profile, without
+    paying for a launch. Disposing the context at the end of the test discards all of it.
+
+    Fails loudly if something already answers on the debug port: a stale Edge from an aborted run
+    would otherwise be attached to silently (see `_kill_browser`)."""
+
+    def __init__(self, *, port: int = 9222, window: str = "414,896"):
+        self.port = port
+        self._id = 0
+        if self._answering(port):
+            raise RuntimeError(
+                f"Something is already listening on the DevTools port {port} (a stale headless "
+                "Edge from an earlier run?). Kill it (`taskkill /F /IM msedge.exe`) and retry."
+            )
+        self._proc, self._profile = _launch_edge(port, window)
+        deadline = time.time() + 20
+        info = None
+        while time.time() < deadline:
+            try:
+                info = json.loads(
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=2).read()
+                )
+                break
+            except Exception:
+                time.sleep(0.1)
+        if not info:
+            _kill_browser(self._proc)
+            raise RuntimeError("Could not reach the browser's DevTools endpoint")
+        self._ws = _WS(info["webSocketDebuggerUrl"])
+
+    @staticmethod
+    def _answering(port: int) -> bool:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1).read()
+            return True
+        except Exception:
+            return False
+
+    def _cmd(self, method: str, params: dict | None = None) -> dict:
+        self._id += 1
+        mid = self._id
+        self._ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            msg = json.loads(self._ws.recv())
+            if msg.get("id") == mid:
+                if "error" in msg:
+                    raise RuntimeError(f"{method} -> {msg['error']}")
+                return msg.get("result", {})
+        raise TimeoutError(f"{method} timed out")
+
+    def open_context(self) -> tuple[str, str]:
+        """A new isolated context with one blank page: (context id, that page's websocket URL)."""
+        ctx = self._cmd("Target.createBrowserContext")["browserContextId"]
+        target = self._cmd("Target.createTarget", {"url": "about:blank", "browserContextId": ctx})
+        return ctx, f"ws://127.0.0.1:{self.port}/devtools/page/{target['targetId']}"
+
+    def close_context(self, ctx: str) -> None:
+        with contextlib.suppress(Exception):
+            self._cmd("Target.disposeBrowserContext", {"browserContextId": ctx})
+
+    def close(self) -> None:
+        with contextlib.suppress(Exception):
+            self._ws.close()
+        _kill_browser(self._proc)
+
+    def __enter__(self) -> "BrowserProcess":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+# Injected into every new document (Page.addScriptToEvaluateOnNewDocument) so `_settle` can wait
+# for the page to actually be idle instead of sleeping a fixed time: counts in-flight fetch/XHR and
+# short (<= 1 s) setTimeouts, and records when the DOM last changed.
+_IDLE_TRACKER = r"""
+(function () {
+  if (window.__cdp) return;
+  var s = window.__cdp = {busy: 0, lastMut: Date.now()};
+  var f = window.fetch;
+  if (f) window.fetch = function () {
+    s.busy++;
+    var p;
+    try { p = f.apply(this, arguments); } catch (e) { s.busy--; throw e; }
+    var done = function () { s.busy--; };
+    p.then(done, done);
+    return p;
+  };
+  var send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function () {
+    s.busy++;
+    this.addEventListener('loadend', function () { s.busy--; });
+    return send.apply(this, arguments);
+  };
+  var st = window.setTimeout, ct = window.clearTimeout, live = {};
+  window.setTimeout = function (fn, d) {
+    if (typeof fn !== 'function' || (d || 0) > 1000) return st.apply(window, arguments);
+    var args = [].slice.call(arguments, 2), id;
+    s.busy++;
+    id = st.call(window, function () {
+      if (live[id]) { delete live[id]; s.busy--; }
+      return fn.apply(this, args);
+    }, d);
+    live[id] = 1;
+    return id;
+  };
+  window.clearTimeout = function (id) {
+    if (live[id]) { delete live[id]; s.busy--; }
+    return ct.call(window, id);
+  };
+  new MutationObserver(function () { s.lastMut = Date.now(); })
+    .observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
+})();
+"""
+
+_IS_IDLE = (
+    "(function(){var s=window.__cdp;"
+    "return document.readyState==='complete' && (!s || (s.busy<=0 && Date.now()-s.lastMut>=60));})()"
+)
+
+
 class Browser:
-    def __init__(self, url: str, *, port: int = 9222, window: str = "414,896", wait: float = 0.0):
+    def __init__(
+        self,
+        url: str,
+        *,
+        port: int = 9222,
+        window: str = "414,896",
+        wait: float = 0.0,
+        process: BrowserProcess | None = None,
+    ):
+        """Without ``process`` this launches (and on close kills) its own browser, as it always
+        has. With a shared `BrowserProcess` it opens an isolated context in that browser instead
+        and only disposes the context on close."""
         self._url = url
         self._port = port
-        self._profile = tempfile.mkdtemp(prefix="cdp-edge-")  # always fresh -> no lock/reuse
-        self._proc = subprocess.Popen(
-            [
-                _find_browser(),
-                "--headless=new",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--no-first-run",
-                "--disable-extensions",
-                f"--remote-debugging-port={port}",
-                f"--user-data-dir={self._profile}",
-                f"--window-size={window}",
-                "about:blank",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        self._shared = process
+        self._ctx: str | None = None
+        self._proc = None
         self._id = 0
         self._console: list[str] = []
-        self._connect()
+        if process is None:
+            self._proc, self._profile = _launch_edge(port, window)
+            self._connect(self._find_page_ws())
+        else:
+            self._ctx, ws_url = process.open_context()
+            self._connect(ws_url)
+            # A launched headless Edge asked for 414x896 actually renders a 492x757 viewport (Chrome's
+            # minimum window width plus its own chrome). Layout assertions in the suite were written
+            # against that, so a default-sized shared page emulates exactly it rather than 414x896.
+            w, _, h = ("492,757" if window == "414,896" else window).partition(",")
+            self._cmd(
+                "Emulation.setDeviceMetricsOverride",
+                {"width": int(w), "height": int(h), "deviceScaleFactor": 1, "mobile": False},
+            )
         if wait:
             time.sleep(wait)
         self.navigate(url)
 
     # -- lifecycle --
-    def _connect(self) -> None:
+    def _find_page_ws(self) -> str:
         deadline = time.time() + 20
-        target = None
         while time.time() < deadline:
             try:
                 raw = urllib.request.urlopen(
@@ -177,16 +351,17 @@ class Browser:
                 ).read()
                 pages = [t for t in json.loads(raw) if t.get("type") == "page"]
                 if pages:
-                    target = pages[0]
-                    break
+                    return pages[0]["webSocketDebuggerUrl"]
             except Exception:
-                time.sleep(0.3)
-        if not target:
-            raise RuntimeError("Could not reach the browser's DevTools endpoint")
-        self._ws = _WS(target["webSocketDebuggerUrl"])
+                time.sleep(0.1)
+        raise RuntimeError("Could not reach the browser's DevTools endpoint")
+
+    def _connect(self, ws_url: str) -> None:
+        self._ws = _WS(ws_url)
         self._cmd("Page.enable")
         self._cmd("Runtime.enable")
         self._cmd("Console.enable")
+        self._cmd("Page.addScriptToEvaluateOnNewDocument", {"source": _IDLE_TRACKER})
 
     def _cmd(self, method: str, params: dict | None = None, *, timeout: float = 15.0) -> dict:
         self._id += 1
@@ -228,27 +403,46 @@ class Browser:
     def close(self) -> None:
         with contextlib.suppress(Exception):
             self._ws.close()
-        with contextlib.suppress(Exception):
-            self._proc.terminate()
-            self._proc.wait(timeout=5)
-        # terminate() only ends the launcher; Edge's renderer/GPU children can outlive it and keep
-        # holding the debug port, so the NEXT Browser silently attaches to a stale page whose server
-        # is gone (2026-10-07: that made unrelated tests fail with "Failed to fetch"). Kill the tree.
-        if sys.platform == "win32":
-            with contextlib.suppress(Exception):
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
-                )
+        if self._shared is not None:
+            self._shared.close_context(self._ctx)
+        elif self._proc is not None:
+            _kill_browser(self._proc)
 
     # -- actions --
     def navigate(self, url: str) -> None:
+        before = None
+        with contextlib.suppress(Exception):
+            before = (self.eval("location.href.split('#')[0]"), self.eval("performance.timeOrigin"))
         self._cmd("Page.navigate", {"url": url})
+        # A different document (anything but a pure #fragment change) must actually have replaced the
+        # old one before we judge "idle" — otherwise we'd be asking the page we just left.
+        if before and url.split("#")[0] == before[0] and "#" in url:
+            pass  # same-document hash navigation: no new document to wait for
+        elif before:
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                try:
+                    if self.eval("performance.timeOrigin") != before[1]:
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.02)
         self._settle()
 
     def _settle(self, ms: int = 700) -> None:
-        # SPA has no reliable load event per hash change; give timers/fetch a beat.
-        time.sleep(ms / 1000)
+        """Wait until the page is idle (loaded, no fetch/XHR/short timer in flight, DOM quiet for
+        60 ms) — at most ``ms``, which is what this used to sleep unconditionally. SPA has no
+        reliable load event per hash change, hence the injected tracker (`_IDLE_TRACKER`). The
+        50 ms floor lets handlers deferred to the next frame start their work before we look."""
+        time.sleep(0.05)
+        deadline = time.time() + ms / 1000
+        while time.time() < deadline:
+            try:
+                if self.eval(_IS_IDLE):
+                    return
+            except Exception:
+                pass  # mid-navigation: the execution context is gone; try again
+            time.sleep(0.025)
 
     def eval(self, expression: str):
         res = self._cmd(
@@ -264,7 +458,7 @@ class Browser:
         while time.time() < deadline:
             if self.eval(f"!!document.querySelector({json.dumps(selector)})"):
                 return
-            time.sleep(0.2)
+            time.sleep(0.05)
         raise TimeoutError(f"selector not found: {selector}")
 
     def text(self, selector: str) -> str:

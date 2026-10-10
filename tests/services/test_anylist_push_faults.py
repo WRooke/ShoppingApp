@@ -20,6 +20,7 @@ crossed off, bare-count / unit-bearing / no quantity, a duplicate pair), what th
 from __future__ import annotations
 
 import itertools
+import os
 
 import pytest
 
@@ -132,11 +133,34 @@ def _check_oracle(server, item, result, bystanders, before, transient: bool, lab
 # --- the matrix ---------------------------------------------------------------------------
 
 
+def _scenarios(state: str, fault: str):
+    """The (qty, note, id_mode) scenarios to run for one (state, fault) cell.
+
+    2026-10-07 test-suite audit: the full cross-product is 30 scenarios per cell (2,400 in all,
+    ~35 s). By default each cell runs a diagonal third of it — the combos where
+    ``(qty + note + id) % 3`` equals a per-cell offset — so EVERY cell still sees every quantity,
+    both notes and all three id modes, and neighbouring cells use different offsets so the
+    suite as a whole still covers the whole product. ``FULL_PUSH_MATRIX=1`` runs all 30 per
+    cell; do that before any change to the push path (docs/anylist-push.md > Test map).
+    """
+    full = list(itertools.product(WANT_QTY, WANT_NOTE, ID_MODES))
+    if os.environ.get("FULL_PUSH_MATRIX") == "1":
+        return full
+    offset = (list(STATES).index(state) + FAULTS.index(fault)) % 3
+    return [
+        (qty, note, id_mode)
+        for qi, qty in enumerate(WANT_QTY)
+        for ni, note in enumerate(WANT_NOTE)
+        for ii, id_mode in enumerate(ID_MODES)
+        if (qi + ni + ii) % 3 == offset
+    ]
+
+
 @pytest.mark.parametrize("state", list(STATES))
 @pytest.mark.parametrize("fault", FAULTS)
 def test_push_matrix(monkeypatch, state, fault):
     problems: list[str] = []
-    for qty, note, id_mode in itertools.product(WANT_QTY, WANT_NOTE, ID_MODES):
+    for qty, note, id_mode in _scenarios(state, fault):
         monkeypatch.undo()  # a fresh client/server per scenario
         server, item, result, bystanders, before = _run(monkeypatch, state, fault, qty, note, id_mode)
         label = f"state={state} fault={fault} want=({qty!r},{note!r}) id={id_mode}"

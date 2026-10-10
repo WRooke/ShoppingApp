@@ -120,12 +120,12 @@ def _wait(browser, expr, timeout=12.0):
     return False
 
 
-def test_server_restarted_on_new_code_banner_appears_and_the_tap_delivers_the_new_code(restartable):
+def test_server_restarted_on_new_code_banner_appears_and_the_tap_delivers_the_new_code(restartable, browser_process):
     sys.path.insert(0, str(PROJECT_ROOT))
     from scripts.cdp import Browser
 
     build_a = restartable.build()
-    with Browser(f"{restartable.url}/#/home") as browser:
+    with Browser(f"{restartable.url}/#/home", process=browser_process) as browser:
         browser.wait_for(".nav-item")
         assert browser.eval("window.__e2eMarker") == "v1"
         assert browser.eval("document.querySelector('meta[name=app-build]').getAttribute('content')") == build_a
@@ -158,14 +158,14 @@ def test_server_restarted_on_new_code_banner_appears_and_the_tap_delivers_the_ne
         assert browser.eval("sessionStorage.getItem('updatePendingBuild')") is None
 
 
-def test_a_restart_with_no_code_change_does_not_nag_and_a_docs_only_change_does_not_either(restartable):
+def test_a_restart_with_no_code_change_does_not_nag_and_a_docs_only_change_does_not_either(restartable, browser_process):
     """A reboot (same code) changes the process but not the build, so no banner. Touching only
     files that aren't part of the app/served files can't change the build either."""
     sys.path.insert(0, str(PROJECT_ROOT))
     from scripts.cdp import Browser
 
     build_a = restartable.build()
-    with Browser(f"{restartable.url}/#/home") as browser:
+    with Browser(f"{restartable.url}/#/home", process=browser_process) as browser:
         browser.wait_for(".nav-item")
         boot_a = httpx.get(f"{restartable.url}/api/v1/health").json()["data"]["boot_id"]
         restartable.stop()
@@ -177,14 +177,14 @@ def test_a_restart_with_no_code_change_does_not_nag_and_a_docs_only_change_does_
         assert browser.eval("!document.querySelector('.update-banner')")
 
 
-def test_mid_restart_outage_does_not_lose_the_update(restartable):
+def test_mid_restart_outage_does_not_lose_the_update(restartable, browser_process):
     """The page checks while the server is DOWN (the ~10 s of a restart): that must not be the
     moment it forgets what build it is on. After the server returns on new code, the next check
     — here the scheduled retry — finds the update."""
     sys.path.insert(0, str(PROJECT_ROOT))
     from scripts.cdp import Browser
 
-    with Browser(f"{restartable.url}/#/home") as browser:
+    with Browser(f"{restartable.url}/#/home", process=browser_process) as browser:
         browser.wait_for(".nav-item")
         restartable.stop()
         browser.eval("window.UpdateBanner.checkNow();")  # fails: connection refused

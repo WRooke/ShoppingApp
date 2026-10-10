@@ -10,6 +10,7 @@ the list with the wanted quantity — or the push said, by name, that it failed.
 from __future__ import annotations
 
 import json
+import os
 import random
 
 import pytest
@@ -416,8 +417,15 @@ def _fuzz_one(seed: int, monkeypatch):
 
 @pytest.mark.parametrize("seed_block", range(6))
 def test_fuzz_push_sequences(monkeypatch, seed_block):
-    """Hundreds of random user/phone/fault sequences (fixed seeds, so any failure replays)."""
-    for seed in range(seed_block * 40, seed_block * 40 + 40):
+    """Random user/phone/fault sequences (fixed seeds, so any failure replays).
+
+    2026-10-07 test-suite audit: the default run uses 10 seeds per block (60 sequences, ~7 s);
+    ``FULL_PUSH_MATRIX=1`` runs all 240 (~30 s). Run the full set before any change to the push
+    path (``anylist_client.py`` / ``checklist.push_to_anylist``) — docs/anylist-push.md > Test map.
+    The seeds are the first of each block, so the default run is a strict subset of the full one.
+    """
+    per_block = 40 if os.environ.get("FULL_PUSH_MATRIX") == "1" else 10
+    for seed in range(seed_block * 40, seed_block * 40 + per_block):
         monkeypatch.undo()
         _fuzz_one(seed, monkeypatch)
 
