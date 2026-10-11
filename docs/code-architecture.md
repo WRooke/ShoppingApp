@@ -92,14 +92,49 @@ cases a first-pass hand-rolled version hasn't yet.
   [Build Phases](./build-status/process.md#build-phases).
 - Claude API and AnyList calls are mocked in tests. Automated tests never hit the real network or
   spend real API budget — that's what the Phase 1.5 spike and manual verification are for.
-- **Running the suite (2026-10-07).** `pytest -m "not frontend"` is the fast loop (no browser;
-  ~1.5 min). `pytest` runs everything, including `tests/frontend/` (needs Edge/Chrome; ~100 s
-  more) — run it after touching `static/`, and before deploying. `FULL_PUSH_MATRIX=1 pytest`
-  additionally runs the full AnyList push matrix and fuzz — required before changing the push
-  path. Speed levers worth knowing: router tests copy a once-built seeded DB template
-  (`tests/conftest.py::_seeded_db_template`); the frontend suite shares one headless Edge and
-  gives each test an isolated browser context (`scripts/cdp.py::BrowserProcess`) and its
-  `_settle` waits for the page to be idle instead of sleeping.
+- **Each behaviour is asserted once, at the lowest layer that can observe it (2026-10-11).**
+  The suite was cut down on purpose; don't let it grow back by restating things.
+  - `tests/services/` own business logic (scaling, consolidation, matching, rules).
+  - `tests/routers/` own only what is HTTP-specific: status codes, the error envelope/code,
+    request validation, query parameters, response shape — plus one happy path and one error
+    path per route group. A router test must not re-run a service rule with the same inputs and
+    outcome.
+  - `tests/frontend/` own only UI-only behaviour: DOM state, inline errors, focus, undo/toast,
+    navigation, persistence across reload, layout. A frontend test must not re-verify a backend
+    outcome a router/service test already pins (cross-checking via the `api` fixture to make sure
+    the UI really did something is fine; asserting the backend rule is not).
+  - **Before adding a test, search for one that already asserts the same outcome** and extend or
+    parametrise it instead of adding a sibling. A new test that duplicates an existing assertion
+    is a review failure, the same as a missing one. Prefer a sampled/parametrised case list to
+    one test per input.
+  - **Exception:** the non-negotiable guards (prompt-injection hardening, the API/AnyList enable
+    gates and fake mode, migrations/seed/backup, the AnyList push contract) may deliberately be
+    asserted at more than one layer — say so in the test's docstring.
+- **Run the smallest sufficient set of tests; the full suite only when it is necessary
+  (2026-10-11).** Running everything after every edit defeats the point of having cut it down.
+  - **Default while working:** the test file(s) for what you changed (`pytest tests/services/test_x.py`,
+    or `-k <area>`). A services change needs that service's file; a router change its router file
+    plus the service behind it; `static/` changes need only the relevant `tests/frontend/` file.
+  - **Wider, no browser:** `pytest -n auto -m "not frontend"` (~35 s) when a change spans areas.
+  - **The whole suite (`pytest -n 8 --dist loadfile`, ~100 s) only when necessary:** before a deploy
+    (`scripts/validate_develop.py` always runs it), after changing something every test depends on
+    (`tests/conftest.py`, `app/database.py`/models/migrations, `app/main.py` handlers,
+    `app/config.py`, `app/log_config.py`, shared JS such as `api.js`/`router.js`), and at a
+    phase/chunk-end review.
+  - **`FULL_PUSH_MATRIX=1`** (the full AnyList push matrix and fuzz) only for changes to
+    `anylist_client.py` or `checklist.push_to_anylist`.
+  - Say in the commit message which tests were run and why that scope was enough. A failure the
+    full suite finds that a targeted run should have caught is a reason to choose the targeted
+    run more carefully, not to run more.
+- **How the suite stays fast (2026-10-07/11).** `pytest-xdist` runs tests across cores
+  (`-n auto` for the no-browser set; `-n 8 --dist loadfile` for everything — the machine is
+  CPU-bound, more workers don't help and cold server starts start timing out). Router tests copy a once-built seeded DB template
+  (`tests/conftest.py::_seeded_db_template`). The frontend suite shares one headless Edge per
+  worker, on a free DevTools port, with an isolated browser context per test
+  (`scripts/cdp.py::BrowserProcess`); `_settle` waits for the page to be idle instead of
+  sleeping. `inflect` is imported lazily (`text_normalize._inflect_engine`) so server start-up and
+  every worker skip a ~2 s import. Prefer stubbing a clock or re-mounting a view to waiting out a
+  real timer.
 - `pytest` is a dev dependency from Phase 2 onward (the first phase with real logic to test);
   add it to `requirements.txt` when that work starts, not before.
 - **Test-DB isolation is fragile to a specific mistake — read `tests/conftest.py`'s

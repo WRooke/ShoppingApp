@@ -19,6 +19,12 @@ the phase half-wired.
   a phase "isn't done when it's manually clicked through once, it's done when its own tests
   pass" (see [Code Architecture & Maintainability](../code-architecture.md#code-architecture--maintainability)); the
   same standard applies at chunk granularity, not just at the whole-phase level.
+- **Tests per chunk (2026-10-11):** a chunk's tests go at the lowest layer that can observe the
+  behaviour and must not duplicate an existing assertion (search first; extend or parametrise
+  rather than adding a sibling) — see
+  [Tests](../code-architecture.md#tests--pytest-tests-mirroring-app). Verify a chunk with the
+  smallest sufficient run (the tests for what changed); run the whole suite only at the
+  phase-end review below, before a deploy, or after touching shared test/runtime infrastructure.
 - **Phase-end review:** before starting the next phase, re-read every section of this file the
   finished phase touches — not just its own chunk list, but Data Model, Security, API
   Conventions, Scaling Logic, etc., wherever relevant — and confirm each requirement is actually

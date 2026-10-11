@@ -169,6 +169,12 @@ standard ("comment the why, not the what"), when to prefer a known library over 
 code, the Alembic migration story, and the physical source tree. Also covers the API response
 envelope and error-code conventions.
 
+**Tests (2026-10-11):** each behaviour is asserted once, at the lowest layer that can observe it
+(never restate a service rule in a router or UI test), and you run the **smallest sufficient set**
+of tests for a change — the whole suite only before a deploy, after touching shared test/runtime
+infrastructure, or at a chunk-end review. See the Tests section of
+[docs/code-architecture.md](./docs/code-architecture.md).
+
 See [docs/code-architecture.md](./docs/code-architecture.md).
 
 ## Data Model
