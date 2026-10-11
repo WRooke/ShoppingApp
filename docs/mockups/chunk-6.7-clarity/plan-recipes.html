@@ -1,0 +1,217 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plan, recipes, capture, status — plain language</title>
+<link rel="stylesheet" href="../../../static/css/components.css"><link rel="stylesheet" href="../../../static/css/components-screens.css">
+<link rel="stylesheet" href="../../../static/css/app.css"><link rel="stylesheet" href="../chunk-6.7/proposed.css">
+<style>.theme-light {
+  
+
+  /* --- colour: light (default) --- */
+  --bg: #f6f3ee;
+  --surface: #fffdf9;
+  --surface-2: #efeae1;
+  --border: #ddd5c7;
+  --border-strong: #c9bfab;
+  --text: #2a2620;
+  --text-dim: #766e5f;
+  --text-faint: #a89d89;
+
+  --accent: #1f6b63;        /* Teal — decided 2026-09-19 over the originally-tried blue, which
+                                read poorly against this warm ground (blue works in dark mode
+                                instead, see the dark block below) */
+  --accent-hover: #17524c;
+  --accent-tint: #dceae7;
+  --accent-contrast: #fdfdfd;
+
+  --success: #3c7a4b;
+  --success-tint: #e4f0e5;
+  --warning: #a8752e;
+  --warning-tint: #f5ead9;
+  --danger: #a3352b;
+  --danger-tint: #f6e3e0;
+  --grey-state: #8a8375;
+  --focus: var(--accent);
+
+  --shadow-1: 0 1px 2px rgba(42, 38, 32, .06), 0 1px 1px rgba(42, 38, 32, .04);
+  --shadow-2: 0 4px 14px rgba(42, 38, 32, .10), 0 1px 3px rgba(42, 38, 32, .06);
+
+  /* legacy names (pre-Phase-6) — same values as their semantic equivalents above, kept so
+     app.css's not-yet-migrated rules (log levels, dup-warn, pending-ai badge, have-toggle, ...)
+     need no edits to pick up the new palette + dark mode */
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --grey: var(--grey-state);
+
+  /* --- type --- */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: .75rem;
+  --text-sm: .8125rem;
+  --text-base: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+
+  /* --- spacing --- */
+  --sp-1: .25rem;
+  --sp-2: .5rem;
+  --sp-3: .75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius --- */
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --nav-h: 64px; /* was 60px pre-Phase-6; the emoji icon set (Chunk 6.1) needs a touch more */
+color-scheme: light; }
+.theme-dark {
+  
+
+  /* --- colour: light (default) --- */
+  --bg: #f6f3ee;
+  --surface: #fffdf9;
+  --surface-2: #efeae1;
+  --border: #ddd5c7;
+  --border-strong: #c9bfab;
+  --text: #2a2620;
+  --text-dim: #766e5f;
+  --text-faint: #a89d89;
+
+  --accent: #1f6b63;        /* Teal — decided 2026-09-19 over the originally-tried blue, which
+                                read poorly against this warm ground (blue works in dark mode
+                                instead, see the dark block below) */
+  --accent-hover: #17524c;
+  --accent-tint: #dceae7;
+  --accent-contrast: #fdfdfd;
+
+  --success: #3c7a4b;
+  --success-tint: #e4f0e5;
+  --warning: #a8752e;
+  --warning-tint: #f5ead9;
+  --danger: #a3352b;
+  --danger-tint: #f6e3e0;
+  --grey-state: #8a8375;
+  --focus: var(--accent);
+
+  --shadow-1: 0 1px 2px rgba(42, 38, 32, .06), 0 1px 1px rgba(42, 38, 32, .04);
+  --shadow-2: 0 4px 14px rgba(42, 38, 32, .10), 0 1px 3px rgba(42, 38, 32, .06);
+
+  /* legacy names (pre-Phase-6) — same values as their semantic equivalents above, kept so
+     app.css's not-yet-migrated rules (log levels, dup-warn, pending-ai badge, have-toggle, ...)
+     need no edits to pick up the new palette + dark mode */
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --grey: var(--grey-state);
+
+  /* --- type --- */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: .75rem;
+  --text-sm: .8125rem;
+  --text-base: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+
+  /* --- spacing --- */
+  --sp-1: .25rem;
+  --sp-2: .5rem;
+  --sp-3: .75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius --- */
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --nav-h: 64px; /* was 60px pre-Phase-6; the emoji icon set (Chunk 6.1) needs a touch more */
+
+  --bg: #1b1916;
+  --surface: #242019;
+  --surface-2: #2e2a22;
+  --border: #3d372c;
+  --border-strong: #544c3c;
+  --text: #f1ece1;
+  --text-dim: #b6ab96;
+  --text-faint: #7f7461;
+
+  --accent: #7db0e0;
+  --accent-hover: #98c1e7;
+  --accent-tint: #233242;
+  --accent-contrast: #14202b;
+
+  --success: #7ec98b;
+  --success-tint: #20321f;
+  --warning: #dba75f;
+  --warning-tint: #3a2c17;
+  --danger: #e3897d;
+  --danger-tint: #3a201c;
+  --grey-state: #a49b89;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, .45);
+color-scheme: dark; }
+
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400 700; src: url("../../../static/fonts/ibm-plex-sans-var.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("../../../static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 600; src: url("../../../static/fonts/ibm-plex-mono-600.woff2") format("woff2"); }
+html { background: #d9d6cf; }
+body { margin: 0; padding: 24px 16px 80px; font-family: "IBM Plex Sans", system-ui, sans-serif; color: #2a2620; }
+.mock-wrap { max-width: 1000px; margin: 0 auto; }
+h1.mock { font-size: 1.5rem; margin: 0 0 4px; } p.lede { margin: 0 0 24px; max-width: 70ch; color: #4a463e; }
+.scene { margin: 0 0 40px; }
+.scene h2 { font-size: 1.05rem; margin: 0 0 2px; } .scene .note { margin: 0 0 12px; max-width: 80ch; color: #4a463e; font-size: .9rem; }
+.pair { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.frame { width: 390px; box-sizing: border-box; border-radius: 20px; overflow: hidden; position: relative; background: var(--bg); color: var(--text);
+  font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: var(--text-base); line-height: 1.5; border: 1px solid #00000033;
+  box-shadow: 0 6px 24px #00000026; }
+.cap { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #4a463e; margin: 0 0 4px 6px; font-weight: 700; }
+.frame .pad { padding: var(--sp-4); }
+.frame h3 { margin: 0 0 var(--sp-2); font-size: var(--text-md); }
+.frame .app-header { position: static; }
+.frame .bottom-nav { position: static; }
+.frame .sticky-actions { position: static; }
+.frame .update-banner { position: static; }
+.frame .toast-static { display: flex; justify-content: center; padding: var(--sp-3) var(--sp-3) var(--sp-4); }
+.frame .toast { position: static; transform: none; opacity: 1; }
+.frame .statusbar { display: flex; justify-content: space-between; padding: 6px 18px; font-size: 12px; font-weight: 600; background: var(--bg); color: var(--text); }
+.frame.phone-notch .update-banner { padding-top: calc(var(--sp-2) + 28px); }
+.cmp { display: flex; gap: 20px; flex-wrap: wrap; } .cmp .tag { font-weight: 700; margin: 0 0 6px; font-size: .85rem; }
+.nav-links a { margin-right: 16px; }
+.decide { background: #fff8; border: 1px solid #0003; border-radius: 12px; padding: 14px 18px; max-width: 80ch; }
+/* "AnyList app" imitation for the naming page */
+.al { background: #212226; color: #fff; font-family: Roboto, system-ui, sans-serif; }
+.al .top { padding: 14px 16px; border-bottom: 1px solid #0006; } .al .top b { font-size: 1.15rem; display: block; } .al .top span { color: #b9bbc2; font-size: .9rem; }
+.al .item { padding: 13px 16px; border-bottom: 1px solid #ffffff22; font-size: 1.05rem; } .al .item small { color: #9a9ca3; font-size: .9rem; } .al .item.sub small { display: block; margin-top: 2px; }
+.al .item .bad { background: #7a2a2a; border-radius: 4px; padding: 0 3px; } .al .item .good { background: #1f5d3a; border-radius: 4px; padding: 0 3px; }
+
+.frame .pad { padding: var(--sp-4); }
+.frame .hint { font-size: var(--text-sm); color: var(--text-dim); margin: var(--sp-1) 0 var(--sp-3); }
+.frame .preview { font-size: var(--text-sm); border-left: 3px solid var(--accent); padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2, transparent); margin: var(--sp-3) 0; }
+.frame .dir { text-align: center; color: var(--text-dim); font-size: var(--text-sm); margin: var(--sp-1) 0; }
+.frame .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0; font-size: var(--text-sm); }
+.frame .sentence input { width: 4.2rem; }
+.frame .tag-on { font-size: var(--text-xs, 12px); border: 1px solid var(--success); color: var(--success); border-radius: 999px; padding: 0 var(--sp-2); margin-left: var(--sp-2); white-space: nowrap; }
+.frame .box { border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin: var(--sp-3) 0; }
+.frame .section-list a { display: flex; justify-content: space-between; align-items: flex-start; padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); }
+.frame .section-list .sub { display: block; font-size: var(--text-sm); color: var(--text-dim); font-weight: 400; }
+.frame .section-list .count { white-space: nowrap; }
+.frame .section-list .name { font-weight: 600; }
+.frame .h3s { margin: 0 0 var(--sp-2); }
+.frame .row-line { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+</style></head><body><div class="mock-wrap">
+<p class="nav-links"><a href="index.html">&larr; All clarity mockups</a><a href="settings.html">Settings</a><a href="checklist.html">Checklist &amp; push</a><a href="plan-recipes.html">Plan, recipes, status</a></p>
+<h1 class="mock">Plan, recipes, capture, status — plain language</h1><p class="lede">Wording and small markup only. Items that were already implemented (the saved-for-later capture message) are shown for review.</p><section class="scene"><h2>1. Home & Plan list — one noun, and what the numbers are</h2><p class="note">“session / planning session / shopping session / list” become **plan**; “items” (recipes here, ingredients on the checklist) becomes “meals”; “New recipe” opened the library, so it says what it does; unnamed plans show a date, not a number.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Home</h1></header><div class="pad"><div class="home-actions"><a class="btn primary btn-block">New session</a><a class="btn btn-block">New recipe</a></div><div class="card"><b>Session #12</b><div class="muted">3 items · active · 12/10/2026</div></div></div><nav class="bottom-nav"><a class="nav-item active"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Home</h1></header><div class="pad"><div class="home-actions"><a class="btn primary btn-block">Start a new shopping plan</a><a class="btn btn-block">Add or find a recipe</a></div><div class="card"><b>Week of 14 Oct</b><div class="muted">3 meals · in progress · started 12 Oct</div></div></div><nav class="bottom-nav"><a class="nav-item active"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>2. Plan workspace</h2><p class="note">A label for the name field (it saves when you leave it), consequences for Archive and Leftovers, and a reason when the button is disabled.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Plan</h1></header><div class="pad"><div class="card"><input placeholder="Session name, e.g. Week of 14 Jul"><button class="btn-sm">Archive</button><div class="muted">Status: active</div><button class="btn-sm">+ Add leftovers day</button><button class="primary" disabled>Checklist →</button></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Plan</h1></header><div class="pad"><div class="card"><div class="mini-field"><label>Plan name</label><input type="text" value="Week of 14 Oct"></div><div class="muted">In progress · started 12 Oct</div><button class="btn-sm">Archive this plan</button><div class="hint">Moves it to Past. You can undo it straight away.</div><button class="btn-sm">+ Add a leftovers day</button><div class="hint">Leftovers add nothing to the shopping list.</div><button class="primary" disabled>Go to shopping checklist →</button><div class="hint">Add a recipe first.</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>3. Recipe page and edit — scopes and consequences</h2><p class="note">“Base servings”, the two Save scopes, “Archived” vs “Delete”, “1 to taste salt”, the bare “→” and the 👍 are all spelled out. (Delete here is a soft delete — true of the code — so “hidden from your library” and “Bring it back” are accurate.)</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Recipe</h1></header><div class="pad"><div class="card"><h2>Chilli con carne</h2><div class="muted">4 servings · Mexican · Beef · 👍</div><div class="muted">Archived</div><button class="btn-sm">I cooked this</button><div>1 to taste salt</div><div class="muted">→ using 2 can canned corn</div><h4>Edit recipe</h4><div class="mini-field"><label>Base servings</label><input type="text" value="4"></div><button class="primary">Save</button><button>Cancel</button><button class="danger">Delete recipe</button></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item active"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Recipe</h1></header><div class="pad"><div class="card"><h2>Chilli con carne</h2><div class="muted">Makes 4 servings · Mexican · Beef · Rated 👍</div><div class="muted">Deleted (hidden from your library). <a class="btn-link">Bring it back</a></div><button class="btn-sm">I cooked this (adds 1 to the count)</button><div>Salt, to taste</div><div class="muted">Using instead: 2 can canned corn. Your shopping list will show this. Note: …</div><h4>Edit recipe</h4><div class="mini-field"><label>Servings this recipe makes (amounts below are for this many)</label><input type="text" value="4"></div><div class="hint">Changing this changes how amounts scale in any plan that already includes this recipe.</div><button class="primary">Save recipe details</button><button>Discard changes and go back</button><div class="hint">Each ingredient below has its own Save.</div><button class="danger">Delete recipe</button><div class="hint">Removes it from your library. Plans already using it keep it. Undo is available for a few seconds.</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item active"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>4. Duplicate warning</h2><p class="note">Says why it matched, calls a soft-deleted recipe “deleted” (the rest of the app does), and what each button does to the form.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Add a recipe</h1></header><div class="pad"><div class="inline-card warn"><div class="title">You might already have this:</div><div>Pasta bake (archived)</div><div class="log-controls"><button>Restore this one</button><button class="primary">Save anyway</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item active"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Add a recipe</h1></header><div class="pad"><div class="inline-card warn"><div class="title">This looks like a recipe you already have. Open it, or save this as a separate copy.</div><div>Pasta bake (deleted) — same web page</div><div class="log-controls"><button>Bring back the deleted one (leaves this form)</button><button class="primary">Save as a separate recipe anyway</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item active"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>5. Saved-for-later capture (built)</h2><p class="note">No “AI / quota / queued”, and it says where the recipe will appear and what to do then. A recipe made this way also gets a “Captured automatically — please check” badge.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Capture</h1></header><div class="pad"><div class="card"><h2>Capture queued</h2><div class="muted">Every AI model is over its quota right now — this capture has been queued and will be retried automatically.</div><div class="muted">No need to do anything — check back in the recipe library in a while, or watch the capture queue on the Diagnostics page.</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item active"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Import</h1></header><div class="pad"><div class="card"><h2>Saved for later</h2><div class="muted">The recipe reader is busy right now, so this has been saved for later. It will be tried again automatically within the hour.</div><div class="muted">Nothing else to do. When it works, the recipe is added to Recipes as “Untitled captured recipe” — open it, give it a name and check the ingredients.</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item active"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>6. Diagnostics → Status</h2><p class="note">Plain summary first; developer detail behind “Advanced”. The nav label changes to “Status”.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Diagnostics</h1></header><div class="pad"><div class="card"><div class="muted">● state: green · API enabled: yes · fake mode: no</div><div class="muted">list: … · creds: …</div><div class="muted">5 lines · push a1b2c3 · session 12 · read 0s · send 1s · confirm 0s</div><div class="muted">confirmed</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item active"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Status</h1></header><div class="pad"><div class="card"><h3>Everything is working</h3><div class="row-line"><span>AnyList</span><span>Working</span></div><div class="row-line"><span>Recipe reader</span><span>Working</span></div><div class="row-line"><span>Last send to AnyList</span><span>Today 3:15 pm · AnyList has everything</span></div><details><summary>Advanced (for the person who looks after the app)</summary><div class="muted">push a1b2c3 · session 12 · read 0s · send 1s · confirm 0s · release …</div></details></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item active"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section></div></body></html>

@@ -1,0 +1,217 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Checklist & push — plain language</title>
+<link rel="stylesheet" href="../../../static/css/components.css"><link rel="stylesheet" href="../../../static/css/components-screens.css">
+<link rel="stylesheet" href="../../../static/css/app.css"><link rel="stylesheet" href="../chunk-6.7/proposed.css">
+<style>.theme-light {
+  
+
+  /* --- colour: light (default) --- */
+  --bg: #f6f3ee;
+  --surface: #fffdf9;
+  --surface-2: #efeae1;
+  --border: #ddd5c7;
+  --border-strong: #c9bfab;
+  --text: #2a2620;
+  --text-dim: #766e5f;
+  --text-faint: #a89d89;
+
+  --accent: #1f6b63;        /* Teal — decided 2026-09-19 over the originally-tried blue, which
+                                read poorly against this warm ground (blue works in dark mode
+                                instead, see the dark block below) */
+  --accent-hover: #17524c;
+  --accent-tint: #dceae7;
+  --accent-contrast: #fdfdfd;
+
+  --success: #3c7a4b;
+  --success-tint: #e4f0e5;
+  --warning: #a8752e;
+  --warning-tint: #f5ead9;
+  --danger: #a3352b;
+  --danger-tint: #f6e3e0;
+  --grey-state: #8a8375;
+  --focus: var(--accent);
+
+  --shadow-1: 0 1px 2px rgba(42, 38, 32, .06), 0 1px 1px rgba(42, 38, 32, .04);
+  --shadow-2: 0 4px 14px rgba(42, 38, 32, .10), 0 1px 3px rgba(42, 38, 32, .06);
+
+  /* legacy names (pre-Phase-6) — same values as their semantic equivalents above, kept so
+     app.css's not-yet-migrated rules (log levels, dup-warn, pending-ai badge, have-toggle, ...)
+     need no edits to pick up the new palette + dark mode */
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --grey: var(--grey-state);
+
+  /* --- type --- */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: .75rem;
+  --text-sm: .8125rem;
+  --text-base: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+
+  /* --- spacing --- */
+  --sp-1: .25rem;
+  --sp-2: .5rem;
+  --sp-3: .75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius --- */
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --nav-h: 64px; /* was 60px pre-Phase-6; the emoji icon set (Chunk 6.1) needs a touch more */
+color-scheme: light; }
+.theme-dark {
+  
+
+  /* --- colour: light (default) --- */
+  --bg: #f6f3ee;
+  --surface: #fffdf9;
+  --surface-2: #efeae1;
+  --border: #ddd5c7;
+  --border-strong: #c9bfab;
+  --text: #2a2620;
+  --text-dim: #766e5f;
+  --text-faint: #a89d89;
+
+  --accent: #1f6b63;        /* Teal — decided 2026-09-19 over the originally-tried blue, which
+                                read poorly against this warm ground (blue works in dark mode
+                                instead, see the dark block below) */
+  --accent-hover: #17524c;
+  --accent-tint: #dceae7;
+  --accent-contrast: #fdfdfd;
+
+  --success: #3c7a4b;
+  --success-tint: #e4f0e5;
+  --warning: #a8752e;
+  --warning-tint: #f5ead9;
+  --danger: #a3352b;
+  --danger-tint: #f6e3e0;
+  --grey-state: #8a8375;
+  --focus: var(--accent);
+
+  --shadow-1: 0 1px 2px rgba(42, 38, 32, .06), 0 1px 1px rgba(42, 38, 32, .04);
+  --shadow-2: 0 4px 14px rgba(42, 38, 32, .10), 0 1px 3px rgba(42, 38, 32, .06);
+
+  /* legacy names (pre-Phase-6) — same values as their semantic equivalents above, kept so
+     app.css's not-yet-migrated rules (log levels, dup-warn, pending-ai badge, have-toggle, ...)
+     need no edits to pick up the new palette + dark mode */
+  --green: var(--success);
+  --amber: var(--warning);
+  --red: var(--danger);
+  --grey: var(--grey-state);
+
+  /* --- type --- */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-xs: .75rem;
+  --text-sm: .8125rem;
+  --text-base: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+
+  /* --- spacing --- */
+  --sp-1: .25rem;
+  --sp-2: .5rem;
+  --sp-3: .75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- radius --- */
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  --nav-h: 64px; /* was 60px pre-Phase-6; the emoji icon set (Chunk 6.1) needs a touch more */
+
+  --bg: #1b1916;
+  --surface: #242019;
+  --surface-2: #2e2a22;
+  --border: #3d372c;
+  --border-strong: #544c3c;
+  --text: #f1ece1;
+  --text-dim: #b6ab96;
+  --text-faint: #7f7461;
+
+  --accent: #7db0e0;
+  --accent-hover: #98c1e7;
+  --accent-tint: #233242;
+  --accent-contrast: #14202b;
+
+  --success: #7ec98b;
+  --success-tint: #20321f;
+  --warning: #dba75f;
+  --warning-tint: #3a2c17;
+  --danger: #e3897d;
+  --danger-tint: #3a201c;
+  --grey-state: #a49b89;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, .45);
+color-scheme: dark; }
+
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400 700; src: url("../../../static/fonts/ibm-plex-sans-var.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url("../../../static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 600; src: url("../../../static/fonts/ibm-plex-mono-600.woff2") format("woff2"); }
+html { background: #d9d6cf; }
+body { margin: 0; padding: 24px 16px 80px; font-family: "IBM Plex Sans", system-ui, sans-serif; color: #2a2620; }
+.mock-wrap { max-width: 1000px; margin: 0 auto; }
+h1.mock { font-size: 1.5rem; margin: 0 0 4px; } p.lede { margin: 0 0 24px; max-width: 70ch; color: #4a463e; }
+.scene { margin: 0 0 40px; }
+.scene h2 { font-size: 1.05rem; margin: 0 0 2px; } .scene .note { margin: 0 0 12px; max-width: 80ch; color: #4a463e; font-size: .9rem; }
+.pair { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.frame { width: 390px; box-sizing: border-box; border-radius: 20px; overflow: hidden; position: relative; background: var(--bg); color: var(--text);
+  font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: var(--text-base); line-height: 1.5; border: 1px solid #00000033;
+  box-shadow: 0 6px 24px #00000026; }
+.cap { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #4a463e; margin: 0 0 4px 6px; font-weight: 700; }
+.frame .pad { padding: var(--sp-4); }
+.frame h3 { margin: 0 0 var(--sp-2); font-size: var(--text-md); }
+.frame .app-header { position: static; }
+.frame .bottom-nav { position: static; }
+.frame .sticky-actions { position: static; }
+.frame .update-banner { position: static; }
+.frame .toast-static { display: flex; justify-content: center; padding: var(--sp-3) var(--sp-3) var(--sp-4); }
+.frame .toast { position: static; transform: none; opacity: 1; }
+.frame .statusbar { display: flex; justify-content: space-between; padding: 6px 18px; font-size: 12px; font-weight: 600; background: var(--bg); color: var(--text); }
+.frame.phone-notch .update-banner { padding-top: calc(var(--sp-2) + 28px); }
+.cmp { display: flex; gap: 20px; flex-wrap: wrap; } .cmp .tag { font-weight: 700; margin: 0 0 6px; font-size: .85rem; }
+.nav-links a { margin-right: 16px; }
+.decide { background: #fff8; border: 1px solid #0003; border-radius: 12px; padding: 14px 18px; max-width: 80ch; }
+/* "AnyList app" imitation for the naming page */
+.al { background: #212226; color: #fff; font-family: Roboto, system-ui, sans-serif; }
+.al .top { padding: 14px 16px; border-bottom: 1px solid #0006; } .al .top b { font-size: 1.15rem; display: block; } .al .top span { color: #b9bbc2; font-size: .9rem; }
+.al .item { padding: 13px 16px; border-bottom: 1px solid #ffffff22; font-size: 1.05rem; } .al .item small { color: #9a9ca3; font-size: .9rem; } .al .item.sub small { display: block; margin-top: 2px; }
+.al .item .bad { background: #7a2a2a; border-radius: 4px; padding: 0 3px; } .al .item .good { background: #1f5d3a; border-radius: 4px; padding: 0 3px; }
+
+.frame .pad { padding: var(--sp-4); }
+.frame .hint { font-size: var(--text-sm); color: var(--text-dim); margin: var(--sp-1) 0 var(--sp-3); }
+.frame .preview { font-size: var(--text-sm); border-left: 3px solid var(--accent); padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2, transparent); margin: var(--sp-3) 0; }
+.frame .dir { text-align: center; color: var(--text-dim); font-size: var(--text-sm); margin: var(--sp-1) 0; }
+.frame .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0; font-size: var(--text-sm); }
+.frame .sentence input { width: 4.2rem; }
+.frame .tag-on { font-size: var(--text-xs, 12px); border: 1px solid var(--success); color: var(--success); border-radius: 999px; padding: 0 var(--sp-2); margin-left: var(--sp-2); white-space: nowrap; }
+.frame .box { border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-3); margin: var(--sp-3) 0; }
+.frame .section-list a { display: flex; justify-content: space-between; align-items: flex-start; padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); }
+.frame .section-list .sub { display: block; font-size: var(--text-sm); color: var(--text-dim); font-weight: 400; }
+.frame .section-list .count { white-space: nowrap; }
+.frame .section-list .name { font-weight: 600; }
+.frame .h3s { margin: 0 0 var(--sp-2); }
+.frame .row-line { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+</style></head><body><div class="mock-wrap">
+<p class="nav-links"><a href="index.html">&larr; All clarity mockups</a><a href="settings.html">Settings</a><a href="checklist.html">Checklist &amp; push</a><a href="plan-recipes.html">Plan, recipes, status</a></p>
+<h1 class="mock">Checklist & push — plain language</h1><p class="lede">Wording and small markup only; no new screens. Every statement here was checked against the push/consolidation code.</p><section class="scene"><h2>1. Checklist — what the buttons do and what gets sent</h2><p class="note">Nothing on screen said that a row you don’t tap isn’t sent, that the ✓ means “already on AnyList”, or what “~” and “2 × …” were. Now: one helper line, an “On AnyList” tag, “Buy … · recipes need …”, and a push line in plain words. Push is disabled with nothing to send (“Mark something as Need it first”).</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sync-note"><span class="sync-dot"></span>Checked against AnyList as of this page load — items already on the list are pre-ticked.</div><div class="sub-group-heading">Ingredients</div><div class="checklist-row"><div class="main"><div class="name">Cottage cheese ▾</div><div class="meta">2 × 500g tub · need ~800 g</div></div><div class="have-need-pair"><button class="have-need-btn have">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="checklist-row"><div class="main"><div class="name">Milk ✓ ▾</div><div class="meta">2 L</div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="true">Have it</button><button class="have-need-btn need">Need it</button></div></div><div class="checklist-row"><div class="main"><div class="name">Lime ▾</div><div class="meta">5</div></div><div class="have-need-pair"><button class="have-need-btn have">Have it</button><button class="have-need-btn need">Need it</button></div></div><div class="muted">2 ingredient(s) + 1 of 2 usual(s) selected will go on the list.</div><div class="sticky-actions"><button class="primary btn-block">Push to AnyList</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><h2>Shopping checklist</h2><div class="sync-note"><span class="sync-dot"></span>Checked against AnyList when this page opened. Items already on your AnyList are set to “Have it”, so they won’t be sent again.</div><div class="hint">Tap “Need it” for what you want sent to AnyList. “Have it” skips it. A row you don’t tap is not sent.</div><div class="sub-group-heading">Ingredients</div><div class="checklist-row"><div class="main"><div class="name">Cottage cheese ▾</div><div class="meta">Buy 2 × 500g tub · recipes need 800 g</div></div><div class="have-need-pair"><button class="have-need-btn have">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="checklist-row"><div class="main"><div class="name">Milk ▾<span class="tag-on">On AnyList</span></div><div class="meta">2 L</div></div><div class="have-need-pair"><button class="have-need-btn have" aria-pressed="true">Have it</button><button class="have-need-btn need">Need it</button></div></div><div class="checklist-row"><div class="main"><div class="name">Lime ▾</div><div class="meta">5</div></div><div class="have-need-pair"><button class="have-need-btn have">Have it</button><button class="have-need-btn need">Need it</button></div></div><div class="muted">2 ingredients and 1 regular item will be sent to AnyList. 1 ingredient still needs an amount chosen (under “Needs review”).</div><div class="sticky-actions"><button class="primary btn-block">Send 3 items to AnyList</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>2. Ingredient panel — plain chip names and a true scope label</h2><p class="note">“Always for this recipe” was false (it only saves a suggestion; nothing changes). Chip names drop “Alias” and “Coarse item”, and every “Always” says where it is saved.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><div class="checklist-row"><div class="main"><div class="name">Greek yoghurt ▾</div><div class="meta">500 g</div></div><div class="have-need-pair"><button class="have-need-btn have">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="log-controls"><button class="btn-sm">Pack size</button> <button class="btn-sm">Substitute</button> <button class="btn-sm">Alias</button> <button class="btn-sm">Coarse item</button> <button class="btn-sm">Merge</button> </div><div class="swap-panel"><div class="hdr">Substitute this ingredient</div><div class="mini-field"><label>Use instead</label><input type="text"></div><div class="persist-toggle"><button class="persist-btn on">This list only</button><button class="persist-btn">Always (edits Settings)</button></div><div class="persist-toggle"><button class="persist-btn">Always for this recipe</button></div><button class="btn-sm primary">Save</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><div class="checklist-row"><div class="main"><div class="name">Greek yoghurt ▾</div><div class="meta">500 g</div></div><div class="have-need-pair"><button class="have-need-btn have">Have it</button><button class="have-need-btn need" aria-pressed="true">Need it</button></div></div><div class="log-controls"><button class="btn-sm">How it’s sold</button> <button class="btn-sm">Swap for another</button> <button class="btn-sm">Same as another name</button> <button class="btn-sm">Buy by the bunch</button> <button class="btn-sm">Combine with another row</button> </div><div class="swap-panel"><div class="hdr">Use something else instead of “Greek yoghurt”</div><div class="mini-field"><label>Use this instead</label><input type="text"></div><div class="persist-toggle"><button class="persist-btn on">Just this plan</button><button class="persist-btn">Always — every plan (saved in Settings → Same item, different names)</button></div><div class="persist-toggle"><button class="persist-btn">Always (saves a suggestion for next time — doesn’t change this list)</button></div><div class="hint">“Just this plan” changes this checklist only. “Always” saves a suggestion in Settings → Saved ingredient swaps; it never changes a recipe or this list by itself.</div><button class="btn-sm primary">Save</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>3. Combining rows — which name wins, what happens to the amounts</h2><p class="note">States the direction, that amounts are added, what the ratio does and when it doesn’t apply (the app now also reports the lines it skipped).</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="inline-card"><div class="title">Merge these ingredients</div><div class="muted">parmesans + parmesan → parmesan</div><div class="mini-field"><label>Keep which name?</label><input type="text"></div><a class="btn-link">Not the same amount? Set the equivalent</a><div class="ing-grid" style="grid-template-columns:repeat(4,1fr)"><div class="mini-field"><label>This amount</label><input type="text"></div><div class="mini-field"><label>Unit</label><input type="text"></div><div class="mini-field"><label>= Kept amount</label><input type="text"></div><div class="mini-field"><label>Unit (blank = count)</label><input type="text"></div></div><button class="primary">Merge for this shopping list only</button><button>Merge every time — all future recipes</button></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="inline-card"><div class="title">Combine these into one ingredient</div><div class="muted">“parmesans” and “parmesan” → shown as <b>“parmesan”</b>. Amounts are added together. If they’re in different kinds of unit you’ll be asked how to count them.</div><div class="mini-field"><label>Show the combined item as</label><input type="text"></div><a class="btn-link">Different measures? Tell us how they compare</a><div class="sentence"><input placeholder="1"> <input placeholder="tbsp"> <span>of each other item =</span> <input placeholder="0.5"> <input placeholder="(whole)"> <span>of “parmesan”</span></div><div class="hint">Only used for lines measured in that unit; the others are added as they are.</div><button class="primary">Combine for this plan only</button><button>Always combine — in every plan and recipe</button><div class="hint">“Always” is saved in Settings → Same item, different names, where you can remove it.</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>4. Needs review — nothing is forced to be thrown away</h2><p class="note">New “Buy all of them” (built); clearer heading and button names.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><div class="sub-group-heading">Needs review — pick one amount</div><div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">100 g + 200 ml</div></div></div><div class="log-controls"><button class="btn-sm">use 100 g</button><button class="btn-sm">use 200 ml</button></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="card"><div class="sub-group-heading">Different units — choose how much to buy</div><div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">Recipes need 100 g and 200 ml — these can’t be added together</div></div></div><div class="log-controls"><button class="btn-sm">Buy 100 g</button><button class="btn-sm">Buy 200 ml</button><button class="btn-sm primary">Buy all of them</button></div><div class="hint">“Buy all of them” keeps both amounts in the AnyList note. Picking one drops the other.</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section><section class="scene"><h2>5. “Push again” and the regular-items card</h2><p class="note">The old text left out that crossed-off items come back and amounts are replaced — both true of the code. Regular items get an Undo and say when they’re sent.</p><div class="cmp"><div><p class="tag">Before (today)</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="inline-card warn"><div class="title">Already pushed to AnyList</div><div>Pushing again checks the list and only changes what’s different — items already there are left alone.</div><div class="log-controls"><button class="primary">Push again</button><button>Not now</button></div></div><div class="usual-card skipped"><div class="q">Milk — you restock this every 7 days</div><div class="skipped-note">Added to this session’s push.</div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div><div><p class="tag">After</p><div class="framewrap"><div class="cap">dark</div><div class="frame theme-dark "><header class="app-header"><h1>Checklist</h1></header><div class="pad"><div class="inline-card warn"><div class="title">Already sent to AnyList</div><div>Sending again checks AnyList and only changes what’s different. Items already there with the same amount are left alone; an item whose amount is different has its amount replaced; and anything you’ve crossed off on AnyList that is still marked Need it is put back on the list.</div><div class="log-controls"><button class="primary">Send again</button><button>Not now</button></div></div><div class="usual-card skipped"><div class="q">Milk — you restock this every 7 days</div><div class="skipped-note">Will be sent to AnyList when you tap Send. <a class="btn-link">Undo</a></div></div></div><nav class="bottom-nav"><a class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a><a class="nav-item"><span class="nav-icon">📖</span><span class="nav-label">Recipes</span></a><a class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Plan</span></a><a class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a><a class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Diagnostics</span></a></nav></div></div></div></div></section></div></body></html>
