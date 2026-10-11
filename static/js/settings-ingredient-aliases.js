@@ -66,14 +66,38 @@
     var aunit = txt(row.alias_unit);
     var cqty = num(row.canonical_qty);
     var cunit = txt(row.canonical_unit);
-    var grid = el("div", "ing-grid");
-    grid.style.gridTemplateColumns = "1fr 1fr 1fr 1fr";
-    grid.appendChild(miniField("Alias amount", aqty));
-    grid.appendChild(miniField("Alias unit", aunit));
-    grid.appendChild(miniField("= Canonical amount", cqty));
-    grid.appendChild(miniField("Canonical unit (blank = count)", cunit));
+    if (!row.id) {
+      // the add form shows an example; saved rows show their own values
+      aqty.placeholder = "3";
+      aunit.placeholder = "tbsp";
+      cqty.placeholder = "1";
+      cunit.placeholder = "whole";
+    }
+    // "N unit = M unit" as two labelled rows, so which side is the recipe's and which the
+    // shopping list's is stated rather than implied by position (docs/ui-ux.md > Plain language
+    // & no ambiguity). The fields stack on a phone, so the labels never say left/right.
+    var box = el("div", "pair-box");
+    box.appendChild(el("div", "settings-sub-head", "Change the amount too? (optional)"));
+    var r1 = el("div", "pair-row");
+    r1.appendChild(el("span", null, "When a recipe says"));
+    r1.appendChild(aqty);
+    r1.appendChild(aunit);
+    var r2 = el("div", "pair-row");
+    r2.appendChild(el("span", null, "count it as"));
+    r2.appendChild(cqty);
+    r2.appendChild(cunit);
+    box.appendChild(r1);
+    box.appendChild(r2);
+    box.appendChild(
+      el(
+        "div",
+        "muted",
+        "Only used when the recipe measures it in exactly that unit. Otherwise only the name " +
+          "changes. Leave all four blank to only rename. Leave the last unit blank for whole items."
+      )
+    );
     return {
-      grid: grid,
+      grid: box,
       values: function () {
         var aq = parseFloat(aqty.value);
         var cq = parseFloat(cqty.value);
@@ -84,6 +108,12 @@
           canonical_unit: cunit.value.trim() || null,
         };
       },
+      // True when exactly one of the two amounts is filled: the server clears a half pair, so
+      // say so before it silently does (docs/ui-ux.md rule 7).
+      halfFilled: function () {
+        return (parseFloat(aqty.value) > 0) !== (parseFloat(cqty.value) > 0);
+      },
+      inputs: [aqty, aunit, cqty, cunit],
     };
   }
 
@@ -118,12 +148,16 @@
 
     var pair = pairFields(row);
 
-    var saveBtn = el("button", "btn-sm primary", "Save");
-    var deleteBtn = el("button", "btn-link-danger", "Delete");
+    var saveBtn = el("button", "btn-sm primary", "Save changes");
+    var deleteBtn = el("button", "btn-link-danger", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
       rowErr.textContent = "";
+      if (pair.halfFilled()) {
+        rowErr.textContent = "Fill in both amounts, or leave all four blank.";
+        return;
+      }
       var payload = { note: noteInput.value.trim() || null };
       var p = pair.values();
       payload.alias_qty = p.alias_qty;
@@ -146,6 +180,7 @@
 
     global.SettingsRowActions.wireDelete(deleteBtn, {
       label: row.alias_name,
+      consequence: "It shows as itself again.",
       row: wrap,
       doDelete: function () {
         return api.settings.ingredientAliases.delete(row.id);
@@ -176,11 +211,10 @@
     nameLine.style.cssText = "display:flex;gap:8px;align-items:center";
     nameInput.style.flex = "1";
     nameLine.appendChild(nameInput);
-    var TAGS = { merge: ["merge", "from a checklist merge"], system: ["system", "built-in"] };
+    var TAGS = { merge: ["merge", "Added from a checklist combine"], system: ["system", "Built in"] };
     if (TAGS[row.source]) nameLine.appendChild(el("span", "source-tag " + TAGS[row.source][0], TAGS[row.source][1]));
-    wrap.appendChild(miniField("Ingredient name (fixed — delete and re-add to rename)", nameLine));
-    wrap.appendChild(miniField("Note", noteInput));
-    wrap.appendChild(el("div", "settings-sub-head", "Amount conversion (optional)"));
+    wrap.appendChild(miniField("When a recipe says (fixed — remove and re-add to change)", nameLine));
+    wrap.appendChild(miniField("Note (only shown here)", noteInput));
     wrap.appendChild(pair.grid);
     var actions = el("div", "settings-row-actions-line");
     actions.appendChild(deleteBtn);
@@ -192,7 +226,7 @@
 
   function renderAddRow(onAdded) {
     var wrap = el("div", "settings-add-card");
-    wrap.appendChild(el("div", "settings-add-title", "Add a new group"));
+    wrap.appendChild(el("div", "settings-add-title", "Add one"));
 
     var aliasInput = el("input");
     aliasInput.type = "text";
@@ -210,7 +244,7 @@
     noteInput.className = "settings-notes-input";
 
     var pair = pairFields();
-    var addBtn = el("button", "btn-sm primary", "Group these");
+    var addBtn = el("button", "btn-sm primary", "Save this name group");
     var rowErr = el("span", "form-error");
 
     addBtn.addEventListener("click", function () {
@@ -218,7 +252,11 @@
       var alias = aliasInput.value.trim();
       var canonical = canonicalInput.value.trim();
       if (!alias || !canonical) {
-        rowErr.textContent = "Both names are required.";
+        rowErr.textContent = "Fill in what the recipe says and what the shopping list shows.";
+        return;
+      }
+      if (pair.halfFilled()) {
+        rowErr.textContent = "Fill in both amounts, or leave all four blank.";
         return;
       }
       var p = pair.values();
@@ -240,11 +278,34 @@
         });
     });
 
-    wrap.appendChild(miniField("Ingredient name", aliasInput));
-    wrap.appendChild(el("span", "muted", "="));
-    wrap.appendChild(miniField("Same shopping item as", canonicalInput));
-    wrap.appendChild(miniField("Note", noteInput));
+    // A live sentence of exactly what will happen, so the direction can't be misread.
+    var preview = el("div", "pair-preview muted");
+    function updatePreview() {
+      var a = aliasInput.value.trim();
+      var c = canonicalInput.value.trim();
+      if (!a || !c) {
+        preview.textContent = "";
+        return;
+      }
+      var p = pair.values();
+      var txt = "“" + a + "” in a recipe will show as “" + c + "” on your shopping list.";
+      if (p.alias_qty != null && p.canonical_qty != null) {
+        txt +=
+          " " + p.alias_qty + (p.alias_unit ? " " + p.alias_unit : "") + " " + a + " becomes " +
+          p.canonical_qty + (p.canonical_unit ? " " + p.canonical_unit : "") + " " + c + ".";
+      }
+      preview.textContent = txt;
+    }
+    [aliasInput, canonicalInput].concat(pair.inputs).forEach(function (i) {
+      i.addEventListener("input", updatePreview);
+    });
+
+    wrap.appendChild(miniField("When a recipe says", aliasInput));
+    wrap.appendChild(el("div", "pair-dir muted", "↓ show it on my shopping list as"));
+    wrap.appendChild(miniField("Shopping list shows", canonicalInput));
     wrap.appendChild(pair.grid);
+    wrap.appendChild(preview);
+    wrap.appendChild(miniField("Note (only shown here)", noteInput));
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
     actions.appendChild(addBtn);
@@ -255,16 +316,14 @@
 
   function renderCard(root) {
     var card = el("div", "card");
-    card.appendChild(el("h2", null, "Ingredient groups"));
+    card.appendChild(el("h2", null, "Same item, different names"));
     card.appendChild(
       el(
         "div",
         "muted",
-        "Ingredients that are the same thing to you, shown as one line on the shopping list " +
-          "— e.g. “canola oil” and “oil spray” grouped under “vegetable oil”, or “lemon juice” " +
-          "grouped under “lemon” with an optional amount conversion (leave the amount fields " +
-          "blank for a plain rename). This never changes a recipe's own ingredient list, and " +
-          "adding a group applies to every existing recipe immediately, not just future ones."
+        "Whenever a recipe says the “When a recipe says” name, your shopping list shows the " +
+          "“Shopping list shows” name instead. Recipes themselves aren’t changed. Applies to " +
+          "every recipe, existing and new."
       )
     );
 
@@ -288,14 +347,14 @@
           addSlot.innerHTML = "";
           var groups = groupByCanonical(data.items);
           if (groups.length === 0) {
-            listBody.appendChild(el("div", "empty-state", "No groups yet — add one below."));
+            listBody.appendChild(el("div", "empty-state", "No name groups yet — add one below."));
           } else {
             groups.forEach(function (group) {
               var groupCard = el("div", "settings-group-card");
               var head = el("div", "settings-group-head");
               head.appendChild(el("span", "settings-group-name", group.canonical_name));
               var count = group.rows.length;
-              head.appendChild(el("span", "settings-group-count", count + (count === 1 ? " alias" : " aliases")));
+              head.appendChild(el("span", "settings-group-count", "shown as this · " + count + (count === 1 ? " name" : " names")));
               groupCard.appendChild(head);
               group.rows.forEach(function (row) {
                 groupCard.appendChild(renderAliasRow(row, load));
@@ -307,7 +366,7 @@
         })
         .catch(function (err) {
           listBody.innerHTML = "";
-          listBody.appendChild(el("div", "error-state", "Couldn't load ingredient groups: " + err.message));
+          listBody.appendChild(el("div", "error-state", "Couldn't load the name groups: " + err.message));
         });
     }
 

@@ -86,8 +86,8 @@
     notesInput.value = unit.notes || "";
     notesInput.className = "settings-notes-input";
 
-    var saveBtn = el("button", "btn-sm primary", "Save");
-    var deleteBtn = el("button", "btn-link-danger", "Delete");
+    var saveBtn = el("button", "btn-sm primary", "Save changes");
+    var deleteBtn = el("button", "btn-link-danger", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
@@ -142,14 +142,14 @@
       },
     });
 
-    if (unit.is_preseeded) row.appendChild(el("span", "muted", "Seeded"));
-    row.appendChild(miniField("Pack label", labelInput));
+    if (unit.is_preseeded) row.appendChild(el("span", "muted", "Built in"));
+    row.appendChild(miniField("Pack name (as you’d say it)", labelInput));
     var grid2 = el("div", "ing-grid");
     grid2.style.gridTemplateColumns = "1fr 1fr";
-    grid2.appendChild(miniField("Pack quantity", qtyInput));
-    grid2.appendChild(miniField("Unit", unitInput));
+    grid2.appendChild(miniField("Amount in one pack", qtyInput));
+    grid2.appendChild(miniField("Unit (blank = a count)", unitInput));
     row.appendChild(grid2);
-    row.appendChild(miniField("Notes", notesInput));
+    row.appendChild(miniField("Note (only shown here)", notesInput));
     var actions = el("div", "settings-row-actions-line");
     actions.appendChild(deleteBtn);
     actions.appendChild(saveBtn);
@@ -187,7 +187,7 @@
 
     var count = group.rows.length;
     var countText = count + (count === 1 ? " pack size" : " pack sizes");
-    if (group.rows.some(function (r) { return r.is_preseeded; })) countText += " · Seeded";
+    if (group.rows.some(function (r) { return r.is_preseeded; })) countText += " · Built in";
     head.appendChild(el("span", "settings-group-count", countText));
 
     card.appendChild(head);
@@ -202,12 +202,12 @@
     root.innerHTML = "";
     root.appendChild(global.BackLink.render("settings"));
     var card = el("div", "card");
-    card.appendChild(el("h2", null, "Product units"));
+    card.appendChild(el("h2", null, "Pack sizes"));
     card.appendChild(
       el(
         "div",
         "muted",
-        "How each ingredient is actually bought, e.g. eggs as a dozen. Used to turn a scaled quantity into a shopping-list amount. An ingredient with more than one pack size groups into one card."
+        "The sizes you buy each ingredient in, e.g. eggs by the dozen. Your list then says “2 × 500g tub” instead of “900 g”. Use the unit your recipes use (g, kg, ml, l, cup, tbsp, tsp, or blank for a count); another unit only matches a recipe that uses exactly that word."
       )
     );
 
@@ -227,7 +227,7 @@
     nameInput.placeholder = "e.g. beef mince";
     var labelInput = el("input");
     labelInput.type = "text";
-    labelInput.placeholder = "e.g. 500g pack";
+    labelInput.placeholder = "e.g. 500g tub";
     var qtyInput = el("input");
     qtyInput.type = "number";
     qtyInput.step = "any";
@@ -239,17 +239,17 @@
     var notesInput = el("input");
     notesInput.type = "text";
     notesInput.placeholder = "optional";
-    var addBtn = el("button", "btn-sm primary", "Add");
+    var addBtn = el("button", "btn-sm primary", "Add this pack size");
     var addErr = el("span", "form-error");
 
-    addCard.appendChild(miniField("Ingredient", nameInput));
-    addCard.appendChild(miniField("Pack label", labelInput));
+    addCard.appendChild(miniField("Ingredient (as written in your recipes)", nameInput));
+    addCard.appendChild(miniField("Pack name (as you’d say it)", labelInput));
     var addGrid2 = el("div", "ing-grid");
     addGrid2.style.gridTemplateColumns = "1fr 1fr";
-    addGrid2.appendChild(miniField("Pack quantity", qtyInput));
-    addGrid2.appendChild(miniField("Unit", unitInput));
+    addGrid2.appendChild(miniField("Amount in one pack", qtyInput));
+    addGrid2.appendChild(miniField("Unit (blank = a count)", unitInput));
     addCard.appendChild(addGrid2);
-    addCard.appendChild(miniField("Notes", notesInput));
+    addCard.appendChild(miniField("Note (only shown here)", notesInput));
     var addActions = el("div", "settings-row-actions-line");
     addActions.style.justifyContent = "flex-start";
     addActions.appendChild(addBtn);
@@ -265,7 +265,7 @@
           listBody.innerHTML = "";
           var groups = groupByIngredient(data.items);
           if (groups.length === 0) {
-            listBody.appendChild(el("div", "empty-state", "No product units yet."));
+            listBody.appendChild(el("div", "empty-state", "No pack sizes yet. Add one below."));
           } else {
             groups.forEach(function (group) {
               listBody.appendChild(renderGroupCard(group, load));

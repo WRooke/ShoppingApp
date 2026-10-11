@@ -50,15 +50,15 @@
       row.is_due ? "due now" : "not due"
     );
 
-    var saveBtn = el("button", "btn-sm primary", "Save");
-    var deleteBtn = el("button", "btn-sm", "Delete");
+    var saveBtn = el("button", "btn-sm primary", "Save changes");
+    var deleteBtn = el("button", "btn-sm", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
       rowErr.textContent = "";
       var cadence = parseInt(cadenceInput.value, 10);
       if (isNaN(cadence) || cadence < 1) {
-        rowErr.textContent = "Cadence must be a whole number of days (1 or more).";
+        rowErr.textContent = "Enter how many days between purchases (a whole number, 1 or more).";
         return;
       }
       api.settings.usuals

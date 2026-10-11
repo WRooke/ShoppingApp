@@ -149,7 +149,7 @@ def test_clearing_a_usual_items_note_persists_after_reload(browser, api, server_
         "notesInput.value='';"
         "notesInput.dispatchEvent(new Event('input',{bubbles:true}));"
         "notesInput.dispatchEvent(new Event('change',{bubbles:true}));"
-        "var saveBtn=Array.from(row.querySelectorAll('button')).find(function(b){return b.textContent==='Save';});"
+        "var saveBtn=Array.from(row.querySelectorAll('button')).find(function(b){return b.textContent==='Save changes';});"
         "if(!saveBtn) return 'SAVE_BUTTON_NOT_FOUND';"
         "saveBtn.click();"
         "return 'OK';"
@@ -220,7 +220,7 @@ def test_ingredient_alias_group_shows_count_and_fixed_name_field(browser, api, s
     )
     assert result != "GROUP_NOT_FOUND", result
     parsed = json.loads(result)
-    assert "2" in parsed["count"] and "alias" in parsed["count"]
+    assert "2" in parsed["count"] and "name" in parsed["count"]
     assert parsed["disabled"] is True
     assert not browser.console_errors(), browser.console_errors()
 
@@ -443,7 +443,7 @@ def test_pack_size_chip_resolves_this_session_and_preserves_other_items(browser,
         "inputs[2].value='g'; inputs[2].dispatchEvent(new Event('input',{bubbles:true}));"
         # Scoped to .persist-actions -- the chip's own toggle buttons (This list only /
         # Always) are also <button> elements sharing the form, just not this one.
-        "var saveBtn=Array.from(form.querySelectorAll('.persist-actions button')).find(function(b){return b.textContent==='Save';});"
+        "var saveBtn=Array.from(form.querySelectorAll('.persist-actions button')).find(function(b){return b.textContent==='Save changes';});"
         "if(!saveBtn) return 'SAVE_BUTTON_NOT_FOUND';"
         "saveBtn.click();"
         "return 'OK';"
@@ -669,7 +669,7 @@ def test_alias_chip_this_list_only_default_survives_reload(browser, api, server_
         "panel.querySelector('input').value=name;"
         "panel.querySelector('input').dispatchEvent(new Event('input',{bubbles:true}));"
         "var saveBtn=Array.from(panel.parentElement.querySelectorAll('.persist-actions button'))"
-        ".find(function(b){return b.textContent==='Save';});"
+        ".find(function(b){return b.textContent==='Save changes';});"
         "if(!saveBtn) return 'SAVE_BUTTON_NOT_FOUND';"
         "saveBtn.click();"
         "return 'OK';"

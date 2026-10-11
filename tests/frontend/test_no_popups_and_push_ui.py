@@ -286,7 +286,7 @@ def test_merge_every_time_creates_a_tagged_group_and_settings_shows_where_it_cam
     browser.eval("window.__keep = true;")
     browser.navigate(f"{server_url}/#/settings/ingredient-aliases")
     assert _wait(browser, "Array.from(document.querySelectorAll('.source-tag.merge')).length >= 1", timeout=10)
-    assert "from a checklist merge" in browser.text(".source-tag.merge")
+    assert "Added from a checklist combine" in browser.text(".source-tag.merge")
 
     _no_native(browser)
 

@@ -17,6 +17,7 @@
   //   doDelete()  — the actual DELETE call, returns a promise
   //   recreate()  — called only if Undo is tapped; re-POSTs the row, returns a promise
   //                 resolving to the newly-created object
+  //   consequence — optional plain sentence on what removing changed (shown in the toast)
   //   row         — the row's own DOM element, removed in place on success
   //   onRestored(created) — appends a freshly-rendered row for the recreated object
   //   onError(err) — optional; called (with the button re-enabled) if the delete itself fails
@@ -41,7 +42,10 @@
                 });
               });
           }
-          global.Toast.show('Deleted "' + opts.label + '"', { actionLabel: "Undo", onAction: undo });
+          global.Toast.show(
+            "Removed “" + opts.label + "”." + (opts.consequence ? " " + opts.consequence : ""),
+            { actionLabel: "Undo", onAction: undo }
+          );
         })
         .catch(function (err) {
           deleteBtn.disabled = false;

@@ -55,12 +55,28 @@
     var ounit = txt(row.original_unit);
     var sqty = num(row.substitute_qty);
     var sunit = txt(row.substitute_unit);
-    var grid = el("div", "ing-grid");
-    grid.style.gridTemplateColumns = "1fr 1fr 1fr 1fr";
-    grid.appendChild(miniField("Original amount", oqty));
-    grid.appendChild(miniField("Original unit", ounit));
-    grid.appendChild(miniField("Substitute amount", sqty));
-    grid.appendChild(miniField("Substitute unit", sunit));
+    if (!row.id) {
+      oqty.placeholder = "2";
+      ounit.placeholder = "can";
+      sqty.placeholder = "350";
+      sunit.placeholder = "g";
+    }
+    // Two labelled rows, not four bare boxes (docs/ui-ux.md > Plain language & no ambiguity).
+    var grid = el("div", "pair-box");
+    grid.appendChild(el("div", "settings-sub-head", "How much? (optional)"));
+    var r1 = el("div", "pair-row");
+    r1.appendChild(el("span", null, "When a recipe needs"));
+    r1.appendChild(oqty);
+    r1.appendChild(ounit);
+    var r2 = el("div", "pair-row");
+    r2.appendChild(el("span", null, "buy instead"));
+    r2.appendChild(sqty);
+    r2.appendChild(sunit);
+    grid.appendChild(r1);
+    grid.appendChild(r2);
+    grid.appendChild(
+      el("div", "muted", "Fill in all four, or leave all four blank to keep the amount as written.")
+    );
     return {
       grid: grid,
       values: function () {
@@ -106,8 +122,8 @@
 
     var pair = pairFields(row);
 
-    var saveBtn = el("button", "btn-sm primary", "Save");
-    var deleteBtn = el("button", "btn-sm", "Delete");
+    var saveBtn = el("button", "btn-sm primary", "Save changes");
+    var deleteBtn = el("button", "btn-sm", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
@@ -162,10 +178,10 @@
       },
     });
 
-    wrap.appendChild(el("span", "muted", "→"));
-    wrap.appendChild(miniField("Buy instead", subInput));
+    wrap.appendChild(el("div", "pair-dir muted", "↓ buy this instead"));
+    wrap.appendChild(miniField("Buy this instead", subInput));
     wrap.appendChild(pair.grid);
-    wrap.appendChild(miniField("Note", noteInput));
+    wrap.appendChild(miniField("Note (only shown here)", noteInput));
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
     actions.appendChild(saveBtn);
@@ -194,7 +210,7 @@
     noteInput.className = "settings-notes-input";
 
     var pair = pairFields();
-    var addBtn = el("button", "btn-sm primary", "Save swap");
+    var addBtn = el("button", "btn-sm primary", "Save this swap");
     var rowErr = el("span", "form-error");
 
     addBtn.addEventListener("click", function () {
@@ -202,7 +218,7 @@
       var original = origInput.value.trim();
       var substitute = subInput.value.trim();
       if (!original || !substitute) {
-        rowErr.textContent = "Both ingredient names are required.";
+        rowErr.textContent = "Fill in both ingredients.";
         return;
       }
       var p = pair.values();
@@ -224,11 +240,11 @@
         });
     });
 
-    wrap.appendChild(miniField("Hard-to-find ingredient", origInput));
-    wrap.appendChild(el("span", "muted", "→"));
-    wrap.appendChild(miniField("Buy instead", subInput));
+    wrap.appendChild(miniField("If a recipe calls for", origInput));
+    wrap.appendChild(el("div", "pair-dir muted", "↓ buy this instead"));
+    wrap.appendChild(miniField("Buy this instead", subInput));
     wrap.appendChild(pair.grid);
-    wrap.appendChild(miniField("Note", noteInput));
+    wrap.appendChild(miniField("Note (only shown here)", noteInput));
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
     actions.appendChild(addBtn);
@@ -244,7 +260,9 @@
       el(
         "div",
         "muted",
-        "Swaps you've saved for hard-to-find ingredients. These never apply on their own — they're offered as a quick pick when you review a recipe that uses that ingredient."
+        "“Buy this instead” choices you’ve saved. They are never applied automatically: when you " +
+          "review a recipe or edit an ingredient they’re offered as a one-tap suggestion. For a " +
+          "name that’s just the same item written differently, use “Same item, different names”."
       )
     );
 
@@ -269,7 +287,7 @@
           var groups = groupByOriginal(data.items);
           if (groups.length === 0) {
             listBody.appendChild(
-              el("div", "empty-state", "No saved swaps yet — save one while reviewing a recipe.")
+              el("div", "empty-state", "No saved swaps yet. One is saved when you tick “remember” on a swap in a recipe.")
             );
           } else {
             groups.forEach(function (group) {

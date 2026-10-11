@@ -20,12 +20,12 @@
   }
 
   var SECTIONS = [
-    { slug: "product-units", name: "Product units", count: function () { return api.settings.productUnits.list(); } },
-    { slug: "substitutions", name: "Substitutions", count: function () { return api.settings.substitutions.list(); } },
-    { slug: "usuals", name: "The usuals", count: function () { return api.settings.usuals.list(); } },
-    { slug: "ingredient-aliases", name: "Ingredient groups", count: function () { return api.settings.ingredientAliases.list(); } },
-    { slug: "unit-synonyms", name: "Unit spellings", count: function () { return api.settings.unitSynonyms.list(); } },
-    { slug: "coarse-ingredients", name: "Coarse ingredients", count: function () { return api.settings.coarseIngredients.list(); } },
+    { slug: "product-units", name: "Pack sizes", sub: "How each ingredient is sold, e.g. eggs by the dozen", count: function () { return api.settings.productUnits.list(); } },
+    { slug: "substitutions", name: "Saved ingredient swaps", sub: "“Buy this instead” suggestions", count: function () { return api.settings.substitutions.list(); } },
+    { slug: "usuals", name: "The usuals", sub: "Things you buy every few weeks", count: function () { return api.settings.usuals.list(); } },
+    { slug: "ingredient-aliases", name: "Same item, different names", sub: "A recipe name that shows as another on your list", count: function () { return api.settings.ingredientAliases.list(); } },
+    { slug: "unit-synonyms", name: "Unit spellings", sub: "e.g. tablespoon is the same as tbsp", count: function () { return api.settings.unitSynonyms.list(); } },
+    { slug: "coarse-ingredients", name: "Bought by the bunch", sub: "Count recipes, not amounts", count: function () { return api.settings.coarseIngredients.list(); } },
   ];
 
   function renderIndex(root) {
@@ -38,10 +38,12 @@
     card.appendChild(list);
     root.appendChild(card);
 
-    function row(name, countText, href) {
+    function row(name, countText, href, subText) {
       var a = el("a", null);
       a.href = href;
-      a.appendChild(el("span", "name", name));
+      var nameEl = el("span", "name", name);
+      if (subText) nameEl.appendChild(el("span", "sub", subText));
+      a.appendChild(nameEl);
       a.appendChild(el("span", "count muted", countText));
       list.appendChild(a);
       return a;
@@ -50,7 +52,7 @@
     row("Appearance", global.SettingsAppearanceView.label(), "#/settings/appearance");
 
     SECTIONS.forEach(function (s) {
-      var a = row(s.name, "…", "#/settings/" + s.slug);
+      var a = row(s.name, "…", "#/settings/" + s.slug, s.sub);
       var countEl = a.querySelector(".count");
       s.count()
         .then(function (data) {

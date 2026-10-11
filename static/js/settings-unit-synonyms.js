@@ -51,11 +51,12 @@
     var wrap = el("div", "settings-row");
     wrap.appendChild(el("span", "muted", row.alias_unit));
 
-    var deleteBtn = el("button", "btn-sm", "Delete");
+    var deleteBtn = el("button", "btn-sm", "Remove");
     var rowErr = el("span", "form-error");
 
     global.SettingsRowActions.wireDelete(deleteBtn, {
       label: row.alias_unit + " → " + row.canonical_unit,
+      consequence: "“" + row.alias_unit + "” is its own unit again.",
       row: wrap,
       doDelete: function () {
         return api.settings.unitSynonyms.delete(row.id);
@@ -92,7 +93,7 @@
     canonicalInput.placeholder = "e.g. tbsp";
     canonicalInput.className = "settings-name-input";
 
-    var addBtn = el("button", "btn-sm primary", "Treat as the same unit");
+    var addBtn = el("button", "btn-sm primary", "Save this spelling");
     var rowErr = el("span", "form-error");
 
     addBtn.addEventListener("click", function () {
@@ -100,7 +101,7 @@
       var alias = aliasInput.value.trim();
       var canonical = canonicalInput.value.trim();
       if (!alias || !canonical) {
-        rowErr.textContent = "Both units are required.";
+        rowErr.textContent = "Fill in both units.";
         return;
       }
       api.settings.unitSynonyms
@@ -113,9 +114,19 @@
         });
     });
 
-    wrap.appendChild(miniField("Unit as typed", aliasInput));
-    wrap.appendChild(el("span", "muted", "="));
-    wrap.appendChild(miniField("Same unit as", canonicalInput));
+    var preview = el("div", "pair-preview muted");
+    function updatePreview() {
+      var a = aliasInput.value.trim();
+      var c = canonicalInput.value.trim();
+      preview.textContent = a && c ? "“2 " + a + "” in a recipe will be counted as “2 " + c + "”." : "";
+    }
+    aliasInput.addEventListener("input", updatePreview);
+    canonicalInput.addEventListener("input", updatePreview);
+
+    wrap.appendChild(miniField("When a recipe says", aliasInput));
+    wrap.appendChild(el("div", "pair-dir muted", "↓ count it as"));
+    wrap.appendChild(miniField("Count it as", canonicalInput));
+    wrap.appendChild(preview);
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
     actions.appendChild(addBtn);
@@ -131,10 +142,9 @@
       el(
         "div",
         "muted",
-        "Units that are the same measurement, just spelled differently — e.g. “tablespoon” " +
-          "and “tbsp”, or “kgs” and “kg”. Plain plurals like “clove”/“cloves” are already " +
-          "handled automatically and don't need adding here. Applies to every existing " +
-          "recipe immediately, and never changes a recipe's own stored data."
+        "Whenever a recipe says the “When a recipe says” unit, your shopping list counts it as " +
+          "the “Count it as” unit. Plain plurals (clove / cloves) are already handled. " +
+          "Applies to every recipe, existing and new."
       )
     );
 
@@ -158,7 +168,7 @@
           addSlot.innerHTML = "";
           var groups = groupByCanonical(data.items);
           if (groups.length === 0) {
-            listBody.appendChild(el("div", "empty-state", "No custom spellings yet — add one below."));
+            listBody.appendChild(el("div", "empty-state", "No unit spellings added yet — add one below."));
           } else {
             groups.forEach(function (group) {
               listBody.appendChild(el("div", "sub-group-heading", group.canonical_unit));

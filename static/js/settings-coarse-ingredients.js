@@ -43,15 +43,15 @@
     perPackInput.title = "How many recipes needing this one pack is assumed to cover";
     perPackInput.className = "ingredient-qty-input";
 
-    var saveBtn = el("button", "btn-sm primary", "Save");
-    var deleteBtn = el("button", "btn-sm", "Delete");
+    var saveBtn = el("button", "btn-sm primary", "Save changes");
+    var deleteBtn = el("button", "btn-sm", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
       rowErr.textContent = "";
       var perPack = parseInt(perPackInput.value, 10);
       if (isNaN(perPack) || perPack < 1) {
-        rowErr.textContent = "Recipes per pack must be at least 1.";
+        rowErr.textContent = "One has to cover at least 1 recipe.";
         return;
       }
       api.settings.coarseIngredients
@@ -94,12 +94,13 @@
 
     var grid = el("div", "ing-grid");
     grid.style.gridTemplateColumns = "2fr 1fr";
-    grid.appendChild(miniField("Purchase label", labelInput));
-    grid.appendChild(miniField("Recipes per pack", perPackInput));
+    grid.appendChild(miniField("Sold as (blank = just list the name)", labelInput));
+    grid.appendChild(miniField("One covers how many recipes?", perPackInput));
     wrap.appendChild(grid);
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
-    actions.appendChild(el("span", "muted", row.name));
+    var nameEl = el("b", null, row.name);
+    actions.appendChild(nameEl);
     actions.appendChild(saveBtn);
     actions.appendChild(deleteBtn);
     actions.appendChild(rowErr);
@@ -117,8 +118,13 @@
 
     var labelInput = el("input");
     labelInput.type = "text";
-    labelInput.placeholder = "e.g. bunch (optional)";
+    labelInput.placeholder = "e.g. bunch";
     labelInput.className = "settings-name-input";
+
+    var perPackInput = el("input");
+    perPackInput.type = "number";
+    perPackInput.min = "1";
+    perPackInput.value = "3";
 
     var addBtn = el("button", "btn-sm primary", "Add");
     var rowErr = el("span", "form-error");
@@ -127,11 +133,16 @@
       rowErr.textContent = "";
       var name = nameInput.value.trim();
       if (!name) {
-        rowErr.textContent = "A name is required.";
+        rowErr.textContent = "Fill in the ingredient.";
+        return;
+      }
+      var perPack = parseInt(perPackInput.value, 10);
+      if (isNaN(perPack) || perPack < 1) {
+        rowErr.textContent = "One has to cover at least 1 recipe.";
         return;
       }
       api.settings.coarseIngredients
-        .create({ name: name, purchase_label: labelInput.value.trim() || null })
+        .create({ name: name, purchase_label: labelInput.value.trim() || null, recipes_per_pack: perPack })
         .then(function (created) {
           if (listBody.querySelector(".empty-state")) listBody.innerHTML = "";
           listBody.appendChild(renderRow(created, listBody));
@@ -145,9 +156,10 @@
 
     var grid = el("div", "ing-grid");
     grid.style.gridTemplateColumns = "1fr 1fr";
-    grid.appendChild(miniField("Ingredient name", nameInput));
-    grid.appendChild(miniField("Purchase label", labelInput));
+    grid.appendChild(miniField("Ingredient", nameInput));
+    grid.appendChild(miniField("Sold as (blank = just list the name)", labelInput));
     wrap.appendChild(grid);
+    wrap.appendChild(miniField("One covers how many recipes?", perPackInput));
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
     actions.appendChild(addBtn);
@@ -158,15 +170,13 @@
 
   function renderCard(root) {
     var card = el("div", "card");
-    card.appendChild(el("h2", null, "Coarse ingredients"));
+    card.appendChild(el("h2", null, "Bought by the bunch"));
     card.appendChild(
       el(
         "div",
         "muted",
-        "Ingredients where precise quantities aren't worth tracking — any recipe needing " +
-          "one resolves straight to a purchase count (e.g. “2 × bunch”), scaled by how many " +
-          "recipes use it, not by the amount each one calls for. Recipes per pack is a rough " +
-          "guess you can tune per ingredient."
+        "For things like parsley, where the amount in a recipe doesn’t matter: your list counts " +
+          "how many planned recipes use it. e.g. 1 bunch covers 3 recipes, so 4 recipes = 2 bunches."
       )
     );
 
@@ -188,7 +198,7 @@
         listBody.innerHTML = "";
         var items = data.items || [];
         if (items.length === 0) {
-          listBody.appendChild(el("div", "empty-state", "No coarse ingredients yet — add one below."));
+          listBody.appendChild(el("div", "empty-state", "Nothing bought by the bunch yet — add one below."));
         } else {
           items.forEach(function (row) {
             listBody.appendChild(renderRow(row, listBody));
