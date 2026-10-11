@@ -66,8 +66,28 @@
     return select;
   }
 
+  // An import that was read but not saved survives going Back (2026-10-11, Chunk 6.7): the AI call
+  // is paid for, and Back used to throw the whole extraction away. Held in sessionStorage (this tab
+  // only), cleared on save; capture.js offers it back as "Unsaved import — Continue / Discard".
+  var PENDING_KEY = "capture-pending-import";
+  function rememberPending(result) {
+    try { global.sessionStorage.setItem(PENDING_KEY, JSON.stringify(result)); } catch (_) {}
+  }
+  function clearPending() {
+    try { global.sessionStorage.removeItem(PENDING_KEY); } catch (_) {}
+  }
+  function loadPending() {
+    try {
+      var raw = global.sessionStorage.getItem(PENDING_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function mount(root, captureResult) {
     root.innerHTML = "";
+    rememberPending(captureResult);
 
     root.appendChild(global.BackLink.render("recipes"));
 
@@ -380,6 +400,7 @@
         .confirmCapture(payload)
         .then(function (saved) {
           draft.clear();
+          clearPending();
           // fire-and-forget the "save this swap" ticks — a duplicate is fine
           remembered.forEach(function (s) {
             api.settings.substitutions.create(s).catch(function (e) {
@@ -425,5 +446,6 @@
     });
   }
 
+  global.CaptureReviewPending = { load: loadPending, clear: clearPending };
   global.CaptureReviewView = { mount: mount };
 })(window);

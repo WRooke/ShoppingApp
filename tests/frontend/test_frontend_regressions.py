@@ -996,6 +996,31 @@ def test_saving_one_ingredient_keeps_unsaved_edits_in_the_other_rows(browser, ap
     assert not browser.console_errors(), browser.console_errors()
 
 
+def test_an_unsaved_import_is_offered_back_after_going_back(browser, server_url):
+    """2026-10-11, Chunk 6.7 — Back from the capture review screen threw the (paid-for) extraction
+    away. It is now held for the tab and offered as "Unsaved import — Continue / Discard"."""
+    browser.navigate(f"{server_url}/#/recipes/capture-url")
+    browser.wait_for('input[type="url"]')
+    browser.eval(
+        "window.api.recipes.captureUrl = function(){return Promise.resolve({title:'Held soup',"
+        "base_servings:4,ingredients:[{name:'lentils',quantity:200,unit:'g'}]});};"
+    )
+    browser.fill('input[type="url"]', "https://example.com/held")
+    browser.click("button.primary", contains="Fetch")
+    browser.wait_for(".ingredient-edit-list")
+
+    # the review screen shares the capture route, so leave it and come back
+    browser.navigate(f"{server_url}/#/recipes")
+    browser.wait_for(".recipe-row, .empty-state, .muted")
+    browser.navigate(f"{server_url}/#/recipes/capture-url")
+    browser.wait_for(".inline-card")
+    assert "Held soup" in browser.text(".inline-card")
+    browser.click(".inline-card button.primary", contains="Continue")
+    browser.wait_for(".ingredient-edit-list")
+    assert browser.eval("document.querySelector('.ingredient-edit-list input').value") != ""
+    assert not browser.console_errors(), browser.console_errors()
+
+
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
     """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe

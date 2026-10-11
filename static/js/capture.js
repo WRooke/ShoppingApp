@@ -127,9 +127,37 @@
     root.appendChild(card);
   }
 
+  // "Unsaved import" offer — shown above the form when an extraction was read but never saved
+  // (the user went Back from the review screen).
+  function pendingOffer(root) {
+    var pending = global.CaptureReviewPending && global.CaptureReviewPending.load();
+    if (!pending) return null;
+    var box = el("div", "inline-card");
+    box.appendChild(el("div", "title", "Unsaved import"));
+    box.appendChild(
+      el("div", null, "“" + (pending.title || "A recipe") + "” was read but not saved.")
+    );
+    var actions = el("div", "log-controls");
+    var cont = el("button", "primary", "Continue");
+    cont.addEventListener("click", function () {
+      global.CaptureReviewView.mount(root, pending);
+    });
+    var discard = el("button", null, "Discard");
+    discard.addEventListener("click", function () {
+      global.CaptureReviewPending.clear();
+      box.remove();
+    });
+    actions.appendChild(cont);
+    actions.appendChild(discard);
+    box.appendChild(actions);
+    return box;
+  }
+
   function mountUrl(root) {
     root.innerHTML = "";
     root.appendChild(global.BackLink.render("recipes"));
+    var offer = pendingOffer(root);
+    if (offer) root.appendChild(offer);
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Capture from a web page"));
@@ -215,6 +243,8 @@
   function mountPhoto(root) {
     root.innerHTML = "";
     root.appendChild(global.BackLink.render("recipes"));
+    var offerP = pendingOffer(root);
+    if (offerP) root.appendChild(offerP);
 
     var card = el("div", "card");
     card.appendChild(el("h2", null, "Capture from a photo"));

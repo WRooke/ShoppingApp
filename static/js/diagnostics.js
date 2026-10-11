@@ -423,7 +423,12 @@
     var logList = el("div", "log-list");
     logList.id = "diag-logs";
     logCard.appendChild(logList);
-    root.appendChild(logCard);
+    // The raw log is for whoever looks after the app: folded away so the page opens on the plain
+    // summary and the recent errors (docs/ui-ux.md > Plain language & no ambiguity).
+    var advanced = el("details", "advanced-details");
+    advanced.appendChild(el("summary", null, "Advanced"));
+    advanced.appendChild(logCard);
+    root.appendChild(advanced);
 
     refresh(root);
     state.timer = global.setInterval(function () {
