@@ -340,6 +340,26 @@ build safe (see the intro to this section).
   safety copy and tested restore path exist to backstop, not a substitute for getting the
   migration itself right.
 
+### API response-shape consistency (added 2026-10-11, Chunk 6.7)
+
+A schema the frontend caches (e.g. `ChecklistItemRead`) must come back **identical in shape and
+completeness from every endpoint that returns it** — the load endpoint and every mutation. The
+bug that prompted this: `recipe_breakdown` (an ephemeral, computed-per-request field) was only
+filled by `GET /checklist/{id}`; `PATCH …/items/{id}` returned the default `[]` and the client
+spliced it over the cached row, so the recipe list vanished.
+
+- **One builder per cached response shape** (`build_checklist_items(db, rows, breakdown)`);
+  routers never hand-assemble it. Ephemeral fields are computed by the same consolidation call
+  (`consolidate_session_with_breakdown`), not left to the default.
+- **`decorate()` is the only constructor for display fields** (`display_name`, `display_unit`…);
+  a bare `Schema.model_validate(row)` that skips it is a bug.
+- **A mutation that changes other rows returns all affected rows** (or the client reloads) —
+  never a single row whose siblings changed.
+- **Clients never `Object.assign` a response over richer cached state** — see
+  [UI state must not silently vanish](./ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67).
+- **Tests:** each mutation endpoint test asserts the *full* response shape (including
+  ephemeral fields), so a field only one endpoint fills fails loudly.
+
 ### Keep this document and the code pointing at each other
 - Keep doing what Phase 1 already does: a docstring or comment that names the relevant CLAUDE.md
   section (e.g. "see CLAUDE.md > Data Model") wherever code exists *because* of a decision made

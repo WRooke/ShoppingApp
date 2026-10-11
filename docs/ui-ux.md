@@ -54,6 +54,88 @@ primary or only way most of this data gets created or corrected day-to-day.
 - Error messages explain what went wrong and what to do: "Couldn't reach AnyList — check your
   connection and try again" not "Error 500".
 
+### Plain language & no ambiguity (2026-10-11, Chunk 6.7)
+
+**Rule: every piece of user-facing text must be unambiguous to a non-technical household member
+who has never seen the code.** Set after phone testing found an alias form where "what gets
+replaced by what" was unclear, followed by a whole-app copy audit that found the same defect
+in ~100 places. "Plain language" above is the aim; this section is the testable standard.
+Apply it to every new label, button, placeholder, toast, empty state, error and helper line.
+
+1. **Say what happens, and to what scope.** A control's text (or a line beside it) states
+   the *effect* and its *reach*: this recipe / this plan / every plan from now on; before or
+   after pushing to AnyList; reversible or not. "Save" and "Delete" alone are not enough on a
+   card whose effect is global.
+2. **State the direction of any "A becomes B" relationship, in words.** Never a bare `=`, `→`,
+   `≈`. Forms that define a rename/swap/conversion show a live preview sentence, e.g.
+   "“lemon juice” in a recipe will appear as “lemon” on your shopping list."
+3. **No jargon.** Do not show: alias, canonical, coarse, session, product unit, extract, queue,
+   quota, equivalence, base servings, section (use *aisle*). Use the vocabulary table below.
+4. **No bare symbols or colour-only meaning.** `✓`, `▾`, `▴`, `›`, `≈`, `×`, `~` need words or
+   a visible legend; icon-only buttons need visible text or at least `aria-label` + `title`.
+5. **Destructive actions state their consequence and offer Undo:** "Removed “lemon juice”. It
+   will show as itself again. Undo".
+6. **Never show a raw `err.message`.** Map known error codes to plain copy; fall back to
+   "Something went wrong — try again". The detail is not lost: the server logs it at the point
+   of failure and `error-report.js` sends browser-side failures to the log
+   ([Failure logging](./diagnostics-and-logging.md#failure-logging-2026-10-07-audit)), so the
+   maintainer finds it in Status > Recent errors rather than the household reading it.
+7. **Never silently drop or ignore input.** A half-filled pair, a row with only a unit, an
+   unknown unit that will never match: show an inline message saying what was ignored/why.
+8. **The copy must be true.** Read the backend behaviour before writing a label. (The
+   checklist "Always for this recipe" label claimed to change a recipe; it only saved a
+   suggestion. A false label is worse than a vague one.)
+9. **UI-visible copy changes go through the mockup gate** like any other UI change.
+
+**Vocabulary (one word per concept, everywhere):**
+
+| Say | Not | Meaning |
+|---|---|---|
+| **plan** ("shopping plan") | session, planning session, shopping list (for the plan) | one planning session: recipes + days + its checklist |
+| **AnyList** | "the list", "your list" | the destination app; "list" alone is never AnyList |
+| **meals / recipes** | items (for recipes on Plan) | "items" means ingredients, on the Checklist only |
+| **Same item, different names** / name groups | alias, canonical, merge, ingredient group | one name shown as another on shopping lists |
+| **Pack sizes** | product units | how an ingredient is sold |
+| **Bought by the bunch** | coarse item | amount ignored; count recipes instead |
+| **aisle** | section | supermarket aisle |
+| **Import a recipe / Read this recipe** | capture, fetch & extract | URL/photo import |
+| **Servings this recipe makes** | base servings | |
+| **Status** | Diagnostics (user-facing label) | |
+| **Just this plan** / **Always — in every plan** | this list only / Always | scope of a checklist-panel change |
+
+**Pre-merge copy checklist** (answer each for every new/changed string): What exactly happens
+when I tap this? To what — one recipe, this plan, everything? Can I undo it? Which name wins?
+Is any word here one my household wouldn't use? Is anything I typed being ignored? Is this
+statement actually true of the code?
+
+### UI state must not silently vanish (2026-10-11, Chunk 6.7)
+
+A whole-app audit found controls, data and typed input disappearing or resetting with no
+signal. The root case: the checklist PATCH response left `recipe_breakdown` at its default
+`[]` and the client `Object.assign`-ed it over the row, so the "which recipe" list vanished
+after any Have it / Need it tap. Rules:
+
+- **A re-render or reload preserves**: expanded rows/panels, typed-but-unsaved input, selected
+  chips/filters/tabs, merge selection, scroll position, and in-flight feedback. Hold such
+  state in module state keyed by id, not only in the DOM.
+- **Never replace richer cached state with a thinner response.** Update a cached object from
+  *every* field the server returned for what changed; never copy a few fields and leave an
+  Undo payload built from the stale rest.
+- **Async completion is guarded.** A response arriving after the user navigated away (or after
+  a newer request) must not write to the screen: use a mount token / request-sequence number.
+- **A silent side effect is a bug**: nothing applied, remembered or dropped without the user
+  seeing it. If something is pre-filled for them, show it expanded and say so.
+- **Back/forward must never create records** (`#/plan/new` creates on click, then navigates).
+- **Failures leave a visible trace** that survives a re-render (toast or held per-item error),
+  **and** a log line: no `catch(function () {})` that swallows a failure (see the "silent masks
+  are not allowed" rule in [Failure logging](./diagnostics-and-logging.md#failure-logging-2026-10-07-audit)).
+  A fallback the server applies on the user's behalf (e.g. a conversion skipped because the
+  units differ) logs a WARNING with the ids *and* is reported back to the user in the response.
+- **Tests for these rules follow the suite's one-assertion-per-behaviour rule**
+  ([Tests](./code-architecture.md#tests--pytest-tests-mirroring-app)): the backend rule in
+  `tests/services/`, the response shape in `tests/routers/`, only the DOM/state-survival
+  behaviour in `tests/frontend/`. Extend an existing test before adding a sibling.
+
 ### Accessibility
 - Tap targets minimum 44px.
 - Sufficient colour contrast.

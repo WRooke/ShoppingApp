@@ -130,7 +130,7 @@ table before assuming something went missing.
 | [diagnostics-and-logging.md](./docs/diagnostics-and-logging.md) | Logging rules, log file rotation, the `/diagnostics` page spec | Diagnostics & Logging |
 | [security.md](./docs/security.md) | §0a–0c (injection hardening, usage observability, the enable switch) + §1–5 (network, credentials, host, app, deployment) | Security |
 | [deployment-and-operations.md](./docs/deployment-and-operations.md) | NUC deployment, start/stop/deploy/update scripts, backup & restore | Deployment Environment (+ Startup); Backup & Restore |
-| [ui-ux.md](./docs/ui-ux.md) | Mobile-first principles, tone, accessibility, the Phase 6 design direction, **no native dialogs (inline questions/errors; which component to use when)**, the update banner | UI / UX |
+| [ui-ux.md](./docs/ui-ux.md) | Mobile-first principles, tone, accessibility, the Phase 6 design direction, **no native dialogs (inline questions/errors; which component to use when)**, **plain language & no ambiguity (vocabulary table, copy checklist)**, **UI state must not silently vanish**, the update banner | UI / UX |
 | [deferred-decisions.md](./docs/deferred-decisions.md) | The live deferred-items tracking table | Deferred Decisions (table only — its Decision Dialogues subsection is in decision-history.md) |
 | [decision-history.md](./docs/decision-history.md) | Every Decision Dialogue (resolved and still-open), plus superseded designs kept for the record | Decision Dialogues; Ingredient Substitution's "History" subsection; AI Provider Migration's "Resolved decisions (2026-09-06)" and "Diagnostics — replacing 'Claude API spend tracking'" subsections |
 | [build-status/process.md](./docs/build-status/process.md) | The chunking/checkbox/phase-review convention itself | Build Phases > Phase workflow & progress tracking |
@@ -285,6 +285,12 @@ point-of-need design principle for settings-like data, and the Phase 6 design di
 (palette, typography, no decorative animation).
 The app never uses the browser's own `alert()`/`confirm()`/`prompt()` — questions and errors are
 asked inline (a test enforces it); see [docs/ui-ux.md](./docs/ui-ux.md#no-native-dialogs--ask-and-report-inline-2026-10-06-chunk-67).
+Every user-facing string must also be unambiguous plain language — what happens, to what scope,
+which way a rename goes, one vocabulary — see [Plain language & no
+ambiguity](./docs/ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67); and UI state must
+not silently vanish or reset on a re-render/response — see [UI state must not silently
+vanish](./docs/ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67) and
+[API response-shape consistency](./docs/code-architecture.md#api-response-shape-consistency-added-2026-10-11-chunk-67).
 
 See [docs/ui-ux.md](./docs/ui-ux.md).
 
