@@ -159,9 +159,9 @@ Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
 - **No amount is ever silently lost in a merge (2026-10-11, Chunk 6.7).** Four rules, each with
   a regression test:
   1. *Mixed kinds of unit* (a weight + a volume, a count + a weight) can't be added, so the merged
-     row is "needs review" — but it now offers **"buy all of them"** (`resolve` with
-     `keep_all`) next to the pick-one buttons: no single total, every part kept in the note (which
-     is also what AnyList's note field gets).
+     row is "needs review": pick one part, or **enter your own total** (the household resolves the
+     combination themselves). Keeping both parts on the list was considered and rejected — the
+     household wants one amount per line.
   2. *A new amount arriving after the user picked one* (a merge or a recipe adds another part)
      re-flags the row. `review_options_json` is kept after a pick as a fingerprint of the amounts
      the pick was made from; consolidation compares it to the fresh conflict

@@ -246,13 +246,7 @@ def update_item(
 
 
 def resolve_item(
-    db: Session,
-    session_id: int,
-    item_id: int,
-    *,
-    total_quantity: float | None = None,
-    total_unit: str | None = None,
-    keep_all: bool = False,
+    db: Session, session_id: int, item_id: int, *, total_quantity: float, total_unit: str | None
 ) -> SessionChecklistItem:
     """Commit a single total for a Chunk 4.6 irreconcilable-units line and clear the flag.
 
@@ -261,17 +255,9 @@ def resolve_item(
     ingredient still conflicts — 2026-09-10 hand-testing ("doesn't remember amounts under
     review"). See CLAUDE.md > Scaling Logic > re-running consolidation."""
     row = _get_item(db, session_id, item_id)
-    if keep_all:
-        # "Buy all of them" (2026-10-11, Chunk 6.7): the amounts can't be added (g + ml, a count +
-        # a weight) but none is wrong, so keep every one instead of forcing a single pick. There is
-        # no single total; the parts stay in the note, which is also what AnyList's note field gets.
-        row.total_quantity = None
-        row.total_unit = None
-        # row.note already holds the " + "-joined parts from the last consolidate; keep it.
-    else:
-        row.total_quantity = total_quantity
-        row.total_unit = total_unit
-        row.note = None
+    row.total_quantity = total_quantity
+    row.total_unit = total_unit
+    row.note = None
     row.needs_review = False
     # review_options_json is deliberately KEPT: consolidation compares it to the fresh conflict to
     # notice a new amount arriving after this pick. SessionChecklistItem.review_options exposes
@@ -281,7 +267,7 @@ def resolve_item(
     db.refresh(row)
     logger.info(
         "Checklist item resolved: session_id=%s item_id=%s -> %s",
-        session_id, item_id, "keep all parts" if keep_all else f"{total_quantity} {total_unit}",
+        session_id, item_id, f"{total_quantity} {total_unit}",
     )
     return row
 

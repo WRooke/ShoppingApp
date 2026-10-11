@@ -424,17 +424,6 @@
           });
           picks.appendChild(btn);
         });
-        // None of the amounts is wrong - they just can't be added (a weight and a volume, a
-        // weight and a count). Keep all of them rather than forcing one to be thrown away.
-        var keepAllBtn = el("button", "btn-sm", "buy all of them");
-        keepAllBtn.addEventListener("click", function () {
-          global.Feedback.clear(picks);
-          api.checklist
-            .resolveItem(sessionId, item.id, { keep_all: true })
-            .then(load)
-            .catch(function (err) { global.Feedback.error(picks, global.Feedback.messageOf(err)); });
-        });
-        picks.appendChild(keepAllBtn);
         wrap.appendChild(picks);
 
         var manual = el("div", "ing-grid");

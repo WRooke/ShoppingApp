@@ -110,8 +110,7 @@ def resolve_item(
     db: Session = Depends(get_db),
 ) -> dict:
     row = checklist_service.resolve_item(
-        db, session_id, item_id,
-        total_quantity=data.total_quantity, total_unit=data.total_unit, keep_all=data.keep_all,
+        db, session_id, item_id, total_quantity=data.total_quantity, total_unit=data.total_unit
     )
     return {"ok": True, "data": _item(db, row)}
 

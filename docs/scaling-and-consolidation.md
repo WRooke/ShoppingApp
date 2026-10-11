@@ -183,9 +183,7 @@ newly added recipe) that brought a *third* amount into an already-resolved row h
 silently ignored — the user's earlier pick stood. `review_options_json` is now kept after
 `resolve_item()` as a fingerprint of the amounts the pick was made from, and the upsert re-flags
 the row (clears `review_resolved_by_user`, recomputes) when the fresh conflict differs. A row
-resolved before this change has no fingerprint and keeps the old behaviour. The alternative
-resolution **"buy all of them"** (`resolve_item(keep_all=True)`) keeps every part in `note` with
-no single total.
+resolved before this change has no fingerprint and keeps the old behaviour.
 
 ---
 

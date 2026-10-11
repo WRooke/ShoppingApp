@@ -1023,24 +1023,6 @@ def test_a_new_conflicting_amount_reflags_a_row_the_user_already_resolved(db):
     assert len(cream.review_options) == 3
 
 
-def test_resolve_keep_all_retains_every_part_and_survives_reconsolidation(db):
-    """2026-10-11, Chunk 6.7 — "buy all of them": mixed units can't be added, but none is wrong."""
-    from app.services import checklist as checklist_service
-
-    r1 = _recipe_with(db, "A", [{"name": "cream", "quantity": 100, "unit": "g"}])
-    r2 = _recipe_with(db, "B", [{"name": "cream", "quantity": 200, "unit": "ml"}])
-    s = sessions_service.create_session(db, PlanningSessionCreate())
-    for r in (r1, r2):
-        sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
-    cream = next(i for i in sessions_service.consolidate_session(db, s.id) if i.ingredient_name == "cream")
-
-    checklist_service.resolve_item(db, s.id, cream.id, keep_all=True)
-    cream = next(i for i in sessions_service.consolidate_session(db, s.id) if i.ingredient_name == "cream")
-    assert cream.needs_review is False
-    assert cream.total_quantity is None
-    assert cream.note == "100 g + 200 ml"
-
-
 def test_consolidate_session_merge_scoped_to_its_own_session_only(db):
     from app.services import session_merges
 

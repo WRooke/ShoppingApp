@@ -257,21 +257,6 @@ def test_resolve_needs_review_item(client, fake_anylist):
     assert body["total_quantity"] == 300 and body["total_unit"] == "ml"
 
 
-def test_resolve_keep_all_needs_no_total_and_a_bare_resolve_is_rejected(client, fake_anylist):
-    sid = _session_with_checklist(
-        client, [{"name": "zz-router-keepall", "quantity": 100, "unit": "g"},
-                 {"name": "zz-router-keepall", "quantity": 200, "unit": "ml"}]
-    )
-    item = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]
-    url = f"/api/v1/checklist/{sid}/items/{item['id']}/resolve"
-    assert client.post(url, json={}).status_code == 422  # neither a total nor keep_all
-    resp = client.post(url, json={"keep_all": True})
-    assert resp.status_code == 200
-    body = resp.json()["data"]
-    assert body["needs_review"] is False and body["total_quantity"] is None
-    assert body["note"] == "100 g + 200 ml"
-
-
 # --- merge (Fix 3, F3.3) -----------------------------------------------------------------
 
 
