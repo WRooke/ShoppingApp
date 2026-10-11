@@ -50,7 +50,7 @@
     servingsInput.min = "1";
     servingsInput.inputMode = "numeric";
     servingsInput.value = r.base_servings;
-    card.appendChild(labeledField("Base servings", servingsInput));
+    card.appendChild(labeledField("Servings it makes", servingsInput));
 
     var cuisineInput = el("input");
     cuisineInput.type = "text";
@@ -116,8 +116,8 @@
     card.appendChild(saveErr);
 
     var actionsRow = el("div", "log-controls sticky-actions");
-    var saveBtn = el("button", "primary", "Save");
-    var cancelBtn = el("button", null, "Cancel");
+    var saveBtn = el("button", "primary", "Save details");
+    var cancelBtn = el("button", null, "Discard");
     actionsRow.appendChild(saveBtn);
     actionsRow.appendChild(cancelBtn);
     card.appendChild(actionsRow);
@@ -170,8 +170,10 @@
     }
 
     var ingHeading = el("h2", null, "Ingredients");
+    var ingHint = el("div", "muted", "Each ingredient has its own Save.");
     ingHeading.style.marginTop = "16px";
     card.appendChild(ingHeading);
+    card.appendChild(ingHint);
 
     var ingList = el("div", "ingredient-edit-list");
     card.appendChild(ingList);
@@ -196,7 +198,7 @@
         .archive(r.id)
         .then(function () {
           card.innerHTML = "";
-          card.appendChild(el("div", "muted", "Recipe deleted."));
+          card.appendChild(el("div", "muted", "Recipe deleted. Taking you back to the library…"));
           // Navigating away (onDeleted -> Router.navigate) fires a hashchange, and the
           // shared toast deliberately dies on navigation (kickoff decision #12) — so the
           // navigate is deferred until just past the toast's own lifetime, rather than

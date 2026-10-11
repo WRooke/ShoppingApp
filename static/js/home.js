@@ -21,7 +21,7 @@
   function sessionLabel(s) {
     // planning_sessions.label is nullable (docs/data-model.md) — a blank "Continue: " button
     // would look broken, not just plain.
-    return s.label || "Session #" + s.id;
+    return s.label || "Plan started " + new Date(s.created_at).toLocaleDateString();
   }
 
   function renderSkeleton(root) {
@@ -42,11 +42,11 @@
   function renderActions(root) {
     var actions = el("div", "home-actions");
 
-    var newSession = el("a", "btn primary btn-block", "New session");
+    var newSession = el("a", "btn primary btn-block", "New plan");
     newSession.href = "#/plan/new";
     actions.appendChild(newSession);
 
-    var newRecipe = el("a", "btn btn-block", "New recipe");
+    var newRecipe = el("a", "btn btn-block", "Recipes");
     newRecipe.href = "#/recipes";
     actions.appendChild(newRecipe);
 

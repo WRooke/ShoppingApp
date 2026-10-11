@@ -56,7 +56,7 @@
       },
     },
     diagnostics: {
-      title: "Diagnostics",
+      title: "Status",
       mount: function (root) {
         global.DiagnosticsView.mount(root);
       },

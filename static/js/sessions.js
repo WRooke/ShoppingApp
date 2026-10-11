@@ -37,8 +37,13 @@
   // Push until 2026-09-30, chunk 7.4, when the standalone Review screen was deleted). The
   // last two stay inactive placeholders here — checklist.js's own matching indicator is
   // active through both the pre-push and pushing states on that screen.
+  // What a status looks like to the household (the stored values are active / pushed / archived).
+  function statusWord(status) {
+    return { active: "In progress", pushed: "Sent to AnyList", archived: "Archived" }[status] || status;
+  }
+
   function stepIndicator(activeLabel) {
-    var labels = ["Plan", "Checklist", "Push"];
+    var labels = ["Plan", "Checklist", "Send"];
     var wrap = el("div", "step-list");
     labels.forEach(function (label, i) {
       wrap.appendChild(el("span", label === activeLabel ? "on" : null, label));
@@ -59,7 +64,7 @@
 
     var actions = el("div", "log-controls");
     actions.style.marginBottom = "16px";
-    var newBtn = el("button", "primary", "New session");
+    var newBtn = el("button", "primary", "New plan");
     newBtn.addEventListener("click", function () {
       global.Feedback.clear(actions);
       api.sessions
@@ -68,14 +73,14 @@
           global.Router.navigate("plan", s.id);
         })
         .catch(function (err) {
-          global.Feedback.error(actions, "Couldn't start a session — " + global.Feedback.messageOf(err));
+          global.Feedback.error(actions, "Couldn't start a plan — " + global.Feedback.messageOf(err));
         });
     });
     actions.appendChild(newBtn);
     root.appendChild(actions);
 
     var card = el("div", "card");
-    card.appendChild(el("h2", null, "Planning sessions"));
+    card.appendChild(el("h2", null, "Plans"));
 
     var tabs = el("div", "section-tabs");
     var activeTabBtn = el("button", null, "Active");
@@ -101,11 +106,11 @@
       var row = el("a", "recipe-row");
       row.href = "#/plan/" + s.id;
       var main = el("div", "recipe-row-main");
-      main.appendChild(el("div", "recipe-row-name", s.label || "Session #" + s.id));
+      main.appendChild(el("div", "recipe-row-name", s.label || "Plan started " + new Date(s.created_at).toLocaleDateString()));
       var bits = [
-        s.slot_count + (s.slot_count === 1 ? " item" : " items"),
-        s.status,
-        new Date(s.created_at).toLocaleDateString(),
+        s.slot_count + (s.slot_count === 1 ? " meal" : " meals"),
+        statusWord(s.status),
+        "started " + new Date(s.created_at).toLocaleDateString(),
       ];
       main.appendChild(el("div", "recipe-row-meta muted", bits.join(" · ")));
       row.appendChild(main);
@@ -120,7 +125,7 @@
           body.innerHTML = "";
           var items = data.items || [];
           if (!items.length) {
-            body.appendChild(el("div", "empty-state", "No active sessions — start one above."));
+            body.appendChild(el("div", "empty-state", "No plans in progress — start one above."));
             return;
           }
           items.forEach(function (s) {
@@ -129,7 +134,7 @@
         })
         .catch(function (err) {
           body.innerHTML = "";
-          body.appendChild(el("div", "error-state", "Couldn't load sessions: " + err.message));
+          body.appendChild(el("div", "error-state", "Couldn't load plans: " + err.message));
         });
     }
 
@@ -138,12 +143,12 @@
       var headBtn = el("button", "history-head");
       headBtn.type = "button";
       var main = el("div", "main");
-      main.appendChild(el("div", "name", s.label || "Session #" + s.id));
+      main.appendChild(el("div", "name", s.label || "Plan started " + new Date(s.created_at).toLocaleDateString()));
       main.appendChild(
-        el("div", "meta", new Date(s.updated_at).toLocaleDateString())
+        el("div", "meta", (s.status === "pushed" ? "Sent " : "Archived ") + new Date(s.updated_at).toLocaleDateString())
       );
       headBtn.appendChild(main);
-      headBtn.appendChild(el("span", "status-pill " + s.status, s.status));
+      headBtn.appendChild(el("span", "status-pill " + s.status, statusWord(s.status)));
       headBtn.appendChild(el("span", "chev", "›"));
       row.appendChild(headBtn);
 
@@ -165,7 +170,7 @@
             recipesBody.innerHTML = "";
             var recipes = full.recipes || [];
             if (!recipes.length) {
-              recipesBody.appendChild(el("div", "muted", "No recipes in this session."));
+              recipesBody.appendChild(el("div", "muted", "No recipes in this plan."));
               return;
             }
             recipes.forEach(function (slot) {
@@ -202,7 +207,7 @@
           });
           body.innerHTML = "";
           if (!items.length) {
-            body.appendChild(el("div", "empty-state", "No past sessions yet."));
+            body.appendChild(el("div", "empty-state", "No past plans yet. Sent or archived plans show up here."));
             return;
           }
           items.forEach(function (s) {
@@ -211,7 +216,7 @@
         })
         .catch(function (err) {
           body.innerHTML = "";
-          body.appendChild(el("div", "error-state", "Couldn't load past sessions: " + err.message));
+          body.appendChild(el("div", "error-state", "Couldn't load past plans: " + err.message));
         });
     }
 
@@ -256,7 +261,7 @@
         .catch(function (err) {
           card.innerHTML = "";
           card.appendChild(
-            el("div", "muted", "Couldn't load this session: " + err.message)
+            el("div", "muted", "Couldn't load this plan: " + err.message)
           );
         });
     }
@@ -270,7 +275,7 @@
     var labelInput = el("input");
     labelInput.type = "text";
     labelInput.value = session.label || "";
-    labelInput.placeholder = "Session name, e.g. Week of 14 Jul";
+    labelInput.placeholder = "e.g. Week of 14 Jul";
     labelInput.addEventListener("blur", function () {
       if (labelInput.value.trim() === (session.label || "")) return;
       api.sessions
@@ -294,7 +299,7 @@
     // need the deferred-navigate dance recipe deletion uses elsewhere.
     if (session.status !== "archived") {
       var wsActions = el("div", "workspace-actions");
-      var archiveBtn = el("button", "btn-sm archive-btn", "Archive");
+      var archiveBtn = el("button", "btn-sm archive-btn", "Archive plan");
       archiveBtn.addEventListener("click", function () {
         archiveBtn.disabled = true;
         api.sessions
@@ -305,12 +310,12 @@
                 .update(session.id, { status: "active" })
                 .then(reload)
                 .catch(function (err) {
-                  global.Toast.show("Couldn't restore the session — " + global.Feedback.messageOf(err), {
+                  global.Toast.show("Couldn't restore the plan — " + global.Feedback.messageOf(err), {
                     tone: "error", actionLabel: "Retry", onAction: undo,
                   });
                 });
             }
-            global.Toast.show("Session archived", { actionLabel: "Undo", onAction: undo });
+            global.Toast.show("Plan archived. Find it under Past.", { actionLabel: "Undo", onAction: undo });
             reload();
           })
           .catch(function (err) {
@@ -324,7 +329,7 @@
     card.appendChild(head);
     var headFeedback = el("div"); // rename / archive errors appear right under the header
     card.appendChild(headFeedback);
-    card.appendChild(el("div", "muted", "Status: " + session.status));
+    card.appendChild(el("div", "muted", statusWord(session.status) + " · started " + new Date(session.created_at).toLocaleDateString()));
 
     // --- slots: a 7-day grid, not a flat list (Phase 6 Chunk 6.5 — see session-week.js) ---
     var slotsHeadingRow = el("div", "detail-head-row");
@@ -342,7 +347,7 @@
     var addRow = el("div", "log-controls");
     addRow.style.marginTop = "12px";
     var addRecipeBtn = el("button", null, "+ Add recipe");
-    var addLeftoversBtn = el("button", null, "+ Add leftovers day");
+    var addLeftoversBtn = el("button", null, "+ Leftovers day");
     addRow.appendChild(addRecipeBtn);
     addRow.appendChild(addLeftoversBtn);
     card.appendChild(addRow);
@@ -374,7 +379,7 @@
     // (chunk 7.3) and showing the recipe-breakdown Review used to be the only place for
     // (chunk 7.4, folded into checklist.js's own rows).
     var checklistRow = el("div", "log-controls sticky-actions");
-    var checklistBtn = el("button", "primary", "Checklist →");
+    var checklistBtn = el("button", "primary", "Open checklist →");
     checklistBtn.disabled = slots.length === 0;
     checklistBtn.addEventListener("click", function () {
       global.Router.navigate("checklist", session.id);
@@ -388,7 +393,7 @@
   function mount(root, param) {
     if (param === "new") {
       root.innerHTML = "";
-      root.appendChild(el("div", "muted", "Starting a session..."));
+      root.appendChild(el("div", "muted", "Starting a plan..."));
       api.sessions
         .create({})
         .then(function (s) {
@@ -399,7 +404,7 @@
         .catch(function (err) {
           if (!root.isConnected) return;
           root.innerHTML = "";
-          root.appendChild(el("div", "muted", "Couldn't start a session: " + err.message));
+          root.appendChild(el("div", "muted", "Couldn't start a plan: " + err.message));
         });
     } else if (param) {
       renderWorkspace(root, param);

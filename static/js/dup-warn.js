@@ -21,13 +21,13 @@
     opts = opts || {};
     var wrap = el("div", "dup-warn");
     wrap.appendChild(
-      el("div", "dup-warn-heading", opts.heading || "You might already have this:")
+      el("div", "dup-warn-heading", opts.heading || "Looks like a recipe you already have.")
     );
 
     var list = el("ul", "dup-warn-list");
     (matches || []).forEach(function (m) {
       var li = el("li");
-      var link = el("a", null, m.name + (m.archived ? " (archived)" : ""));
+      var link = el("a", null, m.name + (m.archived ? " (deleted)" : ""));
       link.href = "#/recipes/" + m.id;
       li.appendChild(link);
       if (m.source_summary) {
@@ -35,7 +35,7 @@
       }
       if (m.archived && typeof opts.onRestore === "function") {
         li.appendChild(document.createTextNode(" "));
-        var restoreBtn = el("button", "link-btn", "Restore this one");
+        var restoreBtn = el("button", "link-btn", "Restore it");
         restoreBtn.addEventListener("click", function () {
           opts.onRestore(m.id);
         });
@@ -46,7 +46,7 @@
     wrap.appendChild(list);
 
     if (typeof opts.onSaveAnyway === "function") {
-      var saveBtn = el("button", null, opts.saveAnywayLabel || "Save anyway");
+      var saveBtn = el("button", null, opts.saveAnywayLabel || "Save a copy anyway");
       saveBtn.addEventListener("click", opts.onSaveAnyway);
       wrap.appendChild(saveBtn);
     }

@@ -335,15 +335,15 @@ def test_add_to_session_asks_inline_when_there_is_no_session_and_reports_errors_
         "window.api.sessions.list = function(){ return Promise.resolve({items: []}); };"
         "window.api.sessions.create = function(){ window.__created++; return Promise.reject({message:'disk full'}); };"
     )
-    browser.click("button.btn-sm", contains="+ Add to session")
+    browser.click("button.btn-sm", contains="+ Add to plan")
     browser.wait_for(".inline-card")
-    assert browser.text(".inline-card .title") == "No shopping session yet"
+    assert browser.text(".inline-card .title") == "No plan in progress"
     labels = browser.eval("Array.from(document.querySelectorAll('.inline-card button')).map(function(b){return b.textContent;})")
     assert labels == ["Start one with this recipe", "Not now"]
 
     browser.click(".inline-card button.primary", contains="Start one")
     browser.wait_for(".add-feedback .form-error")
-    assert "Couldn't start a session" in browser.text(".add-feedback .form-error") or "Couldn’t" in browser.text(".add-feedback .form-error")
+    assert "Couldn't start a plan" in browser.text(".add-feedback .form-error") or "Couldn’t" in browser.text(".add-feedback .form-error")
     assert browser.eval("window.__created") == 1
 
     browser.click(".add-feedback .btn-link", contains="Retry")  # Retry re-runs the whole flow

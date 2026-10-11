@@ -38,7 +38,7 @@
         return t === "suggest_sections" ? "sections" : t;
       })
       .join(", ");
-    return el("div", "pending-ai-badge", "⏳ Pending AI processing (" + pretty + ")");
+    return el("div", "pending-ai-badge", "⏳ Still sorting ingredients into aisles. Nothing to do.");
   }
 
   // --- list view -----------------------------------------------------
@@ -60,15 +60,15 @@
     var actionsRow = el("div", "log-controls");
     actionsRow.style.marginBottom = "16px";
 
-    var newLink = el("a", "btn primary", "+ Add recipe");
+    var newLink = el("a", "btn primary", "+ Type in a recipe");
     newLink.href = "#/recipes/new";
     actionsRow.appendChild(newLink);
 
-    var captureUrlLink = el("a", "btn", "Capture from URL");
+    var captureUrlLink = el("a", "btn", "Import from a web page");
     captureUrlLink.href = "#/recipes/capture-url";
     actionsRow.appendChild(captureUrlLink);
 
-    var capturePhotoLink = el("a", "btn", "Capture from photo");
+    var capturePhotoLink = el("a", "btn", "Import from a photo");
     capturePhotoLink.href = "#/recipes/capture-photo";
     actionsRow.appendChild(capturePhotoLink);
 
@@ -195,7 +195,7 @@
       var rating = ratingLabel(r.rating);
       if (rating) row.appendChild(el("div", "recipe-row-rating", rating));
 
-      var addBtn = el("button", "btn-sm", "+ Add to session");
+      var addBtn = el("button", "btn-sm", "+ Add to plan");
       addBtn.addEventListener("click", function (ev) {
         // Row is a full-card <a> — stop the click reaching it, or this both adds the
         // recipe to a session AND navigates to the recipe's own detail page.

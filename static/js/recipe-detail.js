@@ -33,7 +33,7 @@
         return t === "suggest_sections" ? "sections" : t;
       })
       .join(", ");
-    return el("div", "pending-ai-badge", "⏳ Pending AI processing (" + pretty + ")");
+    return el("div", "pending-ai-badge", "⏳ Still sorting ingredients into aisles. Nothing to do.");
   }
 
   // Only render a stored source_url as a link if it actually parses as http(s) —
@@ -100,7 +100,7 @@
           card.innerHTML = "";
           if (err.code === "RECIPE_NOT_FOUND") {
             card.appendChild(
-              el("div", "muted", "This recipe couldn't be found. It may have been deleted.")
+              el("div", "muted", "This recipe isn't in your library.")
             );
           } else {
             card.appendChild(el("div", "muted", "Couldn't load this recipe: " + err.message));
@@ -130,18 +130,18 @@
       );
     });
     headRow.appendChild(editBtn);
-    var addToSessionBtn = el("button", "btn-sm", "+ Add to session");
+    var addToSessionBtn = el("button", "btn-sm", "+ Add to plan");
     addToSessionBtn.addEventListener("click", function () {
       global.AddToSession.run(r.id, addToSessionBtn);
     });
     headRow.appendChild(addToSessionBtn);
     card.appendChild(headRow);
 
-    var metaBits = [fmtServings(r.base_servings)];
+    var metaBits = ["Makes " + fmtServings(r.base_servings)];
     if (r.cuisine) metaBits.push(r.cuisine);
     if (r.protein) metaBits.push(r.protein);
     var rating = ratingLabel(r.rating);
-    if (rating) metaBits.push(rating);
+    if (rating) metaBits.push(rating + (r.rating === "up" ? " Good" : " Not again"));
     card.appendChild(el("div", "muted", metaBits.join(" · ")));
 
     if (r.ai_pending_tasks && r.ai_pending_tasks.length) {
@@ -149,7 +149,25 @@
     }
 
     if (r.archived_at) {
-      card.appendChild(el("div", "muted", "Archived"));
+      // "Delete recipe" is a soft delete: say so, and offer the way back right here.
+      var deletedRow = el("div", "muted", "Deleted. ");
+      var restoreBtn = el("button", "btn-link", "Restore");
+      restoreBtn.addEventListener("click", function () {
+        restoreBtn.disabled = true;
+        api.recipes
+          .restore(r.id)
+          .then(function () {
+            r.archived_at = null;
+            deletedRow.remove();
+            global.Toast.show("Restored to your library.");
+          })
+          .catch(function (err) {
+            restoreBtn.disabled = false;
+            global.Feedback.error(deletedRow, "Couldn’t restore — " + global.Feedback.messageOf(err));
+          });
+      });
+      deletedRow.appendChild(restoreBtn);
+      card.appendChild(deletedRow);
     }
 
     renderSource(card, r);
@@ -160,6 +178,7 @@
     cookedRow.appendChild(cookedInfo);
     var cookBtn = el("button", "btn-sm primary", "I cooked this");
     cookedRow.appendChild(cookBtn);
+    cookedRow.appendChild(el("div", "muted", "Adds 1 to the cooked count."));
     card.appendChild(cookedRow);
 
     function renderCookedInfo() {
@@ -174,7 +193,7 @@
           );
         }
       } else {
-        cookedInfo.appendChild(el("span", "never", "Never marked as cooked"));
+        cookedInfo.appendChild(el("span", "never", "Not cooked yet"));
       }
     }
     renderCookedInfo();
@@ -188,7 +207,7 @@
           r.times_made = updated.times_made;
           r.last_made_at = updated.last_made_at;
           renderCookedInfo();
-          global.Toast.show("Nice — marked as cooked.");
+          global.Toast.show("Marked as cooked — " + r.times_made + (r.times_made === 1 ? " time" : " times") + " now.");
           cookBtn.disabled = false;
         })
         .catch(function (err) {
@@ -208,10 +227,12 @@
       var list = el("ul", "ingredient-list");
       r.ingredients.forEach(function (ing) {
         var parts = [];
-        parts.push(ing.quantity + (ing.unit ? " " + ing.unit : ""));
+        var toTaste = (ing.unit || "").toLowerCase() === "to taste";
+        // "1 to taste salt" read as a quantity; "Salt, to taste" is what it means.
+        if (!toTaste) parts.push(ing.quantity + (ing.unit ? " " + ing.unit : ""));
         parts.push(ing.name);
         if (ing.preparation) parts.push("(" + ing.preparation + ")");
-        var li = el("li", null, parts.join(" "));
+        var li = el("li", null, parts.join(" ") + (toTaste ? ", to taste" : ""));
         if (ing.resolved_ingredient) {
           // M8 — show the swapped amount/unit when the swap isn't 1:1 ("2 can canned corn")
           var swapAmt =
@@ -221,7 +242,7 @@
           var swapLine = el(
             "div",
             "ingredient-resolved",
-            "→ using " +
+            "Instead: " +
               swapAmt +
               ing.resolved_ingredient +
               (ing.substitution_note ? " (" + ing.substitution_note + ")" : "")

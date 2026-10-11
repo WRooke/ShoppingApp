@@ -548,15 +548,15 @@ def test_plan_goes_straight_to_checklist_no_review_step(browser, api, server_url
     browser.navigate(f"{server_url}/#/plan/{session['id']}")
     browser.wait_for(".step-list")
     step_list_text = browser.text(".step-list")
-    assert step_list_text.replace(" ", "") == "Plan→Checklist→Push"
+    assert step_list_text.replace(" ", "") == "Plan→Checklist→Send"
     assert "Review" not in browser.html("body")
 
-    browser.click("button.primary", contains="Checklist")
+    browser.click("button.primary", contains="Open checklist")
     browser.wait_for(".checklist-row")
 
     assert browser.eval("location.hash") == f"#/checklist/{session['id']}"
     assert item_name in browser.text(".checklist-row .name")
-    assert browser.text(".step-list").replace(" ", "") == "Plan→Checklist→Push"
+    assert browser.text(".step-list").replace(" ", "") == "Plan→Checklist→Send"
     assert browser.eval("!document.querySelector('.ingredient-edit-row')")
     assert not browser.console_errors(), browser.console_errors()
 
@@ -738,7 +738,7 @@ def test_back_closes_open_panel_before_navigating_away(browser, api, server_url)
     api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
 
     browser.navigate(f"{server_url}/#/plan/{session['id']}")
-    browser.click("button.primary", contains="Checklist")
+    browser.click("button.primary", contains="Open checklist")
     browser.wait_for(".checklist-row")
     checklist_hash = f"#/checklist/{session['id']}"
     assert browser.eval("location.hash") == checklist_hash
@@ -904,7 +904,7 @@ def test_back_from_a_new_plan_does_not_create_another_one(browser, api, server_u
     browser.navigate(f"{server_url}/#/home")
     browser.wait_for(".home-actions")
     before = count()
-    browser.click(".home-actions a", contains="New session")
+    browser.click(".home-actions a", contains="New plan")
     deadline = time.monotonic() + TIMEOUT
     while time.monotonic() < deadline and not browser.eval(r"/^#\/plan\/\d+$/.test(location.hash)"):
         time.sleep(0.1)
@@ -939,7 +939,7 @@ def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, serv
     api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
 
     browser.navigate(f"{server_url}/#/plan/{session['id']}")
-    browser.click("button.primary", contains="Checklist")
+    browser.click("button.primary", contains="Open checklist")
     browser.wait_for(".checklist-row")
     checklist_hash = f"#/checklist/{session['id']}"
 

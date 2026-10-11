@@ -39,8 +39,8 @@
       .addRecipe(sessionId, { recipe_id: recipeId })
       .then(function () {
         hostEl.disabled = false;
-        global.Toast.show("Added to session", {
-          actionLabel: "View",
+        global.Toast.show("Added to your plan", {
+          actionLabel: "Open plan",
           onAction: function () {
             global.Router.navigate("plan", sessionId);
           },
@@ -49,7 +49,7 @@
       })
       .catch(function (err) {
         hostEl.disabled = false;
-        global.Feedback.error(holder, "Couldn't add to session — " + global.Feedback.messageOf(err), {
+        global.Feedback.error(holder, "Couldn't add to the plan — " + global.Feedback.messageOf(err), {
           retry: function () { doAdd(sessionId, recipeId, hostEl); },
         });
         return false;
@@ -61,11 +61,11 @@
     wrap.style.marginTop = "6px";
     var select = el("select");
     sessions.forEach(function (s) {
-      var opt = el("option", null, s.label || "Session #" + s.id);
+      var opt = el("option", null, s.label || "Plan started " + new Date(s.created_at).toLocaleDateString());
       opt.value = s.id;
       select.appendChild(opt);
     });
-    var goBtn = el("button", "btn-sm primary", "Add");
+    var goBtn = el("button", "btn-sm primary", "Add to this plan");
     goBtn.addEventListener("click", function () {
       goBtn.disabled = true;
       doAdd(parseInt(select.value, 10), recipeId, goBtn).then(function (ok) {
@@ -99,7 +99,7 @@
         // No native confirm(): an inline card right under the button, buttons named for what they do.
         global.Feedback.card(holderFor(hostEl), {
           into: true,
-          title: "No shopping session yet",
+          title: "No plan in progress",
           body: "Start one with this recipe in it?",
           confirmLabel: "Start one with this recipe",
           cancelLabel: "Not now",
@@ -110,7 +110,7 @@
               .then(function (s) { return doAdd(s.id, recipeId, hostEl); })
               .catch(function (err) {
                 hostEl.disabled = false;
-                global.Feedback.error(holderFor(hostEl), "Couldn't start a session — " + global.Feedback.messageOf(err), {
+                global.Feedback.error(holderFor(hostEl), "Couldn't start a plan — " + global.Feedback.messageOf(err), {
                   retry: function () { run(recipeId, hostEl); },
                 });
               });
@@ -120,7 +120,7 @@
       })
       .catch(function (err) {
         hostEl.disabled = false;
-        global.Feedback.error(holderFor(hostEl), "Couldn't check your sessions — " + global.Feedback.messageOf(err), {
+        global.Feedback.error(holderFor(hostEl), "Couldn't check your plans — " + global.Feedback.messageOf(err), {
           retry: function () { run(recipeId, hostEl); },
         });
       });

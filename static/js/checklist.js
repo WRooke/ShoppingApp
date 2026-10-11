@@ -129,7 +129,7 @@
   // Push happens on this same screen (no separate route), so "Checklist" stays active through
   // both the pre-push and pushing states.
   function stepIndicator(activeLabel) {
-    var labels = ["Plan", "Checklist", "Push"];
+    var labels = ["Plan", "Checklist", "Send"];
     var wrap = el("div", "step-list");
     labels.forEach(function (label, i) {
       wrap.appendChild(el("span", label === activeLabel ? "on" : null, label));

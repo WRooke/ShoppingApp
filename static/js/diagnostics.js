@@ -111,10 +111,26 @@
   function renderStatusPanel(container, data) {
     container.innerHTML = "";
     var rows = [
-      { key: "database", name: "Database connection" },
-      { key: "ai_extraction", name: "AI extraction (Gemini)" },
-      { key: "anylist", name: "AnyList connection" },
+      { key: "database", name: "Database" },
+      { key: "ai_extraction", name: "Recipe reader" },
+      { key: "anylist", name: "AnyList" },
     ];
+
+    // Plain summary first; the detail below is for whoever looks after the app (docs/ui-ux.md >
+    // Plain language & no ambiguity). Colour is never the only signal: every row also says it.
+    var worst = "green";
+    rows.forEach(function (r) {
+      var st = (data[r.key] || {}).state || "grey";
+      if (st === "red") worst = "red";
+      else if (st === "amber" && worst !== "red") worst = "amber";
+    });
+    container.appendChild(
+      el(
+        "h3",
+        "status-summary",
+        worst === "red" ? "Something isn’t working" : worst === "amber" ? "Something needs a look" : "Everything is working"
+      )
+    );
 
     rows.forEach(function (r) {
       var d = data[r.key] || {};
@@ -130,7 +146,7 @@
           el(
             "div",
             "status-msg",
-            "API enabled: " + (d.api_enabled ? "yes" : "no") + "  ·  fake mode: " + (d.fake_mode ? "yes" : "no")
+            "Connected: " + (d.api_enabled ? "yes" : "no") + "  ·  test mode: " + (d.fake_mode ? "yes" : "no")
           )
         );
 
@@ -256,7 +272,8 @@
         if (d.recent_pushes && d.recent_pushes.length) body.appendChild(renderPushHistory(d.recent_pushes));
       }
 
-      body.appendChild(el("div", "state-label", "state: " + (d.state || "grey")));
+      var STATE_WORDS = { green: "Working", amber: "Check this", red: "Not working", grey: "Not in use" };
+      body.appendChild(el("div", "state-label", STATE_WORDS[d.state || "grey"] || d.state));
       row.appendChild(body);
       container.appendChild(row);
     });
@@ -333,7 +350,7 @@
 
     // component status
     var statusCard = el("div", "card");
-    statusCard.appendChild(el("h2", null, "Component status"));
+    statusCard.appendChild(el("h2", null, "Status"));
     var statusPanel = el("div");
     statusPanel.id = "diag-status";
     var statusSkel = el("div", "skel-row");
@@ -374,7 +391,7 @@
 
     // log tail
     var logCard = el("div", "card");
-    var head = el("h2", null, "Live log tail");
+    var head = el("h2", null, "Log (for troubleshooting)");
     logCard.appendChild(head);
 
     var controls = el("div", "log-controls");
