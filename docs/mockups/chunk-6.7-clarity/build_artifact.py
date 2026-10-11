@@ -28,11 +28,12 @@ _spec.loader.exec_module(cl)
 def main() -> None:
     collected: list[tuple[str, str, str, list[str]]] = []
     cl.page = lambda name, title, lede, scenes: collected.append((name, title, lede, scenes))
+    cl.build_short()
     cl.build_settings()
     cl.build_checklist()
     cl.build_plan_recipes()
-    anchors = {"settings.html": "settings", "checklist.html": "checklist", "plan-recipes.html": "plan"}
-    labels = {"settings.html": "Settings", "checklist.html": "Checklist & push", "plan-recipes.html": "Plan, recipes, status"}
+    anchors = {"short.html": "short", "settings.html": "settings", "checklist.html": "checklist", "plan-recipes.html": "plan"}
+    labels = {"short.html": "Shorter copy", "settings.html": "Settings", "checklist.html": "Checklist & push", "plan-recipes.html": "Plan, recipes, status"}
 
     hoisted, scoped = prev.scoped_app_css()
     theme = prev.bm._theme_css()
@@ -42,6 +43,8 @@ def main() -> None:
     body.append('<h1 class="main">Plain language mockups</h1><p class="lede">Every “After” is the exact wording proposed for the app, '
                 'checked against what the code really does, drawn in light and dark with the app’s real styles. Static pictures only.</p>')
     body.append('<div class="ask"><h2>What I need from you</h2><ul>'
+                '<li><b>Shorter copy</b> (first section): approve the style, or say how much further to cut. The sections below are still the long wording and get cut the same way.</li>'
+                '<li><b>Mixed units</b>: a new “enter your own total” choice replaces “Buy all of them”.</li>'
                 '<li><b>Settings</b>: the “When a recipe says … show it as …” pattern (used for name groups, unit spellings, saved swaps, and again in the checklist). Approve or mark up.</li>'
                 '<li><b>Checklist &amp; push</b>: the helper line, “On AnyList” tag, renamed chips and scope labels, combine-rows panel, push-again wording.</li>'
                 '<li><b>Plan, recipes, status</b>: “plan” as the one noun, recipe edit scopes and delete consequence, duplicate warning, Status page.</li>'

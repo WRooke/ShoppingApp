@@ -416,6 +416,86 @@ def build_plan_recipes() -> None:
          [s1, s2, s3, s4, s5, s6])
 
 
+
+# ---------------------------------------------------------------------------------------------
+# Shortened-copy sample (2026-10-11): the same screens with every line cut to the fewest words that
+# stay unambiguous. Approve the STYLE here, then it is applied to all scenes.
+# ---------------------------------------------------------------------------------------------
+def build_short() -> None:
+    def aliases(short: bool) -> str:
+        if not short:
+            return wrap(
+                '<div class="card"><h3>Same item, different names</h3>'
+                '<p class="hint">When a recipe uses the name on the left, your shopping list shows the name on the right instead. '
+                "Recipes themselves aren’t changed. Applies to every recipe, existing and new.</p>"
+                + mini("When a recipe says", ph="e.g. lemon juice") + '<div class="dir">↓ show it on my shopping list as</div>'
+                + mini("Shopping list shows", ph="e.g. lemon")
+                + '<div class="box"><b>Change the amount too? (optional)</b><div class="sentence"><input placeholder="3"> <input placeholder="tbsp"> '
+                '<span>of the first =</span> <input placeholder="1"> <input placeholder="(whole)"> <span>of the second</span></div>'
+                '<div class="hint">Only used when a recipe measures it in exactly that unit. Otherwise just the name changes and the amount is left as written. '
+                "Leave all four blank to only rename.</div></div>"
+                '<div class="preview">“lemon juice” in a recipe will show as “lemon” on your shopping list. 3 tbsp lemon juice becomes 1 lemon.</div>'
+                '<button class="btn-sm primary">Save this name group</button></div>'
+            )
+        return wrap(
+            '<div class="card"><h3>Other names</h3>'
+            '<p class="hint">A recipe’s name on the left shows as the name on the right. Recipes aren’t changed.</p>'
+            + mini("Recipe says", ph="lemon juice") + '<div class="dir">↓</div>' + mini("List shows", ph="lemon")
+            + '<div class="box"><b>Convert amount (optional)</b>'
+            '<div class="sentence"><input placeholder="3"> <input placeholder="tbsp"> <span>=</span> <input placeholder="1"> <input placeholder="whole"></div>'
+            '<div class="hint">Only when the recipe uses that unit.</div></div>'
+            '<div class="preview">“lemon juice” → “lemon”. 3 tbsp becomes 1.</div>'
+            '<button class="btn-sm primary">Save</button></div>'
+        )
+
+    s1 = compare("Name form — long vs short",
+                 "Same facts, about a third of the words. The direction is still stated (“Recipe says” ↓ “List shows”), the unit rule is one short line, and there is still a live example.",
+                 aliases(False), aliases(True))
+
+    def review(short: bool) -> str:
+        if not short:
+            return (header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Different units — choose how much to buy</div>'
+                    '<div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">Recipes need 100 g and 200 ml — these can’t be added together</div></div></div>'
+                    '<div class="log-controls"><button class="btn-sm">Buy 100 g</button><button class="btn-sm">Buy 200 ml</button><button class="btn-sm primary">Buy all of them</button></div>'
+                    "</div></div>" + nav("plan"))
+        return (header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Mixed units</div>'
+                '<div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">100 g + 200 ml</div></div></div>'
+                '<div class="log-controls"><button class="btn-sm">Use 100 g</button><button class="btn-sm">Use 200 ml</button></div>'
+                '<div class="box"><b>Or enter your own total</b>'
+                '<div class="sentence"><input placeholder="250"> <input placeholder="ml"> <button class="btn-sm primary">Use this total</button></div>'
+                '<div class="hint">Blank unit = whole items. One amount goes on the list.</div></div></div></div>' + nav("plan"))
+
+    s2 = compare("Mixed units — now with your own total",
+                 "The third choice you asked for: type the combined amount yourself. “Buy all of them” is gone. The row and AnyList then show only your total.",
+                 review(False), review(True))
+
+    def top(short: bool) -> str:
+        if not short:
+            head = ('<div class="sync-note"><span class="sync-dot"></span>Checked against AnyList when this page opened. Items already on your AnyList '
+                    "are set to “Have it”, so they won’t be sent again.</div>"
+                    '<div class="hint">Tap “Need it” for what you want sent to AnyList. “Have it” skips it. A row you don’t tap is not sent.</div>')
+            line = "2 ingredients and 1 regular item will be sent to AnyList. 1 ingredient still needs an amount chosen (under “Needs review”)."
+            btn = "Send 3 items to AnyList"
+        else:
+            head = ('<div class="sync-note"><span class="sync-dot"></span>Checked against AnyList at page open. Items on it are “Have it”.</div>'
+                    '<div class="hint">Need it = sent · Have it = skipped · untouched = not sent</div>')
+            line = "Sending 2 ingredients + 1 regular item. 1 still needs an amount."
+            btn = "Send to AnyList"
+        rows = (checklist_row("Cottage cheese", "Buy 2 × 500g tub (need 800 g)", "need")
+                + checklist_row("Milk", "2 L", "have", on_list=True) + checklist_row("Lime", "5"))
+        return (header("Checklist") + '<div class="pad"><div class="card"><h2>Shopping checklist</h2>' + head
+                + '<div class="sub-group-heading">Ingredients</div>' + rows + '<div class="muted">' + line + "</div>"
+                '<div class="sticky-actions"><button class="primary btn-block">' + btn + "</button></div></div></div>" + nav("plan"))
+
+    s3 = compare("Checklist header and send line — long vs short",
+                 "Each fact kept (what Need/Have do, untouched rows aren’t sent, what “On AnyList” means, what is being sent); the sentences are replaced by a short key.",
+                 top(False), top(True))
+
+    page("short.html", "Shorter copy — sample for approval",
+         "Left is the wording in the previous mockups, right is the same screen cut down. If this style is right, every other scene gets the same treatment.",
+         [s1, s2, s3])
+
+
 def build_index() -> None:
     html = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Chunk 6.7 — clarity mockups</title>
 <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#2a2620;line-height:1.5}
@@ -434,5 +514,6 @@ if __name__ == "__main__":
     build_settings()
     build_checklist()
     build_plan_recipes()
+    build_short()
     build_index()
     print("wrote", ", ".join(sorted(p.name for p in HERE.glob("*.html"))))
