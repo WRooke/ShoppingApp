@@ -290,7 +290,12 @@
           global.Feedback.error(headFeedback, "Couldn't rename — " + global.Feedback.messageOf(err) + " (the old name is still saved)");
         });
     });
-    head.appendChild(labelInput);
+    // A visible label (saves when you leave the field); the placeholder alone vanished once typed.
+    var nameField = el("div", "mini-field");
+    nameField.style.flex = "1";
+    nameField.appendChild(el("label", null, "Plan name"));
+    nameField.appendChild(labelInput);
+    head.appendChild(nameField);
 
     // Archive (Phase 6 Chunk 6.6) — the endpoint already existed (Phase 4 Chunk 4.4) but
     // nothing in the UI ever called it, so there was no way to remove a session from the

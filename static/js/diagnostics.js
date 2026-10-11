@@ -21,13 +21,18 @@
 
   function fmtTime(iso) {
     if (!iso) return "-";
-    return String(iso).replace("T", " ");
+    // Local time, e.g. "11 Oct, 3:15 pm" (the server sends UTC, with or without a zone suffix).
+    var raw = String(iso);
+    var hasZone = /[zZ]|[+-]\d\d:?\d\d$/.test(raw);
+    var d = new Date(hasZone ? raw : raw.replace(" ", "T") + "Z");
+    if (isNaN(d.getTime())) return raw.replace("T", " ");
+    return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   }
 
   // Push history (Chunk 6.7): which pushes are expanded survives the 5-second auto-refresh that
   // rebuilds this panel. Undefined = default (the newest push opens itself if it had a problem).
   var openPushes = {};
-  var OUTCOME_LABEL = { "added": "added", "updated": "updated", "un-crossed": "un-crossed", "already-active": "already there", "failed": "failed" };
+  var OUTCOME_LABEL = { "added": "added", "updated": "amount changed", "un-crossed": "put back", "already-active": "already on AnyList", "failed": "failed" };
   var OUTCOME_CLASS = { "added": "added", "updated": "updated", "un-crossed": "uncrossed", "already-active": "", "failed": "failed" };
 
   function pushCountText(p) {
@@ -232,10 +237,10 @@
           el(
             "div",
             "status-msg",
-            "enabled: " + (d.enabled ? "yes" : "no") +
-              "  ·  fake mode: " + (d.fake_mode ? "yes" : "no") +
+            "Connected: " + (d.enabled ? "yes" : "no") +
+              "  ·  test mode: " + (d.fake_mode ? "yes" : "no") +
               "  ·  list: " + (d.target_list || "?") +
-              "  ·  creds: " + (d.credentials_configured ? d.secret_source || "yes" : "none")
+              "  ·  login saved: " + (d.credentials_configured ? "yes" : "no")
           )
         );
         if (d.last_success)

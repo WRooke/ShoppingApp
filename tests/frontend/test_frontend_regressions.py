@@ -75,7 +75,7 @@ def test_unscheduling_a_session_slot_day_persists_after_reload(browser, api, ser
 
     browser.navigate(f"{server_url}/#/plan/{session['id']}")
     browser.wait_for(".day-section.unassigned")
-    assert "1 item" in browser.text(".day-section.unassigned .count")
+    assert "1 meal" in browser.text(".day-section.unassigned .count")
     assert not browser.console_errors(), browser.console_errors()
 
 
@@ -210,7 +210,7 @@ def test_ingredient_alias_group_shows_count_and_fixed_name_field(browser, api, s
     result = browser.eval(
         "(function(canon){"
         "var heads=Array.from(document.querySelectorAll('.settings-group-name'));"
-        "var head=heads.find(function(h){return h.textContent===canon;});"
+        "var head=heads.find(function(h){return h.textContent==='Shown as “'+canon+'”';});"
         "if(!head) return 'GROUP_NOT_FOUND';"
         "var card=head.closest('.settings-group-card');"
         "var count=card.querySelector('.settings-group-count').textContent;"
@@ -932,7 +932,7 @@ def test_deleting_settings_rows_in_place_keeps_counts_and_empty_groups_true(brow
     def card_js(tail: str) -> str:
         return (
             "(function(c){var cards=Array.from(document.querySelectorAll('.settings-group-card'));"
-            "var card=cards.find(function(k){return k.querySelector('.settings-group-name').textContent===c;});"
+            "var card=cards.find(function(k){return k.querySelector('.settings-group-name').textContent==='Shown as “'+c+'”';});"
             + tail + f"}})({json.dumps(canon)})"
         )
 

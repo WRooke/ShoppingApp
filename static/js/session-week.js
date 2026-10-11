@@ -127,7 +127,7 @@
       else left.appendChild(el("span", "dow", dayLabel));
       headEl.appendChild(left);
       headEl.appendChild(
-        el("span", "count", daySlots.length ? daySlots.length + " item" + (daySlots.length === 1 ? "" : "s") : "")
+        el("span", "count", daySlots.length ? daySlots.length + (daySlots.length === 1 ? " meal" : " meals") : "")
       );
       sec.appendChild(headEl);
 

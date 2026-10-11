@@ -155,7 +155,6 @@
       },
     });
 
-    if (unit.is_preseeded) row.appendChild(el("span", "muted", "Built in"));
     row.appendChild(miniField("Pack name (as you’d say it)", labelInput));
     var grid2 = el("div", "ing-grid");
     grid2.style.gridTemplateColumns = "1fr 1fr";

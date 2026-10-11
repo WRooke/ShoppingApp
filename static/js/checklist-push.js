@@ -202,7 +202,7 @@
       var usualCount = Object.keys(opts.pushUsualIds).length;
       var needReview = opts.items.filter(function (i) { return i.needs_review; }).length;
       var parts = [toAdd + (toAdd === 1 ? " ingredient" : " ingredients")];
-      if (opts.usuals.length) {
+      if (usualCount) {
         parts.push(usualCount + (usualCount === 1 ? " usual" : " usuals"));
       }
       line.textContent =

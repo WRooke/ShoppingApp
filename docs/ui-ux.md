@@ -142,6 +142,18 @@ after any Have it / Need it tap. Rules:
   `tests/services/`, the response shape in `tests/routers/`, only the DOM/state-survival
   behaviour in `tests/frontend/`. Extend an existing test before adding a sibling.
 
+### New UI must match the current style (2026-10-11)
+
+Every UI tweak is consistent with what is already on screen; nothing gets a one-off look.
+Concretely: all text-entry controls (text, number, url, search, select, textarea) share the one
+appearance defined in `static/css/components.css` (44px high, `--surface` fill, `--border-strong`
+border, `--r-sm` radius) — a new input type or screen gets that rule extended, never a local
+override, so a number box can never look different from the text box beside it. Reuse the existing
+components (`.mini-field`, `.pair-box`/`.pair-row`, `.inline-card`, `.persist-toggle`,
+`.settings-group-card`, `.btn-sm`, toasts) and the colour/spacing tokens; no literal colours.
+Check a change in light and dark and at phone width, and compare the screenshot against a
+neighbouring screen before calling it done (`scripts/cdp.py` + a screenshot is enough).
+
 ### Accessibility
 - Tap targets minimum 44px.
 - Sufficient colour contrast.

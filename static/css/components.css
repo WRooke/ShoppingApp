@@ -203,7 +203,12 @@ button:disabled, .btn:disabled { opacity: .55; cursor: default; transform: none;
 .field select,
 .field textarea,
 select,
-input[type="text"] {
+input[type="text"],
+input[type="number"],
+input[type="url"],
+input[type="search"],
+input[type="email"],
+input[type="password"] {
   font: inherit;
   min-height: 44px;
   padding: .5rem .7rem;

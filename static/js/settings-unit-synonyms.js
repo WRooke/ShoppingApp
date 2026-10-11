@@ -49,7 +49,7 @@
 
   function renderSynonymRow(row, reload) {
     var wrap = el("div", "settings-row");
-    wrap.appendChild(el("span", "muted", row.alias_unit));
+    wrap.appendChild(el("span", "muted", row.alias_unit + " → " + row.canonical_unit));
 
     var deleteBtn = el("button", "btn-sm", "Remove");
     var rowErr = el("span", "form-error");

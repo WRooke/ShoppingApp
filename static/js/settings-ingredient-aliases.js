@@ -188,7 +188,7 @@
         global.SettingsRowActions.tidyAfterDelete(container, {
           listBody: list, rowSel: ".settings-group-row", cardSel: ".settings-group-card",
           countSel: ".settings-group-count",
-          countText: function (n) { return "shown as this · " + n + (n === 1 ? " name" : " names"); },
+          countText: function (n) { return n + (n === 1 ? " name" : " names"); },
           emptyText: "No name groups yet — add one below.",
         });
       },
@@ -362,9 +362,9 @@
             groups.forEach(function (group) {
               var groupCard = el("div", "settings-group-card");
               var head = el("div", "settings-group-head");
-              head.appendChild(el("span", "settings-group-name", group.canonical_name));
+              head.appendChild(el("span", "settings-group-name", "Shown as “" + group.canonical_name + "”"));
               var count = group.rows.length;
-              head.appendChild(el("span", "settings-group-count", "shown as this · " + count + (count === 1 ? " name" : " names")));
+              head.appendChild(el("span", "settings-group-count", count + (count === 1 ? " name" : " names")));
               groupCard.appendChild(head);
               group.rows.forEach(function (row) {
                 groupCard.appendChild(renderAliasRow(row, load));
