@@ -56,11 +56,15 @@ class ChecklistItemResolve(BaseModel):
     """Resolve a Chunk 4.6 irreconcilable-units line: commit a single total the user picked
     (one of the shown parts, or a manual figure). Clears ``needs_review``."""
 
-    total_quantity: float = Field(..., gt=0)
+    total_quantity: float | None = Field(None, gt=0)
     total_unit: str | None = None
+    # "Buy all of them": keep every conflicting amount (in the note) instead of picking one.
+    keep_all: bool = False
 
     @model_validator(mode="after")
     def _clean(self) -> "ChecklistItemResolve":
+        if not self.keep_all and self.total_quantity is None:
+            raise ValueError("total_quantity is required unless keep_all is true")
         if self.total_unit is not None:
             self.total_unit = " ".join(self.total_unit.strip().lower().split()) or None
         return self

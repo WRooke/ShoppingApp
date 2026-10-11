@@ -257,6 +257,21 @@ def test_resolve_needs_review_item(client, fake_anylist):
     assert body["total_quantity"] == 300 and body["total_unit"] == "ml"
 
 
+def test_resolve_keep_all_needs_no_total_and_a_bare_resolve_is_rejected(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-router-keepall", "quantity": 100, "unit": "g"},
+                 {"name": "zz-router-keepall", "quantity": 200, "unit": "ml"}]
+    )
+    item = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]
+    url = f"/api/v1/checklist/{sid}/items/{item['id']}/resolve"
+    assert client.post(url, json={}).status_code == 422  # neither a total nor keep_all
+    resp = client.post(url, json={"keep_all": True})
+    assert resp.status_code == 200
+    body = resp.json()["data"]
+    assert body["needs_review"] is False and body["total_quantity"] is None
+    assert body["note"] == "100 g + 200 ml"
+
+
 # --- merge (Fix 3, F3.3) -----------------------------------------------------------------
 
 
@@ -298,6 +313,27 @@ def test_merge_with_pair_converts_amount_and_shows_a_conversion_note(client, fak
     item = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz merge canned corn")
     assert item["total_quantity"] == 2 and item["total_unit"] == "can"
     assert "from" in (item["note"] or "").lower()
+    assert resp.json()["data"]["unconverted"] == []
+
+
+def test_merge_pair_reports_members_it_could_not_convert(client, fake_anylist):
+    """The amount pair only converts a line measured in the typed unit; the others merge by name
+    only, amount unchanged - and the response says which (it used to be silent)."""
+    sid = _session_with_checklist(
+        client, [{"name": "zz-merge-conv-corn", "quantity": 4, "unit": "cob"},
+                 {"name": "zz-merge-conv-sweetcorn", "quantity": 300, "unit": "g"}]
+    )
+    resp = client.post(
+        f"/api/v1/checklist/{sid}/merge",
+        json={
+            "item_names": ["zz merge conv corn", "zz merge conv sweetcorn", "zz merge conv canned"],
+            "canonical_name": "zz merge conv canned",
+            "remember": False,
+            "alias_qty": 2, "alias_unit": "cob", "canonical_qty": 1, "canonical_unit": "can",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["unconverted"] == ["zz merge conv sweetcorn"]
 
 
 def test_merge_remember_true_creates_a_durable_alias(client, fake_anylist):

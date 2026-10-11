@@ -122,7 +122,10 @@ class SessionChecklistItem(Base):
         hand-edited data) — ReviewOptionRead requires ``quantity`` with no default, so an
         unvalidated malformed element would otherwise raise a pydantic.ValidationError inside
         the router's model_validate(row) and 500 the whole checklist load for that session."""
-        if not self.review_options_json:
+        # Once the user has resolved the conflict (needs_review False) the JSON is kept as a
+        # fingerprint of the amounts that were picked from - consolidation compares it to spot a
+        # NEW conflicting amount arriving (a merge/recipe added) - but no quick-picks are offered.
+        if not self.review_options_json or not self.needs_review:
             return []
         try:
             value = json.loads(self.review_options_json)

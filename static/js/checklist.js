@@ -415,6 +415,17 @@
           });
           picks.appendChild(btn);
         });
+        // None of the amounts is wrong - they just can't be added (a weight and a volume, a
+        // weight and a count). Keep all of them rather than forcing one to be thrown away.
+        var keepAllBtn = el("button", "btn-sm", "buy all of them");
+        keepAllBtn.addEventListener("click", function () {
+          global.Feedback.clear(picks);
+          api.checklist
+            .resolveItem(sessionId, item.id, { keep_all: true })
+            .then(load)
+            .catch(function (err) { global.Feedback.error(picks, global.Feedback.messageOf(err)); });
+        });
+        picks.appendChild(keepAllBtn);
         wrap.appendChild(picks);
 
         var manual = el("div", "ing-grid");
@@ -714,7 +725,7 @@
             canonical_unit: values.canonical_unit || null,
           })
           .then(function (res) {
-            offerUndo(keptKey, memberKeys, keptShown, remember, (res && res.alias_ids) || []);
+            offerUndo(keptKey, memberKeys, keptShown, remember, (res && res.alias_ids) || [], (res && res.unconverted) || [], values.alias_unit);
             onDone();
           })
           .catch(function (e) {
@@ -740,7 +751,7 @@
     // The "Merged into …" toast with Undo. Undo reverses exactly what this merge did (the
     // this-list-only merge rows and/or the saved groups it created) and hands the merged line's
     // Need it / Have it back to the restored lines (POST /checklist/{id}/undo-merge).
-    function offerUndo(keptKey, memberKeys, keptShown, remember, aliasIds) {
+    function offerUndo(keptKey, memberKeys, keptShown, remember, aliasIds, unconverted, pairUnit) {
       function undo() {
         api.checklist
           .undoMerge(sessionId, { canonical_name: keptKey, member_names: memberKeys, alias_ids: aliasIds })
@@ -754,10 +765,15 @@
             });
           });
       }
-      global.Toast.show(
-        "Merged into “" + keptShown + "” — " + (remember ? "every time" : "this list only"),
-        { actionLabel: "Undo", onAction: undo }
-      );
+      var mergedMsg = "Merged into “" + keptShown + "” — " + (remember ? "every time" : "this list only");
+      if (unconverted && unconverted.length) {
+        // The amount ratio only applies to a line measured in the unit typed for it; say which
+        // lines it skipped instead of letting their amounts look converted.
+        mergedMsg +=
+          ". The amount ratio wasn't applied to " + unconverted.join(", ") +
+          " (not measured in " + (pairUnit || "a bare count") + ") — their amounts are added as they are.";
+      }
+      global.Toast.show(mergedMsg, { actionLabel: "Undo", onAction: undo });
     }
 
     // Fix 3's own small local copy of the same four-field amount/unit grid shape

@@ -979,6 +979,68 @@ def test_consolidate_session_merge_unit_conflict_produces_needs_review(db):
     assert items[0].needs_review is True
 
 
+def test_chained_session_merges_fold_every_member_into_the_final_name(db):
+    """2026-10-11, Chunk 6.7 — merging A into B and then B into C are two separate Merge actions;
+    A's amount used to stay stranded under "B" as its own row."""
+    from app.services import session_merges
+
+    r1 = _recipe_with(db, "A", [{"name": "carrot", "quantity": 2, "unit": None}])
+    r2 = _recipe_with(db, "B", [{"name": "orange carrot", "quantity": 3, "unit": None}])
+    r3 = _recipe_with(db, "C", [{"name": "baby carrot", "quantity": 4, "unit": None}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    for r in (r1, r2, r3):
+        sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    session_merges.add_session_merge(db, s.id, "baby carrot", "orange carrot")
+    session_merges.add_session_merge(db, s.id, "orange carrot", "carrot")
+
+    items = sessions_service.consolidate_session(db, s.id)
+    assert [i.ingredient_name for i in items] == ["carrot"]
+    assert items[0].total_quantity == 9  # 2 + 3 + 4 - nothing left behind under "orange carrot"
+
+
+def test_a_new_conflicting_amount_reflags_a_row_the_user_already_resolved(db):
+    """2026-10-11, Chunk 6.7 — the user picked "300 ml" from {100 g, 200 ml}; a merge (or recipe)
+    then brings in a third amount. Keeping the old pick silently dropped it."""
+    from app.services import checklist as checklist_service
+    from app.services import session_merges
+
+    r1 = _recipe_with(db, "A", [{"name": "cream", "quantity": 100, "unit": "g"}])
+    r2 = _recipe_with(db, "B", [{"name": "cream", "quantity": 200, "unit": "ml"}])
+    r3 = _recipe_with(db, "C", [{"name": "sour cream", "quantity": 2, "unit": None}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    for r in (r1, r2, r3):
+        sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    cream = next(i for i in sessions_service.consolidate_session(db, s.id) if i.ingredient_name == "cream")
+    checklist_service.resolve_item(db, s.id, cream.id, total_quantity=250, total_unit="ml")
+
+    # Same conflict re-run: the user's pick stands.
+    cream = next(i for i in sessions_service.consolidate_session(db, s.id) if i.ingredient_name == "cream")
+    assert cream.needs_review is False and cream.total_quantity == 250
+
+    session_merges.add_session_merge(db, s.id, "sour cream", "cream")
+    cream = next(i for i in sessions_service.consolidate_session(db, s.id) if i.ingredient_name == "cream")
+    assert cream.needs_review is True  # the new "2" amount is on the table again
+    assert len(cream.review_options) == 3
+
+
+def test_resolve_keep_all_retains_every_part_and_survives_reconsolidation(db):
+    """2026-10-11, Chunk 6.7 — "buy all of them": mixed units can't be added, but none is wrong."""
+    from app.services import checklist as checklist_service
+
+    r1 = _recipe_with(db, "A", [{"name": "cream", "quantity": 100, "unit": "g"}])
+    r2 = _recipe_with(db, "B", [{"name": "cream", "quantity": 200, "unit": "ml"}])
+    s = sessions_service.create_session(db, PlanningSessionCreate())
+    for r in (r1, r2):
+        sessions_service.add_session_recipe(db, s.id, SessionRecipeCreate(recipe_id=r.id, scaled_servings=4))
+    cream = next(i for i in sessions_service.consolidate_session(db, s.id) if i.ingredient_name == "cream")
+
+    checklist_service.resolve_item(db, s.id, cream.id, keep_all=True)
+    cream = next(i for i in sessions_service.consolidate_session(db, s.id) if i.ingredient_name == "cream")
+    assert cream.needs_review is False
+    assert cream.total_quantity is None
+    assert cream.note == "100 g + 200 ml"
+
+
 def test_consolidate_session_merge_scoped_to_its_own_session_only(db):
     from app.services import session_merges
 

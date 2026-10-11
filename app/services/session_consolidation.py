@@ -125,17 +125,28 @@ def _apply_session_merge(
     `session_merges.session_merge_map()`, deliberately — a session merge IS an alias
     resolution, just scoped to one session instead of durable). See CLAUDE.md > Deferred
     Decisions > checklist-time merge."""
-    merge = merge_map.get(_norm(name))
-    if merge is None:
-        return name, qty, unit, None
-    if (
-        scaled
-        and merge.has_pair
-        and _norm(merge.alias_unit or "") == _norm(unit or "")
-    ):
-        new_qty = qty / merge.alias_qty * merge.canonical_qty
-        return merge.canonical_name, new_qty, merge.canonical_unit, (qty, unit, name)
-    return merge.canonical_name, qty, unit, None
+    # Follow the chain: merging A into B and later B into C (two separate Merge actions) must land
+    # A's amount under C too - a single lookup left it stranded under "B" as its own row
+    # (2026-10-11, Chunk 6.7). `seen` guards a cycle (A->B then B->A). The FIRST step's
+    # pre-conversion amount is what the "from 4 tbsp ..." note should quote.
+    source = None
+    seen: set[str] = set()
+    while _norm(name) not in seen:
+        merge = merge_map.get(_norm(name))
+        if merge is None:
+            break
+        seen.add(_norm(name))
+        if (
+            scaled
+            and merge.has_pair
+            and _norm(merge.alias_unit or "") == _norm(unit or "")
+        ):
+            if source is None:
+                source = (qty, unit, name)
+            qty = qty / merge.alias_qty * merge.canonical_qty
+            unit = merge.canonical_unit
+        name = merge.canonical_name
+    return name, qty, unit, source
 
 
 # How strongly a `have_it` value expresses a decision the user made — when several rows fold
@@ -155,11 +166,37 @@ def _resolved_name(
     every ingredient line: where would a row currently named `name` end up if consolidation ran
     now? Used purely to find the *lineage* of a row whose name just changed (see
     `_carry_state_across_renames`); the quantity transforms don't matter for that."""
-    for resolution_map in (substitute_map, alias_map, merge_map):
+    for resolution_map in (substitute_map, alias_map):
         hit = resolution_map.get(_norm(name))
         if hit is not None:
             name = hit.canonical_name
+    seen: set[str] = set()  # session merges can chain (A->B, B->C), same as _apply_session_merge
+    while _norm(name) not in seen:
+        hit = merge_map.get(_norm(name))
+        if hit is None:
+            break
+        seen.add(_norm(name))
+        name = hit.canonical_name
     return name
+
+
+def _conflict_changed(stored_json: str | None, fresh_options) -> bool:
+    """True when a user-resolved needs_review row's conflicting amounts are no longer the ones
+    it was resolved against. `stored_json` is `review_options_json` as left by the last
+    consolidate (kept as a fingerprint after resolve, see SessionChecklistItem.review_options);
+    None (a row resolved before the fingerprint was kept) is treated as unchanged - the old
+    behaviour - rather than guessing."""
+    if not stored_json:
+        return False
+    try:
+        stored = json.loads(stored_json)
+        old = sorted(
+            (round(float(o["quantity"]), 4), o.get("unit") or "") for o in stored
+        )
+    except (ValueError, TypeError, KeyError):
+        return False
+    new = sorted((round(float(o.quantity), 4), o.unit or "") for o in fresh_options)
+    return old != new
 
 
 def _carry_state_across_renames(
@@ -459,7 +496,15 @@ def _consolidate_session_impl(
         # recompute and clear the flag — a stale manual pick from an unrelated earlier
         # conflict must not be reused for a fresh single-dimension total.
         if row.review_resolved_by_user and item.needs_review:
-            continue
+            if not _conflict_changed(row.review_options_json, item.review_options):
+                continue
+            # 2026-10-11 (Chunk 6.7, merge lost a quantity): the user picked from an earlier set of
+            # amounts and a NEW one has since arrived (a merge folded another line in, or a recipe
+            # was added). Their pick no longer covers it - silently keeping it dropped that amount.
+            logger.info(
+                "Checklist item %r: conflicting amounts changed since the user's pick; re-flagged",
+                item.name,
+            )
         row.review_resolved_by_user = False
 
         # reset computed fields every run

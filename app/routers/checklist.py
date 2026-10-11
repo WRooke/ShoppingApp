@@ -110,7 +110,8 @@ def resolve_item(
     db: Session = Depends(get_db),
 ) -> dict:
     row = checklist_service.resolve_item(
-        db, session_id, item_id, total_quantity=data.total_quantity, total_unit=data.total_unit
+        db, session_id, item_id,
+        total_quantity=data.total_quantity, total_unit=data.total_unit, keep_all=data.keep_all,
     )
     return {"ok": True, "data": _item(db, row)}
 
@@ -126,6 +127,7 @@ def merge_items(
     `remember=True` merge that names an already-aliased item surfaces 409
     DUPLICATE_INGREDIENT_ALIAS, same as Settings' own alias creation."""
     alias_ids: list[int] = []
+    unconverted: list[str] = []
     rows = checklist_service.merge_items(
         db,
         session_id,
@@ -137,9 +139,18 @@ def merge_items(
         canonical_qty=data.canonical_qty,
         canonical_unit=data.canonical_unit,
         created_alias_ids=alias_ids,
+        unconverted=unconverted,
     )
     # `alias_ids` (a "merge every time") + the merged-away names let the client offer Undo.
-    return {"ok": True, "data": {"items": _items(db, rows, session_id), "alias_ids": alias_ids}}
+    return {
+        "ok": True,
+        "data": {
+            "items": _items(db, rows, session_id),
+            "alias_ids": alias_ids,
+            # members folded in by name only because their unit didn't match the typed amount pair
+            "unconverted": unconverted,
+        },
+    }
 
 
 @router.post("/{session_id}/undo-merge")

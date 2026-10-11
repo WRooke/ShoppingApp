@@ -156,6 +156,22 @@ Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
   un-cleanable stray duplicate on the real AnyList list). Not proactively hidden once pushed;
   surfaced the same reactive way the Push button's own "already pushed" case already is (a
   friendly message on the 409, not a pre-emptive status fetch just to hide the control).
+- **No amount is ever silently lost in a merge (2026-10-11, Chunk 6.7).** Four rules, each with
+  a regression test:
+  1. *Mixed kinds of unit* (a weight + a volume, a count + a weight) can't be added, so the merged
+     row is "needs review" — but it now offers **"buy all of them"** (`resolve` with
+     `keep_all`) next to the pick-one buttons: no single total, every part kept in the note (which
+     is also what AnyList's note field gets).
+  2. *A new amount arriving after the user picked one* (a merge or a recipe adds another part)
+     re-flags the row. `review_options_json` is kept after a pick as a fingerprint of the amounts
+     the pick was made from; consolidation compares it to the fresh conflict
+     (`session_consolidation._conflict_changed`). `SessionChecklistItem.review_options` exposes
+     nothing once the row is resolved.
+  3. *Chained merges* (A into B, later B into C) are followed transitively with a cycle guard
+     (`_apply_session_merge`, `_resolved_name`), so A's amount lands under C.
+  4. *The optional amount ratio only converts a line measured in the unit typed for it*; other
+     members merge by name with their amount unchanged. The merge response now lists them
+     (`unconverted`) and the toast says so, instead of letting them look converted.
 - Have-it/add-to-list state on a merged-away row is preserved onto the surviving canonical row
   (strongest value wins: "no" beats "yes" beats "unknown" for have-it; any "add to list" wins) —
   merging never silently discards an in-progress decision.

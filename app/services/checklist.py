@@ -246,7 +246,13 @@ def update_item(
 
 
 def resolve_item(
-    db: Session, session_id: int, item_id: int, *, total_quantity: float, total_unit: str | None
+    db: Session,
+    session_id: int,
+    item_id: int,
+    *,
+    total_quantity: float | None = None,
+    total_unit: str | None = None,
+    keep_all: bool = False,
 ) -> SessionChecklistItem:
     """Commit a single total for a Chunk 4.6 irreconcilable-units line and clear the flag.
 
@@ -255,17 +261,27 @@ def resolve_item(
     ingredient still conflicts — 2026-09-10 hand-testing ("doesn't remember amounts under
     review"). See CLAUDE.md > Scaling Logic > re-running consolidation."""
     row = _get_item(db, session_id, item_id)
-    row.total_quantity = total_quantity
-    row.total_unit = total_unit
+    if keep_all:
+        # "Buy all of them" (2026-10-11, Chunk 6.7): the amounts can't be added (g + ml, a count +
+        # a weight) but none is wrong, so keep every one instead of forcing a single pick. There is
+        # no single total; the parts stay in the note, which is also what AnyList's note field gets.
+        row.total_quantity = None
+        row.total_unit = None
+        # row.note already holds the " + "-joined parts from the last consolidate; keep it.
+    else:
+        row.total_quantity = total_quantity
+        row.total_unit = total_unit
+        row.note = None
     row.needs_review = False
-    row.note = None
-    row.review_options_json = None  # resolved -- no more quick-picks to offer for this line
+    # review_options_json is deliberately KEPT: consolidation compares it to the fresh conflict to
+    # notice a new amount arriving after this pick. SessionChecklistItem.review_options exposes
+    # [] once needs_review is False, so no quick-picks are offered.
     row.review_resolved_by_user = True
     db.commit()
     db.refresh(row)
     logger.info(
-        "Checklist item resolved: session_id=%s item_id=%s -> %s %s",
-        session_id, item_id, total_quantity, total_unit,
+        "Checklist item resolved: session_id=%s item_id=%s -> %s",
+        session_id, item_id, "keep all parts" if keep_all else f"{total_quantity} {total_unit}",
     )
     return row
 
@@ -287,6 +303,7 @@ def merge_items(
     canonical_qty: float | None = None,
     canonical_unit: str | None = None,
     created_alias_ids: list[int] | None = None,
+    unconverted: list[str] | None = None,
 ) -> list[SessionChecklistItem]:
     """Fold 2+ already-consolidated checklist lines into one, either for this session only
     (`remember=False` -> `session_merges.add_session_merge()`) or as a durable household
@@ -328,6 +345,22 @@ def merge_items(
         add_to_list = add_to_list or row.add_to_list
 
     members = [n for n in item_names if n != canonical_name]
+    # The amount pair only converts a member whose unit is exactly the typed "alias unit"; any other
+    # member is folded in by NAME only, amount unchanged (consolidation's fallback). That used to
+    # happen silently - report which members it applied to so the UI can say so (2026-10-11,
+    # Chunk 6.7), and log it.
+    if unconverted is not None and alias_qty is not None and canonical_qty is not None:
+        want = " ".join((alias_unit or "").lower().split())
+        for member in members:
+            row = rows.get(member)
+            have = " ".join(((row.total_unit if row else None) or "").lower().split())
+            if row is not None and have != want:
+                unconverted.append(member)
+        if unconverted:
+            logger.warning(
+                "Checklist merge: amount conversion not applied to %r (unit differs from %r); "
+                "merged by name only (session_id=%s)", unconverted, alias_unit, session_id,
+            )
     if remember:
         # Explicitly not caught/suppressed: a name already aliased elsewhere raises
         # DuplicateIngredientAliasError, surfaced as a normal structured 409 the user can act

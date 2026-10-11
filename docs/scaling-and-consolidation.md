@@ -177,6 +177,16 @@ alone. Once the conflict is actually gone (a substitution or alias resolved it, 
 flag is cleared and the line falls through to a normal recompute — a stale manual pick from
 an earlier, unrelated conflict is never silently reused for a fresh one.
 
+**A still-conflicting row is re-flagged when the set of conflicting amounts changes
+(2026-10-11, Chunk 6.7).** "Still conflicts" used to mean "has any conflict", so a merge (or a
+newly added recipe) that brought a *third* amount into an already-resolved row had that amount
+silently ignored — the user's earlier pick stood. `review_options_json` is now kept after
+`resolve_item()` as a fingerprint of the amounts the pick was made from, and the upsert re-flags
+the row (clears `review_resolved_by_user`, recomputes) when the fresh conflict differs. A row
+resolved before this change has no fingerprint and keeps the old behaviour. The alternative
+resolution **"buy all of them"** (`resolve_item(keep_all=True)`) keeps every part in `note` with
+no single total.
+
 ---
 
 ## Which Recipe Is This Ingredient From

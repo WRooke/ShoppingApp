@@ -158,7 +158,10 @@ def test_review_options_drops_malformed_elements(db):
     The `review_options` property must filter those out instead of passing them through."""
     from app.models.planning import SessionChecklistItem
 
-    item = SessionChecklistItem(session_id=1, ingredient_name="flour")
+    # needs_review True: `review_options` exposes nothing once a line is resolved (the JSON is then
+    # only a fingerprint for consolidation), so the malformed-element filter is only observable
+    # on a line that is still under review.
+    item = SessionChecklistItem(session_id=1, ingredient_name="flour", needs_review=True)
 
     item.review_options_json = '[{"quantity": 100, "unit": "g"}, {"unit": "ml"}]'
     assert item.review_options == [{"quantity": 100, "unit": "g"}]
