@@ -96,7 +96,7 @@ def test_tracker_shows_four_stages_and_rows_addressed_by_row_key(browser, api, s
     )
     row_ids = [i["id"] for i in api.get(f"/api/v1/checklist/{sid}").json()["data"]["items"]]
     browser.eval(f"window.__ids = {json.dumps(row_ids)};")
-    browser.click("button.primary", contains="Push to AnyList")
+    browser.click("button.primary", contains="Send to AnyList")
     assert _wait(browser, "document.querySelectorAll('.push-stages li').length === 4")
     assert _wait(browser, "document.querySelector('.push-stages li.active') && document.querySelector('.push-stages li.active').textContent.indexOf('Sending') === 0")
     assert "1 of 3" in browser.text(".push-stages")  # n of N counts lines SENT
@@ -136,17 +136,17 @@ def test_a_confirmed_push_shows_a_result_card_with_counts_and_details_not_a_toas
                    {"key": "item:3", "name": "Olive Oil", "outcome": "added", "reason": None},
                    {"key": "item:4", "name": "Salt", "outcome": "already-active", "reason": None},
                ]) + ", added: [], updated: [], discrepancies: []});")
-    browser.click("button.primary", contains="Push to AnyList")
+    browser.click("button.primary", contains="Send to AnyList")
     browser.wait_for(".push-result")
     assert browser.text(".push-result .title") == "4 on your list"
     sub = browser.text(".push-result .sub")
-    assert "1 added" in sub and "2 updated (1 un-crossed)" in sub and "1 already there" in sub
+    assert "1 added" in sub and "2 updated (1 put back)" in sub and "1 already on AnyList" in sub
     assert browser.eval("!!document.querySelector('.push-result.warn')") is False
     assert browser.eval("!!document.querySelector('.push-result .result-list')") is False  # collapsed
 
     browser.click(".push-result .btn-link", contains="Details")
     rows = browser.eval("Array.from(document.querySelectorAll('.push-result .result-list li')).map(function(l){return l.textContent;})")
-    assert rows == ["Beef Mindun-crossed".replace("Mind", "Mince"), "Eggsupdated", "Olive Oiladded", "Saltalready there"]
+    assert rows == ["Beef Mindput back".replace("Mind", "Mince"), "Eggsamount changed", "Olive Oiladded", "Saltalready on AnyList"]
     assert browser.eval("!document.querySelector('.toast')")  # no 5-second toast any more
     _no_native(browser)
 
@@ -160,7 +160,7 @@ def test_failed_items_are_named_with_reasons_never_a_green_tick_and_try_again_re
                    {"key": "item:1", "name": "Red Capsicums", "outcome": "failed", "reason": "Not on the list after sending."},
                    {"key": "item:2", "name": "Salt", "outcome": "added", "reason": None},
                ]) + ", discrepancies: ['x']});")
-    browser.click("button.primary", contains="Push to AnyList")
+    browser.click("button.primary", contains="Send to AnyList")
     browser.wait_for(".push-result.warn")
     assert browser.text(".push-result .title") == "1 item needs attention"
     assert "The other 1 is on your list." in browser.text(".push-result .sub")
@@ -183,20 +183,20 @@ def test_already_pushed_is_an_inline_card_with_named_buttons_and_escape(browser,
     _open_checklist(browser, server_url, sid)
     _mark_all_need(browser)
     _stub_push(browser, "return Promise.reject({code: 'SESSION_ALREADY_PUSHED', message: 'already'});")
-    browser.click("button.primary", contains="Push to AnyList")
+    browser.click("button.primary", contains="Send to AnyList")
     browser.wait_for(".inline-card.warn")
-    assert browser.text(".inline-card .title") == "Already pushed to AnyList"
+    assert browser.text(".inline-card .title") == "Already sent to AnyList"
     buttons = browser.eval("Array.from(document.querySelectorAll('.inline-card button')).map(function(b){return b.textContent;})")
-    assert buttons == ["Push again", "Not now"]  # named for what they do — never OK/Cancel
-    assert browser.eval("document.activeElement.textContent") == "Push again"
+    assert buttons == ["Send again", "Not now"]  # named for what they do — never OK/Cancel
+    assert browser.eval("document.activeElement.textContent") == "Send again"
 
     browser.eval("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));")
     assert _wait(browser, "!document.querySelector('.inline-card')")  # Escape = Not now
 
-    browser.click("button.primary", contains="Push to AnyList")
+    browser.click("button.primary", contains="Send to AnyList")
     browser.wait_for(".inline-card.warn")
     _stub_push(browser, "return new Promise(function(){});")
-    browser.click(".inline-card button.primary", contains="Push again")
+    browser.click(".inline-card button.primary", contains="Send again")
     assert _wait(browser, "window.__pushCalls.length === 1 && window.__pushCalls[0].force === true")
     _no_native(browser)
 
@@ -206,7 +206,7 @@ def test_a_push_that_cannot_read_the_list_says_nothing_changed_and_offers_try_ag
     _open_checklist(browser, server_url, sid)
     _mark_all_need(browser)
     _stub_push(browser, "return Promise.reject({code: 'ANYLIST_ERROR', message: 'AnyList is unreachable'});")
-    browser.click("button.primary", contains="Push to AnyList")
+    browser.click("button.primary", contains="Send to AnyList")
     browser.wait_for(".error-state")
     text = browser.text(".error-state")
     assert "Nothing was changed" in text and "AnyList is unreachable" in text
@@ -221,13 +221,13 @@ def test_a_push_that_cannot_read_the_list_says_nothing_changed_and_offers_try_ag
 
 
 def _start_merge(browser, n_select=2):
-    browser.click("button.btn-link", contains="Select to merge")
+    browser.click("button.btn-link", contains="Combine rows")
     for i in range(n_select):
         # each tick re-renders the list, so re-query before every click (stale nodes are detached)
         browser.eval(f"document.querySelectorAll('.merge-select-checkbox')[{i}].click();")
         assert _wait(browser, f"document.querySelectorAll('.merge-select-checkbox:checked').length === {i + 1}")
-    assert _wait(browser, f"Array.from(document.querySelectorAll('button')).some(function(b){{return b.textContent==='Merge ({n_select})';}})")
-    browser.click("button.btn-sm.primary", contains=f"Merge ({n_select})")
+    assert _wait(browser, f"Array.from(document.querySelectorAll('button')).some(function(b){{return b.textContent==='Combine ({n_select})';}})")
+    browser.click("button.btn-sm.primary", contains=f"Combine ({n_select})")
     browser.wait_for(".inline-card")
 
 
@@ -236,15 +236,15 @@ def test_merge_panel_names_what_will_happen_and_the_choice_is_the_two_buttons(br
     _open_checklist(browser, server_url, sid)
     _start_merge(browser)
 
-    assert browser.text(".inline-card .title") == "Merge these ingredients"
+    assert browser.text(".inline-card .title") == "Combine rows"
     chips = browser.eval("Array.from(document.querySelectorAll('.merge-summary .name-chip')).map(function(c){return c.textContent;})")
     assert len(chips) == 3 and chips[-1] == chips[1]  # "A + B -> B": the kept name on both sides
     assert "→" in browser.text(".merge-summary")
     labels = browser.eval("Array.from(document.querySelectorAll('.inline-card .actions button')).map(function(b){return b.textContent;})")
     # the two choices, then a plain Cancel (Cancel sits in its own row under the fine print)
-    assert labels == ["Merge for this shopping list only", "Merge every time — all future recipes", "Cancel"]
+    assert labels == ["Combine for this plan", "Always combine", "Cancel"]
     fine = browser.text(".inline-card .fine")
-    assert "any future recipe" in fine and "Settings → Ingredient groups" in fine  # plain, and where to undo it
+    assert "in any recipe" in fine and "Same item, different names" in fine  # plain, and where to undo it
     # choosing the other name to keep updates the sentence
     browser.eval("document.querySelectorAll('.inline-card input[type=radio]')[1].click();")
     assert _wait(browser, "document.querySelector('.merge-summary .name-chip.keep').textContent === document.querySelectorAll('.inline-card .radio-row')[1].textContent")
@@ -257,9 +257,9 @@ def test_merge_this_list_only_then_undo_restores_both_lines_and_the_decision(bro
     browser.eval("document.querySelectorAll('.have-need-btn.need')[1].click();")  # decide on the second row
     assert _wait(browser, "document.querySelectorAll('.have-need-btn.need')[1].getAttribute('aria-pressed') === 'true'")
     _start_merge(browser)
-    browser.click(".inline-card button", contains="Merge for this shopping list only")
+    browser.click(".inline-card button", contains="Combine for this plan")
     browser.wait_for(".toast")
-    assert "this list only" in browser.text(".toast") and "Merged into" in browser.text(".toast")
+    assert "this plan only" in browser.text(".toast") and "Combined into" in browser.text(".toast")
     assert _wait(browser, "document.querySelectorAll('.checklist-row').length === 1")
 
     browser.click(".toast button", contains="Undo")
@@ -275,9 +275,9 @@ def test_merge_every_time_creates_a_tagged_group_and_settings_shows_where_it_cam
     sid, keys = _session_with(api, ["every-a", "every-b"])
     _open_checklist(browser, server_url, sid)
     _start_merge(browser)
-    browser.click(".inline-card button", contains="Merge every time")
+    browser.click(".inline-card button", contains="Always combine")
     browser.wait_for(".toast")
-    assert "every time" in browser.text(".toast")
+    assert "always" in browser.text(".toast")
     aliases = api.get("/api/v1/settings/ingredient-aliases?limit=500").json()["data"]["items"]
     mine = [a for a in aliases if a["alias_name"] in keys]
     assert len(mine) == 1 and mine[0]["source"] == "merge"
@@ -299,9 +299,9 @@ def test_a_merge_problem_is_shown_inside_the_panel(browser, api, server_url):
         "window.api.checklist.merge = function(){ return Promise.reject("
         "{code:'DUPLICATE_INGREDIENT_ALIAS', message:'dup'}); };"
     )
-    browser.click(".inline-card button", contains="Merge every time")
+    browser.click(".inline-card button", contains="Always combine")
     browser.wait_for(".inline-card .form-error")
-    assert "already grouped" in browser.text(".inline-card .form-error")
+    assert "already set to show as another item" in browser.text(".inline-card .form-error")
     assert browser.eval("Array.from(document.querySelectorAll('.inline-card .actions button')).every(function(b){return !b.disabled;})")
     browser.click(".inline-card button", contains="Cancel")
     assert _wait(browser, "!document.querySelector('.inline-card')")  # Cancel closes the panel

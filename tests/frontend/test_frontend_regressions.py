@@ -614,11 +614,11 @@ def test_edit_ingredient_chips_are_select_exclusive(browser, api, server_url):
     _wait_for_value_match_text(browser, ".name", item_name)
     _expand_and_open_edit(browser, item_name)
 
-    _click_chip(browser, "Alias")
+    _click_chip(browser, "Also called")
     browser.wait_for(".swap-panel")
     assert browser.eval("document.querySelectorAll('.swap-panel, .pack-size-form').length") == 1
 
-    _click_chip(browser, "Coarse item")
+    _click_chip(browser, "By the bunch")
     # Alias's sub-panel is replaced, not stacked alongside Coarse item's.
     deadline = time.monotonic() + TIMEOUT
     while time.monotonic() < deadline:
@@ -627,7 +627,7 @@ def test_edit_ingredient_chips_are_select_exclusive(browser, api, server_url):
             break
         time.sleep(0.2)
     assert panels == 1
-    assert "Coarse item" in browser.html(".pack-size-form")
+    assert "By the bunch" in browser.html(".pack-size-form")
     assert not browser.console_errors(), browser.console_errors()
 
 
@@ -653,13 +653,13 @@ def test_alias_chip_this_list_only_default_survives_reload(browser, api, server_
     browser.navigate(f"{server_url}/#/checklist/{session['id']}")
     _wait_for_value_match_text(browser, ".name", item_name)
     _expand_and_open_edit(browser, item_name)
-    _click_chip(browser, "Alias")
+    _click_chip(browser, "Also called")
     browser.wait_for(".swap-panel")
 
     # Confirm the default toggle state before touching it — "This list only" already active.
     default_on = browser.eval(
         "Array.from(document.querySelectorAll('.persist-btn'))"
-        ".find(function(b){return b.textContent==='This list only';}).className.indexOf('on') !== -1"
+        ".find(function(b){return b.textContent==='Just this plan';}).className.indexOf('on') !== -1"
     )
     assert default_on is True
 
@@ -877,7 +877,7 @@ def test_usual_decision_survives_a_rerender(browser, api, server_url):
 
     browser.navigate(f"{server_url}/#/checklist/{session['id']}")
     browser.wait_for(".usual-card")
-    browser.click(".usual-card .actions button.primary", contains="Add to list")
+    browser.click(".usual-card .actions button.primary", contains="Add to AnyList")
     assert browser.eval("document.querySelectorAll('.usual-card.skipped').length") >= 1
 
     # Re-render by expanding the ingredient row; the usual must stay decided.

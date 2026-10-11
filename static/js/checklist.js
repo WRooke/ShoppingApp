@@ -38,12 +38,14 @@
     // juice") used to only show up on the session-review screen (now deleted, 2026-09-30,
     // chunk 7.4), never here on the checklist, even though this is the screen right before
     // push. Fixed by matching that screen's own equivalent formatting at the time.
-    if (item.needs_review) return item.note || "mixed units";
+    if (item.needs_review) return item.note || "Mixed units";
     var unit = item.display_unit || item.total_unit;
     if (item.display_qty) {
-      var s = item.display_qty;
+      // "Buy 2 × 500g tub (need 800 g)": what to buy first, then the exact amount the recipes need
+      // (was "2 × 500g tub · need ~800 g" — the "~" read as a guess, and "need" as the buy amount).
+      var s = "Buy " + item.display_qty;
       if (item.total_quantity != null)
-        s += " · need ~" + fmtNum(item.total_quantity) + (unit ? " " + unit : "");
+        s += " (need " + fmtNum(item.total_quantity) + (unit ? " " + unit : "") + ")";
       if (item.note) s += " · " + item.note;
       return s;
     }
@@ -251,7 +253,7 @@
       el(
         "div",
         "muted checklist-help",
-        "Tap “Need it” for what you want sent to AnyList. “Have it” skips it. A row you don't tap is not sent."
+        "Need it = sent · Have it = skipped · untouched = not sent"
       )
     );
     var body = el("div");
@@ -327,8 +329,8 @@
       syncNote.appendChild(
         document.createTextNode(
           data.anylist_ok
-            ? "Checked against AnyList when this page opened. Items already on your AnyList are set to “Have it”, so they won't be sent again."
-            : "⚠ Couldn't reach AnyList (" + (data.anylist_detail || "unknown") + ") — nothing could be checked. Pushing still avoids adding duplicates."
+            ? "Checked against AnyList at page open. Items on it are “Have it”."
+            : "⚠ Couldn't reach AnyList (" + (data.anylist_detail || "unknown") + ") — nothing could be checked."
         )
       );
 
@@ -387,7 +389,7 @@
     // --- needs-review ---
     function reviewGroup(review) {
       var wrap = el("div");
-      wrap.appendChild(el("div", "sub-group-heading", "Needs review — pick one amount"));
+      wrap.appendChild(el("div", "sub-group-heading", "Mixed units"));
       review.forEach(function (item) {
         var row = el("div", "checklist-row");
         var main = el("div", "main");
@@ -397,7 +399,7 @@
           function () { toggleExpanded(item.ingredient_name); }
         );
         main.appendChild(nameParts.nameEl);
-        main.appendChild(el("div", "meta", item.note || "mixed units"));
+        main.appendChild(el("div", "meta", item.note || "Mixed units"));
         row.appendChild(main);
         if (nameParts.slot) row.appendChild(nameParts.slot);
         wrap.appendChild(row);
@@ -414,7 +416,7 @@
         // services/checklist_display.py::display_unit. The ingredient's own name is
         // deliberately never repeated here; the card heading above already names it once.
         (item.review_options || []).forEach(function (opt) {
-          var btn = el("button", "btn-sm", "use " + optionLabel(opt));
+          var btn = el("button", "btn-sm", "Use " + optionLabel(opt));
           btn.addEventListener("click", function () {
             global.Feedback.clear(picks);
             api.checklist
@@ -426,17 +428,22 @@
         });
         wrap.appendChild(picks);
 
-        var manual = el("div", "ing-grid");
-        var mq = el("input"); mq.type = "number"; mq.step = "any"; mq.inputMode = "decimal";
-        var mu = el("input"); mu.type = "text";
+        // The third choice, as a labelled box: the household resolves the combination in their
+        // head and types the total (2026-10-11 review - "why isn't there a third option?").
+        var own = el("div", "pair-box");
+        own.appendChild(el("div", "settings-sub-head", "Or enter your own total"));
+        var mq = el("input"); mq.type = "number"; mq.step = "any"; mq.inputMode = "decimal"; mq.placeholder = "250";
+        var mu = el("input"); mu.type = "text"; mu.placeholder = "ml";
         var draft = reviewDraft[item.ingredient_name] || (reviewDraft[item.ingredient_name] = { q: "", u: "" });
         mq.value = draft.q;
         mu.value = draft.u;
         mq.addEventListener("input", function () { draft.q = mq.value; });
         mu.addEventListener("input", function () { draft.u = mu.value; });
-        manual.appendChild(miniField("Amount", mq));
-        manual.appendChild(miniField("Unit", mu));
-        var mb = el("button", "btn-sm primary", "use this");
+        var ownRow = el("div", "pair-row");
+        ownRow.appendChild(mq);
+        ownRow.appendChild(mu);
+        var mb = el("button", "btn-sm primary", "Use this total");
+        var manualActions = el("div", "log-controls");
         mb.addEventListener("click", function () {
           var q = parseFloat(mq.value);
           global.Feedback.clear(manualActions);
@@ -446,11 +453,11 @@
             .then(load)
             .catch(function (err) { global.Feedback.error(manualActions, global.Feedback.messageOf(err)); });
         });
-        var manualActions = el("div", "log-controls");
-        manualActions.style.marginTop = "6px";
-        manualActions.appendChild(mb);
-        wrap.appendChild(manual);
-        wrap.appendChild(manualActions);
+        ownRow.appendChild(mb);
+        own.appendChild(ownRow);
+        own.appendChild(el("div", "muted", "Blank unit = whole items."));
+        own.appendChild(manualActions);
+        wrap.appendChild(own);
       });
       return wrap;
     }
@@ -471,7 +478,7 @@
       // Screen-level mode, not a permanent per-row control (see the mount()-level comment
       // above) — re-rendered locally via rerender(), no API call just to toggle it.
       if (regular.length >= 2) {
-        var toggle = el("button", "btn-link", mergeMode ? "Cancel" : "Select to merge");
+        var toggle = el("button", "btn-link", mergeMode ? "Done" : "Combine rows");
         toggle.style.marginLeft = "8px";
         toggle.addEventListener("click", function () {
           closeExpandedThen(function () {
@@ -575,7 +582,7 @@
         var actions = el("div", "log-controls");
         actions.style.marginTop = "8px";
         if (selected.length >= 2) {
-          var mergeBtn = el("button", "btn-sm primary", "Merge (" + selected.length + ")");
+          var mergeBtn = el("button", "btn-sm primary", "Combine (" + selected.length + ")");
           mergeBtn.addEventListener("click", function () {
             mergeBtn.disabled = true;
             mergePanelOpen = true;
@@ -593,7 +600,7 @@
           });
           actions.appendChild(mergeBtn);
         } else {
-          actions.appendChild(el("span", "muted", "Select 2 or more to merge."));
+          actions.appendChild(el("span", "muted", "Tick 2 or more rows to combine."));
         }
         wrap.appendChild(actions);
       }
@@ -611,7 +618,7 @@
 
     function mergePanel(selected, onDone, onCancel) {
       var wrap = el("div", "inline-card");
-      wrap.appendChild(el("div", "title", "Merge these ingredients"));
+      wrap.appendChild(el("div", "title", "Combine rows"));
 
       var canonicalName = selected[0].ingredient_name;
       var summary = el("div", "merge-summary");
@@ -631,7 +638,7 @@
       }
       // "a + b -> c" reads best as "members + kept -> kept"; the kept name appears on both sides
       // so it is clear nothing is lost, only the other names fold into it.
-      wrap.appendChild(el("div", "merge-pick", "Keep which name?"));
+      wrap.appendChild(el("div", "merge-pick", "Show the combined row as:"));
       selected.forEach(function (item, i) {
         var row = el("label", "radio-row");
         var radio = el("input");
@@ -650,7 +657,7 @@
       paintSummary();
 
       var pairLinkRow = el("div", "meta-row");
-      var pairLink = el("button", "btn-link", "Not the same amount? Set the equivalent");
+      var pairLink = el("button", "btn-link", "Different measures?");
       pairLink.type = "button";
       var pair = null; // { grid, values() } from pairFields(), only when expanded
       pairLinkRow.appendChild(pairLink);
@@ -659,18 +666,18 @@
         if (pair) {
           pair.grid.remove();
           pair = null;
-          pairLink.textContent = "Not the same amount? Set the equivalent";
+          pairLink.textContent = "Different measures?";
           return;
         }
         pair = pairFields();
         wrap.insertBefore(pair.grid, actions);
-        pairLink.textContent = "Hide the amount equivalence";
+        pairLink.textContent = "Skip the conversion";
       });
 
       var errSlot = el("div");
-      var thisListBtn = el("button", "primary", "Merge for this shopping list only");
+      var thisListBtn = el("button", "primary", "Combine for this plan");
       thisListBtn.type = "button";
-      var everyTimeBtn = el("button", null, "Merge every time — all future recipes");
+      var everyTimeBtn = el("button", null, "Always combine");
       everyTimeBtn.type = "button";
       var fine = el("div", "fine");
       var cancelBtn = el("button", "btn-sm", "Cancel");
@@ -690,9 +697,8 @@
         var members = selected.filter(function (i) { return i.ingredient_name !== canonicalName; });
         var kept = shownName(selected.filter(function (i) { return i.ingredient_name === canonicalName; })[0]);
         fine.textContent =
-          "Every time: any future recipe that says " +
-          members.map(function (m) { return "“" + shownName(m) + "”"; }).join(" or ") +
-          " will list it as “" + kept + "”. You can undo this any time in Settings → Ingredient groups.";
+          "Always: " + members.map(function (m) { return "“" + shownName(m) + "”"; }).join(" or ") +
+          " in any recipe shows as “" + kept + "”. Saved in Settings → Same item, different names.";
       }
       paintFine();
       wrap.addEventListener("change", paintFine); // keep the fine print in step with the radio choice
@@ -703,7 +709,7 @@
         global.Feedback.clear(errSlot);
         var values = pair ? pair.values() : {};
         if (pair && (values.alias_qty == null || values.canonical_qty == null)) {
-          global.Feedback.error(errSlot, "Enter both amounts, or hide the equivalence to skip it.");
+          global.Feedback.error(errSlot, "Fill in both amounts, or tap “Skip the conversion”.");
           return;
         }
         var keptKey = canonicalName;
@@ -734,9 +740,9 @@
             global.Feedback.error(
               errSlot,
               e.code === "SESSION_ALREADY_PUSHED"
-                ? "This session has already been pushed — merging isn't available after push."
+                ? "This plan has already been sent — rows can't be combined after sending."
                 : e.code === "DUPLICATE_INGREDIENT_ALIAS"
-                ? "One of these names is already grouped under another ingredient (Settings → Ingredient groups). Choose a different name to keep, or merge for this shopping list only."
+                ? "One of these names is already set to show as another item (Settings → Same item, different names). Pick a different name to show, or combine for this plan only."
                 : global.Feedback.messageOf(e)
             );
           });
@@ -754,22 +760,22 @@
         api.checklist
           .undoMerge(sessionId, { canonical_name: keptKey, member_names: memberKeys, alias_ids: aliasIds })
           .then(function () {
-            global.Toast.show("Merge undone.");
+            global.Toast.show("Combine undone.");
             load();
           })
           .catch(function (err) {
-            global.Toast.show("Couldn't undo the merge — " + global.Feedback.messageOf(err), {
+            global.Toast.show("Couldn't undo the combine — " + global.Feedback.messageOf(err), {
               tone: "error", actionLabel: "Retry", onAction: undo,
             });
           });
       }
-      var mergedMsg = "Merged into “" + keptShown + "” — " + (remember ? "every time" : "this list only");
+      var mergedMsg = "Combined into “" + keptShown + "” — " + (remember ? "always" : "this plan only");
       if (unconverted && unconverted.length) {
         // The amount ratio only applies to a line measured in the unit typed for it; say which
         // lines it skipped instead of letting their amounts look converted.
         mergedMsg +=
-          ". The amount ratio wasn't applied to " + unconverted.join(", ") +
-          " (not measured in " + (pairUnit || "a bare count") + ") — their amounts are added as they are.";
+          ". The conversion wasn't applied to " + unconverted.join(", ") +
+          " (not in " + (pairUnit || "whole items") + "); their amounts are added as they are.";
       }
       global.Toast.show(mergedMsg, { actionLabel: "Undo", onAction: undo });
     }
@@ -796,12 +802,18 @@
       var munit = txt();
       var cqty = num();
       var cunit = txt();
-      var grid = el("div", "ing-grid");
-      grid.style.gridTemplateColumns = "1fr 1fr"; // two across: four narrow fields don't fit a phone
-      grid.appendChild(miniField("This amount", mqty));
-      grid.appendChild(miniField("Unit", munit));
-      grid.appendChild(miniField("= Kept amount", cqty));
-      grid.appendChild(miniField("Unit (blank = count)", cunit));
+      var grid = el("div", "pair-box");
+      var r1 = el("div", "pair-row");
+      r1.appendChild(el("span", null, "Each other row ="));
+      r1.appendChild(mqty);
+      r1.appendChild(munit);
+      var r2 = el("div", "pair-row");
+      r2.appendChild(el("span", null, "of the combined row"));
+      r2.appendChild(cqty);
+      r2.appendChild(cunit);
+      grid.appendChild(r1);
+      grid.appendChild(r2);
+      grid.appendChild(el("div", "muted", "Only rows measured in the unit you typed are converted; the rest are added as they are. Blank unit = whole items."));
       return {
         grid: grid,
         values: function () {
@@ -825,31 +837,31 @@
     // --- the usuals: a stock-check prompt, not a bare checkbox (kickoff decision #8) ---
     function usualsGroup(usuals) {
       var wrap = el("div");
-      wrap.appendChild(el("div", "sub-group-heading", "The usuals — due now"));
+      wrap.appendChild(el("div", "sub-group-heading", "The usuals"));
       if (!usuals.length) {
         wrap.appendChild(
           el(
             "div",
             "muted",
-            "Nothing due right now. Recurring items you add in Settings → The usuals show up here when they're due."
+            "Nothing due. Items you add in Settings → The usuals show up here when it's time."
           )
         );
         return wrap;
       }
       usuals.forEach(function (u) {
         var card = el("div", "usual-card");
-        card.appendChild(el("div", "q", u.name + " — due, every " + u.cadence_days + " days"));
+        card.appendChild(el("div", "q", u.name + " — every " + u.cadence_days + " days"));
         card.appendChild(
           el(
             "div",
             "cadence",
-            "Add it, or do you have enough to last another " + u.cadence_days + " days?"
+            "Buy it, or have enough for another " + u.cadence_days + " days?"
           )
         );
-        var skippedNote = el("div", "skipped-note", "Skipped — you'll be asked again in " + u.cadence_days + " days.");
+        var skippedNote = el("div", "skipped-note", "Skipped. Asked again in " + u.cadence_days + " days.");
         var actions = el("div", "actions");
 
-        var addBtn = el("button", "primary", "Add to list");
+        var addBtn = el("button", "primary", "Add to AnyList");
         addBtn.addEventListener("click", function () {
           pushUsualIds[u.id] = true;
           usualState[u.id] = "added";
@@ -857,7 +869,7 @@
           refreshSummary();
         });
 
-        var skipBtn = el("button", null, "I'm stocked, skip this time");
+        var skipBtn = el("button", null, "I have enough");
         skipBtn.addEventListener("click", function () {
           skipBtn.disabled = true;
           api.checklist
@@ -881,7 +893,7 @@
         // Re-apply a decision made before this re-render.
         if (usualState[u.id] === "added") {
           card.classList.add("skipped"); // reuse the same "resolved, out of the way" styling
-          skippedNote.textContent = "Will be sent to AnyList when you tap Push. ";
+          skippedNote.textContent = "Will be sent. ";
           var undoAdd = el("button", "btn-link", "Undo");
           undoAdd.addEventListener("click", function () {
             delete pushUsualIds[u.id];

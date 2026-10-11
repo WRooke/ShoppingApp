@@ -63,7 +63,7 @@
 
   // ---- stages ----
 
-  var STAGE_NAMES = ["Reading your list", "Sending", "Confirming", "Done"];
+  var STAGE_NAMES = ["Reading AnyList", "Sending", "Confirming", "Done"];
 
   function stageStates(stage) {
     switch (stage) {
@@ -92,11 +92,11 @@
   // ---- result ----
 
   var OUTCOME_LABEL = {
-    "added": "added", "updated": "updated", "un-crossed": "un-crossed",
-    "already-active": "already there", "failed": "failed",
+    "added": "added", "updated": "amount changed", "un-crossed": "put back",
+    "already-active": "already on AnyList", "failed": "failed",
   };
   var OUTCOME_CLASS = {
-    "added": "added", "updated": "updated", "un-crossed": "uncrossed",
+    "added": "added", "updated": "amount changed", "un-crossed": "put back",
     "already-active": "", "failed": "failed",
   };
 
@@ -144,8 +144,8 @@
 
     var parts = [];
     if (c.added) parts.push(c.added + " added");
-    if (c.updated) parts.push(c.updated + " updated" + (c.uncrossed ? " (" + c.uncrossed + " un-crossed)" : ""));
-    if (c.already) parts.push(c.already + " already there");
+    if (c.updated) parts.push(c.updated + " updated" + (c.uncrossed ? " (" + c.uncrossed + " put back)" : ""));
+    if (c.already) parts.push(c.already + " already on AnyList");
     body.appendChild(el("div", "sub", bad ? "The other " + onList + " " + (onList === 1 ? "is" : "are") + " on your list." : parts.join(" · ")));
 
     var listSlot = el("div");
@@ -188,7 +188,7 @@
     var line = el("div", "muted");
     wrap.appendChild(line);
     var actions = el("div", "sticky-actions");
-    var pushBtn = el("button", "primary btn-block", "Push to AnyList");
+    var pushBtn = el("button", "primary btn-block", "Send to AnyList");
     pushBtn.addEventListener("click", function () { doPush(false); });
     actions.appendChild(pushBtn);
     wrap.appendChild(actions);
@@ -203,14 +203,11 @@
       var needReview = opts.items.filter(function (i) { return i.needs_review; }).length;
       var parts = [toAdd + (toAdd === 1 ? " ingredient" : " ingredients")];
       if (opts.usuals.length) {
-        parts.push(usualCount + (usualCount === 1 ? " regular item" : " regular items"));
+        parts.push(usualCount + (usualCount === 1 ? " usual" : " usuals"));
       }
       line.textContent =
-        parts.join(" and ") + " will be sent to AnyList." +
-        (needReview
-          ? " " + needReview + (needReview === 1 ? " ingredient still needs" : " ingredients still need") +
-            " an amount chosen (under “Needs review”)."
-          : "");
+        "Sending " + parts.join(" + ") + "." +
+        (needReview ? " " + needReview + (needReview === 1 ? " still needs" : " still need") + " an amount." : "");
     }
     update();
 
@@ -219,7 +216,7 @@
     function resetButton() {
       pushBtn.disabled = false;
       pushBtn.innerHTML = "";
-      pushBtn.textContent = "Push to AnyList";
+      pushBtn.textContent = "Send to AnyList";
     }
 
     function doPush(force) {
@@ -232,7 +229,7 @@
 
       pushBtn.innerHTML = "";
       pushBtn.appendChild(el("span", "spinner"));
-      pushBtn.appendChild(document.createTextNode(" Pushing…"));
+      pushBtn.appendChild(document.createTextNode(" Sending…"));
 
       var stageList = el("ol", "push-stages");
       var stepsScroll = el("div", "push-steps");
@@ -318,13 +315,9 @@
             global.Feedback.card(stepsSlot, {
               into: true,
               tone: "warn",
-              title: "Already pushed to AnyList",
-              body:
-                "Pushing again checks AnyList and only changes what's different. Items already " +
-                "there with the same amount are left alone; an item whose amount is different has " +
-                "its amount replaced; and anything you've crossed off on AnyList that is still " +
-                "marked Need it is put back on the list.",
-              confirmLabel: "Push again",
+              title: "Already sent to AnyList",
+              body: "Sending again replaces changed amounts and puts back anything you crossed off.",
+              confirmLabel: "Send again",
               cancelLabel: "Not now",
               onConfirm: function () { doPush(true); },
             });

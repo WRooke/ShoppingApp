@@ -43,9 +43,9 @@
   var CHIP_LABELS = {
     pack: "Pack size",
     substitute: "Substitute",
-    alias: "Alias",
-    coarse: "Coarse item",
-    merge: "Merge",
+    alias: "Also called",
+    coarse: "By the bunch",
+    merge: "Combine",
   };
 
   // pack: same gap condition the old standalone "+ Add pack size" link used — see
@@ -64,14 +64,18 @@
   // chip-specific wording for the "Always" side (e.g. "Always (edits Settings)"); `onSave(mode)`
   // does the actual write and returns a Promise — this only owns the mode toggle, the disabled
   // state while saving, and the confirmation, not the save itself.
-  function persistControls(permanentLabel, onSave) {
-    var mode = "list"; // default: this list only (§0.3)
+  function persistControls(alwaysCaption, onSave) {
+    var mode = "list"; // default: just this plan (§0.3)
     var toggleWrap = el("div", "persist-toggle");
-    var listBtn = el("button", "persist-btn on", "This list only");
-    var alwaysBtn = el("button", "persist-btn", permanentLabel);
+    var listBtn = el("button", "persist-btn on", "Just this plan");
+    var alwaysBtn = el("button", "persist-btn", "Always");
+    // One line under the pills that follows the choice and says where "Always" is saved
+    // (docs/ui-ux.md > Plain language & no ambiguity: state the scope).
+    var caption = el("div", "muted persist-caption", "Only this checklist.");
     function syncToggle() {
       listBtn.className = "persist-btn" + (mode === "list" ? " on" : "");
       alwaysBtn.className = "persist-btn" + (mode === "always" ? " on" : "");
+      caption.textContent = mode === "always" ? alwaysCaption : "Only this checklist.";
     }
     listBtn.addEventListener("click", function () {
       mode = "list";
@@ -111,6 +115,7 @@
 
     var wrap = el("div");
     wrap.appendChild(toggleWrap);
+    wrap.appendChild(caption);
     wrap.appendChild(actions);
     return wrap;
   }
@@ -120,7 +125,7 @@
     wrap.appendChild(el("div", "hdr", "Pack size"));
     var labelInput = el("input");
     labelInput.type = "text";
-    labelInput.placeholder = "e.g. 500g pack";
+    labelInput.placeholder = "e.g. 500g tub";
     var qtyInput = el("input");
     qtyInput.type = "number";
     qtyInput.step = "any";
@@ -129,19 +134,19 @@
     var unitInput = el("input");
     unitInput.type = "text";
     unitInput.placeholder = "e.g. g";
-    wrap.appendChild(miniField("Pack label", labelInput));
+    wrap.appendChild(miniField("Pack name (as you’d say it)", labelInput));
     var grid = el("div", "ing-grid");
     grid.style.gridTemplateColumns = "1fr 1fr";
-    grid.appendChild(miniField("Pack quantity", qtyInput));
-    grid.appendChild(miniField("Unit", unitInput));
+    grid.appendChild(miniField("Amount in one pack", qtyInput));
+    grid.appendChild(miniField("Unit (blank = a count)", unitInput));
     wrap.appendChild(grid);
 
     wrap.appendChild(
-      persistControls("Always (edits Settings)", function (remember) {
+      persistControls("Saved in Settings → Pack sizes.", function (remember) {
         var label = labelInput.value.trim();
         var qty = parseFloat(qtyInput.value);
         if (!label || isNaN(qty) || qty <= 0) {
-          return Promise.reject(new Error("Pack label and a positive quantity are required."));
+          return Promise.reject(new Error("Fill in a pack name and the amount in one pack."));
         }
         return api.checklist
           .packSize(sessionId, item.id, {
@@ -158,12 +163,12 @@
 
   function substitutePanel(sessionId, item, picksByName, onSaved) {
     var wrap = el("div", "swap-panel");
-    wrap.appendChild(el("div", "hdr", "Substitute this ingredient"));
+    wrap.appendChild(el("div", "hdr", "Use something else"));
     var input = el("input");
     input.type = "text";
     input.placeholder = "e.g. regular feta";
     input.className = "settings-name-input";
-    wrap.appendChild(miniField("Use instead", input));
+    wrap.appendChild(miniField("Use this instead", input));
 
     var oQty = el("input"); oQty.type = "number"; oQty.step = "any"; oQty.inputMode = "decimal";
     oQty.placeholder = "e.g. 2";
@@ -174,19 +179,19 @@
     var sUnit = el("input"); sUnit.type = "text"; sUnit.placeholder = "e.g. g";
     var amtGrid = el("div", "ing-grid");
     amtGrid.style.gridTemplateColumns = "1fr 1fr";
-    amtGrid.appendChild(miniField("This amount", oQty));
+    amtGrid.appendChild(miniField("Amount of the original", oQty));
     amtGrid.appendChild(miniField("Unit", oUnit));
     wrap.appendChild(amtGrid);
     var subGrid = el("div", "ing-grid");
     subGrid.style.gridTemplateColumns = "1fr 1fr";
-    subGrid.appendChild(miniField("Substitute amount", sQty));
-    subGrid.appendChild(miniField("Substitute unit", sUnit));
+    subGrid.appendChild(miniField("Amount of the replacement", sQty));
+    subGrid.appendChild(miniField("Unit", sUnit));
     wrap.appendChild(subGrid);
 
     var picks = picksByName[item.ingredient_name] || [];
     if (picks.length) {
       var pickRow = el("div", "ing-swap-picks");
-      pickRow.appendChild(el("span", "muted", "saved: "));
+      pickRow.appendChild(el("span", "muted", "Your saved swaps (tap to fill in): "));
       picks.forEach(function (p) {
         var label = p.substitute_name;
         if (p.original_qty && p.substitute_qty != null) {
@@ -207,9 +212,9 @@
     }
 
     wrap.appendChild(
-      persistControls("Always (saves a suggestion for next time — doesn't change this list)", function (remember) {
+      persistControls("Saved as a suggestion in Settings. Doesn’t change this list.", function (remember) {
         var sub = input.value.trim();
-        if (!sub) return Promise.reject(new Error("Type a replacement first."));
+        if (!sub) return Promise.reject(new Error("Type what to use instead."));
         var oq = parseFloat(oQty.value);
         var sq = parseFloat(sQty.value);
         var hasPair = !isNaN(oq) && oq > 0 && !isNaN(sq) && sq > 0 && oUnit.value.trim() && sUnit.value.trim();
@@ -230,17 +235,17 @@
 
   function aliasPanel(sessionId, item, onSaved) {
     var wrap = el("div", "swap-panel");
-    wrap.appendChild(el("div", "hdr", "Same item as…"));
+    wrap.appendChild(el("div", "hdr", "Also called"));
     var input = el("input");
     input.type = "text";
     input.placeholder = "e.g. natural yoghurt";
     input.className = "settings-name-input";
-    wrap.appendChild(miniField("Also known as", input));
+    wrap.appendChild(miniField("Other name (counts as “" + (item.display_name || item.ingredient_name) + "”)", input));
 
     wrap.appendChild(
-      persistControls("Always (edits Settings)", function (remember) {
+      persistControls("Saved in Settings → Same item, different names.", function (remember) {
         var name = input.value.trim();
-        if (!name) return Promise.reject(new Error("Type a name first."));
+        if (!name) return Promise.reject(new Error("Type the other name."));
         return api.checklist
           .alias(sessionId, item.id, { alias_name: name, remember: remember })
           .then(onSaved);
@@ -251,9 +256,9 @@
 
   function coarsePanel(sessionId, item, onSaved) {
     var wrap = el("div", "pack-size-form");
-    wrap.appendChild(el("div", "hdr", "Coarse item"));
+    wrap.appendChild(el("div", "hdr", "By the bunch"));
     wrap.appendChild(
-      el("div", "muted", "Skip quantity math — just buy enough packs for how many recipes need it.")
+      el("div", "muted", "Count recipes, not amounts.")
     );
     var labelInput = el("input");
     labelInput.type = "text";
@@ -265,14 +270,14 @@
     countInput.value = "3";
     var grid = el("div", "ing-grid");
     grid.style.gridTemplateColumns = "1fr 1fr";
-    grid.appendChild(miniField("Pack label", labelInput));
-    grid.appendChild(miniField("Recipes per pack", countInput));
+    grid.appendChild(miniField("Sold as (blank = just list the name)", labelInput));
+    grid.appendChild(miniField("One covers how many recipes?", countInput));
     wrap.appendChild(grid);
 
     wrap.appendChild(
-      persistControls("Always (edits Settings)", function (remember) {
+      persistControls("Saved in Settings → Bought by the bunch.", function (remember) {
         var n = parseInt(countInput.value, 10);
-        if (isNaN(n) || n < 1) return Promise.reject(new Error("Recipes per pack must be a positive whole number."));
+        if (isNaN(n) || n < 1) return Promise.reject(new Error("One has to cover at least 1 recipe."));
         return api.checklist
           .coarse(sessionId, item.id, {
             purchase_label: labelInput.value.trim() || null,
