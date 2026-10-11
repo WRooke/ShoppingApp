@@ -514,10 +514,10 @@ def test_queued_capture_shows_message_not_a_blank_review_form(browser, server_ur
     # wait_for(selector) alone can't tell the queued transition apart from the original
     # form -- poll for the actual heading text the fixed code path renders instead.
     deadline = time.monotonic() + TIMEOUT
-    while time.monotonic() < deadline and browser.text("h2") != "Capture queued":
+    while time.monotonic() < deadline and browser.text("h2") != "Saved for later":
         time.sleep(0.2)
 
-    assert browser.text("h2") == "Capture queued"
+    assert browser.text("h2") == "Saved for later"
     assert queued_message in browser.html(".card")
     # The bug this regresses: landing on the real review form instead (blank, no
     # explanation) — assert its distinguishing markup is simply not there.

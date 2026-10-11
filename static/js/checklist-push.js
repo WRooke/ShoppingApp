@@ -200,11 +200,17 @@
     function update() {
       var toAdd = opts.items.filter(function (i) { return i.add_to_list || i.have_it === "no"; }).length;
       var usualCount = Object.keys(opts.pushUsualIds).length;
+      var needReview = opts.items.filter(function (i) { return i.needs_review; }).length;
+      var parts = [toAdd + (toAdd === 1 ? " ingredient" : " ingredients")];
+      if (opts.usuals.length) {
+        parts.push(usualCount + (usualCount === 1 ? " regular item" : " regular items"));
+      }
       line.textContent =
-        toAdd +
-        " ingredient(s)" +
-        (opts.usuals.length ? " + " + usualCount + " of " + opts.usuals.length + " usual(s) selected" : "") +
-        " will go on the list.";
+        parts.join(" and ") + " will be sent to AnyList." +
+        (needReview
+          ? " " + needReview + (needReview === 1 ? " ingredient still needs" : " ingredients still need") +
+            " an amount chosen (under “Needs review”)."
+          : "");
     }
     update();
 
@@ -314,8 +320,10 @@
               tone: "warn",
               title: "Already pushed to AnyList",
               body:
-                "Pushing again checks the list and only changes what's different — items already " +
-                "there are left alone.",
+                "Pushing again checks AnyList and only changes what's different. Items already " +
+                "there with the same amount are left alone; an item whose amount is different has " +
+                "its amount replaced; and anything you've crossed off on AnyList that is still " +
+                "marked Need it is put back on the list.",
               confirmLabel: "Push again",
               cancelLabel: "Not now",
               onConfirm: function () { doPush(true); },

@@ -207,7 +207,7 @@
     }
 
     wrap.appendChild(
-      persistControls("Always for this recipe", function (remember) {
+      persistControls("Always (saves a suggestion for next time — doesn't change this list)", function (remember) {
         var sub = input.value.trim();
         if (!sub) return Promise.reject(new Error("Type a replacement first."));
         var oq = parseFloat(oQty.value);

@@ -114,14 +114,14 @@
     root.innerHTML = "";
     root.appendChild(global.BackLink.render("recipes"));
     var card = el("div", "card");
-    card.appendChild(el("h2", null, "Capture queued"));
+    card.appendChild(el("h2", null, "Saved for later"));
     card.appendChild(el("div", "muted", message));
     card.appendChild(
       el(
         "div",
         "muted",
-        "No need to do anything — check back in the recipe library in a while, or watch the " +
-          "capture queue on the Diagnostics page."
+        "Nothing else to do. When it works, the recipe is added to Recipes as “Untitled captured " +
+          "recipe” — open it, give it a name and check the ingredients."
       )
     );
     root.appendChild(card);

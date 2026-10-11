@@ -39,8 +39,8 @@ from app.services.ai_extraction import AiQuotaExhaustedError, ExtractionResult
 _QUEUED = {
     "queued": True,
     "message": (
-        "Every AI model is over its quota right now — this capture has been queued and "
-        "will be retried automatically."
+        "The recipe reader is busy right now, so this has been saved for later. "
+        "It will be tried again automatically within the hour."
     ),
 }
 

@@ -245,6 +245,15 @@
     syncNote.appendChild(el("span", "sync-dot"));
     syncNote.appendChild(document.createTextNode("Checking against AnyList…"));
     card.appendChild(syncNote);
+    // What the two buttons do, and what an untouched row means, stated once where it is used
+    // (2026-10-11, Chunk 6.7: nothing on screen said untouched rows are not sent).
+    card.appendChild(
+      el(
+        "div",
+        "muted checklist-help",
+        "Tap “Need it” for what you want sent to AnyList. “Have it” skips it. A row you don't tap is not sent."
+      )
+    );
     var body = el("div");
     var skel = el("div", "skel-row");
     var skelLine = el("div", "skeleton skel-line");
@@ -318,8 +327,8 @@
       syncNote.appendChild(
         document.createTextNode(
           data.anylist_ok
-            ? "Checked against AnyList as of this page load — items already on the list are pre-ticked."
-            : "⚠ Couldn't reach AnyList (" + (data.anylist_detail || "unknown") + ") — nothing pre-ticked."
+            ? "Checked against AnyList when this page opened. Items already on your AnyList are set to “Have it”, so they won't be sent again."
+            : "⚠ Couldn't reach AnyList (" + (data.anylist_detail || "unknown") + ") — nothing could be checked. Pushing still avoids adding duplicates."
         )
       );
 
