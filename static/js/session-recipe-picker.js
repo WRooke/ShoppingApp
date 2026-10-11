@@ -31,10 +31,13 @@
     box.appendChild(results);
     slot.appendChild(box);
 
+    var seq = 0; // fast typing: only the newest search may draw
     function load() {
+      var mine = ++seq;
       api.recipes
         .list({ search: search.value, limit: 50 })
         .then(function (data) {
+          if (mine !== seq) return;
           results.innerHTML = "";
           if (!data.items.length) {
             results.appendChild(el("div", "empty-state", "No matches."));

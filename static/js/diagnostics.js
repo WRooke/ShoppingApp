@@ -32,6 +32,8 @@
   // Push history (Chunk 6.7): which pushes are expanded survives the 5-second auto-refresh that
   // rebuilds this panel. Undefined = default (the newest push opens itself if it had a problem).
   var openPushes = {};
+  var anylistCheckText = "";
+  var anylistChecking = false;
   var OUTCOME_LABEL = { "added": "added", "updated": "amount changed", "un-crossed": "put back", "already-active": "already on AnyList", "failed": "failed" };
   var OUTCOME_CLASS = { "added": "added", "updated": "updated", "un-crossed": "uncrossed", "already-active": "", "failed": "failed" };
 
@@ -256,17 +258,26 @@
           );
         var checkBtn = el("button", null, "Check AnyList now");
         var checkOut = el("span", "status-msg");
+        // Held in module state: this panel is rebuilt every 5 seconds, which used to wipe the result
+        // (and re-enable the button) before it could be read.
+        checkOut.textContent = anylistCheckText;
+        checkBtn.disabled = anylistChecking;
         checkBtn.addEventListener("click", function () {
+          anylistChecking = true;
+          anylistCheckText = " checking…";
           checkBtn.disabled = true;
-          checkOut.textContent = " checking…";
+          checkOut.textContent = anylistCheckText;
           api.diagnostics
             .anylistCheck()
             .then(function (res) {
-              checkOut.textContent = " " + (res.ok ? "OK" : "FAILED") + " — " + res.detail;
-              checkBtn.disabled = false;
+              anylistCheckText = " " + (res.ok ? "OK" : "Failed") + " — " + res.detail;
             })
             .catch(function (err) {
-              checkOut.textContent = " error: " + err.message;
+              anylistCheckText = " Couldn’t check: " + err.message;
+            })
+            .then(function () {
+              anylistChecking = false;
+              checkOut.textContent = anylistCheckText;
               checkBtn.disabled = false;
             });
         });

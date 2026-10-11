@@ -154,6 +154,7 @@
   }
 
   function mountUrl(root) {
+    var mountedAt = global.Router.currentMount();
     root.innerHTML = "";
     root.appendChild(global.BackLink.render("recipes"));
     var offer = pendingOffer(root);
@@ -196,6 +197,7 @@
         .captureUrl(url, allowDuplicate, progress.token)
         .then(function (result) {
           progress.stop();
+          if (mountedAt !== global.Router.currentMount()) return; // the user already left this screen
           if (result && result.queued) {
             showQueuedMessage(root, result.message);
             return;
@@ -204,6 +206,7 @@
         })
         .catch(function (err) {
           progress.stop();
+          if (mountedAt !== global.Router.currentMount()) return;
           goBtn.disabled = false;
           // Exact source_url match — the backend short-circuited before any Claude call
           // (CLAUDE.md > Duplicate Recipe Prevention > URL capture short-circuit).
@@ -241,6 +244,7 @@
   }
 
   function mountPhoto(root) {
+    var mountedAt = global.Router.currentMount();
     root.innerHTML = "";
     root.appendChild(global.BackLink.render("recipes"));
     var offerP = pendingOffer(root);
@@ -279,6 +283,7 @@
         .capturePhoto(file, progress.token)
         .then(function (result) {
           progress.stop();
+          if (mountedAt !== global.Router.currentMount()) return;
           if (result && result.queued) {
             showQueuedMessage(root, result.message);
             return;

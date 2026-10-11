@@ -78,7 +78,13 @@
     return { key: key, param: parts[1] || null };
   }
 
+  // Bumped on every screen change. A view that starts async work captures it at mount and checks it
+  // before drawing, so a response that arrives after the user left can't take over the new screen
+  // (docs/ui-ux.md > UI state must not silently vanish).
+  var mountId = 0;
+
   function render() {
+    mountId++;
     // A toast is scoped to the screen that raised it (kickoff decision #12) — never let one
     // survive onto whatever the user navigates to next.
     if (global.Toast) global.Toast.dismiss();
@@ -133,6 +139,9 @@
   // links in feature files are fine — only route-shape construction in JS
   // needs to live here.
   global.Router = {
+    currentMount: function () {
+      return mountId;
+    },
     navigate: function (key, param) {
       global.location.hash = "#/" + key + (param != null ? "/" + param : "");
     },

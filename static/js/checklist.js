@@ -300,7 +300,11 @@
     // `errSlot` (the row's own feedback line) gets "Couldn't save" if the PATCH fails, in place — no
     // native alert() (docs/ui-ux.md > No native dialogs). The pressed state is only updated on
     // success, so a failed tap visibly did not happen.
+    var savingItems = {}; // item id -> true while its PATCH is in flight (a fast second tap raced it)
+
     function patchItem(item, changes, onDone, errSlot) {
+      if (savingItems[item.id]) return;
+      savingItems[item.id] = true;
       if (errSlot) global.Feedback.clear(errSlot);
       api.checklist
         .updateItem(sessionId, item.id, changes)
@@ -312,10 +316,12 @@
           if (!updated || !updated.recipe_breakdown || !updated.recipe_breakdown.length) {
             item.recipe_breakdown = breakdown;
           }
+          delete savingItems[item.id];
           refreshSummary();
           if (onDone) onDone();
         })
         .catch(function (err) {
+          delete savingItems[item.id];
           global.Feedback.error(errSlot, "Couldn't save — " + global.Feedback.messageOf(err) + ". Tap again to retry.");
         });
     }
@@ -369,7 +375,10 @@
         usuals: usuals,
         pushUsualIds: pushUsualIds,
         lastPush: lastPush,
-        onResult: function (res) { lastPush = res; },
+        onResult: function (res) {
+          lastPush = res;
+          if (global.NavBadges) global.NavBadges.refresh(); // a sent plan is no longer "in progress"
+        },
         onReload: load,
       });
       refreshSummary = pushSummary.refresh; // reassigned each render(); every state change calls this

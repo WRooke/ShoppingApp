@@ -128,12 +128,22 @@
       return out.sort();
     }
 
+    var loadSeq = 0; // a slower, older search/filter response must not overwrite a newer one
+
     function load() {
       listBody.textContent = "Loading...";
+      var mine = ++loadSeq;
       api.recipes
         .list({ search: state.search, cuisine: state.cuisine, limit: 200 })
         .then(function (data) {
+          if (mine !== loadSeq) return;
           renderListBody(listBody, data.items);
+          // The list is capped at 200; say so rather than silently hiding the rest.
+          if (data.total != null && data.total > (data.items || []).length) {
+            listBody.appendChild(
+              el("div", "muted", "Showing " + data.items.length + " of " + data.total + ". Search to narrow it down.")
+            );
+          }
           if (knownCuisines) {
             renderChips(knownCuisines); // re-render so the pressed state stays in sync
             return;

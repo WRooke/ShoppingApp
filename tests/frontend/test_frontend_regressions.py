@@ -1021,6 +1021,27 @@ def test_an_unsaved_import_is_offered_back_after_going_back(browser, server_url)
     assert not browser.console_errors(), browser.console_errors()
 
 
+def test_a_capture_that_finishes_after_you_left_does_not_take_over_the_screen(browser, server_url):
+    """2026-10-11, Chunk 6.7 — capture.js mounted the review form into the shared view whenever the
+    response arrived, even if the user had navigated elsewhere in the meantime."""
+    browser.navigate(f"{server_url}/#/recipes/capture-url")
+    browser.wait_for('input[type="url"]')
+    browser.eval(
+        "window.__finish = null;"
+        "window.api.recipes.captureUrl = function(){return new Promise(function(res){"
+        "window.__finish = function(){res({title:'Late soup',base_servings:4,ingredients:[]});};});};"
+    )
+    browser.fill('input[type="url"]', "https://example.com/late")
+    browser.click("button.primary", contains="Fetch")
+    browser.navigate(f"{server_url}/#/home")
+    browser.wait_for(".home-actions")
+    browser.eval("window.__finish();")
+    time.sleep(0.8)
+    assert browser.eval("location.hash") == "#/home"
+    assert "Review extracted recipe" not in browser.html("body")
+    assert not browser.console_errors(), browser.console_errors()
+
+
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
     """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe

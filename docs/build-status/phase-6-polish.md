@@ -757,8 +757,15 @@ change chunk order and scope, not just because they happened.
         capture and Status; vocabulary table and copy checklist in
         [UI/UX](../ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67). Mockups:
         `docs/mockups/chunk-6.7-clarity/`.
-      - Not done (flagged): persisting an extraction across Back; per-row in-place update on the
-        recipe edit page; group count refresh after an in-place Settings delete.
+      - Also built: an unsaved import is offered back after Back; recipe-edit rows save/add/delete
+        in place; Settings deletes tidy counts/empty groups; the Status page folds the raw log under
+        Advanced; newest-response-wins guards on the lists/searches/tabs; a capture that finishes
+        after the user left no longer takes over the screen (`Router.currentMount()`); the nav
+        dot refreshes after archive/send; the "Check AnyList now" result survives auto-refresh.
+      - Deliberately left: the "Have it" pre-tick re-applies after an untick when the item is
+        still on AnyList (harmless — Have it and unknown are both unsent; decided 2026-10-11);
+        `session_status` on the checklist load response and per-usual push reporting (no client
+        needs them now that skipped usuals can't be re-added).
 - [ ] **Phase 6 review** — re-check against [UI/UX](../ui-ux.md),
       [Checklist, AnyList Push & Shopping List Layout](../checklist-and-shopping.md) (confirm the
       store-layout deferral note landed correctly and nothing there was silently half-built),

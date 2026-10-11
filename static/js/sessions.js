@@ -117,11 +117,15 @@
       return row;
     }
 
+    var tabSeq = 0; // newest tab load wins (Past then Active quickly must not show the slower one)
+
     function loadActive() {
       skeletonLoading();
+      var mine = ++tabSeq;
       api.sessions
         .list({ status: "active" })
         .then(function (data) {
+          if (mine !== tabSeq) return;
           body.innerHTML = "";
           var items = data.items || [];
           if (!items.length) {
@@ -199,8 +203,10 @@
 
     function loadPast() {
       skeletonLoading();
+      var mine = ++tabSeq;
       Promise.all([api.sessions.list({ status: "pushed" }), api.sessions.list({ status: "archived" })])
         .then(function (results) {
+          if (mine !== tabSeq) return;
           var items = (results[0].items || []).concat(results[1].items || []);
           items.sort(function (a, b) {
             return new Date(b.updated_at) - new Date(a.updated_at);
@@ -310,6 +316,7 @@
         api.sessions
           .archive(session.id)
           .then(function () {
+            if (global.NavBadges) global.NavBadges.refresh(); // the Plan dot reflects what is in progress
             function undo() {
               api.sessions
                 .update(session.id, { status: "active" })
@@ -397,17 +404,18 @@
 
   function mount(root, param) {
     if (param === "new") {
+      var mountedAt = global.Router.currentMount();
       root.innerHTML = "";
       root.appendChild(el("div", "muted", "Starting a plan..."));
       api.sessions
         .create({})
         .then(function (s) {
           // replace, not navigate: Back must not return to #/plan/new (it would create another)
-          if (!root.isConnected) return; // the user already navigated away; don't yank them back
+          if (mountedAt !== global.Router.currentMount()) return; // the user already navigated away; don't yank them back
           global.Router.replace("plan", s.id);
         })
         .catch(function (err) {
-          if (!root.isConnected) return;
+          if (mountedAt !== global.Router.currentMount()) return;
           root.innerHTML = "";
           root.appendChild(el("div", "muted", "Couldn't start a plan: " + err.message));
         });

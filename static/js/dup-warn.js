@@ -56,6 +56,7 @@
   // Warn softly as the user types a name, before they ever hit save. Best-effort —
   // a failed check is silent, the submit-time 409 is the real backstop.
   // getContext: optional fn -> { source_url, source_book, source_page, exclude_id }
+  var liveSeq = 0;
   function liveCheck(nameInput, hintEl, getContext) {
     nameInput.addEventListener("blur", function () {
       hintEl.innerHTML = "";
@@ -66,9 +67,11 @@
       Object.keys(ctx).forEach(function (k) {
         if (ctx[k]) params[k] = ctx[k];
       });
+      var mine = ++liveSeq;
       api.recipes
         .checkDuplicate(params)
         .then(function (data) {
+          if (mine !== liveSeq) return; // the name changed again meanwhile
           if (!data.matches || data.matches.length === 0) return;
           hintEl.appendChild(
             panel(data.matches, {
