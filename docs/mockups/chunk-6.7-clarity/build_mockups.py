@@ -3,9 +3,15 @@
     .venv\\Scripts\\python docs\\mockups\\chunk-6.7-clarity\\build_mockups.py
 
 Open docs/mockups/chunk-6.7-clarity/index.html. Reuses the frame/scene helpers and the real
-stylesheets from ../chunk-6.7/build_mockups.py (so the screens look like the app). Wording is the
-point: every "After" is the exact text proposed for the app, checked against what the code really
-does (docs/ui-ux.md > Plain language & no ambiguity). Static by design (standing mockup rule).
+stylesheets from ../chunk-6.7/build_mockups.py (so the screens look like the app). Every "After" is
+the exact text proposed for the app, checked against what the code does
+(docs/ui-ux.md > Plain language & no ambiguity). Static by design (standing mockup rule).
+
+Round 2 (2026-10-11), after review feedback: Settings forms keep their longer explanatory text;
+everywhere else is cut to one short line per control; ingredient-panel chips are
+Pack size / Substitute / Also called / By the bunch / Combine; scope toggle is two short pills plus
+a caption; renames applied: session -> plan, Diagnostics -> Status, Product units -> Pack sizes,
+Coarse ingredients -> Bought by the bunch.
 """
 
 from __future__ import annotations
@@ -24,8 +30,7 @@ frame, scene, compare, header, nav = base.frame, base.scene, base.compare, base.
 EXTRA_CSS = """
 .frame .pad { padding: var(--sp-4); }
 .frame .hint { font-size: var(--text-sm); color: var(--text-dim); margin: var(--sp-1) 0 var(--sp-3); }
-.frame .preview { font-size: var(--text-sm); border-left: 3px solid var(--accent); padding: var(--sp-2) var(--sp-3);
-  background: var(--surface-2, transparent); margin: var(--sp-3) 0; }
+.frame .preview { font-size: var(--text-sm); border-left: 3px solid var(--accent); padding: var(--sp-2) var(--sp-3); margin: var(--sp-3) 0; }
 .frame .dir { text-align: center; color: var(--text-dim); font-size: var(--text-sm); margin: var(--sp-1) 0; }
 .frame .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0; font-size: var(--text-sm); }
 .frame .sentence input { width: 4.2rem; }
@@ -37,6 +42,9 @@ EXTRA_CSS = """
 .frame .section-list .name { font-weight: 600; }
 .frame .h3s { margin: 0 0 var(--sp-2); }
 .frame .row-line { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.frame .chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-2) 0; }
+.frame .scope { display: flex; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-1); }
+.frame .scope button { flex: 1; }
 """
 
 
@@ -62,8 +70,13 @@ def wrap(inner: str, title: str = "Settings", active: str = "settings") -> str:
     return header(title) + f'<div class="pad">{inner}</div>' + nav(active)
 
 
+def nav_status(active: str = "plan") -> str:
+    """The bottom nav with Diagnostics renamed Status."""
+    return nav(active).replace("Diagnostics", "Status")
+
+
 # ---------------------------------------------------------------------------------------------
-# Settings
+# Settings (long explanatory text kept on these forms)
 # ---------------------------------------------------------------------------------------------
 def build_settings() -> None:
     def index(after: bool) -> str:
@@ -72,13 +85,13 @@ def build_settings() -> None:
             return f'<a><span class="name">{name}{s}</span><span class="count muted">{count}</span></a>'
         if after:
             rows = (
-                row("Appearance", "Match my phone", "Light, dark, or follow your phone. Only this phone.")
+                row("Appearance", "Match my phone")
                 + row("Pack sizes", "27 saved", "How each ingredient is sold, e.g. eggs by the dozen")
-                + row("Saved ingredient swaps", "3 saved", "‘Buy this instead’ suggestions offered when you review a recipe")
-                + row("Regular items", "5 saved", "Things you buy every few days or weeks")
-                + row("Same item, different names", "4 saved", "A name in a recipe that should show as another name on your list")
+                + row("Saved ingredient swaps", "3 saved", "“Buy this instead” suggestions")
+                + row("The usuals", "5 saved", "Things you buy every few weeks")
+                + row("Same item, different names", "4 saved", "A recipe name that shows as another on your list")
                 + row("Unit spellings", "6 saved", "e.g. tablespoon is the same as tbsp")
-                + row("Bought by the bunch", "2 saved", "Items where you just count recipes, not amounts")
+                + row("Bought by the bunch", "2 saved", "Count recipes, not amounts")
             )
         else:
             rows = (
@@ -87,12 +100,9 @@ def build_settings() -> None:
             )
         return wrap('<h3 class="h3s">Settings</h3><div class="card" style="padding:0"><div class="section-list">' + rows + "</div></div>")
 
-    s1 = compare(
-        "1. Settings index — say what each section is for",
-        "Each section gets a one-line purpose and the number says what it counts. One name per feature (the page used to be called "
-        "“Substitutions” in the list and “Saved ingredient swaps” inside; “Ingredient groups”, “Coarse” and “Product units” were jargon).",
-        index(False), index(True),
-    )
+    s1 = compare("1. Settings index — one line on what each section is for",
+                 "Renamed sections: Product units → Pack sizes, Coarse ingredients → Bought by the bunch, Ingredient groups → Same item, different names. "
+                 "“Substitutions” is called Saved ingredient swaps everywhere now.", index(False), index(True))
 
     def alias_form(after: bool) -> str:
         if not after:
@@ -123,13 +133,8 @@ def build_settings() -> None:
             '<button class="btn-sm primary">Save this name group</button></div>'
         )
 
-    s2 = compare(
-        "2. Settings → add a name group — the alias form from your note",
-        "Direction is stated in words (“When a recipe says … show it as …”), the two amounts are one readable sentence, the unit rule is explained "
-        "where it applies, and a live preview sentence says exactly what will happen. Half-filled amounts show an inline “fill both or leave blank” "
-        "instead of silently being thrown away.",
-        alias_form(False), alias_form(True),
-    )
+    s2 = compare("2. Add a name group — the wording you approved",
+                 "Kept as you chose: direction in words, the amount as a sentence, the unit rule, a live example.", alias_form(False), alias_form(True))
 
     def group_card(after: bool) -> str:
         if not after:
@@ -142,20 +147,16 @@ def build_settings() -> None:
             )
         return wrap(
             '<div class="card settings-group-card"><div class="settings-group-head"><span class="settings-group-name">Shown as “lemon”</span>'
-            '<span class="settings-group-count">2 names fold into it</span></div>'
+            '<span class="settings-group-count">2 names</span></div>'
             '<div class="settings-group-row"><b>“lemon juice” → “lemon”</b>'
-            '<div class="hint">Added from a shopping-list merge. 3 tbsp = 1 whole (only when the recipe says tbsp).</div>'
-            + mini("Note to self (only shown here)", ph="optional")
+            '<div class="hint">Added from a checklist combine. 3 tbsp = 1 whole, when the recipe says tbsp.</div>'
+            + mini("Note (only shown here)", ph="optional")
             + '<div class="log-controls"><button class="btn-link-danger">Remove</button><button class="btn-sm primary">Save changes</button></div></div></div>'
-            '<div class="toast-static"><div class="toast">Removed “lemon juice”. It will show as itself again. <b>Undo</b></div></div>'
+            '<div class="toast-static"><div class="toast">Removed “lemon juice”. It shows as itself again. <b>Undo</b></div></div>'
         )
 
-    s3 = compare(
-        "3. Existing groups — name the direction and the consequence",
-        "The heading says what the list shows; each row reads “recipe name → list name”; Delete says what it does and how to undo it; Save says it applies "
-        "everywhere immediately. “merge”/“system” tags become plain sentences.",
-        group_card(False), group_card(True),
-    )
+    s3 = compare("3. Existing groups — direction and consequence", "Each row reads “recipe name → list name”; Remove says what it does; Save says what it changes.",
+                 group_card(False), group_card(True))
 
     def unit_form(after: bool) -> str:
         if not after:
@@ -168,8 +169,7 @@ def build_settings() -> None:
                     + '<div class="preview">“2 tablespoon” in a recipe will be counted as “2 tbsp”.</div>'
                     '<button class="btn-sm primary">Save this spelling</button></div>')
 
-    s4 = compare("4. Unit spellings — same convention", "Same left → right wording as the name groups, so the three forms read alike.",
-                 unit_form(False), unit_form(True))
+    s4 = compare("4. Unit spellings — same pattern", "Same left → right wording as the name form.", unit_form(False), unit_form(True))
 
     def swap_form(after: bool) -> str:
         if not after:
@@ -177,7 +177,7 @@ def build_settings() -> None:
                         + mini("Hard-to-find ingredient", ph="e.g. bulgarian feta") + '<div class="muted">→</div>' + mini("Buy instead", ph="e.g. regular feta")
                         + '<div class="ing-grid" style="grid-template-columns:repeat(4,1fr)">' + mini("Original amount") + mini("Original unit")
                         + mini("Substitute amount") + mini("Substitute unit") + '</div><button class="btn-sm primary">Save swap</button></div>')
-        return wrap('<div class="card"><h3>Saved ingredient swaps</h3><p class="hint">“Buy this instead” choices you’ve saved. They are never applied automatically — '
+        return wrap('<div class="card"><h3>Saved ingredient swaps</h3><p class="hint">“Buy this instead” choices you’ve saved. They are never applied automatically: '
                     "when you review a recipe or edit an ingredient they’re offered as a one-tap suggestion. "
                     "For a name that’s just the same item written differently, use “Same item, different names”.</p>"
                     + mini("If a recipe calls for", ph="e.g. bulgarian feta") + '<div class="dir">↓ buy this instead</div>' + mini("Buy this instead", ph="e.g. regular feta")
@@ -186,8 +186,7 @@ def build_settings() -> None:
                     '<div class="hint">Fill in all four, or leave all four blank to keep the amount as written.</div></div>'
                     '<button class="btn-sm primary">Save this swap</button></div>')
 
-    s5 = compare("5. Saved swaps — same convention", "Same shape again: original → replacement, with the amount ratio as a sentence.",
-                 swap_form(False), swap_form(True))
+    s5 = compare("5. Saved ingredient swaps — same pattern", "Original → replacement, with the amount ratio as a sentence.", swap_form(False), swap_form(True))
 
     def packs(after: bool) -> str:
         if not after:
@@ -199,16 +198,28 @@ def build_settings() -> None:
                     + '<div class="hint">Use the unit your recipes use. Other units only match a recipe that uses exactly that word.</div>'
                     '<button class="btn-sm primary">Add this pack size</button></div>')
 
-    s6 = compare("6. Pack sizes (was “Product units”)", "Jargon out; the unit hint says which units actually match, because anything else was silently ignored.",
+    s6 = compare("6. Pack sizes (was Product units)", "Jargon out; the unit hint says which units actually match, because anything else was silently ignored.",
                  packs(False), packs(True))
 
+    def bunch(after: bool) -> str:
+        if not after:
+            return wrap('<div class="card"><h3>Coarse ingredients</h3><p class="muted">Ingredients where precise quantities aren’t worth tracking — any recipe needing one resolves straight to a purchase count…</p>'
+                        + mini("Name", ph="e.g. parsley") + mini("Purchase label", ph="e.g. bunch") + mini("Recipes per pack", "3") + '<button class="btn-sm primary">Add</button></div>')
+        return wrap('<div class="card"><h3>Bought by the bunch</h3><p class="hint">For things like parsley, where the amount in a recipe doesn’t matter: '
+                    "your list counts how many planned recipes use it. e.g. 1 bunch covers 3 recipes, so 4 recipes = 2 bunches.</p>"
+                    + mini("Ingredient", ph="e.g. parsley") + mini("Sold as (blank = just list the name)", ph="e.g. bunch")
+                    + mini("One covers how many recipes?", "3") + '<button class="btn-sm primary">Add</button></div>')
+
+    s7 = compare("7. Bought by the bunch (was Coarse ingredients)", "The hidden default of 3 is now a labelled field; a blank label says what it does.",
+                 bunch(False), bunch(True))
+
     page("settings.html", "Settings — plain language",
-         "Every Settings form that defines a rename, swap or conversion now reads left → right in words, with a live preview and a stated scope.",
-         [s1, s2, s3, s4, s5, s6])
+         "Settings forms keep their explanatory text. Every one that defines a rename, swap or conversion reads left → right in words.",
+         [s1, s2, s3, s4, s5, s6, s7])
 
 
 # ---------------------------------------------------------------------------------------------
-# Checklist & push
+# Checklist & push (short copy)
 # ---------------------------------------------------------------------------------------------
 def checklist_row(name: str, meta: str, state: str = "", on_list: bool = False, caret: bool = True) -> str:
     have = ' aria-pressed="true"' if state == "have" else ""
@@ -224,50 +235,59 @@ def checklist_row(name: str, meta: str, state: str = "", on_list: bool = False, 
 def build_checklist() -> None:
     def top(after: bool) -> str:
         if after:
-            head = ('<div class="sync-note"><span class="sync-dot"></span>Checked against AnyList when this page opened. Items already on your AnyList '
-                    "are set to “Have it”, so they won’t be sent again.</div>"
-                    '<div class="hint">Tap “Need it” for what you want sent to AnyList. “Have it” skips it. A row you don’t tap is not sent.</div>')
-            rows = (checklist_row("Cottage cheese", "Buy 2 × 500g tub · recipes need 800 g", "need")
+            head = ('<div class="sync-note"><span class="sync-dot"></span>Checked against AnyList at page open. Items on it are “Have it”.</div>'
+                    '<div class="hint">Need it = sent · Have it = skipped · untouched = not sent</div>')
+            rows = (checklist_row("Cottage cheese", "Buy 2 × 500g tub (need 800 g)", "need")
                     + checklist_row("Milk", "2 L", "have", on_list=True) + checklist_row("Lime", "5"))
-            push = '<div class="muted">2 ingredients and 1 regular item will be sent to AnyList. 1 ingredient still needs an amount chosen (under “Needs review”).</div>'
+            line = "Sending 2 ingredients + 1 usual. 1 still needs an amount."
+            btn = "Send to AnyList"
         else:
             head = ('<div class="sync-note"><span class="sync-dot"></span>Checked against AnyList as of this page load — items already on the list are pre-ticked.</div>')
             rows = (checklist_row("Cottage cheese", "2 × 500g tub · need ~800 g", "need")
                     + checklist_row("Milk ✓", "2 L", "have") + checklist_row("Lime", "5"))
-            push = '<div class="muted">2 ingredient(s) + 1 of 2 usual(s) selected will go on the list.</div>'
+            line = "2 ingredient(s) + 1 of 2 usual(s) selected will go on the list."
+            btn = "Push to AnyList"
         return (header("Checklist") + '<div class="pad"><div class="card"><h2>Shopping checklist</h2>' + head
-                + '<div class="sub-group-heading">Ingredients</div>' + rows + push
-                + '<div class="sticky-actions"><button class="primary btn-block">' + ("Send 3 items to AnyList" if after else "Push to AnyList") + "</button></div></div></div>"
-                + nav("plan"))
+                + '<div class="sub-group-heading">Ingredients</div>' + rows + '<div class="muted">' + line + "</div>"
+                '<div class="sticky-actions"><button class="primary btn-block">' + btn + "</button></div></div></div>" + nav("plan"))
 
-    s1 = compare("1. Checklist — what the buttons do and what gets sent",
-                 "Nothing on screen said that a row you don’t tap isn’t sent, that the ✓ means “already on AnyList”, or what “~” and “2 × …” were. "
-                 "Now: one helper line, an “On AnyList” tag, “Buy … · recipes need …”, and a push line in plain words. "
-                 "Push is disabled with nothing to send (“Mark something as Need it first”).",
+    s1 = compare("1. Checklist header and send line",
+                 "Short key says what Need/Have do and that untouched rows aren’t sent; “On AnyList” replaces the bare ✓; the row says what to buy and what the recipes need.",
                  top(False), top(True))
 
     def panel(after: bool) -> str:
-        chips = ("Pack size", "Substitute", "Alias", "Coarse item", "Merge") if not after else (
-            "How it’s sold", "Swap for another", "Same as another name", "Buy by the bunch", "Combine with another row")
-        scope = ("This list only", "Always (edits Settings)") if not after else ("Just this plan", "Always — every plan (saved in Settings → Same item, different names)")
-        sub = ("Always for this recipe",) if not after else ("Always (saves a suggestion for next time — doesn’t change this list)",)
-        chip_html = "".join(f'<button class="btn-sm">{c}</button> ' for c in chips)
+        if not after:
+            chips = ("Pack size", "Substitute", "Alias", "Coarse item", "Merge")
+            tog = '<div class="persist-toggle"><button class="persist-btn on">This list only</button><button class="persist-btn">Always for this recipe</button></div>'
+            cap = ""
+        else:
+            chips = ("Pack size", "Substitute", "Also called", "By the bunch", "Combine")
+            tog = ('<div class="scope"><button class="persist-btn on">Just this plan</button><button class="persist-btn">Always</button></div>'
+                   '<div class="hint">Only this checklist.</div>')
+            cap = ""
+        chip_html = '<div class="chips">' + "".join(f'<button class="btn-sm">{c}</button>' for c in chips) + "</div>"
         return (header("Checklist") + '<div class="pad"><div class="card">'
-                + checklist_row("Greek yoghurt", "500 g", "need") + '<div class="log-controls">' + chip_html + "</div>"
-                + ('<div class="swap-panel"><div class="hdr">Substitute this ingredient</div>' if not after else
-                   '<div class="swap-panel"><div class="hdr">Use something else instead of “Greek yoghurt”</div>')
-                + mini("Use instead" if not after else "Use this instead") + '<div class="persist-toggle"><button class="persist-btn on">' + scope[0]
-                + '</button><button class="persist-btn">' + scope[1] + "</button></div>"
-                + ('<div class="persist-toggle"><button class="persist-btn">' + sub[0] + "</button></div>")
-                + ('<div class="hint">“Just this plan” changes this checklist only. “Always” saves a suggestion in Settings → Saved ingredient swaps; it never changes a recipe or this list by itself.</div>'
-                   if after else "")
+                + checklist_row("Greek yoghurt", "500 g", "need") + chip_html
+                + '<div class="swap-panel"><div class="hdr">' + ("Substitute this ingredient" if not after else "Use something else") + "</div>"
+                + mini("Use instead" if not after else "Use instead") + tog + cap
                 + '<button class="btn-sm primary">Save</button></div></div></div>' + nav("plan"))
 
-    s2 = compare("2. Ingredient panel — plain chip names and a true scope label",
-                 "“Always for this recipe” was false (it only saves a suggestion; nothing changes). Chip names drop “Alias” and “Coarse item”, and every "
-                 "“Always” says where it is saved.", panel(False), panel(True))
+    def panel_always() -> str:
+        return (header("Checklist") + '<div class="pad"><div class="card">'
+                + checklist_row("Greek yoghurt", "500 g", "need")
+                + '<div class="chips"><button class="btn-sm">Pack size</button><button class="btn-sm">Substitute</button><button class="btn-sm">Also called</button>'
+                '<button class="btn-sm">By the bunch</button><button class="btn-sm">Combine</button></div>'
+                '<div class="swap-panel"><div class="hdr">Use something else</div>' + mini("Use instead")
+                + '<div class="scope"><button class="persist-btn">Just this plan</button><button class="persist-btn on">Always</button></div>'
+                '<div class="hint">Saved as a suggestion in Settings. Doesn’t change this list.</div>'
+                '<button class="btn-sm primary">Save</button></div></div></div>' + nav("plan"))
 
-    def merge(after: bool) -> str:
+    s2 = compare("2. Ingredient panel — chips and scope",
+                 "Chips: Pack size · Substitute · Also called · By the bunch · Combine (two rows at phone width). Scope is two short pills with a one-line caption "
+                 "that changes with the choice (next scene shows “Always”).", panel(False), panel(True))
+    s2b = scene("2b. Same panel with “Always” selected", "The caption says where it is saved and, for Substitute, that it doesn’t change this list.", panel_always())
+
+    def combine(after: bool) -> str:
         if not after:
             body = ('<div class="title">Merge these ingredients</div><div class="muted">parmesans + parmesan → parmesan</div>'
                     + mini("Keep which name?") + '<a class="btn-link">Not the same amount? Set the equivalent</a>'
@@ -275,83 +295,79 @@ def build_checklist() -> None:
                     + mini("Unit (blank = count)") + '</div><button class="primary">Merge for this shopping list only</button>'
                     '<button>Merge every time — all future recipes</button>')
         else:
-            body = ('<div class="title">Combine these into one ingredient</div>'
-                    '<div class="muted">“parmesans” and “parmesan” → shown as <b>“parmesan”</b>. Amounts are added together. '
-                    "If they’re in different kinds of unit you’ll be asked how to count them.</div>"
-                    + mini("Show the combined item as") + '<a class="btn-link">Different measures? Tell us how they compare</a>'
-                    '<div class="sentence"><input placeholder="1"> <input placeholder="tbsp"> <span>of each other item =</span> <input placeholder="0.5"> '
+            body = ('<div class="title">Combine rows</div>'
+                    '<div class="muted">“parmesans” + “parmesan” → <b>“parmesan”</b>. Amounts are added.</div>'
+                    + mini("Keep which name?") + '<a class="btn-link">Different measures?</a>'
+                    '<div class="sentence"><input placeholder="1"> <input placeholder="tbsp"> <span>of each other row =</span> <input placeholder="0.5"> '
                     '<input placeholder="(whole)"> <span>of “parmesan”</span></div>'
-                    '<div class="hint">Only used for lines measured in that unit; the others are added as they are.</div>'
-                    '<button class="primary">Combine for this plan only</button><button>Always combine — in every plan and recipe</button>'
-                    '<div class="hint">“Always” is saved in Settings → Same item, different names, where you can remove it.</div>')
+                    '<div class="hint">Only rows measured in that unit are converted.</div>'
+                    '<button class="primary">Combine for this plan</button><button>Always combine</button>'
+                    '<div class="hint">“Always” is saved in Settings → Same item, different names.</div>')
         return header("Checklist") + '<div class="pad"><div class="inline-card">' + body + "</div></div>" + nav("plan")
 
-    s3 = compare("3. Combining rows — which name wins, what happens to the amounts",
-                 "States the direction, that amounts are added, what the ratio does and when it doesn’t apply (the app now also reports the lines it skipped).",
-                 merge(False), merge(True))
+    s3 = compare("3. Combine rows", "Direction and the amount rule in one line each; “Always” says where it lives.", combine(False), combine(True))
 
     def review(after: bool) -> str:
         if not after:
             return (header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Needs review — pick one amount</div>'
                     '<div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">100 g + 200 ml</div></div></div>'
-                    '<div class="log-controls"><button class="btn-sm">use 100 g</button><button class="btn-sm">use 200 ml</button></div></div></div>' + nav("plan"))
-        return (header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Different units — choose how much to buy</div>'
-                '<div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">Recipes need 100 g and 200 ml — these can’t be added together</div></div></div>'
-                '<div class="log-controls"><button class="btn-sm">Buy 100 g</button><button class="btn-sm">Buy 200 ml</button><button class="btn-sm primary">Buy all of them</button></div>'
-                '<div class="hint">“Buy all of them” keeps both amounts in the AnyList note. Picking one drops the other.</div></div></div>' + nav("plan"))
+                    '<div class="log-controls"><button class="btn-sm">use 100 g</button><button class="btn-sm">use 200 ml</button></div>'
+                    '<div class="ing-grid" style="grid-template-columns:1fr 1fr">' + mini("Amount") + mini("Unit") + '</div>'
+                    '<button class="btn-sm primary">use this</button></div></div>' + nav("plan"))
+        return (header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Mixed units</div>'
+                '<div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">100 g + 200 ml</div></div></div>'
+                '<div class="log-controls"><button class="btn-sm">Use 100 g</button><button class="btn-sm">Use 200 ml</button></div>'
+                '<div class="box"><b>Or enter your own total</b>'
+                '<div class="sentence"><input placeholder="250"> <input placeholder="ml"> <button class="btn-sm primary">Use this total</button></div>'
+                '<div class="hint">Blank unit = whole items.</div></div></div></div>' + nav("plan"))
 
-    s4 = compare("4. Needs review — nothing is forced to be thrown away", "New “Buy all of them” (built); clearer heading and button names.",
+    s4 = compare("4. Mixed units — your own total", "The third choice: type the combined amount. Only that amount goes on the row and to AnyList.",
                  review(False), review(True))
 
     def push_again(after: bool) -> str:
         if not after:
             t = ("Already pushed to AnyList", "Pushing again checks the list and only changes what’s different — items already there are left alone.", "Push again", "Not now")
+            usual = "Added to this session’s push."
         else:
-            t = ("Already sent to AnyList",
-                 "Sending again checks AnyList and only changes what’s different. Items already there with the same amount are left alone; an item whose amount "
-                 "is different has its amount replaced; and anything you’ve crossed off on AnyList that is still marked Need it is put back on the list.",
-                 "Send again", "Not now")
+            t = ("Already sent to AnyList", "Sending again replaces changed amounts and puts back anything you crossed off.", "Send again", "Not now")
+            usual = 'Will be sent. <a class="btn-link">Undo</a>'
         return (header("Checklist") + '<div class="pad"><div class="inline-card warn"><div class="title">' + t[0] + "</div><div>" + t[1]
                 + '</div><div class="log-controls"><button class="primary">' + t[2] + "</button><button>" + t[3] + "</button></div></div>"
-                '<div class="usual-card skipped"><div class="q">Milk — you restock this every 7 days</div>'
-                + ('<div class="skipped-note">Added to this session’s push.</div>' if not after else
-                   '<div class="skipped-note">Will be sent to AnyList when you tap Send. <a class="btn-link">Undo</a></div>')
-                + "</div></div>" + nav("plan"))
+                '<div class="usual-card skipped"><div class="q">Milk — every 7 days</div><div class="skipped-note">' + usual + "</div></div></div>" + nav("plan"))
 
-    s5 = compare("5. “Push again” and the regular-items card", "The old text left out that crossed-off items come back and amounts are replaced — both true of the code. "
-                 "Regular items get an Undo and say when they’re sent.", push_again(False), push_again(True))
+    s5 = compare("5. Send again and the usuals card", "One sentence for the send-again card (both true behaviours kept); the usual shows its state with an Undo.",
+                 push_again(False), push_again(True))
 
     page("checklist.html", "Checklist & push — plain language",
-         "Wording and small markup only; no new screens. Every statement here was checked against the push/consolidation code.",
-         [s1, s2, s3, s4, s5])
+         "One short line per control. Every statement was checked against the push and consolidation code.",
+         [s1, s2, s2b, s3, s4, s5])
 
 
 # ---------------------------------------------------------------------------------------------
-# Plan, recipes, status
+# Plan, recipes, status (short copy)
 # ---------------------------------------------------------------------------------------------
 def build_plan_recipes() -> None:
     def home(after: bool) -> str:
-        a = ("Start a new shopping plan", "Add or find a recipe") if after else ("New session", "New recipe")
+        a = ("New plan", "Recipes") if after else ("New session", "New recipe")
         return (header("Home") + f'<div class="pad"><div class="home-actions"><a class="btn primary btn-block">{a[0]}</a><a class="btn btn-block">{a[1]}</a></div>'
                 + ('<div class="card"><b>Week of 14 Oct</b><div class="muted">3 meals · in progress · started 12 Oct</div></div>' if after else
-                   '<div class="card"><b>Session #12</b><div class="muted">3 items · active · 12/10/2026</div></div>') + "</div>" + nav("home"))
+                   '<div class="card"><b>Session #12</b><div class="muted">3 items · active · 12/10/2026</div></div>') + "</div>"
+                + (nav_status("home") if after else nav("home")))
 
-    s1 = compare("1. Home & Plan list — one noun, and what the numbers are",
-                 "“session / planning session / shopping session / list” become **plan**; “items” (recipes here, ingredients on the checklist) becomes “meals”; "
-                 "“New recipe” opened the library, so it says what it does; unnamed plans show a date, not a number.", home(False), home(True))
+    s1 = compare("1. Home and Plan list", "One noun (plan). “New recipe” actually opened the library, so it says Recipes. Unnamed plans show a date.",
+                 home(False), home(True))
 
     def workspace(after: bool) -> str:
         if not after:
             return (header("Plan") + '<div class="pad"><div class="card"><input placeholder="Session name, e.g. Week of 14 Jul"><button class="btn-sm">Archive</button>'
                     '<div class="muted">Status: active</div><button class="btn-sm">+ Add leftovers day</button><button class="primary" disabled>Checklist →</button></div></div>' + nav("plan"))
         return (header("Plan") + '<div class="pad"><div class="card">' + mini("Plan name", "Week of 14 Oct")
-                + '<div class="muted">In progress · started 12 Oct</div><button class="btn-sm">Archive this plan</button>'
-                '<div class="hint">Moves it to Past. You can undo it straight away.</div>'
-                '<button class="btn-sm">+ Add a leftovers day</button><div class="hint">Leftovers add nothing to the shopping list.</div>'
-                '<button class="primary" disabled>Go to shopping checklist →</button><div class="hint">Add a recipe first.</div></div></div>' + nav("plan"))
+                + '<div class="muted">In progress · started 12 Oct</div><button class="btn-sm">Archive plan</button>'
+                '<div class="hint">Moves it to Past. Undo available.</div>'
+                '<button class="btn-sm">+ Leftovers day</button><div class="hint">Adds nothing to the shopping list.</div>'
+                '<button class="primary" disabled>Open checklist →</button><div class="hint">Add a recipe first.</div></div></div>' + nav_status("plan"))
 
-    s2 = compare("2. Plan workspace", "A label for the name field (it saves when you leave it), consequences for Archive and Leftovers, and a reason when the button is disabled.",
-                 workspace(False), workspace(True))
+    s2 = compare("2. Plan workspace", "A label on the name field, what Archive does, and why the button is disabled.", workspace(False), workspace(True))
 
     def recipe(after: bool) -> str:
         if not after:
@@ -359,44 +375,37 @@ def build_plan_recipes() -> None:
                     '<div class="muted">Archived</div><button class="btn-sm">I cooked this</button><div>1 to taste salt</div>'
                     '<div class="muted">→ using 2 can canned corn</div><h4>Edit recipe</h4>' + mini("Base servings", "4")
                     + '<button class="primary">Save</button><button>Cancel</button><button class="danger">Delete recipe</button></div></div>' + nav("recipes"))
-        return (header("Recipe") + '<div class="pad"><div class="card"><h2>Chilli con carne</h2><div class="muted">Makes 4 servings · Mexican · Beef · Rated 👍</div>'
-                '<div class="muted">Deleted (hidden from your library). <a class="btn-link">Bring it back</a></div>'
-                '<button class="btn-sm">I cooked this (adds 1 to the count)</button><div>Salt, to taste</div>'
-                '<div class="muted">Using instead: 2 can canned corn. Your shopping list will show this. Note: …</div><h4>Edit recipe</h4>'
-                + mini("Servings this recipe makes (amounts below are for this many)", "4")
-                + '<div class="hint">Changing this changes how amounts scale in any plan that already includes this recipe.</div>'
-                '<button class="primary">Save recipe details</button><button>Discard changes and go back</button>'
-                '<div class="hint">Each ingredient below has its own Save.</div>'
-                '<button class="danger">Delete recipe</button><div class="hint">Removes it from your library. Plans already using it keep it. Undo is available for a few seconds.</div>'
+        return (header("Recipe") + '<div class="pad"><div class="card"><h2>Chilli con carne</h2><div class="muted">Makes 4 · Mexican · Beef · 👍 Good</div>'
+                '<div class="muted">Deleted. <a class="btn-link">Restore</a></div>'
+                '<button class="btn-sm">I cooked this</button><div class="hint">Adds 1 to the cooked count.</div><div>Salt, to taste</div>'
+                '<div class="muted">Instead: 2 can canned corn</div><h4>Edit recipe</h4>'
+                + mini("Servings it makes", "4") + '<div class="hint">Changes amounts in plans using this recipe.</div>'
+                '<button class="primary">Save details</button><button>Discard</button>'
+                '<div class="hint">Each ingredient has its own Save.</div>'
+                '<button class="danger">Delete recipe</button><div class="hint">Hidden from your library. Undo for a few seconds.</div>'
                 "</div></div>" + nav("recipes"))
 
-    s3 = compare("3. Recipe page and edit — scopes and consequences",
-                 "“Base servings”, the two Save scopes, “Archived” vs “Delete”, “1 to taste salt”, the bare “→” and the 👍 are all spelled out. "
-                 "(Delete here is a soft delete — true of the code — so “hidden from your library” and “Bring it back” are accurate.)", recipe(False), recipe(True))
+    s3 = compare("3. Recipe page and edit", "Two Save scopes named, Delete says what it does, “1 to taste salt” becomes “Salt, to taste”.", recipe(False), recipe(True))
 
     def dup(after: bool) -> str:
         if not after:
             t = ("You might already have this:", "Pasta bake (archived)", "Restore this one", "Save anyway")
         else:
-            t = ("This looks like a recipe you already have. Open it, or save this as a separate copy.", "Pasta bake (deleted) — same web page",
-                 "Bring back the deleted one (leaves this form)", "Save as a separate recipe anyway")
+            t = ("Looks like a recipe you already have.", "Pasta bake (deleted) — same web page", "Restore it", "Save a copy anyway")
         return (header("Add a recipe") + '<div class="pad"><div class="inline-card warn"><div class="title">' + t[0] + "</div><div>" + t[1]
                 + '</div><div class="log-controls"><button>' + t[2] + "</button><button class=\"primary\">" + t[3] + "</button></div></div></div>" + nav("recipes"))
 
-    s4 = compare("4. Duplicate warning", "Says why it matched, calls a soft-deleted recipe “deleted” (the rest of the app does), and what each button does to the form.",
-                 dup(False), dup(True))
+    s4 = compare("4. Duplicate warning", "Says why it matched; “deleted” matches the rest of the app.", dup(False), dup(True))
 
     def queued(after: bool) -> str:
         if not after:
             return (header("Capture") + '<div class="pad"><div class="card"><h2>Capture queued</h2><div class="muted">Every AI model is over its quota right now — '
                     "this capture has been queued and will be retried automatically.</div><div class=\"muted\">No need to do anything — check back in the recipe library in "
                     "a while, or watch the capture queue on the Diagnostics page.</div></div></div>" + nav("recipes"))
-        return (header("Import") + '<div class="pad"><div class="card"><h2>Saved for later</h2><div class="muted">The recipe reader is busy right now, so this has been saved for later. '
-                'It will be tried again automatically within the hour.</div><div class="muted">Nothing else to do. When it works, the recipe is added to Recipes as '
-                "“Untitled captured recipe” — open it, give it a name and check the ingredients.</div></div></div>" + nav("recipes"))
+        return (header("Import") + '<div class="pad"><div class="card"><h2>Saved for later</h2><div class="muted">The recipe reader is busy. We’ll retry within the hour.</div>'
+                '<div class="muted">It will appear in Recipes as “Untitled captured recipe”.</div></div></div>' + nav("recipes"))
 
-    s5 = compare("5. Saved-for-later capture (built)", "No “AI / quota / queued”, and it says where the recipe will appear and what to do then. "
-                 "A recipe made this way also gets a “Captured automatically — please check” badge.", queued(False), queued(True))
+    s5 = compare("5. Saved-for-later capture (already built)", "No “AI / quota / queued”; says where it will appear.", queued(False), queued(True))
 
     def status(after: bool) -> str:
         if not after:
@@ -405,107 +414,25 @@ def build_plan_recipes() -> None:
                     '<div class="muted">confirmed</div></div></div>' + nav("diag"))
         return (header("Status") + '<div class="pad"><div class="card"><h3>Everything is working</h3>'
                 '<div class="row-line"><span>AnyList</span><span>Working</span></div><div class="row-line"><span>Recipe reader</span><span>Working</span></div>'
-                '<div class="row-line"><span>Last send to AnyList</span><span>Today 3:15 pm · AnyList has everything</span></div>'
-                '<details><summary>Advanced (for the person who looks after the app)</summary><div class="muted">push a1b2c3 · session 12 · read 0s · send 1s · confirm 0s · '
-                "release …</div></details></div></div>" + nav("diag", ))
+                '<div class="row-line"><span>Last send</span><span>Today 3:15 pm · all items there</span></div>'
+                '<details><summary>Advanced</summary><div class="muted">push a1b2c3 · plan 12 · read 0s · send 1s · confirm 0s</div></details></div></div>'
+                + nav_status("diag"))
 
-    s6 = compare("6. Diagnostics → Status", "Plain summary first; developer detail behind “Advanced”. The nav label changes to “Status”.", status(False), status(True))
+    s6 = compare("6. Diagnostics → Status", "Plain summary first; developer detail behind Advanced.", status(False), status(True))
 
     page("plan-recipes.html", "Plan, recipes, capture, status — plain language",
-         "Wording and small markup only. Items that were already implemented (the saved-for-later capture message) are shown for review.",
-         [s1, s2, s3, s4, s5, s6])
-
-
-
-# ---------------------------------------------------------------------------------------------
-# Shortened-copy sample (2026-10-11): the same screens with every line cut to the fewest words that
-# stay unambiguous. Approve the STYLE here, then it is applied to all scenes.
-# ---------------------------------------------------------------------------------------------
-def build_short() -> None:
-    def aliases(short: bool) -> str:
-        if not short:
-            return wrap(
-                '<div class="card"><h3>Same item, different names</h3>'
-                '<p class="hint">When a recipe uses the name on the left, your shopping list shows the name on the right instead. '
-                "Recipes themselves aren’t changed. Applies to every recipe, existing and new.</p>"
-                + mini("When a recipe says", ph="e.g. lemon juice") + '<div class="dir">↓ show it on my shopping list as</div>'
-                + mini("Shopping list shows", ph="e.g. lemon")
-                + '<div class="box"><b>Change the amount too? (optional)</b><div class="sentence"><input placeholder="3"> <input placeholder="tbsp"> '
-                '<span>of the first =</span> <input placeholder="1"> <input placeholder="(whole)"> <span>of the second</span></div>'
-                '<div class="hint">Only used when a recipe measures it in exactly that unit. Otherwise just the name changes and the amount is left as written. '
-                "Leave all four blank to only rename.</div></div>"
-                '<div class="preview">“lemon juice” in a recipe will show as “lemon” on your shopping list. 3 tbsp lemon juice becomes 1 lemon.</div>'
-                '<button class="btn-sm primary">Save this name group</button></div>'
-            )
-        return wrap(
-            '<div class="card"><h3>Other names</h3>'
-            '<p class="hint">A recipe’s name on the left shows as the name on the right. Recipes aren’t changed.</p>'
-            + mini("Recipe says", ph="lemon juice") + '<div class="dir">↓</div>' + mini("List shows", ph="lemon")
-            + '<div class="box"><b>Convert amount (optional)</b>'
-            '<div class="sentence"><input placeholder="3"> <input placeholder="tbsp"> <span>=</span> <input placeholder="1"> <input placeholder="whole"></div>'
-            '<div class="hint">Only when the recipe uses that unit.</div></div>'
-            '<div class="preview">“lemon juice” → “lemon”. 3 tbsp becomes 1.</div>'
-            '<button class="btn-sm primary">Save</button></div>'
-        )
-
-    s1 = compare("Name form — long vs short",
-                 "Same facts, about a third of the words. The direction is still stated (“Recipe says” ↓ “List shows”), the unit rule is one short line, and there is still a live example.",
-                 aliases(False), aliases(True))
-
-    def review(short: bool) -> str:
-        if not short:
-            return (header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Different units — choose how much to buy</div>'
-                    '<div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">Recipes need 100 g and 200 ml — these can’t be added together</div></div></div>'
-                    '<div class="log-controls"><button class="btn-sm">Buy 100 g</button><button class="btn-sm">Buy 200 ml</button><button class="btn-sm primary">Buy all of them</button></div>'
-                    "</div></div>" + nav("plan"))
-        return (header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Mixed units</div>'
-                '<div class="checklist-row"><div class="main"><div class="name">Cream</div><div class="meta">100 g + 200 ml</div></div></div>'
-                '<div class="log-controls"><button class="btn-sm">Use 100 g</button><button class="btn-sm">Use 200 ml</button></div>'
-                '<div class="box"><b>Or enter your own total</b>'
-                '<div class="sentence"><input placeholder="250"> <input placeholder="ml"> <button class="btn-sm primary">Use this total</button></div>'
-                '<div class="hint">Blank unit = whole items. One amount goes on the list.</div></div></div></div>' + nav("plan"))
-
-    s2 = compare("Mixed units — now with your own total",
-                 "The third choice you asked for: type the combined amount yourself. “Buy all of them” is gone. The row and AnyList then show only your total.",
-                 review(False), review(True))
-
-    def top(short: bool) -> str:
-        if not short:
-            head = ('<div class="sync-note"><span class="sync-dot"></span>Checked against AnyList when this page opened. Items already on your AnyList '
-                    "are set to “Have it”, so they won’t be sent again.</div>"
-                    '<div class="hint">Tap “Need it” for what you want sent to AnyList. “Have it” skips it. A row you don’t tap is not sent.</div>')
-            line = "2 ingredients and 1 regular item will be sent to AnyList. 1 ingredient still needs an amount chosen (under “Needs review”)."
-            btn = "Send 3 items to AnyList"
-        else:
-            head = ('<div class="sync-note"><span class="sync-dot"></span>Checked against AnyList at page open. Items on it are “Have it”.</div>'
-                    '<div class="hint">Need it = sent · Have it = skipped · untouched = not sent</div>')
-            line = "Sending 2 ingredients + 1 regular item. 1 still needs an amount."
-            btn = "Send to AnyList"
-        rows = (checklist_row("Cottage cheese", "Buy 2 × 500g tub (need 800 g)", "need")
-                + checklist_row("Milk", "2 L", "have", on_list=True) + checklist_row("Lime", "5"))
-        return (header("Checklist") + '<div class="pad"><div class="card"><h2>Shopping checklist</h2>' + head
-                + '<div class="sub-group-heading">Ingredients</div>' + rows + '<div class="muted">' + line + "</div>"
-                '<div class="sticky-actions"><button class="primary btn-block">' + btn + "</button></div></div></div>" + nav("plan"))
-
-    s3 = compare("Checklist header and send line — long vs short",
-                 "Each fact kept (what Need/Have do, untouched rows aren’t sent, what “On AnyList” means, what is being sent); the sentences are replaced by a short key.",
-                 top(False), top(True))
-
-    page("short.html", "Shorter copy — sample for approval",
-         "Left is the wording in the previous mockups, right is the same screen cut down. If this style is right, every other scene gets the same treatment.",
-         [s1, s2, s3])
+         "One short line per control; “plan” is the one noun.", [s1, s2, s3, s4, s5, s6])
 
 
 def build_index() -> None:
     html = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Chunk 6.7 — clarity mockups</title>
 <style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#2a2620;line-height:1.5}
 a{color:#1f6b63}.card{background:#fff;border:1px solid #0002;border-radius:12px;padding:14px 18px;margin:12px 0}</style></head><body>
-<h1>Plain language &amp; no ambiguity — mockups for approval</h1>
-<p>Static light/dark mockups (each “After” is the exact text proposed). Standard being applied:
-<code>docs/ui-ux.md &gt; Plain language &amp; no ambiguity</code>. Approve (or mark up) each page and I’ll implement exactly this.</p>
-<div class="card"><h3><a href="settings.html">1. Settings</a></h3><p>Index subtitles; the name-group form from your note (direction, preview, amount sentence); existing groups; unit spellings; saved swaps; pack sizes.</p></div>
-<div class="card"><h3><a href="checklist.html">2. Checklist &amp; push</a></h3><p>What Need/Have do and what is sent; “On AnyList”; ingredient panel names and scope labels; combining rows; needs-review; push-again card.</p></div>
-<div class="card"><h3><a href="plan-recipes.html">3. Plan, recipes, capture, status</a></h3><p>One noun for “plan”; recipe page/edit scopes and delete consequences; duplicate warning; saved-for-later capture; Status page.</p></div>
+<h1>Plain language &amp; no ambiguity — mockups for approval (round 2)</h1>
+<p>Static light/dark mockups; each “After” is the exact text proposed. Standard: <code>docs/ui-ux.md &gt; Plain language &amp; no ambiguity</code>.</p>
+<div class="card"><h3><a href="settings.html">1. Settings</a></h3><p>Long explanatory text kept; renames applied.</p></div>
+<div class="card"><h3><a href="checklist.html">2. Checklist &amp; push</a></h3><p>Short copy; chips and scope toggle; own-total for mixed units.</p></div>
+<div class="card"><h3><a href="plan-recipes.html">3. Plan, recipes, capture, status</a></h3><p>Short copy; “plan”; Status.</p></div>
 <p>Regenerate: <code>.venv\\Scripts\\python docs\\mockups\\chunk-6.7-clarity\\build_mockups.py</code></p></body></html>"""
     (HERE / "index.html").write_text(html, encoding="utf-8")
 
@@ -514,6 +441,5 @@ if __name__ == "__main__":
     build_settings()
     build_checklist()
     build_plan_recipes()
-    build_short()
     build_index()
     print("wrote", ", ".join(sorted(p.name for p in HERE.glob("*.html"))))
