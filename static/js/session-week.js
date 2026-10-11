@@ -166,10 +166,17 @@
       if (!isLeftovers) {
         var servings = servingsSelect(slot.scaled_servings, function (n) {
           global.Feedback.clear(slotFeedback);
-          api.sessions.updateSlot(session.id, slot.id, { scaled_servings: n }).catch(function (err) {
-            servings.value = String(slot.scaled_servings); // show what is actually saved
-            barf(err);
-          });
+          api.sessions
+            .updateSlot(session.id, slot.id, { scaled_servings: n })
+            .then(function (updated) {
+              // Cache what the server now holds: a later failed change must revert to THIS
+              // value, and Remove -> Undo must restore it (not the servings from page load).
+              slot.scaled_servings = updated && updated.scaled_servings ? updated.scaled_servings : n;
+            })
+            .catch(function (err) {
+              servings.value = String(slot.scaled_servings); // show what is actually saved
+              barf(err);
+            });
         });
         controls.appendChild(servings);
       }

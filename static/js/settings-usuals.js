@@ -71,6 +71,11 @@
           row.name = updated.name;
           row.notes = updated.notes;
           row.cadence_days = updated.cadence_days;
+          // A new cadence can flip "due" either way against the stored last-added stamp.
+          row.is_due = updated.is_due;
+          row.last_added_at = updated.last_added_at;
+          dueTag.className = updated.is_due ? "sub-group-heading" : "muted";
+          dueTag.textContent = updated.is_due ? "due now" : "not due";
         })
         .catch(function (err) {
           rowErr.textContent = err.message;

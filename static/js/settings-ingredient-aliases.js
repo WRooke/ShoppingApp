@@ -133,7 +133,11 @@
       api.settings.ingredientAliases
         .update(row.id, payload)
         .then(function (updated) {
-          row.note = updated.note;
+          // Every field, not just the note: the server clears a half-filled pair, and the
+          // Delete -> Undo payload below is built from this cached row.
+          ["note", "alias_qty", "alias_unit", "canonical_qty", "canonical_unit"].forEach(function (k) {
+            row[k] = updated[k];
+          });
         })
         .catch(function (err) {
           rowErr.textContent = err.message;

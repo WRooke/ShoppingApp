@@ -275,7 +275,12 @@
       if (labelInput.value.trim() === (session.label || "")) return;
       api.sessions
         .update(session.id, { label: labelInput.value.trim() || null })
-        .then(function () { global.Feedback.clear(headFeedback); })
+        .then(function (updated) {
+          // Keep the cached name in step with what the server now holds, otherwise renaming
+          // "A" -> "B" -> back to "A" compares against the stale "A" and never saves the revert.
+          session.label = updated && "label" in updated ? updated.label : (labelInput.value.trim() || null);
+          global.Feedback.clear(headFeedback);
+        })
         .catch(function (err) {
           global.Feedback.error(headFeedback, "Couldn't rename — " + global.Feedback.messageOf(err) + " (the old name is still saved)");
         });

@@ -62,6 +62,7 @@
         .then(function (updated) {
           row.purchase_label = updated.purchase_label;
           row.recipes_per_pack = updated.recipes_per_pack;
+          row.notes = updated.notes;
         })
         .catch(function (err) {
           rowErr.textContent = err.message;
@@ -78,6 +79,9 @@
         return api.settings.coarseIngredients.create({
           name: row.name,
           purchase_label: row.purchase_label,
+          // Without these an Undo silently reset a tuned "recipes per pack" to the default 3.
+          recipes_per_pack: row.recipes_per_pack,
+          notes: row.notes,
         });
       },
       onRestored: function (created) {

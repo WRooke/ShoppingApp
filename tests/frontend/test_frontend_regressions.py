@@ -830,6 +830,30 @@ def test_recipe_breakdown_survives_a_need_it_tap(browser, api, server_url):
     assert not browser.console_errors(), browser.console_errors()
 
 
+def test_session_rename_back_to_the_original_name_is_saved(browser, api, server_url):
+    """2026-10-11, Chunk 6.7 — the Plan workspace compared the typed name against the name it
+    loaded with and never updated that copy after a save, so renaming A -> B -> A was treated
+    as "unchanged" and the revert was silently never saved."""
+    session = api.post("/api/v1/sessions", json={"label": "Name A"}).json()["data"]
+    browser.navigate(f"{server_url}/#/plan/{session['id']}")
+    browser.wait_for(".detail-head-row input")
+
+    def type_and_blur(value: str) -> None:
+        browser.eval(
+            "(function(){var i=document.querySelector('.detail-head-row input');"
+            f"i.value={json.dumps(value)};i.dispatchEvent(new Event('blur'));}})()"
+        )
+        deadline = time.monotonic() + TIMEOUT
+        while time.monotonic() < deadline:
+            if api.get(f"/api/v1/sessions/{session['id']}").json()["data"]["label"] == value:
+                return
+            time.sleep(0.2)
+        raise AssertionError(f"label never became {value!r}")
+
+    type_and_blur("Name B")
+    type_and_blur("Name A")
+
+
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
     """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe

@@ -124,8 +124,9 @@
       api.settings.substitutions
         .update(row.id, payload)
         .then(function (updated) {
-          row.substitute_name = updated.substitute_name;
-          row.note = updated.note;
+          // Every field, so Delete -> Undo restores the ratio just saved, not the one loaded.
+          ["substitute_name", "note", "original_qty", "original_unit", "substitute_qty", "substitute_unit"]
+            .forEach(function (k) { row[k] = updated[k]; });
         })
         .catch(function (err) {
           rowErr.textContent = err.message;
