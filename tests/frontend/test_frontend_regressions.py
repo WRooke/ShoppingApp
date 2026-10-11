@@ -443,7 +443,7 @@ def test_pack_size_chip_resolves_this_session_and_preserves_other_items(browser,
         "inputs[2].value='g'; inputs[2].dispatchEvent(new Event('input',{bubbles:true}));"
         # Scoped to .persist-actions -- the chip's own toggle buttons (This list only /
         # Always) are also <button> elements sharing the form, just not this one.
-        "var saveBtn=Array.from(form.querySelectorAll('.persist-actions button')).find(function(b){return b.textContent==='Save changes';});"
+        "var saveBtn=Array.from(form.querySelectorAll('.persist-actions button')).find(function(b){return b.textContent==='Save';});"
         "if(!saveBtn) return 'SAVE_BUTTON_NOT_FOUND';"
         "saveBtn.click();"
         "return 'OK';"
@@ -669,7 +669,7 @@ def test_alias_chip_this_list_only_default_survives_reload(browser, api, server_
         "panel.querySelector('input').value=name;"
         "panel.querySelector('input').dispatchEvent(new Event('input',{bubbles:true}));"
         "var saveBtn=Array.from(panel.parentElement.querySelectorAll('.persist-actions button'))"
-        ".find(function(b){return b.textContent==='Save changes';});"
+        ".find(function(b){return b.textContent==='Save';});"
         "if(!saveBtn) return 'SAVE_BUTTON_NOT_FOUND';"
         "saveBtn.click();"
         "return 'OK';"
