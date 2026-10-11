@@ -45,12 +45,14 @@
             global.Router.navigate("plan", sessionId);
           },
         });
+        return true;
       })
       .catch(function (err) {
         hostEl.disabled = false;
         global.Feedback.error(holder, "Couldn't add to session — " + global.Feedback.messageOf(err), {
           retry: function () { doAdd(sessionId, recipeId, hostEl); },
         });
+        return false;
       });
   }
 
@@ -66,8 +68,9 @@
     var goBtn = el("button", "btn-sm primary", "Add");
     goBtn.addEventListener("click", function () {
       goBtn.disabled = true;
-      doAdd(parseInt(select.value, 10), recipeId, goBtn).then(function () {
-        if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      doAdd(parseInt(select.value, 10), recipeId, goBtn).then(function (ok) {
+        // Only dismiss the picker on success - on failure it sits next to the error and Retry.
+        if (ok && wrap.parentNode) wrap.parentNode.removeChild(wrap);
       });
     });
     wrap.appendChild(select);

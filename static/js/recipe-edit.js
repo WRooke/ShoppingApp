@@ -107,6 +107,7 @@
       sourceBook: sourceBookInput,
       sourcePage: sourcePageInput,
       notes: notesInput,
+      rating: ratingSelect,
     });
     draft.restore(); // silent here — re-opening edit mode with the same unsaved text you
                       // left is expected, not a surprise worth calling out like a fresh form
@@ -122,6 +123,9 @@
     card.appendChild(actionsRow);
 
     cancelBtn.addEventListener("click", function () {
+      // Cancel means discard: without this the abandoned text silently reappeared next time
+      // edit mode opened (2026-10-11, Chunk 6.7).
+      draft.clear();
       onCancel();
     });
 

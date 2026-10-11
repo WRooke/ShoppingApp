@@ -894,6 +894,31 @@ def test_usual_decision_survives_a_rerender(browser, api, server_url):
     assert not browser.console_errors(), browser.console_errors()
 
 
+def test_back_from_a_new_plan_does_not_create_another_one(browser, api, server_url):
+    """2026-10-11, Chunk 6.7 — Home's "New session" opens #/plan/new, which creates a session on
+    mount. That route stayed in the history, so Back from the new plan landed on it again and
+    quietly created a second (empty) session."""
+    def count() -> int:
+        return api.get("/api/v1/sessions?limit=200").json()["data"]["total"]
+
+    browser.navigate(f"{server_url}/#/home")
+    browser.wait_for(".home-actions")
+    before = count()
+    browser.click(".home-actions a", contains="New session")
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline and not browser.eval(r"/^#\/plan\/\d+$/.test(location.hash)"):
+        time.sleep(0.1)
+    assert count() == before + 1
+
+    browser.eval("history.back()")
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline and browser.eval("location.hash") != "#/home":
+        time.sleep(0.1)
+    assert browser.eval("location.hash") == "#/home"
+    time.sleep(0.5)  # a (wrong) second create would land within this window
+    assert count() == before + 1
+
+
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
     """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe

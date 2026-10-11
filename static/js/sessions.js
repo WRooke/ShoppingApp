@@ -392,9 +392,12 @@
       api.sessions
         .create({})
         .then(function (s) {
-          global.Router.navigate("plan", s.id);
+          // replace, not navigate: Back must not return to #/plan/new (it would create another)
+          if (!root.isConnected) return; // the user already navigated away; don't yank them back
+          global.Router.replace("plan", s.id);
         })
         .catch(function (err) {
+          if (!root.isConnected) return;
           root.innerHTML = "";
           root.appendChild(el("div", "muted", "Couldn't start a session: " + err.message));
         });

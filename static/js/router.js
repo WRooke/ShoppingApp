@@ -136,5 +136,12 @@
     navigate: function (key, param) {
       global.location.hash = "#/" + key + (param != null ? "/" + param : "");
     },
+    // Like navigate() but REPLACES the current history entry. For a route that only exists to do
+    // something and then move on (#/plan/new creates a session): leaving it in the history meant
+    // Back from the new plan landed on #/plan/new again, which created ANOTHER session.
+    replace: function (key, param) {
+      var url = "#/" + key + (param != null ? "/" + param : "");
+      global.location.replace(global.location.pathname + global.location.search + url);
+    },
   };
 })(window);

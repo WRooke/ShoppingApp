@@ -58,9 +58,11 @@
       }
       var restoredAny = false;
       Object.keys(fields).forEach(function (name) {
-        if (data[name]) {
+        // `in`, not truthiness: a field the user deliberately CLEARED is saved as "" and must
+        // restore as empty, not fall back to the server's old value (2026-10-11, Chunk 6.7).
+        if (Object.prototype.hasOwnProperty.call(data, name) && typeof data[name] === "string") {
           fields[name].value = data[name];
-          restoredAny = true;
+          if (data[name]) restoredAny = true; // "restored" notes only announce real text
         }
       });
       return restoredAny;

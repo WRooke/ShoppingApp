@@ -186,8 +186,17 @@
     var rows = []; // { nameInput, qtyInput, unitInput, prepInput, sectionSelect, swap, rowEl }
 
     // Fetch the section vocabulary + saved swaps once, then build the ingredient rows.
+    // A failed section-list fetch must NOT discard the extraction: the paid-for ingredients are
+    // still shown and savable, just without an aisle choice (2026-10-11, Chunk 6.7 - the rows
+    // used to be built only inside the success path, so a vocabulary failure left a form with no
+    // ingredients at all).
+    var sectionsFailure = null;
     Promise.all([
-      api.settings.sectionVocabulary(),
+      api.settings.sectionVocabulary().catch(function (err) {
+        sectionsFailure = err;
+        if (global.ErrorReport) global.ErrorReport.reportCaught("section-vocabulary", err);
+        return { sections: [] };
+      }),
       api.settings.substitutions.list().catch(function () {
         return { items: [] };
       }),
@@ -198,7 +207,12 @@
         (results[1].items || []).forEach(function (r) {
           (picksByName[r.original_name] = picksByName[r.original_name] || []).push(r);
         });
-        ingList.removeChild(loadingSections);
+        if (sectionsFailure) {
+          loadingSections.textContent =
+            "Couldn't load the aisle list — you can still save this recipe and pick aisles later.";
+        } else {
+          ingList.removeChild(loadingSections);
+        }
 
         function addIngredientRow(ing) {
           ing = ing || {};
@@ -370,6 +384,12 @@
           remembered.forEach(function (s) {
             api.settings.substitutions.create(s).catch(function (e) {
               if (global.ErrorReport) global.ErrorReport.reportCaught("save-this-swap", e);
+              // The recipe itself saved; only the "remember this swap" tick failed. Say so (the
+              // toast outlives the navigation below) rather than letting it vanish silently.
+              global.Toast.show(
+                "Recipe saved, but the swap for “" + (s.original_name || "an ingredient") + "” wasn't remembered.",
+                { tone: "error" }
+              );
             });
           });
           global.Router.navigate("recipes", saved.id);
