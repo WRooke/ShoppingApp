@@ -781,6 +781,55 @@ def test_back_closes_open_panel_before_navigating_away(browser, api, server_url)
     assert not browser.console_errors(), browser.console_errors()
 
 
+def test_recipe_breakdown_survives_a_need_it_tap(browser, api, server_url):
+    """2026-10-11, Chunk 6.7 — the "which recipe is this from" list vanished from an expanded row
+    after any Have it / Need it tap: the PATCH response carried `recipe_breakdown: []` and the
+    client merged it over the cached row. Tap Need it FIRST, then expand: the recipes must still
+    be listed. (The backend half — single-row edits omit the field — is pinned in
+    tests/routers/test_checklist.py; this is the UI-only half.)"""
+    item_name = normalise_ingredient_name(f"cdp-breakdown-tap-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP breakdown tap test {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 1, "unit": None}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    browser.wait_for(".checklist-row")
+    _wait_for_value_match_text(browser, ".name", item_name)
+
+    row_js = (
+        "var rows=Array.from(document.querySelectorAll('.checklist-row'));"
+        "var row=rows.find(function(r){var n=r.querySelector('.name');"
+        f" return n && n.textContent.indexOf({json.dumps(item_name)})===0;}});"
+    )
+    tapped = browser.eval(
+        "(function(){" + row_js +
+        "var b=Array.from(row.querySelectorAll('button')).find(function(x){return x.textContent.trim()==='Need it';});"
+        "if(!b) return 'NO_BUTTON'; b.click(); return 'OK';})()"
+    )
+    assert tapped == "OK", tapped
+
+    # Wait until the tap has actually been saved server-side before expanding.
+    deadline = time.monotonic() + TIMEOUT
+    saved = False
+    while time.monotonic() < deadline and not saved:
+        items = api.get(f"/api/v1/checklist/{session['id']}").json()["data"]["items"]
+        saved = any(i["ingredient_name"] == item_name and i["have_it"] == "no" for i in items)
+        time.sleep(0.2)
+    assert saved, "the Need it tap was never saved"
+
+    browser.eval("(function(){" + row_js + "row.querySelector('.name').click();})()")
+    browser.wait_for(".recipe-breakdown a")
+    assert not browser.console_errors(), browser.console_errors()
+
+
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
     """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe

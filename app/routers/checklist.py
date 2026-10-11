@@ -28,6 +28,7 @@ from app.schemas.sessions import ChecklistItemRead
 from app.services import checklist as checklist_service
 from app.services import checklist_display
 from app.services import progress_tracker
+from app.services import sessions as sessions_service
 from app.services import usuals as usuals_service
 
 logger = logging.getLogger(__name__)
@@ -36,13 +37,33 @@ router = APIRouter(prefix="/api/v1/checklist", tags=["checklist"])
 
 
 def _item(db: Session, row, index=None) -> dict:
-    return checklist_display.decorate(db, ChecklistItemRead.model_validate(row), index).model_dump()
+    """One decorated row for a single-row edit (Have it / Need it, resolve).
+
+    `recipe_breakdown` is deliberately OMITTED from the payload, not sent as the schema default
+    `[]`: it is an ephemeral per-load field these edits don't recompute, and a client that
+    merges the response over its cached row must not read "empty" as "no recipes" (2026-10-11,
+    Chunk 6.7 — the breakdown vanished after every Have it / Need it tap). See
+    docs/code-architecture.md > API response-shape consistency."""
+    return (
+        checklist_display.decorate(db, ChecklistItemRead.model_validate(row), index)
+        .model_dump(exclude={"recipe_breakdown"})
+    )
 
 
-def _items(db: Session, rows) -> list[dict]:
-    """Decorate many rows with ONE wording index (a single pass over the recipes)."""
+def _items(db: Session, rows, session_id: int) -> list[dict]:
+    """Decorate many rows with ONE wording index (a single pass over the recipes) and attach
+    the same `recipe_breakdown` the load endpoint does, so every mutation that returns the
+    whole list returns a complete one (2026-10-11, Chunk 6.7). Consolidation is idempotent and
+    non-destructive to per-line state, so this extra pass after a mutation is safe; these are
+    panel saves/merges, not per-tap edits."""
+    _rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, session_id)
     index = checklist_display.WordingIndex.build(db)
-    return [_item(db, row, index) for row in rows]
+    return [
+        checklist_display.decorate(db, ChecklistItemRead.model_validate(row), index)
+        .model_copy(update={"recipe_breakdown": breakdown.get(row.ingredient_name, [])})
+        .model_dump()
+        for row in rows
+    ]
 
 
 @router.get("/{session_id}")
@@ -118,7 +139,7 @@ def merge_items(
         created_alias_ids=alias_ids,
     )
     # `alias_ids` (a "merge every time") + the merged-away names let the client offer Undo.
-    return {"ok": True, "data": {"items": _items(db, rows), "alias_ids": alias_ids}}
+    return {"ok": True, "data": {"items": _items(db, rows, session_id), "alias_ids": alias_ids}}
 
 
 @router.post("/{session_id}/undo-merge")
@@ -134,7 +155,7 @@ def undo_merge(
         db, session_id, canonical_name=data.canonical_name,
         member_names=data.member_names, alias_ids=data.alias_ids,
     )
-    return {"ok": True, "data": {"items": _items(db, rows)}}
+    return {"ok": True, "data": {"items": _items(db, rows, session_id)}}
 
 
 @router.post("/{session_id}/items/{item_id}/substitute")
@@ -155,7 +176,7 @@ def substitute_item(
         substitute_qty=data.substitute_qty, substitute_unit=data.substitute_unit,
         remember=data.remember,
     )
-    return {"ok": True, "data": {"items": _items(db, rows)}}
+    return {"ok": True, "data": {"items": _items(db, rows, session_id)}}
 
 
 @router.post("/{session_id}/items/{item_id}/alias")
@@ -170,7 +191,7 @@ def alias_item(
     rows = checklist_service.alias_item(
         db, session_id, item_id, alias_name=data.alias_name, remember=data.remember
     )
-    return {"ok": True, "data": {"items": _items(db, rows)}}
+    return {"ok": True, "data": {"items": _items(db, rows, session_id)}}
 
 
 @router.post("/{session_id}/items/{item_id}/pack-size")
@@ -187,7 +208,7 @@ def pack_size_item(
         purchase_label=data.purchase_label, purchase_qty=data.purchase_qty,
         purchase_unit=data.purchase_unit, remember=data.remember,
     )
-    return {"ok": True, "data": {"items": _items(db, rows)}}
+    return {"ok": True, "data": {"items": _items(db, rows, session_id)}}
 
 
 @router.post("/{session_id}/items/{item_id}/coarse")
@@ -204,7 +225,7 @@ def coarse_item(
         purchase_label=data.purchase_label, recipes_per_pack=data.recipes_per_pack,
         remember=data.remember,
     )
-    return {"ok": True, "data": {"items": _items(db, rows)}}
+    return {"ok": True, "data": {"items": _items(db, rows, session_id)}}
 
 
 @router.post("/usuals/{usual_id}/skip")

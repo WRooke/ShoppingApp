@@ -269,7 +269,13 @@
       api.checklist
         .updateItem(sessionId, item.id, changes)
         .then(function (updated) {
+          // `recipe_breakdown` only ever comes from the load response; a single-row edit must
+          // never overwrite it (the server omits it, this is the belt to that brace).
+          var breakdown = item.recipe_breakdown;
           Object.assign(item, updated);
+          if (!updated || !updated.recipe_breakdown || !updated.recipe_breakdown.length) {
+            item.recipe_breakdown = breakdown;
+          }
           refreshSummary();
           if (onDone) onDone();
         })

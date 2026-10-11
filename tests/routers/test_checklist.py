@@ -92,6 +92,9 @@ def test_patch_item_updates_state(client, fake_anylist):
     assert resp.status_code == 200
     body = resp.json()["data"]
     assert body["have_it"] == "no" and body["add_to_list"] is True
+    # A single-row edit omits the ephemeral breakdown rather than sending `[]`, so a client that
+    # merges the response over its cached row can't mistake "not sent" for "no recipes".
+    assert "recipe_breakdown" not in body
 
 
 def test_patch_unknown_item_is_404(client, fake_anylist):
@@ -458,6 +461,9 @@ def test_pack_size_not_remembered_resolves_this_session_only(client, fake_anylis
     assert resp.status_code == 200
     item = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz pack passata")
     assert item["display_qty"]  # pack breakdown now resolves
+    # Whole-list mutations return the same complete shape the load does, ephemeral fields
+    # included (docs/code-architecture.md > API response-shape consistency).
+    assert item["recipe_breakdown"], "mutation response dropped recipe_breakdown"
 
     sid2 = _session_with_checklist(client, [{"name": "zz-pack-passata", "quantity": 450, "unit": "g"}])
     items2 = client.get(f"/api/v1/checklist/{sid2}").json()["data"]["items"]
