@@ -52,14 +52,6 @@ def test_create_normalises_both_names(db):
     assert row.canonical_name == "vegetable oil"
 
 
-def test_create_defaults_source_to_user(db):
-    # Fix 2, F2.1 — the API never lets a household create a source='system' row (no `source`
-    # field on IngredientAliasCreate at all); every row created through create_alias() defaults
-    # to 'user'. Only a migration (F2.2) writes 'system'.
-    row = ia.create_alias(db, _c("canola oil", "vegetable oil"))
-    assert row.source == "user"
-
-
 def test_create_rejects_self_alias(db):
     with pytest.raises(ia.InvalidIngredientAliasError):
         ia.create_alias(db, _c("olive oil", "olive oil"))

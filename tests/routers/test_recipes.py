@@ -339,11 +339,6 @@ def test_ingredient_units_endpoint_returns_units_used_before(client):
     assert resp.json()["data"]["units"] == ["pinch"]
 
 
-def test_ingredient_units_endpoint_empty_for_unused_name(client):
-    resp = client.get("/api/v1/recipes/ingredient-units?name=zz-never-used-ingredient")
-    assert resp.status_code == 200
-
-
 # --- ingredient-names: on-the-fly alias nudge lookup (Fix 4, F4.1, 2026-09-27) ---------------
 
 

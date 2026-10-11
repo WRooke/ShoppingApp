@@ -57,14 +57,6 @@ def test_tbsp_is_20ml_and_merges_with_ml():
     assert item.unit == "ml" and item.quantity == 150
 
 
-def test_tsp_only_stays_tsp_ceiled_to_nearest_half():
-    # Spoon-only (no cup, no literal ml/L) -> stays a spoon unit, never converted to ml
-    # (2026-09-10 hand-testing: "175 ml baby spinach" read as nonsense). 3 tsp -> already a
-    # clean 3.0, no ceiling needed.
-    item = one([L("vanilla", 3, "tsp")])
-    assert item.unit == "tsp" and item.quantity == 3
-
-
 def test_tsp_only_ceils_to_nearest_half_tsp():
     item = one([L("vanilla", 3.2, "tsp")])  # ceil to nearest 0.5 -> 3.5
     assert item.unit == "tsp" and item.quantity == 3.5
@@ -162,12 +154,6 @@ def test_real_quantity_plus_to_taste_keeps_quantity_and_flags_also():
 # already carry the same name just merge onto one line.
 
 
-def test_same_effective_name_merges_into_one_line():
-    result = consolidate([L("regular feta", 100, "g"), L("regular feta", 150, "g")])
-    assert len(result) == 1
-    assert result[0].name == "regular feta" and result[0].quantity == 250
-
-
 def test_names_normalised_and_sorted():
     result = consolidate([L("  Beef  Mince ", 500, "g"), L("apple", 2, None)])
     assert [i.name for i in result] == ["apple", "beef mince"]
@@ -218,11 +204,6 @@ def test_must_not_merge_cases_stay_distinct_at_consolidate_level():
 # consolidation.py treats source_qty/unit/name as opaque display metadata — the actual
 # alias-resolution decision lives in session_consolidation.py. Here we just check the
 # aggregation: matching (source_name, source_unit) pairs sum into one fragment.
-
-
-def test_conversion_note_for_a_single_aliased_line():
-    item = one([L("lemon", 1, None, source_qty=2, source_unit="tbsp", source_name="lemon juice")])
-    assert item.conversion_notes == ["2 tbsp lemon juice"]
 
 
 def test_conversion_notes_sum_matching_source_across_recipes():

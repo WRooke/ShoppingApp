@@ -45,7 +45,10 @@ def run_pytest() -> bool:
 
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "tests/", "-v", "--tb=short"],
+            # pytest-xdist (requirements.txt): 8 workers, whole FILES per worker (`loadfile`) so the
+            # browser files don't each start their own server+Edge on every worker. The machine is
+            # CPU-bound, so more workers stop helping (and cold server starts time out). ~100 s.
+            [sys.executable, "-m", "pytest", "tests/", "-n", "8", "--dist", "loadfile", "-q", "--tb=short"],
             cwd=BASE_DIR,
             capture_output=False,
         )

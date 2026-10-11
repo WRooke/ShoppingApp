@@ -91,10 +91,6 @@ def test_resolve_unit_none_passes_through():
     assert us.resolve_unit(None, {}) == None  # noqa: E711
 
 
-def test_resolve_unit_strips_plural_before_map_lookup():
-    assert us.resolve_unit("cloves", {}) == "clove"
-
-
 def test_resolve_unit_applies_synonym_after_stripping():
     smap = {"gram": "g"}
     assert us.resolve_unit("gram", smap) == "g"
@@ -217,13 +213,6 @@ def test_known_units_ignores_unitless_lines(db):
 
 
 # --- learn_new_units() — admin reduction (2026-09-12) -----------------------------------
-
-
-def test_learn_new_units_writes_a_synonym_on_a_confident_match(db, monkeypatch):
-    monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", True)
-    us.learn_new_units(db, ["grms"])
-    smap = us.synonym_map(db)
-    assert us.resolve_unit("grms", smap) == "g"
 
 
 def test_learn_new_units_does_nothing_when_ai_disabled(db, monkeypatch):

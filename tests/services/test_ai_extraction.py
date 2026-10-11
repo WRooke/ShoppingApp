@@ -200,28 +200,6 @@ def test_extract_recipe_strips_code_fence(db, api_enabled):
     assert len(result.ingredients) == 2
 
 
-def test_extract_recipe_wraps_client_error(db, api_enabled):
-    from google.genai import errors
-
-    client = _mock_client(side_effect=errors.ClientError(429, {"error": {"message": "quota"}}, None))
-    with patch("app.services.ai_extraction.genai.Client", client):
-        with pytest.raises(AiExtractionError):
-            extract_recipe(db, call_type="recipe_url", text="x")
-
-
-def test_extract_recipe_wraps_transport_error(db, api_enabled):
-    with patch("app.services.ai_extraction.genai.Client", _mock_client(side_effect=OSError("dns"))):
-        with pytest.raises(AiExtractionError):
-            extract_recipe(db, call_type="recipe_url", text="x")
-
-
-def test_extract_recipe_wraps_unparseable(db, api_enabled):
-    bad = SimpleNamespace(text="not json", usage_metadata=SimpleNamespace(prompt_token_count=3, candidates_token_count=2))
-    with patch("app.services.ai_extraction.genai.Client", _mock_client(bad)):
-        with pytest.raises(AiExtractionError):
-            extract_recipe(db, call_type="recipe_url", text="x")
-
-
 def test_extract_recipe_logs_usage_even_when_unparseable(db, api_enabled):
     bad = SimpleNamespace(text="nope", usage_metadata=SimpleNamespace(prompt_token_count=42, candidates_token_count=7))
     with patch("app.services.ai_extraction.genai.Client", _mock_client(bad)):

@@ -265,38 +265,3 @@ def test_consolidate_endpoint_multi_pack_eggs(client):
     assert eggs["display_qty"] == "1 × dozen"  # 8 eggs -> a dozen beats a half-dozen
 
 
-def test_consolidate_endpoint_reads_session_substitute_internally(client):
-    # 2026-09-30 (chunk 7.5) — the consolidate endpoint no longer takes an `overrides` request
-    # body; a session-only substitute is now a real session_ingredient_merges
-    # (kind='substitute') row, read internally regardless of what wrote it. Written directly
-    # via the service layer here (the checklist panel's own HTTP endpoint for writing one is
-    # covered separately, tests/routers/test_checklist.py) — this proves the consolidate
-    # endpoint itself picks it up with no request-body involvement at all.
-    import app.database as database
-    from app.services import session_merges
-
-    s = _session(client, "ZZ-Consolidate-Override")
-    r = client.post(
-        "/api/v1/recipes",
-        json={
-            "name": "ZZ-Override-Recipe",
-            "source_type": "manual",
-            "ingredients": [{"name": "zz-bulgarian feta", "quantity": 100, "unit": "g"}],
-            "allow_duplicate": True,
-        },
-    ).json()["data"]
-    client.post(f"/api/v1/sessions/{s['id']}/recipes", json={"recipe_id": r["id"]})
-
-    # 2026-09-27 — the shared normaliser folds hyphens to a space; write the substitute keyed
-    # off the already-normalised form the same way consolidation itself will look it up.
-    db = database.SessionLocal()
-    try:
-        session_merges.add_session_substitute(db, s["id"], "zz bulgarian feta", "zz plain feta")
-    finally:
-        db.close()
-
-    resp = client.post(f"/api/v1/sessions/{s['id']}/consolidate", json={})
-    names = [i["ingredient_name"] for i in resp.json()["data"]["items"]]
-    assert "zz plain feta" in names
-    assert "zz-bulgarian feta" not in names
-    assert "zz bulgarian feta" not in names

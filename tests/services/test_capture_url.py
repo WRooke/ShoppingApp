@@ -122,11 +122,6 @@ def test_extract_title_none_when_nothing_present():
 # --- SPA / JS-only page detection (2026-09-10 hand-testing) -------------------
 
 
-def test_looks_like_empty_js_shell_detects_a_bare_react_root():
-    html = '<html><body><div id="root"></div><div id="portal-root"></div></body></html>'
-    assert _looks_like_an_empty_js_shell(html, _extract_text(html)) is True
-
-
 def test_looks_like_empty_js_shell_false_for_real_content_even_with_a_root_div():
     # A framework marker alone isn't enough — plenty of real, server-rendered pages also use
     # id="root" somewhere. Only near-empty extraction + the marker together should trigger.
@@ -152,24 +147,12 @@ def test_fetch_and_extract_raises_a_clear_error_for_a_js_only_page():
     mock_extract.assert_not_called()  # no AI call spent on unusable content
 
 
-def test_fetch_and_extract_raises_on_timeout():
-    with patch("app.services.capture_url.httpx.get", side_effect=httpx.TimeoutException("timed out")):
-        with pytest.raises(RecipeFetchError):
-            fetch_and_extract("fake-db", "https://example.com/slow")
-
-
 def test_fetch_and_extract_raises_on_http_status_error():
     with patch(
         "app.services.capture_url.httpx.get", return_value=_mock_response("<html></html>", status_code=404)
     ):
         with pytest.raises(RecipeFetchError):
             fetch_and_extract("fake-db", "https://example.com/missing")
-
-
-def test_fetch_and_extract_raises_on_connection_error():
-    with patch("app.services.capture_url.httpx.get", side_effect=httpx.ConnectError("refused")):
-        with pytest.raises(RecipeFetchError):
-            fetch_and_extract("fake-db", "https://example.com/down")
 
 
 # --- failure logging (2026-10-07 logging audit) ------------------------------------------

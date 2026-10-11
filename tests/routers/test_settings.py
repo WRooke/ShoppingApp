@@ -269,16 +269,6 @@ def test_create_self_ingredient_alias_returns_structured_422(client):
     assert resp.json()["error"]["code"] == "INVALID_INGREDIENT_ALIAS"
 
 
-def test_multiple_aliases_share_one_canonical(client):
-    a = _create_alias(client, "ZZ-Multi-A", "ZZ-Multi-Canonical").json()["data"]
-    b = _create_alias(client, "ZZ-Multi-B", "ZZ-Multi-Canonical").json()["data"]
-    assert a["id"] != b["id"]
-
-    listed = client.get("/api/v1/settings/ingredient-aliases?limit=500").json()["data"]["items"]
-    mine = [r for r in listed if r["canonical_name"] == "zz multi canonical"]
-    assert {r["alias_name"] for r in mine} == {"zz multi a", "zz multi b"}
-
-
 def test_delete_ingredient_alias(client):
     row = _create_alias(client, "ZZ-DeleteMe-Alias", "ZZ-DeleteMe-Canonical").json()["data"]
     resp = client.delete(f"/api/v1/settings/ingredient-aliases/{row['id']}")

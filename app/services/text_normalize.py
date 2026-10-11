@@ -55,9 +55,17 @@ from __future__ import annotations
 import functools
 import re
 
-import inflect
 
-_INFLECT = inflect.engine()
+
+@functools.cache
+def _inflect_engine():
+    """The `inflect` engine, built on first use. Importing `inflect` costs ~2 s (it pulls in
+    typeguard and a lot of pydantic machinery) and only the rare "-ves"/irregular-plural words
+    ever need it, so it is loaded lazily rather than adding that to every server start and every
+    test worker (2026-10-11 test-speed work)."""
+    import inflect
+
+    return inflect.engine()
 
 # Hyphen/dash family folded to a space (never dropped) before whitespace-collapse — the only
 # punctuation this module folds. "extra-virgin" -> "extra virgin", never "extravirgin". No real
@@ -92,14 +100,14 @@ def _singularise_word(word: str) -> str:
     if len(word) > 4 and word.endswith("ies"):
         return word[:-3] + "y"
     if word.endswith("ves"):
-        result = _INFLECT.singular_noun(word)
+        result = _inflect_engine().singular_noun(word)
         return result if result else word
     if len(word) > 4 and word.endswith(("ses", "xes", "zes", "ches", "shes", "oes")):
         return word[:-2]
     if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
         return word[:-1]
     if not word.endswith("s"):
-        result = _INFLECT.singular_noun(word)
+        result = _inflect_engine().singular_noun(word)
         return result if result else word
     return word
 
@@ -206,5 +214,5 @@ def pluralise(name: str) -> str:
     using this household's own real usage as the countability signal (has this ingredient ever
     actually been recorded as a bare count anywhere?), not a guess from the word's shape."""
     head, sep, tail = name.rpartition(" ")
-    result = _INFLECT.plural_noun(tail)
+    result = _inflect_engine().plural_noun(tail)
     return f"{head}{sep}{result if result else tail}"

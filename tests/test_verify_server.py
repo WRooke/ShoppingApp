@@ -24,11 +24,47 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+# --- fast "nothing is listening" (2026-10-11 test-speed work) --------------------------------
+# On Windows a TCP connect to a closed loopback port takes ~2 s to be refused, and this module's
+# scenarios ("never started", "port free") hit that many times (~12 s in all). What is under test
+# is the script's polling/timeout/message LOGIC, not the OS's refusal, so by default
+# `listening`/`fetch_health` answer instantly from the set of ports a `_Health` is serving;
+# `test_real_sockets_agree_with_the_fast_fakes` (which asks for `real_sockets`) exercises the
+# genuine socket path once.
+_SERVING: set[int] = set()
+_REAL_LISTENING = verify_server.listening
+_REAL_FETCH_HEALTH = verify_server.fetch_health
+
+
+@pytest.fixture()
+def real_sockets():
+    """Opt out of the fast fakes below for this test."""
+
+
+@pytest.fixture(autouse=True)
+def _fast_refusals(request, monkeypatch):
+    if "real_sockets" in request.fixturenames:
+        yield
+        return
+    monkeypatch.setattr(
+        verify_server, "listening", lambda port, host="127.0.0.1": port in _SERVING
+    )
+    monkeypatch.setattr(
+        verify_server,
+        "fetch_health",
+        lambda port, host="127.0.0.1", timeout=3.0: (
+            _REAL_FETCH_HEALTH(port, host, timeout) if port in _SERVING else None
+        ),
+    )
+    yield
+
+
 class _Health:
     """A throwaway server answering /api/v1/health with a configurable body."""
 
     def __init__(self, port: int, data: dict | None) -> None:
         self.data = data
+        self.port = port
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -52,11 +88,23 @@ class _Health:
 
     def __enter__(self):
         self.thread.start()
+        _SERVING.add(self.port)
         return self
 
     def __exit__(self, *exc):
+        _SERVING.discard(self.port)
         self.httpd.shutdown()
         self.httpd.server_close()
+
+
+def test_real_sockets_agree_with_the_fast_fakes(real_sockets):
+    """The one test that goes through the genuine socket calls (slow on Windows, hence once)."""
+    port = _free_port()
+    assert _REAL_LISTENING(port) is False
+    assert _REAL_FETCH_HEALTH(port) is None
+    with _Health(port, {"build_id": "abc"}):
+        assert _REAL_LISTENING(port) is True
+        assert _REAL_FETCH_HEALTH(port)["build_id"] == "abc"
 
 
 def test_listening_and_wait_port_free():

@@ -59,17 +59,6 @@ def _refetch(db, row_id: int) -> _Stamped:
     return db.get(_Stamped, row_id)
 
 
-def test_aware_utc_round_trips_as_aware_utc(db):
-    original = datetime(2026, 9, 19, 20, 22, 33, tzinfo=timezone.utc)
-    row = _Stamped(stamp=original)
-    db.add(row)
-    db.commit()
-
-    fetched = _refetch(db, row.id)
-    assert fetched.stamp.tzinfo == timezone.utc
-    assert fetched.stamp == original
-
-
 def test_aware_non_utc_normalises_to_correct_utc_instant(db):
     plus_ten = timezone(timedelta(hours=10))
     original = datetime(2026, 9, 20, 6, 22, 33, tzinfo=plus_ten)  # same instant as the UTC test

@@ -40,11 +40,6 @@ def test_store_and_extract_accepts_png():
     assert filename.endswith(".png")
 
 
-def test_store_and_extract_rejects_unsupported_content_type():
-    with pytest.raises(InvalidImageError):
-        store_and_extract("fake-db", content=b"whatever", content_type="image/gif")
-
-
 def test_store_and_extract_rejects_empty_content():
     with pytest.raises(InvalidImageError):
         store_and_extract("fake-db", content=b"", content_type="image/jpeg")

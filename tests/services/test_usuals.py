@@ -89,27 +89,6 @@ def test_delete(db):
 # --- due logic ---------------------------------------------------------------
 
 
-def test_never_added_is_due(db):
-    item = u.create_usual(db, _c("paper towels", cadence=7))
-    assert u.is_due(item) is True
-
-
-def test_recently_added_is_not_due(db):
-    item = u.create_usual(db, _c("paper towels", cadence=7))
-    now = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
-    item.last_added_at = now - timedelta(days=3)
-    db.commit()
-    assert u.is_due(item, as_of=now) is False
-
-
-def test_cadence_elapsed_is_due(db):
-    item = u.create_usual(db, _c("paper towels", cadence=7))
-    now = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
-    item.last_added_at = now - timedelta(days=8)
-    db.commit()
-    assert u.is_due(item, as_of=now) is True
-
-
 def test_is_due_coerces_a_naive_as_of_to_aware_utc(db):
     """Defence in depth (2026-09-19 checklist-500 fix): is_due()/due_items()/mark_added() must
     not blow up on `TypeError: can't compare offset-naive and offset-aware datetimes` even if

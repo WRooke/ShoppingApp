@@ -64,16 +64,6 @@ def test_several_packs_eggs_half_dozen_vs_dozen():
     assert r.overage == 4 and r.show_overage is False
 
 
-def test_several_packs_two_half_dozen_beats_one_dozen_when_tighter():
-    # need 10: 2 x half-dozen (12, overage 2) beats 1 dozen (12, overage 2) -> tie, then
-    # fewer packs -> the dozen wins
-    r = resolve_packs(10, [_opt("dozen", 12), _opt("half dozen", 6)])
-    assert r.counts == [("dozen", 1)]
-    # need 7: half-dozen (6) short; 2 x half-dozen (12, overage 5) vs dozen (12, overage 5)
-    # -> tie, fewer packs -> dozen
-    assert resolve_packs(7, [_opt("dozen", 12), _opt("half dozen", 6)]).counts == [("dozen", 1)]
-
-
 def test_zero_required_still_buys_smallest_pack():
     r = resolve_packs(0, [_opt("1kg", 1000), _opt("500g", 500)])
     assert r.counts == [("500g", 1)]

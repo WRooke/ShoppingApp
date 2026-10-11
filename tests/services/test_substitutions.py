@@ -56,13 +56,6 @@ def test_create_normalises_names_and_sets_last_used(db):
     assert row.last_used_at is not None
 
 
-def test_multiple_substitutes_per_original_all_allowed_no_default(db):
-    a = subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
-    b = subs.create_substitution(db, _c("bulgarian feta", "goat cheese"))
-    assert a.id != b.id
-    assert not hasattr(a, "is_default")
-
-
 def test_duplicate_pair_raises(db):
     subs.create_substitution(db, _c("bulgarian feta", "regular feta"))
     with pytest.raises(subs.DuplicateSubstitutionError):

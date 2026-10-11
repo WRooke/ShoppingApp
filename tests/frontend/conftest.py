@@ -68,7 +68,9 @@ def server_url():
     )
 
     base_url = f"http://127.0.0.1:{port}"
-    deadline = time.monotonic() + 20
+    # 60 s, not 20: with several xdist workers each starting a server on a CPU-bound machine, a
+    # cold start has been seen to take well over 20 s.
+    deadline = time.monotonic() + 60
     up = False
     try:
         while time.monotonic() < deadline:
@@ -119,13 +121,14 @@ def pytest_collection_modifyitems(items):
 
 @pytest.fixture(scope="session")
 def browser_process():
-    """ONE headless Edge for the whole frontend session; each test gets its own isolated browser
-    context in it (see scripts.cdp.BrowserProcess). Holds the DevTools port (9222) for the
-    session, so anything else that needs a `Browser` must also go through this fixture."""
+    """ONE headless Edge per pytest process (so one per xdist worker); each test gets its own
+    isolated browser context in it (see scripts.cdp.BrowserProcess). It listens on a FREE
+    DevTools port rather than a fixed 9222, which is what lets several workers each run their
+    own browser in parallel. Anything else that needs a `Browser` must go through this fixture."""
     sys.path.insert(0, str(PROJECT_ROOT))
     from scripts.cdp import BrowserProcess
 
-    with BrowserProcess() as proc:
+    with BrowserProcess(port=_free_port()) as proc:
         yield proc
 
 

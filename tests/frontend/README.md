@@ -38,12 +38,19 @@ port. A session-scoped `browser_process` launches ONE headless Edge; the per-tes
 fixture gives each test its own `scripts.cdp.Browser` in an isolated browser context inside it
 (empty localStorage/sessionStorage/cookies/cache, same 492x757 viewport a launched Edge renders),
 so a test starts clean without paying for a launch. Anything else that needs a `Browser` must use
-`process=browser_process` — the shared Edge holds DevTools port 9222. `Browser._settle()` waits
+`process=browser_process` — the shared Edge is one per xdist worker, on its own free DevTools port. `Browser._settle()` waits
 for the page to be idle (loaded, no fetch/XHR/short timer in flight, DOM quiet) rather than
 sleeping a fixed time; use `wait_for`/a polling `_wait` for anything slower. The per-test `api` fixture gives each test a plain `httpx.Client` against
 the same scratch server, for setup and for cross-checking a UI action's result against the API
 directly rather than trusting the DOM alone — the same discipline `HEADLESS_VERIFY.md` already
 asks for in a manual session.
+
+**What belongs here:** only behaviour that exists in the browser — DOM state, inline errors, focus,
+undo/toast, navigation, persistence across reload, layout. Do not re-assert a backend rule a
+router/service test already pins (use the `api` fixture to cross-check that the UI really did
+something, not to re-test the rule). Several of these run in parallel (`pytest tests/frontend -n 4`, or the whole suite with `-n 8 --dist loadfile`;
+each xdist worker gets its own server and its own Edge on a free port). Prefer re-mounting a view,
+stubbing a clock, or `wait_for` to waiting out a real timer.
 
 These tests are slower/heavier than the rest of `tests/` (a real browser + a real server
 subprocess per session) — that's an accepted, deliberate cost for the coverage. They carry the

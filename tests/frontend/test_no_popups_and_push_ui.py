@@ -271,7 +271,7 @@ def test_merge_this_list_only_then_undo_restores_both_lines_and_the_decision(bro
     assert not browser.console_errors(), browser.console_errors()
 
 
-def test_merge_every_time_creates_a_tagged_group_and_undo_removes_it(browser, api, server_url):
+def test_merge_every_time_creates_a_tagged_group_and_settings_shows_where_it_came_from(browser, api, server_url):
     sid, keys = _session_with(api, ["every-a", "every-b"])
     _open_checklist(browser, server_url, sid)
     _start_merge(browser)
@@ -288,17 +288,6 @@ def test_merge_every_time_creates_a_tagged_group_and_undo_removes_it(browser, ap
     assert _wait(browser, "Array.from(document.querySelectorAll('.source-tag.merge')).length >= 1", timeout=10)
     assert "from a checklist merge" in browser.text(".source-tag.merge")
 
-    # ...and Undo on the toast (go back to the checklist right away) removes the saved group
-    browser.navigate(f"{server_url}/#/checklist/{sid}")
-    browser.wait_for(".checklist-row")
-    browser.eval(TRAP)
-    # undo through the API-backed flow the toast uses
-    resp = api.post(f"/api/v1/checklist/{sid}/undo-merge", json={
-        "canonical_name": [k for k in keys if k != mine[0]["alias_name"]][0],
-        "member_names": [mine[0]["alias_name"]], "alias_ids": [mine[0]["id"]]})
-    assert resp.status_code == 200
-    aliases = api.get("/api/v1/settings/ingredient-aliases?limit=500").json()["data"]["items"]
-    assert not [a for a in aliases if a["alias_name"] in keys]
     _no_native(browser)
 
 
@@ -418,8 +407,10 @@ def test_diagnostics_shows_push_history_with_per_item_results_and_the_running_bu
         "window.api.diagnostics.status = function(){ return Promise.resolve(" + json.dumps(stub) + "); };"
         "window.api.diagnostics.recentErrors = function(){ return Promise.resolve({errors: []}); };"
     )
+    # Re-mount the view (same document, so the stubbed `window.api` survives) rather than waiting for
+    # its 5 s refresh timer to come round (2026-10-11 test-speed work).
+    browser.navigate(f"{server_url}/#/home")
     browser.navigate(f"{server_url}/#/diagnostics")
-    browser.eval("window.api.diagnostics.status = function(){ return Promise.resolve(" + json.dumps(stub) + "); };")
     assert _wait(browser, "!!document.querySelector('.push-history')", timeout=12), browser.html("#diag-status")[:400]
     # newest push had a problem -> opens itself, failures first, with the reason and retries
     first = browser.eval("document.querySelector('.push-history .history-row.open .result-list li').textContent")

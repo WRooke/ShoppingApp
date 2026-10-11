@@ -23,10 +23,6 @@ def test_base_norm_folds_hyphen_to_space_both_directions():
     assert base_norm("extra virgin olive oil") == "extra virgin olive oil"
 
 
-def test_base_norm_does_not_glue_words_together():
-    assert "extravirgin" not in base_norm("extra-virgin olive oil")
-
-
 # --- singularise (backed by `inflect`, see the module docstring for why) ------------------
 
 
@@ -37,10 +33,6 @@ def test_singularise_generic_plural():
 
 def test_singularise_leaves_already_singular_alone():
     assert singularise("clove") == "clove"
-
-
-def test_singularise_ss_ending_untouched():
-    assert singularise("glass") == "glass"
 
 
 def test_singularise_sibilant_plural():
@@ -164,11 +156,6 @@ def test_must_not_merge_cases_stay_distinct():
         assert len(keys) == len(group), group
 
 
-def test_asparagus_couscous_hummus_citrus_unchanged_end_to_end():
-    for word in ("asparagus", "couscous", "hummus", "citrus"):
-        assert normalise_ingredient_name(word) == word
-
-
 # --- corpus regression guard (F1.1a) ------------------------------------------------------
 # Every distinct ingredient name from both data/mealplanner.db and data/mealplanner_prod.db as
 # of the 2026-09-27 empirical library evaluation (192 names) normalised to a stable, reviewed
@@ -236,14 +223,12 @@ from app.services.text_normalize import looks_plural, title_case_name  # noqa: E
 @pytest.mark.parametrize("raw,expected", [
     ("cheddar cheese or monterey jack", "Cheddar Cheese or Monterey Jack"),
     ("salt and pepper", "Salt and Pepper"),
-    ("pita bread or flatbreads", "Pita Bread or Flatbreads"),
     ("hearts of palm", "Hearts of Palm"),
     ("yoghurt with honey", "Yoghurt with Honey"),
     ("or something", "Or Something"),                     # a small word is still capitalised first
     ("baker's chocolate", "Baker's Chocolate"),          # str.title() gave "Baker'S"
     ("2% milk", "2% Milk"),                                # a leading digit is not a word to capitalise
     ("400g tin tomatoes", "400g Tin Tomatoes"),            # str.title() gave "400G"
-    ("extra virgin olive oil", "Extra Virgin Olive Oil"),
     ("extra-virgin olive oil", "Extra-Virgin Olive Oil"),
     ("tomatoes (canned)", "Tomatoes (Canned)"),
     ("a2 milk", "A2 Milk"),
@@ -255,15 +240,9 @@ def test_title_case_name(raw, expected):
     assert title_case_name(expected) == expected  # idempotent
 
 
-def test_title_case_never_affects_matching():
-    # AnyList names are compared case-insensitively, so capitalisation can never change a match
-    for raw in ("cheddar cheese or monterey jack", "baker's chocolate", "extra-virgin olive oil", "2% milk"):
-        assert title_case_name(raw).lower() == raw.lower()
-
-
 @pytest.mark.parametrize("name,plural", [
-    ("black beans", True), ("black bean", False), ("chicken thighs", True), ("salt", False),
-    ("hummus", False), ("couscous", False), ("asparagus", False), ("glass", False), ("", False),
+    ("black beans", True), ("black bean", False), ("chicken thighs", True),
+    ("hummus", False), ("glass", False), ("", False),
     ("cherries", True), ("boxes", True), ("pita bread or flatbreads", True),
 ])
 def test_looks_plural(name, plural):

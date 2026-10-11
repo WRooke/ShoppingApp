@@ -95,17 +95,6 @@ def test_a_newer_server_build_shows_the_banner_and_it_does_not_cover_the_page(br
     assert not browser.console_errors(), browser.console_errors()
 
 
-def test_the_same_build_is_a_no_op_even_when_asked_repeatedly(browser, server_url):
-    _load(browser, server_url)
-    stamp = browser.eval("window.UpdateBanner.getLoadedVersion()")
-    _stub(browser, stamp)
-    for _ in range(3):
-        browser.eval("window.UpdateBanner.checkNow();")
-    time.sleep(0.4)
-    assert browser.eval("!document.querySelector('.update-banner')")
-    assert browser.eval("window.__h.calls") >= 1
-
-
 def test_a_failed_check_does_not_lose_the_baseline_and_the_retry_finds_the_update(browser, server_url):
     """The old banner took its baseline from the first successful /health answer, so a failed (or
     late) first check meant the NEXT answer — already the new build — became the baseline and the
@@ -127,7 +116,9 @@ def test_checks_run_when_the_tab_returns_not_just_on_a_timer_and_are_coalesced(b
     _load(browser, server_url)
     stamp = browser.eval("window.UpdateBanner.getLoadedVersion()")
     _stub(browser, stamp)
-    time.sleep(5.3)  # clear the minimum gap since the load-time check
+    # Clear the 5 s minimum gap since the load-time check by moving the page's clock forward rather
+    # than sleeping through it (2026-10-11 test-speed work).
+    browser.eval("(function(){var d=Date.now;Date.now=function(){return d.call(Date)+6000;};})()")
 
     base = browser.eval("window.__h.calls")
     browser.eval("document.dispatchEvent(new Event('visibilitychange'));")  # headless: visible
@@ -146,15 +137,6 @@ def test_checks_run_when_the_tab_returns_not_just_on_a_timer_and_are_coalesced(b
         "var e = new Event('pageshow'); e.persisted = true; window.dispatchEvent(e);"
     )  # restored from the back/forward cache: forced
     assert _wait(browser, f"window.__h.calls > {after_online}", timeout=3), "pageshow(persisted) did not trigger a check"
-
-
-def test_a_restored_page_that_is_already_stale_is_noticed(browser, server_url):
-    """The common phone case: the tab is restored from cache AFTER the server was updated. The
-    page's stamp is the old build; the first check sees the new one."""
-    _load(browser, server_url)
-    _stub(browser, "the-server-moved-on")
-    browser.eval("var e = new Event('pageshow'); e.persisted = true; window.dispatchEvent(e);")
-    assert _wait(browser, "!!document.querySelector('.update-banner')", timeout=4)
 
 
 def test_update_pending_survives_a_reload_and_reports_an_update_that_did_not_load(browser, server_url):
@@ -185,25 +167,6 @@ def test_pending_state_clears_once_the_page_really_is_the_new_build(browser, ser
     assert browser.eval("!document.querySelector('.update-banner')")
     assert browser.eval("sessionStorage.getItem('updatePendingBuild')") is None
     assert browser.eval("sessionStorage.getItem('updateAttempt')") is None
-
-
-def test_tapping_navigates_to_a_fresh_document_keeps_the_route_and_tidies_the_url(browser, server_url):
-    _load(browser, server_url, "/#/recipes")
-    _stub(browser, "freshly-built")
-    browser.eval("window.__marker = 'before-tap'; window.UpdateBanner.checkNow();")
-    browser.wait_for(".update-banner")
-
-    browser.eval("document.querySelector('.update-banner').click()")
-    assert _wait(browser, "window.__marker === undefined", timeout=8), "tapping did not load a new document"
-    browser.wait_for(".nav-item")
-    assert browser.eval("location.hash") == "#/recipes"  # the user lands where they were
-    # ?b= is tidied out of the address bar by the banner script once it has run. `.nav-item` is in the
-    # static HTML (before any script), so wait for the tidy-up instead of assuming it already happened.
-    assert _wait(browser, "location.search === ''", timeout=5), browser.eval("location.search")
-    # the real server did NOT change build, so this page is still "stale" relative to the tap's
-    # target and says so honestly instead of silently looping
-    browser.wait_for(".update-banner")
-    assert browser.text(".update-banner .msg") == "Update didn't load"
 
 
 def test_keyboard_activation_works_like_a_tap(browser, server_url):

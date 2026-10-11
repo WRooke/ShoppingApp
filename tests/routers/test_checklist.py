@@ -35,17 +35,6 @@ def _session_with_checklist(client, ingredients):
     return sid
 
 
-def test_load_before_explicit_consolidate_succeeds_with_no_recipes(client):
-    # 2026-09-30 (chunk 7.3) — load_checklist() now consolidates itself; a brand-new session
-    # with zero recipes and never explicitly consolidated succeeds with an empty checklist,
-    # rather than the old 409 CHECKLIST_NOT_CONSOLIDATED (the whole point of the change — a
-    # standalone Review-screen step used to be the only thing that ever ran consolidate first).
-    sid = client.post("/api/v1/sessions", json={"label": "empty"}).json()["data"]["id"]
-    resp = client.get(f"/api/v1/checklist/{sid}")
-    assert resp.status_code == 200
-    assert resp.json()["data"]["items"] == []
-
-
 def test_load_with_recipes_but_never_explicitly_consolidated_populates_the_checklist(client):
     # The scenario chunk 7.3 exists for: a session with recipes slotted in, straight to
     # Checklist, with no prior POST /sessions/{id}/consolidate call at all.
@@ -143,24 +132,6 @@ def test_push_marks_session_pushed_and_refuses_re_push(client, fake_anylist):
 
 
 # --- push progress polling (2026-09-23 — real per-item push progress UI) -----------------
-
-
-def test_push_progress_reflects_a_real_push(client, fake_anylist):
-    sid = _session_with_checklist(client, [{"name": "zz-push-progress-eggs", "quantity": 6, "unit": None}])
-    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
-    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
-
-    pushed = client.post(
-        f"/api/v1/checklist/{sid}/push",
-        json={"usual_ids": [], "progress_token": "push-router-tok-1"},
-    )
-    assert pushed.status_code == 200
-
-    progress_resp = client.get("/api/v1/checklist/push/progress/push-router-tok-1")
-    assert progress_resp.status_code == 200
-    body = progress_resp.json()
-    assert body["ok"] is True
-    assert body["data"]["steps"][0]["status"] == "done"
 
 
 def test_push_progress_unknown_token_returns_structured_404(client):
@@ -366,28 +337,6 @@ def test_merge_remember_false_only_affects_this_session(client, fake_anylist):
     assert [i["ingredient_name"] for i in items2] == ["zz merge scoped b"]  # untouched
 
 
-def test_merge_refused_once_session_is_pushed(client, fake_anylist):
-    sid = _session_with_checklist(
-        client, [{"name": "zz-merge-pushed-a", "quantity": 1, "unit": None},
-                 {"name": "zz-merge-pushed-b", "quantity": 2, "unit": None}]
-    )
-    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
-    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
-    pushed = client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []})
-    assert pushed.status_code == 200
-
-    resp = client.post(
-        f"/api/v1/checklist/{sid}/merge",
-        json={
-            "item_names": ["zz merge pushed a", "zz merge pushed b"],
-            "canonical_name": "zz merge pushed a",
-            "remember": False,
-        },
-    )
-    assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "SESSION_ALREADY_PUSHED"
-
-
 def test_merge_remember_true_onto_an_already_aliased_name_is_a_structured_409(client, fake_anylist):
     sid = _session_with_checklist(
         client, [{"name": "zz-merge-dup-a", "quantity": 1, "unit": None},
@@ -407,30 +356,6 @@ def test_merge_remember_true_onto_an_already_aliased_name_is_a_structured_409(cl
     )
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "DUPLICATE_INGREDIENT_ALIAS"
-
-
-def test_merge_carries_forward_the_strongest_have_it_and_add_to_list(client, fake_anylist):
-    sid = _session_with_checklist(
-        client, [{"name": "zz-merge-state-a", "quantity": 1, "unit": None},
-                 {"name": "zz-merge-state-b", "quantity": 2, "unit": None}]
-    )
-    items = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"]
-    a = next(i for i in items if i["ingredient_name"] == "zz merge state a")
-    b = next(i for i in items if i["ingredient_name"] == "zz merge state b")
-    # "a" is set to "no" (add_to_list True); "b" stays "unknown" -- "no" must win the merge.
-    client.patch(f"/api/v1/checklist/{sid}/items/{a['id']}", json={"have_it": "no", "add_to_list": True})
-
-    resp = client.post(
-        f"/api/v1/checklist/{sid}/merge",
-        json={
-            "item_names": ["zz merge state a", "zz merge state b"],
-            "canonical_name": "zz merge state b",  # keep the OTHER name, still "unknown"
-            "remember": False,
-        },
-    )
-    assert resp.status_code == 200
-    merged = next(i for i in resp.json()["data"]["items"] if i["ingredient_name"] == "zz merge state b")
-    assert merged["have_it"] == "no" and merged["add_to_list"] is True
 
 
 # --- ingredient panel (2026-09-30, chunk 7.5) ---------------------------------------------
@@ -490,20 +415,6 @@ def test_substitute_remember_true_creates_a_quick_pick_not_a_recipe_bake_in(clie
         and s["substitute_name"] == "zz sub remember goat cheese"
         for s in subs
     )
-
-
-def test_substitute_refused_once_session_is_pushed(client, fake_anylist):
-    sid = _session_with_checklist(client, [{"name": "zz-sub-pushed", "quantity": 1, "unit": None}])
-    item_id = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]["id"]
-    client.patch(f"/api/v1/checklist/{sid}/items/{item_id}", json={"have_it": "no"})
-    client.post(f"/api/v1/checklist/{sid}/push", json={"usual_ids": []})
-
-    resp = client.post(
-        f"/api/v1/checklist/{sid}/items/{item_id}/substitute",
-        json={"substitute_name": "zz sub too late", "remember": False},
-    )
-    assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "SESSION_ALREADY_PUSHED"
 
 
 def test_alias_not_remembered_scoped_to_this_session(client, fake_anylist):

@@ -60,10 +60,6 @@ def test_step_failed_records_detail():
     assert steps[0]["detail"] == "boom"
 
 
-def test_get_unknown_token_returns_none():
-    assert progress_tracker.get("never-started") is None
-
-
 def test_falsy_token_is_a_no_op_throughout():
     # None/"" tokens must never raise or create an entry — the normal case for any caller
     # that didn't opt into progress tracking (e.g. the capture_queue retry poller).

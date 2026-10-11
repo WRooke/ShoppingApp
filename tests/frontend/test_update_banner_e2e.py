@@ -54,7 +54,7 @@ class _Server:
             [sys.executable, "-m", "app.main"], cwd=str(PROJECT_ROOT), env=env,
             stdout=self._log, stderr=subprocess.STDOUT,
         )
-        deadline = time.monotonic() + 25
+        deadline = time.monotonic() + 60  # cold start under parallel-worker CPU contention
         while time.monotonic() < deadline:
             if self.proc.poll() is not None:
                 self.stop()

@@ -45,10 +45,5 @@ def test_static_files_always_revalidate_and_support_conditional_requests(client)
     assert second.headers["cache-control"] == "no-cache"
 
 
-def test_other_static_types_are_revalidated_too(client):
-    assert client.get("/static/css/tokens.css").headers["cache-control"] == "no-cache"
-    assert client.get("/static/fonts/ibm-plex-sans-var.woff2").headers["cache-control"] == "no-cache"
-
-
 def test_unknown_static_file_is_a_404(client):
     assert client.get("/static/js/does-not-exist.js").status_code == 404

@@ -26,6 +26,8 @@ inflect==7.5.0
 # Dev/test — see CLAUDE.md > Code Architecture & Maintainability. Added ahead of Phase 2
 # so the tests/ convention exists from the first real business logic, not retrofitted later.
 pytest==9.1.1
+pytest-xdist==3.8.0  # parallel test runs (`pytest -n auto`); execnet is its only new dependency
+execnet==2.1.2
 httpx==0.28.1  # required by fastapi.testclient.TestClient; also used directly in Phase 3
               # for recipe URL fetching (see services/capture_url.py)
 

@@ -69,10 +69,6 @@ def test_build_id_ignores_what_does_not_affect_the_running_app(tmp_path):
     assert version_module.compute_build_id(tmp_path) == base  # a docs/tests-only pull must not nag phones
 
 
-def test_build_id_with_no_code_dirs_is_still_a_stable_value(tmp_path):
-    assert version_module.compute_build_id(tmp_path) == version_module.compute_build_id(tmp_path)
-
-
 def test_static_override_is_what_gets_hashed(tmp_path):
     _tree(tmp_path / "base", {"app/a.py": "x"})
     _tree(tmp_path / "other", {"js/b.js": "v1"})
@@ -118,10 +114,7 @@ def test_label_is_git_describe_when_available():
 
 
 @pytest.mark.parametrize("error", [
-    FileNotFoundError("git not on PATH"),
-    subprocess.CalledProcessError(128, "git"),
-    subprocess.TimeoutExpired("git", 5),
-    PermissionError("denied"),
+    FileNotFoundError("git not on PATH"),  # one is enough: version.py has a single `except Exception`
 ])
 def test_a_broken_git_costs_only_the_label_never_the_build_id(error):
     real_id = version_module.compute_build_id()

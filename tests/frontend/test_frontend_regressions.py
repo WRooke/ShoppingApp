@@ -557,7 +557,6 @@ def test_plan_goes_straight_to_checklist_no_review_step(browser, api, server_url
     assert browser.eval("location.hash") == f"#/checklist/{session['id']}"
     assert item_name in browser.text(".checklist-row .name")
     assert browser.text(".step-list").replace(" ", "") == "Plan→Checklist→Push"
-    assert not browser.console_errors(), browser.console_errors()
     assert browser.eval("!document.querySelector('.ingredient-edit-row')")
     assert not browser.console_errors(), browser.console_errors()
 
