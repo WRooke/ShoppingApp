@@ -184,3 +184,21 @@ Branch coverage of the push path (`anylist_client`, `checklist`, `session_consol
 `progress_tracker`) at the time of writing: 98–99 %. The uncovered lines are defensive guards for
 conditions the code above them already rules out (`_find_match` returning no hit for an empty name,
 an unreachable fall-through after the 401 retry loop, a stage write for an expired token).
+
+
+## User-facing wording (2026-10-11, Chunk 6.7)
+
+What the household sees is plain language; the stored outcomes are unchanged.
+
+| Stored outcome | Shown as | Notes |
+|---|---|---|
+| `added` | added | |
+| `updated` | amount changed | the quantity on AnyList was replaced |
+| `un-crossed` | put back | a crossed-off (bought) item was put back on the list |
+| `already-active` | already on AnyList | same amount, left alone |
+| `failed` | failed | with the reason in Details |
+
+The button is **Send to AnyList**; the already-sent card says: "Sending again replaces changed
+amounts and puts back anything you crossed off." (both are true of `_decide` above). The
+checklist key line is "Need it = sent · Have it = skipped · untouched = not sent"; an item
+already on AnyList at page open is shown "On AnyList" and set to Have it so it isn't sent again.

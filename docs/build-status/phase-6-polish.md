@@ -740,6 +740,25 @@ change chunk order and scope, not just because they happened.
         asks for shopping-list wording. Matching keys untouched; display is guaranteed to normalise back to its key (guarded + property-tested,
         0 violations on the 176 real keys). Also fixed the "did you mean" nudge, which would otherwise have rewritten recipes toward singular.
         Real-data preview: `python -m scripts.preview_display_names`.
+- [x] **2026-10-11 polish batch (Chunk 6.7)** — three phone-testing notes plus two whole-app
+      audits (ambiguity, vanishing UI) → built and tested:
+      - **Merge lost a quantity** (3 mechanisms): chained merges followed transitively; a resolved
+        row is re-flagged when a new conflicting amount arrives; mixed units get a labelled
+        "enter your own total" choice (a "keep both" option was built then removed at the
+        maintainer's request); the merge response reports lines the amount ratio didn't apply to.
+        See [Checklist-time ingredient merge](../checklist-and-shopping.md#checklist-time-ingredient-merge-fix-3-2026-09-27-reachable-from-the-ingredient-panels).
+      - **Recipe breakdown vanished after a Have it / Need it tap** — single-row edits omit it,
+        every whole-list mutation returns it, the client keeps its cached copy.
+      - **State that silently vanished or reset** (usual decisions, merge panel, typed amounts,
+        stale caches behind Undo, `#/plan/new` Back trap, capture review rows, recipe-edit draft).
+        Rules: [UI state must not silently vanish](../ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67),
+        [API response-shape consistency](../code-architecture.md#api-response-shape-consistency-added-2026-10-11-chunk-67).
+      - **Plain language & no ambiguity** pass over Settings, Checklist/push, Plan, recipes,
+        capture and Status; vocabulary table and copy checklist in
+        [UI/UX](../ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67). Mockups:
+        `docs/mockups/chunk-6.7-clarity/`.
+      - Not done (flagged): persisting an extraction across Back; per-row in-place update on the
+        recipe edit page; group count refresh after an in-place Settings delete.
 - [ ] **Phase 6 review** — re-check against [UI/UX](../ui-ux.md),
       [Checklist, AnyList Push & Shopping List Layout](../checklist-and-shopping.md) (confirm the
       store-layout deferral note landed correctly and nothing there was silently half-built),

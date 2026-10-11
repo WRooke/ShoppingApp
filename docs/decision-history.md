@@ -578,3 +578,17 @@ item). `_UNCROSS_IN_PLACE` falls back to the older, also-proven remove + re-add.
 item is left alone rather than rewritten; only a fully confirmed push marks the session `pushed`; progress and results are keyed by
 checklist row, not display name; the household's own note on an AnyList item is never overwritten by a push that has no note;
 the account email is no longer logged (PII policy). Detail: [anylist-push.md](./anylist-push.md).
+
+
+## 2026-10-11 — Plain language and no ambiguity adopted as a standing standard
+
+**Decision (maintainer, Chunk 6.7 phone testing):** every user-facing string must be unambiguous
+to a non-technical household member; the app should not require knowing what an "alias" or a
+"coarse item" is. Settings forms may keep a full explanatory sentence; everywhere else one short
+line per control. Adopted vocabulary and rules live in
+[UI/UX > Plain language & no ambiguity](./ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67);
+not to be re-litigated per screen.
+
+**Also decided the same day:** a mixed-unit conflict is resolved by picking one part or typing the
+household's own total — "keep both on the list" was built and deliberately removed (the household
+wants one amount per line and resolves the combination themselves).

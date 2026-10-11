@@ -514,6 +514,16 @@ under-buying one of them).
   conversion (optional)" sub-heading so it reads as one concept; Delete is a de-emphasised
   underlined text button, separated from the primary Save action. Layout only — no change to
   the add/edit/delete/reload flow described above.
+  **Reworded 2026-10-11 (Chunk 6.7, plain-language pass; mockup-approved):** the section is now
+  **"Same item, different names"** (was "Ingredient groups"). The add form reads "When a recipe
+  says [X] ↓ show it on my shopping list as [Y]", the optional amount conversion is two
+  labelled rows ("When a recipe says [3] [tbsp]" / "count it as [1] [whole]") with the rule that
+  it only applies when the recipe uses exactly that unit, and a live sentence previews exactly
+  what will happen. A half-filled pair is caught inline instead of being silently cleared.
+  Existing groups read "Shown as “lemon” · N names"; Remove says what it changed and offers
+  Undo. The same left-to-right pattern is used by Unit spellings, Saved ingredient swaps and
+  the checklist's Combine panel (see [UI/UX > Plain language & no
+  ambiguity](./ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67)).
 
 ### Session-scoped merges — the ephemeral counterpart (Fix 3, 2026-09-27)
 

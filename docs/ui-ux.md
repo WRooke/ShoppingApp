@@ -87,21 +87,27 @@ Apply it to every new label, button, placeholder, toast, empty state, error and 
    suggestion. A false label is worse than a vague one.)
 9. **UI-visible copy changes go through the mockup gate** like any other UI change.
 
-**Vocabulary (one word per concept, everywhere):**
+**Vocabulary (one word per concept, everywhere) — approved 2026-10-11:**
 
 | Say | Not | Meaning |
 |---|---|---|
-| **plan** ("shopping plan") | session, planning session, shopping list (for the plan) | one planning session: recipes + days + its checklist |
+| **plan** | session, planning session, shopping session | one planning session: recipes + days + its checklist (statuses: In progress / Sent to AnyList / Archived) |
 | **AnyList** | "the list", "your list" | the destination app; "list" alone is never AnyList |
-| **meals / recipes** | items (for recipes on Plan) | "items" means ingredients, on the Checklist only |
-| **Same item, different names** / name groups | alias, canonical, merge, ingredient group | one name shown as another on shopping lists |
-| **Pack sizes** | product units | how an ingredient is sold |
-| **Bought by the bunch** | coarse item | amount ignored; count recipes instead |
+| **meals** | items (for recipes on Plan) | "items" is only ever ingredients, on the Checklist |
+| **Same item, different names** (Settings) · **Also called** (checklist chip) · **Combine** (checklist action) | alias, canonical, merge, ingredient group | one name shown as another on shopping lists |
+| **Pack sizes** · chip **Pack size** | product units | how an ingredient is sold |
+| **Bought by the bunch** · chip **By the bunch** | coarse item/ingredients | amount ignored; count recipes instead |
+| **Saved ingredient swaps** · chip **Substitute** | substitutions, quick-pick | "buy this instead" suggestions, never applied automatically |
+| **Status** | Diagnostics (user-facing label) | the health page; developer detail is behind "Advanced"/log |
+| **Send to AnyList** (results: added / amount changed / put back / already on AnyList) | push (user-facing), un-crossed | the checklist action |
+| **Just this plan** / **Always** + a caption saying where "Always" is saved | this list only / Always (edits Settings) | scope of a checklist-panel change |
 | **aisle** | section | supermarket aisle |
-| **Import a recipe / Read this recipe** | capture, fetch & extract | URL/photo import |
-| **Servings this recipe makes** | base servings | |
-| **Status** | Diagnostics (user-facing label) | |
-| **Just this plan** / **Always — in every plan** | this list only / Always | scope of a checklist-panel change |
+| **Import a recipe** | capture, fetch & extract | URL/photo import |
+
+**Copy length (2026-10-11):** Settings forms keep their explanatory sentence(s); every other
+screen gets one short line per control (key lines such as "Need it = sent · Have it = skipped ·
+untouched = not sent" beat sentences). Fields on a phone are stacked, so copy never says
+"left/right" — it names the field ("When a recipe says …", "count it as …").
 
 **Pre-merge copy checklist** (answer each for every new/changed string): What exactly happens
 when I tap this? To what — one recipe, this plan, everything? Can I undo it? Which name wins?
