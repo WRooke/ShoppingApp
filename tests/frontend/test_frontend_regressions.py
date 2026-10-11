@@ -854,6 +854,46 @@ def test_session_rename_back_to_the_original_name_is_saved(browser, api, server_
     type_and_blur("Name A")
 
 
+def test_usual_decision_survives_a_rerender(browser, api, server_url):
+    """2026-10-11, Chunk 6.7 — a usual marked "Add to list" or skipped was only greyed out on its
+    DOM card; any re-render (expanding a row, toggling merge mode) drew it as undecided again
+    while the push line still counted it. The decision is now held in state and re-applied."""
+    usual = api.post(
+        "/api/v1/settings/usuals",
+        json={"name": f"cdp usual {uuid.uuid4().hex[:8]}", "cadence_days": 7},
+    ).json()["data"]
+    item_name = normalise_ingredient_name(f"cdp-usual-rerender-{uuid.uuid4().hex[:8]}")
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP usual rerender {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [{"name": item_name, "quantity": 1, "unit": None}],
+        },
+    ).json()["data"]
+    session = api.post("/api/v1/sessions", json={}).json()["data"]
+    api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
+
+    browser.navigate(f"{server_url}/#/checklist/{session['id']}")
+    browser.wait_for(".usual-card")
+    browser.click(".usual-card .actions button.primary", contains="Add to list")
+    assert browser.eval("document.querySelectorAll('.usual-card.skipped').length") >= 1
+
+    # Re-render by expanding the ingredient row; the usual must stay decided.
+    _wait_for_value_match_text(browser, ".name", item_name)
+    browser.eval(
+        "(function(name){var rows=Array.from(document.querySelectorAll('.checklist-row'));"
+        "var row=rows.find(function(r){var n=r.querySelector('.name');"
+        "return n && n.textContent.indexOf(name)===0;}); row.querySelector('.name').click();"
+        f"}})({json.dumps(item_name)})"
+    )
+    browser.wait_for(".recipe-breakdown")
+    assert browser.eval("document.querySelectorAll('.usual-card.skipped').length") >= 1
+    assert usual["id"]
+    assert not browser.console_errors(), browser.console_errors()
+
+
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
     """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe

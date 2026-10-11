@@ -140,9 +140,18 @@
   // level (not inside mount()'s own closure), since it must survive from one mount() call to
   // the next one, across whatever screen was visited in between. Restored once per mount, on
   // the first load() only — a later reload (e.g. after a panel save) shouldn't jump the page.
-  var savedScrollY = null;
+  // Keyed by session id so opening a different checklist never restores another one's scroll.
+  var savedScroll = null; // {sessionId, y}
+  // Bumped on every mount and unmount: a response that arrives after the user left (or after the
+  // screen was re-mounted) must not draw into the new screen (docs/ui-ux.md > UI state must not
+  // silently vanish).
+  var mountToken = 0;
+  var currentSessionId = null;
 
   function mount(root, sessionId) {
+    var myMount = ++mountToken;
+    currentSessionId = sessionId;
+    var loadSeq = 0; // newest load() wins: a slower, older response is dropped
     root.innerHTML = "";
     global.ChecklistPush.unmount(); // clears any push-progress timer from a prior mount
     var restoredScroll = false;
@@ -167,6 +176,16 @@
     // merge panel can read each selected item's own display_name/total_unit without a re-fetch.
     var mergeMode = false;
     var mergeSelected = {};
+    // While the merge panel is open its checkboxes are locked: ticking one re-rendered the whole
+    // list and silently destroyed the panel and anything typed into it.
+    var mergePanelOpen = false;
+    // Typed-but-unsaved "use this" amount on a needs-review row, keyed by ingredient name, so an
+    // unrelated re-render (expanding another row) doesn't wipe it.
+    var reviewDraft = {};
+    // The usuals: id -> "added" (will be sent on push) | "skipped" (stamped as stocked). Held here,
+    // not only on the card's DOM, so a re-render doesn't show a decided card as undecided while
+    // the push line still counts it.
+    var usualState = {};
     var lastData = null;
     // Ingredient panel's Substitute chip quick-picks (2026-09-30, chunk 7.5) — fetched once
     // per load, same as the now-deleted session-review.js used to, keyed by original_name.
@@ -240,6 +259,8 @@
     function load() {
       mergeMode = false;
       mergeSelected = {};
+      mergePanelOpen = false;
+      var mySeq = ++loadSeq;
       api.settings.substitutions
         .list()
         .then(function (data) {
@@ -251,10 +272,14 @@
         .catch(function (e) {
           if (global.ErrorReport) global.ErrorReport.reportCaught("checklist quick-picks", e);
         });
-      api.checklist
+      return api.checklist
         .load(sessionId)
-        .then(render)
+        .then(function (data) {
+          if (myMount !== mountToken || mySeq !== loadSeq) return; // left the screen / superseded
+          render(data);
+        })
         .catch(function (err) {
+          if (myMount !== mountToken || mySeq !== loadSeq) return;
           body.innerHTML = "";
           syncNote.textContent = "";
           body.appendChild(el("div", "error-state", "Couldn't load the checklist: " + err.message));
@@ -300,6 +325,22 @@
 
       var items = data.items || [];
       var usuals = data.usuals || [];
+      // A panel save/merge/alias can rename or fold the open row away; an `expandedKey` that no
+      // longer matches any row would leave the back-guard "open" with nothing visibly open.
+      if (
+        expandedKey !== null &&
+        !items.some(function (i) { return i.ingredient_name === expandedKey; })
+      ) {
+        expandedKey = null;
+        if (global.PanelBackGuard.isOpen()) global.PanelBackGuard.close(function () {});
+      }
+      // Usuals that were skipped are stamped server-side and will not come back; forget stale picks.
+      Object.keys(usualState).forEach(function (id) {
+        if (!usuals.some(function (u) { return String(u.id) === id; })) {
+          delete usualState[id];
+          delete pushUsualIds[id];
+        }
+      });
       var review = items.filter(function (i) { return i.needs_review; });
       var regular = items.filter(function (i) { return !i.needs_review; });
 
@@ -326,10 +367,10 @@
       // 2026-09-30 (chunk 7.6) — restore scroll position from before the user last left this
       // screen, once per mount only (a later reload, e.g. after a panel save, must not jump
       // the page back to wherever they were before they even arrived this time).
-      if (!restoredScroll && savedScrollY != null) {
+      if (!restoredScroll && savedScroll && savedScroll.sessionId === sessionId) {
         restoredScroll = true;
-        var restoreTo = savedScrollY;
-        savedScrollY = null;
+        var restoreTo = savedScroll.y;
+        savedScroll = null;
         window.scrollTo(0, restoreTo);
       }
     }
@@ -379,6 +420,11 @@
         var manual = el("div", "ing-grid");
         var mq = el("input"); mq.type = "number"; mq.step = "any"; mq.inputMode = "decimal";
         var mu = el("input"); mu.type = "text";
+        var draft = reviewDraft[item.ingredient_name] || (reviewDraft[item.ingredient_name] = { q: "", u: "" });
+        mq.value = draft.q;
+        mu.value = draft.u;
+        mq.addEventListener("input", function () { draft.q = mq.value; });
+        mu.addEventListener("input", function () { draft.u = mu.value; });
         manual.appendChild(miniField("Amount", mq));
         manual.appendChild(miniField("Unit", mu));
         var mb = el("button", "btn-sm primary", "use this");
@@ -422,6 +468,7 @@
           closeExpandedThen(function () {
             mergeMode = !mergeMode;
             mergeSelected = {};
+            mergePanelOpen = false;
             rerender();
           });
         });
@@ -438,6 +485,7 @@
           checkbox.type = "checkbox";
           checkbox.className = "merge-select-checkbox";
           checkbox.checked = !!mergeSelected[item.ingredient_name];
+          checkbox.disabled = mergePanelOpen;
           checkbox.addEventListener("change", function () {
             if (checkbox.checked) mergeSelected[item.ingredient_name] = item;
             else delete mergeSelected[item.ingredient_name];
@@ -521,12 +569,17 @@
           var mergeBtn = el("button", "btn-sm primary", "Merge (" + selected.length + ")");
           mergeBtn.addEventListener("click", function () {
             mergeBtn.disabled = true;
+            mergePanelOpen = true;
+            wrap.querySelectorAll(".merge-select-checkbox").forEach(function (cb) { cb.disabled = true; });
             wrap.appendChild(
               mergePanel(selected, function () {
                 mergeMode = false;
                 mergeSelected = {};
                 load(); // full reload -- names/totals genuinely changed server-side
-              }, rerender)
+              }, function () {
+                mergePanelOpen = false;
+                rerender();
+              })
             );
           });
           actions.appendChild(mergeBtn);
@@ -785,8 +838,8 @@
         var addBtn = el("button", "primary", "Add to list");
         addBtn.addEventListener("click", function () {
           pushUsualIds[u.id] = true;
-          card.classList.add("skipped"); // reuse the same "resolved, out of the way" styling
-          skippedNote.textContent = "Added to this session's push.";
+          usualState[u.id] = "added";
+          rerender();
           refreshSummary();
         });
 
@@ -797,7 +850,8 @@
             .skipUsual(u.id)
             .then(function () {
               delete pushUsualIds[u.id];
-              card.classList.add("skipped");
+              usualState[u.id] = "skipped";
+              rerender();
               refreshSummary();
             })
             .catch(function (err) {
@@ -810,6 +864,21 @@
         actions.appendChild(skipBtn);
         card.appendChild(actions);
         card.appendChild(skippedNote);
+        // Re-apply a decision made before this re-render.
+        if (usualState[u.id] === "added") {
+          card.classList.add("skipped"); // reuse the same "resolved, out of the way" styling
+          skippedNote.textContent = "Will be sent to AnyList when you tap Push. ";
+          var undoAdd = el("button", "btn-link", "Undo");
+          undoAdd.addEventListener("click", function () {
+            delete pushUsualIds[u.id];
+            delete usualState[u.id];
+            rerender();
+            refreshSummary();
+          });
+          skippedNote.appendChild(undoAdd);
+        } else if (usualState[u.id] === "skipped") {
+          card.classList.add("skipped");
+        }
         wrap.appendChild(card);
       });
       return wrap;
@@ -818,7 +887,9 @@
 
   function unmount() {
     global.ChecklistPush.unmount();
-    savedScrollY = window.scrollY; // restored by the next mount() — see its own comment
+    savedScroll = { sessionId: currentSessionId, y: window.scrollY }; // restored by the next mount() of this session
+    mountToken++; // any response still in flight belongs to a screen that is gone
+    global.PanelBackGuard.reset();
   }
 
   global.ChecklistView = { mount: mount, unmount: unmount };

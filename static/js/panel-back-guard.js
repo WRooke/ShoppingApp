@@ -107,5 +107,21 @@
     true
   );
 
-  global.PanelBackGuard = { open: open, close: close };
+  // Whether a panel currently holds the synthetic history entry - lets a screen that has just
+  // re-rendered check its own "which row is open" state against the guard's.
+  function isOpenNow() {
+    return isOpen;
+  }
+
+  // Forget any open panel WITHOUT touching history - for a screen unmounting after a navigation
+  // the guard never saw (forward/back across two entries, a programmatic hash change). Left set,
+  // `isOpen` made every later open() a silent no-op on the next screen.
+  function reset() {
+    isOpen = false;
+    openCloseFn = null;
+    pendingCloseFn = null;
+    pendingAfter = null;
+  }
+
+  global.PanelBackGuard = { open: open, close: close, isOpen: isOpenNow, reset: reset };
 })(window);
