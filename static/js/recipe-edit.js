@@ -182,7 +182,11 @@
       ingList.appendChild(global.RecipeEditIngredients.renderRow(r.id, ing, refreshEdit));
     });
 
-    card.appendChild(global.RecipeEditIngredients.renderAddRow(r.id, refreshEdit));
+    card.appendChild(
+      global.RecipeEditIngredients.renderAddRow(r.id, refreshEdit, function (created) {
+        ingList.appendChild(global.RecipeEditIngredients.renderRow(r.id, created, refreshEdit));
+      })
+    );
 
     // --- archive ---------------------------------------------------
 

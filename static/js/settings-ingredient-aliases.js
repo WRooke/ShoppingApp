@@ -182,6 +182,16 @@
       label: row.alias_name,
       consequence: "It shows as itself again.",
       row: wrap,
+      onDeleted: function (container) {
+        var list = container && container.closest ? container.closest(".settings-list") : null;
+        if (!list) return;
+        global.SettingsRowActions.tidyAfterDelete(container, {
+          listBody: list, rowSel: ".settings-group-row", cardSel: ".settings-group-card",
+          countSel: ".settings-group-count",
+          countText: function (n) { return "shown as this · " + n + (n === 1 ? " name" : " names"); },
+          emptyText: "No name groups yet — add one below.",
+        });
+      },
       doDelete: function () {
         return api.settings.ingredientAliases.delete(row.id);
       },

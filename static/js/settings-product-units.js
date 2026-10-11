@@ -118,6 +118,19 @@
     global.SettingsRowActions.wireDelete(deleteBtn, {
       label: unit.ingredient_name + " (" + unit.purchase_label + ")",
       row: row,
+      onDeleted: function (container) {
+        var list = container && container.closest ? container.closest(".settings-list") : null;
+        if (!list) return;
+        global.SettingsRowActions.tidyAfterDelete(container, {
+          listBody: list, rowSel: ".settings-group-row", cardSel: ".settings-group-card",
+          countSel: ".settings-group-count",
+          // keep the " · Built in" suffix, replace only the leading count
+          countText: function (n, old) {
+            return n + (n === 1 ? " pack size" : " pack sizes") + (old.indexOf("Built in") >= 0 ? " · Built in" : "");
+          },
+          emptyText: "No pack sizes yet. Add one below.",
+        });
+      },
       doDelete: function () {
         return api.settings.productUnits.delete(unit.id);
       },

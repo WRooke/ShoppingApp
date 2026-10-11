@@ -138,8 +138,21 @@
           resolved_quantity: hasTransform ? swapQty : null,
           resolved_unit: hasTransform ? swapUnit : null,
         })
-        .then(function () {
-          reload();
+        .then(function (updated) {
+          // In place, no reload: a full re-render also rebuilt every OTHER row, throwing away
+          // anything typed there but not yet saved (2026-10-11, Chunk 6.7).
+          if (updated) {
+            nameInput.value = updated.name != null ? updated.name : nameInput.value;
+            ing.name = updated.name != null ? updated.name : ing.name;
+            ing.quantity = updated.quantity;
+            ing.unit = updated.unit;
+            ing.preparation = updated.preparation;
+            ing.resolved_ingredient = updated.resolved_ingredient;
+            ing.substitution_note = updated.substitution_note;
+            ing.resolved_quantity = updated.resolved_quantity;
+            ing.resolved_unit = updated.resolved_unit;
+          }
+          rowErr.textContent = "Saved ✓";
         })
         .catch(function (err) {
           rowErr.textContent = err.message;
@@ -198,7 +211,7 @@
                 });
           }
           global.Toast.show('Deleted "' + snapshot.name + '"', { actionLabel: "Undo", onAction: undo });
-          reload();
+          row.remove(); // in place; only Undo needs a full reload (to put it back where it belongs)
         })
         .catch(function (err) {
           deleteBtn.disabled = false;
@@ -209,7 +222,7 @@
     return row;
   }
 
-  function renderAddIngredientRow(recipeId, reload) {
+  function renderAddIngredientRow(recipeId, reload, onAdded) {
     var row = el("div", "ing-row");
 
     var nameInput = el("input");
@@ -262,8 +275,17 @@
           unit: unitInput.value.trim() || null,
           preparation: prepInput.value.trim() || null,
         })
-        .then(function () {
-          reload();
+        .then(function (created) {
+          if (onAdded && created) {
+            // append the new row in place and clear the form for the next one
+            onAdded(created);
+            nameInput.value = "";
+            qtyInput.value = "";
+            unitInput.value = "";
+            prepInput.value = "";
+          } else {
+            reload();
+          }
         })
         .catch(function (err) {
           rowErr.textContent = err.message;

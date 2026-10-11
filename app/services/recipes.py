@@ -341,13 +341,23 @@ def add_ingredient(db: Session, recipe_id: int, data: RecipeIngredientCreate) ->
     recipe = get_recipe(db, recipe_id)
     resolved = _norm_resolved(data.resolved_ingredient)
     rq, ru = _resolved_transform(resolved, data.resolved_quantity, data.resolved_unit)
+    sort_order = data.sort_order
+    if "sort_order" not in data.model_fields_set:
+        # Not given: append at the END. The default of 0 tied with every other new ingredient and
+        # sorted a freshly added line to the top after a reload (2026-10-11, Chunk 6.7).
+        last = (
+            db.query(func.max(RecipeIngredient.sort_order))
+            .filter(RecipeIngredient.recipe_id == recipe.id)
+            .scalar()
+        )
+        sort_order = (last + 1) if last is not None else 0
     ingredient = RecipeIngredient(
         recipe_id=recipe.id,
         name=_normalise_ingredient_name(data.name),
         quantity=data.quantity,
         unit=data.unit,
         preparation=data.preparation,
-        sort_order=data.sort_order,
+        sort_order=sort_order,
         resolved_ingredient=resolved,
         substitution_note=_clean_optional_text(data.substitution_note),
         resolved_quantity=rq,

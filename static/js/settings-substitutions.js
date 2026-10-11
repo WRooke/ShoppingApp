@@ -152,6 +152,12 @@
     global.SettingsRowActions.wireDelete(deleteBtn, {
       label: row.original_name + " → " + row.substitute_name,
       row: wrap,
+      onDeleted: function (container) {
+        if (!container) return;
+        global.SettingsRowActions.tidyAfterDelete(container, {
+          listBody: container, rowSel: ".settings-row", emptyText: "No saved swaps yet. One is saved when you tick “remember” on a swap in a recipe.",
+        });
+      },
       doDelete: function () {
         return api.settings.substitutions.delete(row.id);
       },

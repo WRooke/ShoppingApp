@@ -160,6 +160,10 @@ def test_add_ingredient_normalises_name(db):
     assert ingredient.name == "spring onion"
     assert ingredient.recipe_id == recipe.id
 
+    # a later one with no sort_order lands AFTER it (it used to tie at 0 and sort to the top)
+    second = recipes_service.add_ingredient(db, recipe.id, RecipeIngredientCreate(name="chives", quantity=1))
+    assert second.sort_order > ingredient.sort_order
+
 
 def test_add_ingredient_raises_when_recipe_missing(db):
     with pytest.raises(recipes_service.RecipeNotFoundError):

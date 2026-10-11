@@ -85,6 +85,12 @@
     global.SettingsRowActions.wireDelete(deleteBtn, {
       label: row.name,
       row: wrap,
+      onDeleted: function (container) {
+        if (!container) return;
+        global.SettingsRowActions.tidyAfterDelete(container, {
+          listBody: container, rowSel: ".settings-row", emptyText: "No usuals yet — add one below.",
+        });
+      },
       doDelete: function () {
         return api.settings.usuals.delete(row.id);
       },

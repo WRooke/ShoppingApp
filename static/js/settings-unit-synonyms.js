@@ -58,6 +58,12 @@
       label: row.alias_unit + " → " + row.canonical_unit,
       consequence: "“" + row.alias_unit + "” is its own unit again.",
       row: wrap,
+      onDeleted: function (container) {
+        if (!container) return;
+        global.SettingsRowActions.tidyAfterDelete(container, {
+          listBody: container, rowSel: ".settings-row", emptyText: "No unit spellings added yet — add one below.",
+        });
+      },
       doDelete: function () {
         return api.settings.unitSynonyms.delete(row.id);
       },

@@ -919,6 +919,83 @@ def test_back_from_a_new_plan_does_not_create_another_one(browser, api, server_u
     assert count() == before + 1
 
 
+def test_deleting_settings_rows_in_place_keeps_counts_and_empty_groups_true(browser, api, server_url):
+    """2026-10-11, Chunk 6.7 — an in-place delete removed the row but left the group's count
+    ("2 names") and, for the last row, an empty group card behind."""
+    canon = normalise_ingredient_name(f"cdp-tidy-{uuid.uuid4().hex[:6]} canon")
+    names = [normalise_ingredient_name(f"cdp-tidy-{uuid.uuid4().hex[:6]}-{i}") for i in (1, 2)]
+    for n in names:
+        api.post("/api/v1/settings/ingredient-aliases", json={"alias_name": n, "canonical_name": canon})
+    browser.navigate(f"{server_url}/#/settings/ingredient-aliases")
+    browser.wait_for(".settings-group-card")
+
+    def card_js(tail: str) -> str:
+        return (
+            "(function(c){var cards=Array.from(document.querySelectorAll('.settings-group-card'));"
+            "var card=cards.find(function(k){return k.querySelector('.settings-group-name').textContent===c;});"
+            + tail + f"}})({json.dumps(canon)})"
+        )
+
+    def wait(expr: str) -> bool:
+        deadline = time.monotonic() + TIMEOUT
+        while time.monotonic() < deadline:
+            if browser.eval(expr):
+                return True
+            time.sleep(0.1)
+        return False
+
+    assert "2 names" in browser.eval(card_js("return card.querySelector('.settings-group-count').textContent;"))
+    browser.eval(card_js("card.querySelector('.settings-group-row .btn-link-danger').click();"))
+    assert wait(card_js("return !!card && card.querySelector('.settings-group-count').textContent.indexOf('1 name') >= 0;"))
+    browser.eval(card_js("card.querySelector('.settings-group-row .btn-link-danger').click();"))
+    assert wait(card_js("return !card;"))  # the emptied group card is gone
+    assert not browser.console_errors(), browser.console_errors()
+
+
+def test_saving_one_ingredient_keeps_unsaved_edits_in_the_other_rows(browser, api, server_url):
+    """2026-10-11, Chunk 6.7 — saving (or adding/deleting) one ingredient on the recipe edit page
+    re-fetched and re-rendered every row, silently throwing away what was typed in the others."""
+    recipe = api.post(
+        "/api/v1/recipes",
+        json={
+            "name": f"CDP edit rows {uuid.uuid4().hex[:8]}",
+            "source_type": "manual",
+            "base_servings": 4,
+            "ingredients": [
+                {"name": f"cdp rowa {uuid.uuid4().hex[:6]}", "quantity": 1, "unit": "g"},
+                {"name": f"cdp rowb {uuid.uuid4().hex[:6]}", "quantity": 2, "unit": "g"},
+            ],
+        },
+    ).json()["data"]
+    browser.navigate(f"{server_url}/#/recipes/{recipe['id']}")
+    browser.wait_for("button.btn-sm, button")
+    browser.click("button", contains="Edit")
+    browser.wait_for(".ingredient-edit-list .ing-row")
+
+    ok = browser.eval(
+        "(function(){var rows=document.querySelectorAll('.ingredient-edit-list .ing-row');"
+        "if(rows.length<2) return 'ROWS:'+rows.length;"
+        "var other=rows[1].querySelector('input'); other.value='typed but unsaved';"
+        "other.dispatchEvent(new Event('input',{bubbles:true}));"
+        "var save=Array.from(rows[0].querySelectorAll('button')).find(function(b){return b.textContent==='Save';});"
+        "if(!save) return 'NO_SAVE'; save.click(); return 'OK';})()"
+    )
+    assert ok == "OK", ok
+
+    deadline = time.monotonic() + TIMEOUT
+    saved = False
+    while time.monotonic() < deadline and not saved:
+        saved = browser.eval(
+            "(function(){var r=document.querySelectorAll('.ingredient-edit-list .ing-row')[0];"
+            "return !!r && r.textContent.indexOf('Saved')>=0;})()"
+        )
+        time.sleep(0.1)
+    assert saved, "the row never said Saved"
+    still = browser.eval("document.querySelectorAll('.ingredient-edit-list .ing-row')[1].querySelector('input').value")
+    assert still == "typed but unsaved", still
+    assert not browser.console_errors(), browser.console_errors()
+
+
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
     """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe
