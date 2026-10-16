@@ -63,6 +63,14 @@
 
   global.addEventListener("error", function (e) {
     if (!e || e.target !== global) return; // element load errors (img/script) are not script errors
+    // No filename and no Error object = the browser deliberately hid a cross-origin script's
+    // error, leaving only the text "Script error.". Every app script is same-origin, so this
+    // is a browser extension (or something else injected into the page), not an app bug: still
+    // logged, but as a warning so it does not light the red Status dot. (2026-10-16)
+    if (!e.filename && !e.error) {
+      report("cross_origin", "Script error from outside the app (no details - usually a browser extension)");
+      return;
+    }
     var where = e.filename ? " (" + String(e.filename).split("/").pop() + ":" + e.lineno + ")" : "";
     report("error", (e.message || "script error") + where, e.error && e.error.stack);
   });

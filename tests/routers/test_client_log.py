@@ -74,3 +74,12 @@ def test_unknown_kind_is_treated_as_other(client, caplog):
         _post(client, kind="made-up")
     (record,) = [r for r in caplog.records if r.name == "app.client"]
     assert record.levelno == logging.WARNING
+
+
+def test_a_hidden_cross_origin_script_error_is_a_warning_not_an_error(client, caplog):
+    # Browser extensions' errors arrive as a bare "Script error." (error-report.js sends them as
+    # kind "cross_origin"); they must not land in the ERROR+ list that lights the red Status dot.
+    with caplog.at_level(logging.INFO):
+        _post(client, kind="cross_origin", message="Script error from outside the app")
+    (record,) = [r for r in caplog.records if r.name == "app.client"]
+    assert record.levelno == logging.WARNING

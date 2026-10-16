@@ -9,7 +9,7 @@ class ClientLogReport(BaseModel):
     """One error the browser hit. Everything is bounded here AND again in the service: the
     endpoint is unauthenticated (LAN-only, CLAUDE.md > Security §1), so its input is untrusted."""
 
-    kind: str = Field(default="error", max_length=40)  # error | unhandledrejection | api | route | other
+    kind: str = Field(default="error", max_length=40)  # error | unhandledrejection | api | route | cross_origin | other
     message: str = Field(default="", max_length=2000)
     stack: str | None = Field(default=None, max_length=20000)
     url: str | None = Field(default=None, max_length=2000)  # the page the user was on

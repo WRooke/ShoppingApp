@@ -37,6 +37,9 @@ _KIND_LEVELS = {
     "route": logging.ERROR,
     "api": logging.WARNING,
     "other": logging.WARNING,
+    # A script error the browser hid because the script came from another origin - on a phone
+    # almost always a browser extension, never the app (every app script is same-origin).
+    "cross_origin": logging.WARNING,
 }
 
 _recent: dict[str, deque[float]] = {}
