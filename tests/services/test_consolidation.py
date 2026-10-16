@@ -1,5 +1,5 @@
 """Unit tests for app/services/consolidation.py — pure, no DB. Every rounding /
-unit rule from the 2026-09-06 grilling is exercised here (CLAUDE.md > Scaling Logic
+unit rule from the 2026-09-06 design review is exercised here (docs/scaling-and-consolidation.md > Scaling Logic
 > Rounding & unit rules).
 """
 
@@ -149,7 +149,7 @@ def test_real_quantity_plus_to_taste_keeps_quantity_and_flags_also():
 
 # --- name grouping ----------------------------------------------------------
 #
-# Phase 3.9 M4: consolidate() is PURE — no substitution logic. The effective (post-swap)
+# Phase 3.9 M4 (substitution redesign): consolidate() is PURE — no substitution logic. The effective (post-swap)
 # name is resolved by the caller (sessions.consolidate_session), so here two lines that
 # already carry the same name just merge onto one line.
 
@@ -159,7 +159,7 @@ def test_names_normalised_and_sorted():
     assert [i.name for i in result] == ["apple", "beef mince"]
 
 
-# --- 2026-09-27 (ingredient-name-matching plan, F1.2) -------------------------------------
+# --- 2026-09-27 (2026-09-27 ingredient-name matching work) -------------------------------------
 # _normalise_name() now delegates to text_normalize.normalise_ingredient_name(), so plural and
 # hyphen variants of the same ingredient merge into one consolidated line. Confirmed against
 # real pairs found in the prod DB audit; see app/services/text_normalize.py's own tests for the
@@ -251,7 +251,7 @@ def test_recipe_breakdown_lists_one_entry_per_line():
 
 def test_recipe_breakdown_never_merges_same_recipe_twice():
     # Two slots of the same recipe (e.g. added on both Monday and Thursday) show as two
-    # separate rows, not summed into one -- CLAUDE.md > "Which recipe is this ingredient from".
+    # separate rows, not summed into one -- docs/scaling-and-consolidation.md > "Which recipe is this ingredient from".
     item = one(
         [
             L("beef mince", 500, "g", recipe_id=1, recipe_label="Bolognese (Mon)"),

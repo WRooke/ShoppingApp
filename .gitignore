@@ -17,7 +17,7 @@ logs/*
 data/*.db
 data/*.db-journal
 
-# backups/ is NOT ignored — it's the git-tracked backup destination (see CLAUDE.md > Backup & Restore)
+# backups/ is NOT ignored — it's the git-tracked backup destination (see docs/deployment-and-operations.md > Backup & Restore)
 
 # Editor / OS
 .DS_Store

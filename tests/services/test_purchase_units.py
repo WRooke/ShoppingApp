@@ -1,5 +1,5 @@
 """Unit tests for app/services/purchase_units.py — pure, no DB. Algorithm and
-display rules: CLAUDE.md > Scaling Logic > Purchase unit resolution.
+display rules: docs/scaling-and-consolidation.md > Scaling Logic > Purchase unit resolution.
 """
 
 from __future__ import annotations

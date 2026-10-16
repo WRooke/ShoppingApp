@@ -8,7 +8,9 @@ logged to app.log so it can be found later):
       Wait until nothing is listening on the app's port. start.bat runs it before launching so
       that a server that stop.bat failed to kill produces a clear message instead of the new
       process silently dying on "address already in use" while the OLD (stale) code keeps
-      serving — one of the reasons the update banner never fired.
+      serving — one of the reasons the in-app "new version available" banner never fired on phones
+      (the banner works by comparing ``build_id`` — a hash of the code files on disk — with the
+      one the running server reported at startup via /api/v1/health).
 
   python -m scripts.verify_server serving [--timeout 90]
       Poll the freshly started server's GET /api/v1/health until it answers, then compare the

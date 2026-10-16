@@ -13,7 +13,7 @@ config/environment (firewall scope, Task Scheduler privilege level) it's applied
 deployment time — see `SETUP.md` steps 6 and 8, which carry the concrete commands/checkboxes.
 Where it's something Claude Code can just do (repo hygiene), it's done.
 
-### 0a. Prompt Injection Hardening (highest priority)
+### Prompt Injection Hardening (highest priority)
 
 **Set 2026-09-05 — see [Non-Negotiable Operating Rules](../CLAUDE.md#-non-negotiable-operating-rules).**
 Any content this app sends to an LLM that did not originate from the household's own direct
@@ -23,8 +23,8 @@ attempts embedded in that content to change its behaviour. This overrides every 
 concern, including the usual `services/` "no DB" purity and "small stable interface" norms in
 [Code Architecture](./code-architecture.md#code-architecture--maintainability) where they'd otherwise conflict.
 
-Concretely, for every LLM call that includes untrusted content (post-Phase-3.9: the
-extraction and substitution-flagging calls in `services/ai_extraction.py`; pre-M1:
+Concretely, for every LLM call that includes untrusted content (the
+extraction and aisle-suggestion calls in `services/ai_extraction/`; before the move to Gemini this was
 `claude_client.py` > `extract_ingredients()`):
 - The system prompt explicitly tells the model the untrusted content is data, not
   instructions, and to ignore anything inside it that looks like a request to change
@@ -35,7 +35,7 @@ extraction and substitution-flagging calls in `services/ai_extraction.py`; pre-M
   is not the defence: `_wrap_untrusted()` also replaces any spelling of the tag (opening or
   closing, any case, stray whitespace) found inside the content before wrapping it
   (2026-10-11; `test_hostile_page_cannot_close_the_untrusted_block_early`).
-- Input length is capped (`MAX_INPUT_TEXT_CHARS` in `claude_client.py`) — this bounds the
+- Input length is capped (`MAX_INPUT_TEXT_CHARS` in `services/ai_extraction/`) — this bounds the
   size of any injected payload, and incidentally keeps per-call cost predictable too.
 - The parsed response is validated against strict expected types and, for any field with a
   fixed vocabulary (`suggested_section`), an allow-list — a hallucinated or injected value
@@ -56,16 +56,17 @@ injection surface. Erring on the side of caution here costs little (a delimiter,
 parse) and closes off a class of failure that would otherwise be easy to miss until it's
 exploited.
 
-### 0b. API Usage Observability (no hard cap)
+### API Usage Observability (no hard cap)
 
-> **⚠️ Provider change (Phase 3.9 M5) — [AI Provider Migration](./recipe-capture.md#ai-provider-migration--anthropic-claude--google-gemini-phase-39).**
+> **⚠️ Provider change (Phase 3.9 M5 = diagnostics rework) — [AI Provider Migration](./recipe-capture.md#ai-provider-migration--anthropic-claude--google-gemini-phase-39).**
 > Gemini's free tier has no per-call dollar cost, so **all** USD-spend observability is
 > removed at M5: `calculate_cost_usd_cents`, `cost_usd_cents`, the diagnostics "spend
 > tracker" + its reset button, and the `api_usage` / `api_usage_resets` tables. Replacement:
 > the [`ai_call_log`](./data-model.md#ai_call_log) table + a **daily quota usage indicator** (observed
-> request count per model) + a **recent capture-attempt log**. §0a prompt-injection hardening
-> and §0c enable-switch / fake-mode / ask-first **carry over verbatim**. The prose below
-> describes the pre-M5 Claude code, still live until then.
+> request count per model) + a **recent capture-attempt log**. prompt-injection hardening
+> and the enable switch / fake mode / ask-first rule **carry over verbatim** (the two sections of this page named Prompt injection hardening and API enable switch). The prose below
+> describes the earlier Claude-era mechanism, which the diagnostics rework replaced; it is kept here as the
+> record of what that mechanism was and why it was dropped.
 
 **Set 2026-09-05, revised 2026-09-06.** This section originally documented a hard AU$0.50
 lifetime spend cap enforced in code (`enforce_spend_cap()`, `MAX_API_SPEND_AUD_CENTS`,
@@ -74,41 +75,41 @@ assumption that Anthropic API billing is an open-ended postpaid invoice that cou
 unnoticed. It isn't: calls are billed against credit purchased upfront, so the account's own
 prepaid balance is already the real ceiling, and an additional in-app dollar cap wasn't
 protecting against anything that couldn't otherwise happen. There is no cap-related
-`Security §0b` mechanism to follow any more, and none should be re-added without the
+spend-cap mechanism to follow any more, and none should be re-added without the
 maintainer explicitly asking for it again.
 
 What stays, because it's genuinely useful independent of any cap:
 
 - `app/services/api_usage.py` still calculates the USD cost of every call
   (`calculate_cost_usd_cents()`) and logs it to the `api_usage` table
-  (`log_api_usage()`) — `claude_client.py` > `extract_ingredients()` still calls
+  (`log_api_usage()`) — `claude_client.py` > `extract_ingredients()` (now `services/ai_extraction/`) still called
   `log_api_usage()` immediately after every real call, including when the response turns out
   to be unparseable, so the log is never missing a call that Anthropic actually billed.
 - `GET /api/v1/diagnostics/status` still reports running token totals and estimated USD spend
   on the `claude_api` block, plus a reset-with-confirmation action
   (`POST /api/v1/diagnostics/reset-spend`) so the maintainer can zero the *displayed* running
-  total when they want a fresh view (e.g. starting real Chunk 3.6+ usage) — this only inserts a
+  total when they want a fresh view (e.g. starting real Chunk 3.6, live AI verification+ usage) — this only inserts a
   reset marker (`api_usage_resets` table); it never deletes or edits `api_usage` rows
   themselves, so the underlying log stays a genuine append-only record of every call ever made
   (see [Data Model](./data-model.md#data-model) > `api_usage`).
 - This is pure observability, not enforcement — nothing in the app refuses a call because of
   cost. **The actual guardrails against unwanted spend are the enable switch and fake mode in
-  §0c below** — never write a new dollar-cap mechanism in place of this section without being
+  the API enable switch section below** — never write a new dollar-cap mechanism in place of this section without being
   asked to.
 
 **Why keep the logging at all, then?** Because "no hard cap" isn't "don't bother tracking
 cost" — the maintainer still wants to see what recipe capture actually costs in practice, and
 that number is cheap to keep accurate now that it's already wired through every real call.
 
-### 0c. API Enable Switch & Offline Development (highest priority)
+### API Enable Switch & Offline Development (highest priority)
 
-> **⚠️ Names change at Phase 3.9 M1, semantics unchanged
+> **Names changed when the AI provider moved to Gemini; the rules did not
 > ([AI Provider Migration](./recipe-capture.md#ai-provider-migration--anthropic-claude--google-gemini-phase-39)):**
-> `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE` →
-> `AI_EXTRACTION_FAKE_MODE`, and the check moves from `claude_client.extract_ingredients()`
-> to `ai_extraction.py`'s per-task call functions. Everything below applies verbatim to
+> `CLAUDE_API_ENABLED` became `AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE` became
+> `AI_EXTRACTION_FAKE_MODE`, and the check moved from `claude_client.extract_ingredients()`
+> to the per-task call functions in `services/ai_extraction/`. Everything below applies verbatim to
 > Gemini — off by default, no agent flips it, ask before any real call, fake mode bypasses
-> everything. Phase 3.9 M1–M6 build entirely in fake mode; **M7** is the single live call.
+> everything. The provider migration was built entirely in fake mode; its one live Gemini check was the single real call.
 
 **Set 2026-09-05, still in force after the 2026-09-06 spend-cap revision above.** Two
 mechanisms push the real API's involvement in building this app as close to the very end as
@@ -116,8 +117,8 @@ possible, and give the maintainer explicit, deliberate control over when it's us
 this is the part of the original rule set that actually did the job the spend cap was
 mistakenly added alongside:
 
-**The enable switch.** `CLAUDE_API_ENABLED` in `.env`, defaulting to `false`. Checked in
-`claude_client.py` > `extract_ingredients()` before anything else — a configured key alone is
+**The enable switch.** `AI_EXTRACTION_ENABLED` (formerly `CLAUDE_API_ENABLED`) in `.env`, defaulting to `false`. Checked in
+`services/ai_extraction/` (formerly `claude_client.py` > `extract_ingredients()`) before anything else — a configured key alone is
 not enough; a real call also needs this explicitly set to `true`. Raising it is the
 maintainer's action alone, taken in `.env`: **no agent session may set this to `true` on its
 own initiative, ever, including when a task description asks for a real API call to be made.**
@@ -126,8 +127,8 @@ before running anything that would make a real call, even once this switch is on
 protects the app; asking protects against an agent deciding "close enough to permission" on
 the maintainer's behalf.
 
-**Fake mode.** `CLAUDE_API_FAKE_MODE` in `.env`, defaulting to `false`. When `true`,
-`extract_ingredients()` returns a canned fixture (one of a small set of generic sample
+**Fake mode.** `AI_EXTRACTION_FAKE_MODE` (formerly `CLAUDE_API_FAKE_MODE`) in `.env`, defaulting to `false`. When `true`,
+the extraction call returns a canned fixture (one of a small set of generic sample
 recipes, picked deterministically from a hash of the input — same input always gives the same
 fixture, different inputs land on different ones) instead of calling the real API at all. Zero
 network, zero cost, no key required, bypasses the enable switch entirely because nothing
@@ -153,7 +154,7 @@ almost none of Phase 3's remaining work actually depends on a real Claude respon
   built and manually verified with fake mode, a single explicit "does this actually work
   against the real API" pass is what Chunk 3.1's own verification step becomes — see the Phase
   3 chunk list, where this is now its own final chunk rather than a Chunk 3.1 blocker. It
-  needs, in order: a real key added to `.env` (maintainer's action), `CLAUDE_API_ENABLED=true`
+  needs, in order: a real key added to `.env` (maintainer's action), `AI_EXTRACTION_ENABLED=true`
   (maintainer's action), and the maintainer's go-ahead in conversation for that specific call
   (agent's obligation to ask, per above). Cost is a few USD-cents — no cap to stay inside of
   any more, but still no reason to make more than the one call this chunk needs.
@@ -164,7 +165,7 @@ Treating that as the default going forward (for this integration and any future 
 real API is something the app is deliberately, explicitly switched on to use, not something
 that's live by accident because it was never obviously off.
 
-### 1. Network exposure
+### Network exposure
 - The server binds to `0.0.0.0` so it's reachable from phones on the LAN. Required for the
   intended use case, but it means anything else on the WiFi can also reach it.
 - **Do not port-forward port 8080 on the router.** There is no reason for this app to be
@@ -175,7 +176,7 @@ that's live by accident because it was never obviously off.
 - If the router supports a separate IoT/guest VLAN, keep smart-home devices on that VLAN and the
   NUC off it, so those devices can't reach port 8080 at all.
 
-### 2. AnyList credentials (Phase 5, plan ahead now)
+### AnyList credentials
 - AnyList's API is unofficial and reverse-engineered — a straight username/password login, not
   OAuth/token-based. That password should be treated as sensitive as an email password: a leak
   means someone can read and write the shared household list.
@@ -188,7 +189,7 @@ that's live by accident because it was never obviously off.
   fallback is in use. `keyring` is a pinned dependency. The NUC can use either — `keyring set`
   once, or plain `.env` — documented in `SETUP.md` / `DEPLOY.md`. Built in
   [Phase 5 Chunk 5.1](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration).
-- **`ANYLIST_ENABLED` gate + `ANYLIST_FAKE_MODE`** (Phase 5 kickoff, mirrors §0c for the AI):
+- **`ANYLIST_ENABLED` gate + `ANYLIST_FAKE_MODE`** (Phase 5 kickoff, mirrors the API enable switch for the AI, described above):
   every real AnyList call is refused unless `ANYLIST_ENABLED=true` (default `false`, no agent
   flips it); `ANYLIST_FAKE_MODE=true` swaps an in-memory fake list in so the flow builds and
   runs offline. Manual verification runs only against `ANYLIST_TARGET_LIST_NAME` (dev default
@@ -197,10 +198,10 @@ that's live by accident because it was never obviously off.
 - The Node.js microservice fallback was **not** taken (Phase 1.5 spike → Python-native). If it
   ever were, it must bind to `127.0.0.1` only — never `0.0.0.0`.
 
-### 3. Windows 10 host
+### Windows 10 host
 - Win10's end-of-support concerns are mainly about internet-facing exposure. Since this stays
   LAN-only, the realistic risk is a compromised device already on the WiFi, not an external
-  attacker — so firewall scoping (§1) is the main mitigation, not OS patching urgency.
+  attacker — so firewall scoping (see Network exposure above) is the main mitigation, not OS patching urgency.
 - Keep Windows Update running normally; don't disable Defender or the firewall for convenience
   during development (easy to forget to re-enable).
 - **`[Phase 1 fix]`** Run the app as a standard user, not admin — limits the damage if a
@@ -209,7 +210,7 @@ that's live by accident because it was never obviously off.
   — see `SETUP.md` step 8 (Task Scheduler task explicitly leaves "Run with highest privileges"
   unticked).
 
-### 4. App-level
+### App-level protections (CORS, errors, access logs)
 - **`[Phase 1 fix]`** CORS is scoped, not wide open. The initial build used
   `allow_origins=["*"]`, which — combined with there being no login at all — meant any
   origin's JavaScript (an ad, a compromised site, anything open in a browser tab on the same
@@ -234,7 +235,7 @@ that's live by accident because it was never obviously off.
   not for compliance, just so an unexpected access pattern from an unfamiliar device is visible
   if it ever happens.
 
-### 5. Deployment/Task Scheduler
+### Deployment and Task Scheduler
 - **`[Phase 1 fix]`** Any Task Scheduler task auto-starting the server (or running the weekly
   backup) leaves "Run with highest privileges" unticked unless there's a specific reason it's
   needed. Applied at NUC setup — see `SETUP.md` steps 8 and 9.

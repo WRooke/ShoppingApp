@@ -1,11 +1,11 @@
 """Purchase-pack resolution for one consolidated session item — split out of
-``services/session_consolidation.py`` (2026-09-13 code review) per CLAUDE.md > Code
+``services/session_consolidation.py`` (2026-09-13 code review) per docs/code-architecture.md > Code
 Architecture > File size and scope discipline. Sits alongside ``purchase_units.py``: this
 module is the DB-shaped adapter (matching a `ConsolidatedItem`'s dimension/unit against a
 household's own `ProductUnit` pack rows and rendering the result back into display text);
 `purchase_units.py` is the pure count-the-packs arithmetic underneath it.
 
-See CLAUDE.md > Scaling Logic > Purchase unit resolution.
+See docs/scaling-and-consolidation.md > Scaling Logic > Purchase unit resolution.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def pack_options_for(
     """(required_in_base, [PackOption in the same base], base_kind). base_kind is
     'mass' | 'volume' | 'count' | 'unit:<x>'. Rows whose unit doesn't match the item's
     dimension are dropped. `rows` may mix real `ProductUnit` DB rows with a session-scoped
-    `PackSizeOverride` (2026-09-30, chunk 7.5) — only `.purchase_label`/`.purchase_qty`/
+    `PackSizeOverride` (2026-09-30, the checklist ingredient panel work) — only `.purchase_label`/`.purchase_qty`/
     `.purchase_unit` are ever read below (duck-typed), which both shapes provide directly."""
     unit = (item.unit or "").strip().lower()
     if unit in _PACK_G or unit in ("g", "kg"):

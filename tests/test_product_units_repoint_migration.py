@@ -1,9 +1,9 @@
-"""Migration test for Fix 5's product_units repoint (f9e79977f8b0) — "milk" -> "full cream
-milk" and "diced tomato" -> "canned tomato", following the same pattern as F0's yoghurt repoint
-(c920cac31b6a) but with per-row collision safety (mirrors Fix 2's F2.2 alias-insert collision
+"""Migration test for Fix 5 (ingredient grouping audit)'s product_units repoint (f9e79977f8b0) — "milk" -> "full cream
+milk" and "diced tomato" -> "canned tomato", following the same pattern as the yoghurt pack-size repoint's yoghurt repoint
+(c920cac31b6a) but with per-row collision safety (mirrors Fix 2 = aliases feed the extraction prompt's the legacy alias seed migration alias-insert collision
 handling) since these renames were added later, once that discipline was already established.
 
-CLAUDE.md non-negotiable rule 3: every test asserts row count is unchanged and every touched or
+The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules): every test asserts row count is unchanged and every touched or
 untouched row's other columns are byte-identical to their pre-migration state.
 """
 
@@ -78,7 +78,7 @@ def test_repoints_milk_and_diced_tomato_leaves_unrelated_rows_untouched(conn_fac
 
     conn = connect()
     try:
-        assert _row_count(conn) == before_count  # rule 3 — no data loss
+        assert _row_count(conn) == before_count  # The never-lose-production-data rule — no data loss
         assert conn.execute(
             "SELECT COUNT(*) FROM product_units WHERE ingredient_name IN ('milk', 'diced tomato')"
         ).fetchone()[0] == 0

@@ -1,4 +1,4 @@
-/* Per-ingredient substitution control (Phase 3.9 M4, quantity/unit transform added M8).
+/* Per-ingredient substitution control (Phase 3.9 M4 = substitution redesign, quantity/unit transform added M8 = substitution amount/unit change).
    Used by capture-review.js. A collapsed "Swap?" toggle that expands to: a replacement
    text field (pre-filled from the top saved swap, if there's exactly one), a note field, an
    optional amount + unit for when the swap isn't 1:1 in the recipe's own unit
@@ -7,7 +7,7 @@
    getState() in the confirm payload, and the human confirmed it by typing/picking.
    2026-09-30: the AI-suggested flag this used to also offer was removed along with the AI
    substitution-flagging call itself — manual substitution (this control) stays untouched,
-   see CLAUDE.md > Deferred Decisions and docs/ingredient-handling.md. */
+   see docs/deferred-decisions.md > Deferred Decisions and docs/ingredient-handling.md. */
 
 (function (global) {
   "use strict";

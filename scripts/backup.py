@@ -1,4 +1,4 @@
-"""Weekly automated backup (Schema & Planning Addendum #4).
+"""Weekly automated backup (see docs/deployment-and-operations.md > Backup & Restore).
 
 What it does, every run:
   1. Copies the live SQLite database into backups/ with a timestamped name, using SQLite's
@@ -11,7 +11,7 @@ What it does, every run:
      remote named "origin" is configured. Never fatal if git isn't set up yet — logs
      a warning and stops there.
 
-Images are deliberately NOT backed up (see CLAUDE.md > Backup & Restore).
+Images are deliberately NOT backed up (see docs/deployment-and-operations.md > Backup & Restore).
 
 Invoke as ``python -m scripts.backup`` from the project root (see backup.bat).
 Intended to be wired into Windows Task Scheduler, weekly (see SETUP.md).
@@ -114,7 +114,7 @@ def commit_and_push() -> bool:
         logger.warning("Backup: no 'origin' remote configured yet - commit created locally only.")
         return True
 
-    # This same branch (normally `production` - see CLAUDE.md > Deferred Decisions > Git
+    # This same branch (normally `production` - see docs/deferred-decisions.md > Deferred Decisions > Git
     # branching strategy and DEPLOY.md) also receives fast-forwards from the dev PC's
     # `develop` branch via deploy.bat/update.bat. Rebase the backup commit onto the latest
     # origin state first, so an out-of-date NUC checkout doesn't turn every backup into a
@@ -162,12 +162,12 @@ def _backup_db_file(db_path: Path, dest_db: Path) -> None:
 
     2026-09-13 code review — this used to be a plain ``shutil.copy2``, which is unsafe against
     a database that might be open and actively written to: the app runs as an always-on
-    server (CLAUDE.md > Deployment Environment) and this backup is triggered independently by
+    server (docs/deployment-and-operations.md > Deployment Environment) and this backup is triggered independently by
     Windows Task Scheduler, with no coordination between the two. A raw byte-copy that lands
     mid-transaction can catch a torn or inconsistent snapshot of the file. SQLite's
     ``Connection.backup()`` is specifically designed to be safe against a concurrent writer —
     it copies page-by-page under SQLite's own locking, correctly folding in any WAL content
-    (CLAUDE.md > Backup & Restore; see app/database.py's WAL-mode comment) regardless of
+    (docs/deployment-and-operations.md > Backup & Restore; see app/database.py's WAL-mode comment) regardless of
     journal mode. ``PRAGMA integrity_check`` afterward catches a bad backup at backup time,
     not the day it's actually needed for a restore.
     """

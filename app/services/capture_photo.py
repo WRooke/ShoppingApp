@@ -1,7 +1,7 @@
 """Photo-based recipe capture — store the uploaded image, hand it to Claude as base64.
 
-See CLAUDE.md > Recipe Capture — AI Extraction > Photo capture flow. Plain Python only, no
-`fastapi` import — see CLAUDE.md > Code Architecture & Maintainability.
+See docs/recipe-capture.md > Recipe Capture — AI Extraction > Photo capture flow. Plain Python only, no
+`fastapi` import — see docs/code-architecture.md > Code Architecture & Maintainability.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from app.services import ai_extraction
 
 logger = logging.getLogger(__name__)
 
-# CLAUDE.md > Recipe Capture says "JPEG or PNG" — enforced here, not left to the frontend.
+# docs/recipe-capture.md > Recipe Capture says "JPEG or PNG" — enforced here, not left to the frontend.
 _ALLOWED_CONTENT_TYPES = {"image/jpeg": "jpg", "image/png": "png"}
 
 # Defensive ceiling — not in CLAUDE.md explicitly, but an unbounded upload is both a disk-
@@ -39,7 +39,7 @@ class InvalidImageError(Exception):
 def store_image(content: bytes, content_type: str) -> str:
     """Validate + store the upload under `images/` with a UUID filename; return the filename.
     Raises InvalidImageError before touching disk if the upload itself is bad. Split from the
-    extract call (Phase 3.9 M3) so the capture endpoint keeps the filename even when the AI
+    extract call (Phase 3.9 M3 = fallback chain and capture queue) so the capture endpoint keeps the filename even when the AI
     call is then queued on a 429."""
     extension = _ALLOWED_CONTENT_TYPES.get(content_type)
     if extension is None:
@@ -70,7 +70,7 @@ def extract_stored(
     progress_token: str | None = None,
 ) -> ai_extraction.ExtractionResult:
     """Run the 3-call capture pipeline on an already-stored image. `progress_token`, when
-    given, drives the real-step capture progress UI — see CLAUDE.md > UI/UX."""
+    given, drives the real-step capture progress UI — see docs/ui-ux.md > UI/UX."""
     return ai_extraction.capture_recipe(
         db,
         call_type="recipe_photo",

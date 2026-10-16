@@ -1,8 +1,8 @@
 """Unit tests for app/services/ai_extraction.py (Google Gemini, Phase 3.9 M2 — 2 per-task
 calls + the capture_recipe() orchestrator; originally 3 — flag_substitutions() was removed
-2026-09-30, manual substitution stays, see CLAUDE.md > Deferred Decisions).
+2026-09-30, manual substitution stays, see docs/deferred-decisions.md > Deferred Decisions).
 
-The `google-genai` client is mocked throughout (CLAUDE.md > Tests). Covers §0a/§0c: enable
+The `google-genai` client is mocked throughout (docs/code-architecture.md > Tests). Covers prompt-injection hardening and the API enable switch: enable
 switch defaults calls to refused, fake mode bypasses without network, a hallucinated section
 name is dropped, untrusted content is delimited, and usage is logged after each real call.
 """
@@ -62,7 +62,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -153,7 +153,7 @@ def test_extract_recipe_sends_image_part_and_delimits_text(db, api_enabled):
     ],
 )
 def test_hostile_page_cannot_close_the_untrusted_block_early(db, api_enabled, spoof):
-    """Rule 1 (CLAUDE.md > Non-Negotiable Operating Rules): scraped text that spells the
+    """The prompt-injection rule (CLAUDE.md > Non-Negotiable Operating Rules): scraped text that spells the
     delimiter — closing it early to make what follows read as instructions — must be neutralised
     so the model only ever sees ONE untrusted block, wrapping all of the page."""
     hostile = (
@@ -325,7 +325,7 @@ def test_extraction_prompt_prefers_metric_over_imperial():
     assert "imperial" in lowered
 
 
-# --- prompt wording (2026-09-27 — Fix 2, F2.3: the 3 legacy hardcoded canonicalisation pairs
+# --- prompt wording (2026-09-27 — Fix 2 = aliases feed the extraction prompt: the 3 legacy hardcoded canonicalisation pairs
 # move from static prose into dynamic, DB-driven hints — see build_extraction_system_prompt) --
 
 
@@ -345,7 +345,7 @@ def test_extraction_prompt_still_keeps_the_generic_salt_rule():
     assert "flaky" in lowered  # the finishing-salt exception survives the rewrite
 
 
-# --- format_hint_sections (Fix 2, F2.3) ----------------------------------------------------
+# --- format_hint_sections (Fix 2) ----------------------------------------------------
 
 
 def test_format_hint_sections_empty_when_both_lists_empty():
@@ -380,7 +380,7 @@ def test_format_hint_sections_wraps_both_in_the_untrusted_delimiter():
     assert out.count("</untrusted_recipe_source") == 2
 
 
-# --- build_extraction_system_prompt (Fix 2, F2.3) ------------------------------------------
+# --- build_extraction_system_prompt (Fix 2) ------------------------------------------
 
 
 def _system_alias(db):
@@ -537,7 +537,7 @@ def test_classify_units_logs_task_classify_units(db, api_enabled):
     assert (row.task, row.outcome) == ("classify_units", "success")
 
 
-# --- suggest_ingredient_groupings (call 4, Fix 5) ---------------------------------------
+# --- suggest_ingredient_groupings (call 4, Fix 5 = ingredient grouping audit) ---------------------------------------
 
 
 def test_suggest_ingredient_groupings_fake_mode_matches_a_canned_group(db, fake_mode):
@@ -719,7 +719,7 @@ def test_fake_fixtures_all_pass_section_validation():
                 assert _clean_suggested_section(section) == section
 
 
-# --- fallback chain (M3): Flash -> Flash-Lite -> AiQuotaExhaustedError ---------
+# --- fallback chain (M3 = fallback chain and capture queue): Flash -> Flash-Lite -> AiQuotaExhaustedError ---------
 
 
 def _client_seq(*responses_or_excs):

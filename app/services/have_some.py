@@ -1,4 +1,4 @@
-"""Pure arithmetic for the checklist's "I have some" amount (Chunk 6.7, polish batch 3, item D).
+"""Pure arithmetic for the checklist's "I have some" amount (Chunk 6.7, user-feedback batch, polish batch 3, item D).
 
 A row's ``total_quantity``/``total_unit`` always mean the FULL amount the plan's recipes need.
 ``have_quantity`` is what the household already has at home, in that same unit. What actually

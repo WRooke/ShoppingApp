@@ -1,4 +1,4 @@
-"""AnyList derisking spike (Phase 1.5 — CLAUDE.md > AnyList derisking spike).
+"""AnyList derisking spike (Phase 1.5 — docs/project-overview.md > AnyList derisking spike).
 
 Throwaway script. NOT wired into the app — do not import this from app/.
 

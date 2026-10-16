@@ -1,5 +1,5 @@
-/* "Add to session" (Phase 6 Chunk 6.2, kickoff decision #2). Split out of recipes.js per
-   CLAUDE.md > Code Architecture & Maintainability > file size discipline — recipes.js was
+/* "Add to session" (Phase 6 Chunk 6.2, recipe and import screen design, Phase 6 decision: add a recipe to a plan from its card). Split out of recipes.js per
+   docs/code-architecture.md > Code Architecture & Maintainability > file size discipline — recipes.js was
    pushing past the ~400-line guideline once the cuisine filter chips landed alongside this.
    One active session -> add straight to it; several -> a tiny inline picker; none -> offer
    to start one. Currently only called from recipes.js (library card + detail page), but

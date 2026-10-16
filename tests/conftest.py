@@ -3,7 +3,7 @@
 Points the app at a temp SQLite file and a temp log directory *before*
 ``app.config`` is imported anywhere in the test session, so running the test
 suite never touches the real dev database at ``data/mealplanner.db`` or the
-real ``logs/app.log`` — see CLAUDE.md > Code Architecture & Maintainability.
+real ``logs/app.log`` — see docs/code-architecture.md > Code Architecture & Maintainability.
 
 ``python-dotenv``'s ``load_dotenv`` (called at import time in app.config)
 does not override an already-set environment variable by default, so setting
@@ -51,7 +51,7 @@ def _seeded_db_template(tmp_path_factory) -> Path:
     session (2026-10-07 test-suite audit: ~150 router tests each used to pay for a fresh
     ``create_all`` + seed inside the app lifespan). ``client`` copies this file per test, so the
     lifespan's own ``init_db()``/``seed_reference_data()`` become cheap no-ops (both are
-    idempotent by design — CLAUDE.md > Data Model) while every test still gets its own private
+    idempotent by design — docs/data-model.md > Data Model) while every test still gets its own private
     database. Journal mode is left at the default here and the engine is disposed before the
     copy so the file is self-contained (no ``-wal`` sidecar to lose)."""
     from app import models  # noqa: F401  (registers every ORM class on Base.metadata)

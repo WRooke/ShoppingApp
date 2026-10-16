@@ -69,7 +69,7 @@
   // Hash shapes supported: "#/<key>" and "#/<key>/<param>" (e.g. "#/recipes/42"
   // for the recipe detail view). Parsing the hash lives here and only here —
   // feature files receive an already-extracted param, never location.hash
-  // itself (see CLAUDE.md > Code Architecture & Maintainability: "router.js is
+  // itself (see docs/code-architecture.md > Code Architecture & Maintainability: "router.js is
   // the only file that knows hash routes exist").
   function parseHash() {
     var hash = (global.location.hash || "#/home").replace(/^#\//, "");
@@ -85,7 +85,7 @@
 
   function render() {
     mountId++;
-    // A toast is scoped to the screen that raised it (kickoff decision #12) — never let one
+    // A toast is scoped to the screen that raised it (Phase 6 decision: a toast belongs to the screen that raised it) — never let one
     // survive onto whatever the user navigates to next.
     if (global.Toast) global.Toast.dismiss();
 
@@ -135,7 +135,7 @@
   // Programmatic navigation (e.g. "saved, now go to the detail view") goes
   // through here rather than a feature file setting global.location.hash
   // directly — keeps the "#/<key>/<param>" shape known only to router.js
-  // (see CLAUDE.md > Code Architecture & Maintainability). Plain <a href="#/...">
+  // (see docs/code-architecture.md > Code Architecture & Maintainability). Plain <a href="#/...">
   // links in feature files are fine — only route-shape construction in JS
   // needs to live here.
   global.Router = {

@@ -1,4 +1,4 @@
-/* Settings — index + drill-down sub-pages (Phase 6 Chunk 6.4, kickoff decisions #9/#10).
+/* Settings — index + drill-down sub-pages (Phase 6 Chunk 6.4, Settings and Status restructure, Phase 6 decision: Settings as an index with drill-down pages).
    Used to be one long scroll through 7 cards; `#/settings` is now a menu, and each section
    (including the new Appearance one) lives at its own `#/settings/<section>` route —
    router.js's existing key/param hash shape already supports this, no router changes needed

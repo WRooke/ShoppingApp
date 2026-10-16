@@ -1,5 +1,7 @@
 # Phase 4 — hand test plan
 
+(Chunk numbers such as 4.2 in the headings are the build steps listed in `docs/build-status/phase-4-planning-engine.md`; you do not need them to run the steps.)
+
 Manual verification of the **Phase 4 deliverable**: *"User can create a session, add recipes,
 scale them, substitute an ingredient they don't want to buy, and see a consolidated shopping
 list with purchase units resolved."*
@@ -9,10 +11,10 @@ Covers chunks 4.1 (migrations), 4.2 (duplicate prevention), 4.3 (scaling), 4.4 (
 summary endpoint), 4.7 (session UI). Automated tests already pass — this is the click-through
 pass for the Phase 4 review.
 
-> **Note:** Chunks 4.5 / 4.6 / 4.7 substitution behaviour was reshaped by Phase 3.9 **M4**
-> (no silent auto-apply; `remembered_substitutions` is a quick-pick library; session swaps
-> are client-held overrides). Section 5 below tests the **M4** behaviour, not the original
-> `is_default` design.
+> **Note:** the substitution behaviour built in Chunks 4.5 (saved ingredient swaps), 4.6 and 4.7 was reshaped
+> after Phase 4 was first built. A saved swap is only ever a suggestion and is never applied automatically,
+> and a swap made for one plan stays with that plan unless you choose to remember it. Section 5 below tests
+> this current behaviour, not the original design in which one swap could be marked as the default.
 
 ---
 
@@ -21,17 +23,19 @@ pass for the Phase 4 review.
 - Dev server running (`start.bat` or `uvicorn`), `AI_EXTRACTION_FAKE_MODE=true`,
   `AI_EXTRACTION_ENABLED=false`.
 - Library has a handful of recipes — manual entry is fine; include:
-  - one at `base_servings = 4` using **beef mince** (e.g. 300 g) and **olive oil** (a staple).
+  - one at `base_servings = 4` using **beef mince** (e.g. 300 g) and **olive oil**.
   - one using **beef mince** again (e.g. 400 g) and **soy sauce** `2 tbsp`.
   - one using **soy sauce** `100 ml`, **cream** `100 g`, and a `pinch` of **saffron**.
   - one using **cream** `200 ml`, **eggs** (`3`), **passata** (`400 g`, no product_unit).
   - one using **bulgarian feta** `400 g` (obscure ingredient for the swap test).
 - Seeded reference data intact: beef mince 500 g pack; eggs ½ dozen + dozen; milk 1 L + 2 L;
-  yoghurt 500 g + 1 kg; staples salt / black pepper / olive oil / vegetable oil / plain flour.
+  yoghurt 500 g + 1 kg.
 - Keep `/diagnostics` (recent errors) open in a second tab — it must stay clean throughout.
 - Frontend drive: browser on a phone, or `scripts/cdp.py` per `HEADLESS_VERIFY.md`.
 
 ---
+
+> **On-screen labels used in these steps.** Each checklist line has two buttons: **Have it** (you already own it, so it is skipped when sending to AnyList) and **Need it** (it is sent to AnyList). A line you have not touched is not sent. In the API these are stored as `have_it` values `'yes'` (Have it) and `'no'` (Need it).
 
 ## 1. Duplicate recipe prevention (4.2)
 
@@ -75,7 +79,7 @@ Checked via consolidation output:
    consolidated list.
 2. Same recipe in a slot set to **2** → quantities halved, and discrete items round **up**
    (a recipe with `3 eggs` ÷2 = 1.5 → shows **2 eggs**, never 1).
-3. A `pinch` / `to taste` ingredient is unaffected by scaling (see §4).
+3. A `pinch` / `to taste` ingredient is unaffected by scaling (see section 4).
 
    TESTED - PASS
 
@@ -96,8 +100,7 @@ Review screen) and check the consolidated list:
 5. **To taste:** `pinch` of saffron → shown with **no number** ("saffron — to taste").
 6. **No product_unit:** passata → `passata — 400 g` (rounded raw quantity, no pack breakdown,
    still shows an amount).
-7. **Staples:** the recipe using **olive oil** → its line is flagged as a staple on the
-   checklist. A staple not used by any recipe in the session (e.g. plain flour) → **absent**.
+7. *(Removed: the "staples" feature was retired on 2026-09-27, so there is nothing to check here.)*
 8. **Rounding steps:** a summed g/ml value ≥ 100 rounds up to the nearest 25; < 100 rounds up
    to the nearest 5. Confirm a value like 137 g → 150 g, 82 g → 85 g.
 9. **Re-consolidation is a merge, not a wipe:** on one line set `have_it = yes` and tick
@@ -107,7 +110,7 @@ Review screen) and check the consolidated list:
 
    TESTED - PASS
 
-## 5. Ingredient substitution (4.5 + 4.7, M4 behaviour)
+## 5. Ingredient substitution (4.5 + 4.7, current behaviour)
 
 1. **Settings → Saved ingredient swaps:** add `bulgarian feta` → `regular feta` with a note.
    Edit the note. Delete the row → no error, no effect on any recipe.
@@ -135,7 +138,7 @@ One clean run, no shortcuts:
 1. New session → add 3 recipes, mixed servings, one leftovers day.
 2. Swap one awkward ingredient in review; decline "remember".
 3. Consolidated summary shows: resolved purchase units, `need ~X` alongside each pack
-   breakdown, staple flags, overage notes where > half a pack, and any needs-review lines.
+   breakdown, overage notes where > half a pack, and any needs-review lines.
 4. No browser console errors; `/diagnostics` recent-errors still empty; every API response
    is the `{"ok": ...}` envelope with SCREAMING_SNAKE_CASE error codes.
 
@@ -151,5 +154,5 @@ One clean run, no shortcuts:
 | 2. Session CRUD + slots | | |
 | 3. Scaling | | |
 | 4. Consolidation + units | | |
-| 5. Substitution (M4) | | |
+| 5. Substitution | | |
 | 6. End-to-end | | |

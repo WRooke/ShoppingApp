@@ -1,6 +1,6 @@
 """Unit tests for scripts/update.py > _server_is_running() — the 2026-09-13 code review's
 live-migration pre-flight check. subprocess.run is mocked; no real PowerShell/process
-inspection happens in the test suite (CLAUDE.md > Code Architecture & Maintainability).
+inspection happens in the test suite (docs/code-architecture.md > Code Architecture & Maintainability).
 
 The rest of update.py (git pull / pip install / alembic orchestration) is ops-script
 behaviour verified by hand against the real NUC workflow, not unit-tested — same standing as

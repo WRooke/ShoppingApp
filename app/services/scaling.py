@@ -1,13 +1,13 @@
 """Recipe quantity scaling — pure arithmetic. No DB, no network, no rounding.
 
-One of the three highest bug-risk modules (see CLAUDE.md > Code Architecture &
+One of the three highest bug-risk modules (see docs/code-architecture.md > Code Architecture &
 Maintainability), so it is kept deliberately tiny and heavily unit-tested.
 
-Per the 2026-09-06 Phase 4 kickoff grilling, ``scaling.py`` does exactly one thing:
+Per the 2026-09-06 Phase 4 kickoff design review, ``scaling.py`` does exactly one thing:
 multiply a quantity by a factor. It does **not** round and it does **not** convert
 units. All rounding and unit normalisation happen once, downstream, in
-``consolidation.py`` + ``purchase_units.py`` (see CLAUDE.md > Scaling Logic and >
-Build Phases > Phase 4 > Chunk 4.6) — doing it here as well would round twice and
+``consolidation.py`` + ``purchase_units.py`` (see docs/scaling-and-consolidation.md > Scaling Logic and >
+Build Phases > Phase 4 > Chunk 4.6 (consolidation and pack-size resolution)) — doing it here as well would round twice and
 let per-recipe rounding drift compound across a session.
 
 "pinch" / "to taste" style amounts are not real quantities and pass through
@@ -25,9 +25,9 @@ NO_SCALE_UNITS = frozenset(
 )
 
 # Household default target servings — two adults, each also taking a serving as next-day
-# lunch (see CLAUDE.md > Scaling Logic). Used to pre-fill the per-recipe servings field when
-# a recipe is added to a session (Chunk 4.4); always overridable. Not yet a Settings field —
-# see CLAUDE.md > Deferred Decisions.
+# lunch (see docs/scaling-and-consolidation.md > Scaling Logic). Used to pre-fill the per-recipe servings field when
+# a recipe is added to a session (Chunk 4.4, plan and plan-recipe management); always overridable. Not yet a Settings field —
+# see docs/deferred-decisions.md > Deferred Decisions.
 DEFAULT_TARGET_SERVINGS = 4
 
 

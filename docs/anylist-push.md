@@ -1,6 +1,6 @@
 # AnyList push — how it works, how to check it, how to fix it
 
-**Written 2026-10-06 (Phase 6 Chunk 6.7).** This is the single place to start when an item did not
+**Written 2026-10-06 (Phase 6 Chunk 6.7, user-feedback batch).** This is the single place to start when an item did not
 arrive on AnyList, when someone asks "what does a push actually do?", or before changing anything in
 `services/anylist_client.py` / `services/checklist.py > push_to_anylist()`. The history of how the
 write mechanisms were discovered is in
@@ -61,7 +61,7 @@ also-proven remove + re-add. Flip it to `False` if AnyList ever stops honouring 
 household has recorded an amount already at home ("I have some"), the push sends `total − have` (and
 pluralises the name for that amount), not the full recipe need. A changed amount on a re-push goes
 through the existing same-quantity comparison below like any other quantity change. See
-[I have some](./checklist-and-shopping.md#i-have-some--an-amount-already-at-home-2026-10-16-chunk-67-polish-batch-3).
+[I have some](./checklist-and-shopping.md#i-have-some--an-amount-already-at-home).
 
 ## 4. Decision matrix — what a push does to each line
 
@@ -125,7 +125,7 @@ after the push, a retry, a send error, an unconfirmed push. `Checklist state car
 
 ## 7. Runbook — "an item didn't arrive on AnyList"
 
-1. **Diagnostics page → AnyList panel → latest push** (or `GET /api/v1/diagnostics/pushes`). Find the
+1. **Status page (route `/diagnostics`) → AnyList panel → latest push** (or `GET /api/v1/diagnostics/pushes`). Find the
    item by name: its **outcome** (`added` / `updated` / `un-crossed` / `already-active` / `failed`) and
    **reason** say what happened. `already-active` means AnyList already had it uncrossed with that
    quantity — look at the list again (it may be further up/down, or under a different name).
@@ -178,7 +178,7 @@ retried as designed. TestList restored to empty. Total live pushes this chunk: 5
 | File | What it pins |
 |---|---|
 | `tests/services/anylist_fake_server.py` | The stateful fake AnyList server (adds, bare-number-only quantity updates, remove-needs-embed, `'y'`/`'n'` toggle, silent no-ops; fault injection; "phone" edits) |
-| `tests/services/test_anylist_push_faults.py` | The connector against that server: a generated matrix (8 list states × 5 quantities × 2 notes × 3 id modes × 10 faults ≈ 2,400 scenarios; **the default run samples a diagonal third of each cell — every cell still sees every quantity, both notes and all id modes — and `FULL_PUSH_MATRIX=1` runs all of it: do that before any change to `anylist_client.py` or `checklist.push_to_anylist`**) checked against one oracle (never a false OK, never silent, never a duplicate, bystanders untouched, transient faults heal), idempotence, every row of the decision matrix, every failure rule |
+| `tests/services/test_anylist_push_faults.py` | The connector against that server: a generated matrix (8 list states × 5 quantities × 2 notes × 3 id modes × 10 faults ≈ 2,400 scenarios; **the default run samples a diagonal third of each cell — every cell still sees every quantity, both notes and all id modes — and `FULL_PUSH_MATRIX=1` runs all of it: do that before any change to `anylist_client.py` or `checklist.push_to_anylist`**) checked by one independent checker that reads the fake list's real state (never a false OK, never silent, never a duplicate, bystanders untouched, transient faults heal), idempotence, every row of the decision matrix, every failure rule |
 | `tests/services/test_checklist_push_scenarios.py` | The whole push (`load_checklist` + `push_to_anylist` + the real connector): one test per defect A–E, usuals, history/diagnostics shape, progress stages, and a **seeded fuzz** (240 random sequences of user edits, aliases, phone edits and faults; fixed seeds so a failure replays; the default run uses the first 10 seeds of each block, `FULL_PUSH_MATRIX=1` all 40) |
 | `tests/services/test_checklist_rename_state.py` | Decisions survive alias / merge / substitute / session merge / Settings alias, never downgrade, drop only truly-gone rows |
 | `tests/services/test_anylist_client.py` | Wire codec, no-filename part, one-op-per-POST, re-login, the pre-existing spike findings |
@@ -192,7 +192,9 @@ conditions the code above them already rules out (`_find_match` returning no hit
 an unreachable fall-through after the 401 retry loop, a stage write for an expired token).
 
 
-## User-facing wording (2026-10-11, Chunk 6.7)
+## User-facing wording
+
+*(2026-10-11, Chunk 6.7)*
 
 What the household sees is plain language; the stored outcomes are unchanged.
 

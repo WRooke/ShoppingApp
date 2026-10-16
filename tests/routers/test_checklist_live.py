@@ -1,4 +1,4 @@
-"""Live checklist across phones (Chunk 6.7, polish batch 3, item C): the revision counter,
+"""Live checklist across phones (Chunk 6.7, user-feedback batch, polish batch 3, item C): the revision counter,
 the long-poll /changes endpoint and the AnyList-free /items re-read."""
 
 from __future__ import annotations

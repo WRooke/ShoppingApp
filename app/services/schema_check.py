@@ -4,7 +4,7 @@
 older schema (``start.bat`` without ``update.bat``, a failed migration, a restored older backup).
 The symptom is then a scatter of ``OperationalError: no such column`` 500s with nothing at startup
 saying why. This compares the ``alembic_version`` table with the migration head once at startup and
-says so plainly. It never raises and never blocks startup: it is a diagnostic, not a gate.
+says so plainly. It never raises and never blocks startup: it is a diagnostic, not a blocker.
 """
 
 from __future__ import annotations

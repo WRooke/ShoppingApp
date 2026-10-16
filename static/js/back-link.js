@@ -1,6 +1,6 @@
-/* Shared "Back" component — Phase 6 Chunk 6.1 (see CLAUDE.md > UI / UX and
-   docs/build-status/phase-6-polish.md kickoff decision #9). Built here as infrastructure;
-   Chunks 6.2/6.3/6.4 replace their own files' hardcoded back-destinations
+/* Shared "Back" component — Phase 6 Chunk 6.1 (see docs/ui-ux.md > UI / UX and
+   docs/build-status/phase-6-polish.md Phase 6 decision: one shared Back link). Built here as infrastructure;
+   Chunks 6.2 (recipe and import screen design)/6.3/6.4 replace their own files' hardcoded back-destinations
    (capture.js/capture-review.js/recipe-form.js/session-review.js/sessions.js all currently do
    `back.href = "#/fixed-route"`, confirmed while planning this phase — none of them return to
    wherever the user actually came from) with a call to this file. Chunk 6.1 itself has no
@@ -13,9 +13,9 @@
    entry in this tab's history, which history.back() alone can't detect — window.history.length
    is the best available signal (1 means this is the first entry in the tab).
 
-   Scroll/list-state on the screen being returned to (kickoff decision #12) rides on the
+   Scroll/list-state on the screen being returned to (Phase 6 decision: keep scroll position when going Back) rides on the
    browser's own native scroll restoration for a real history.back() navigation — this is
-   distinct from the separate Settings scroll-position bug (Chunk 6.4), which is a Save/Delete
+   distinct from the separate Settings scroll-position bug (Chunk 6.4, Settings and Status restructure), which is a Save/Delete
    full-list-rebuild resetting scroll to the top *within* the same screen, not a navigation. */
 
 (function (global) {

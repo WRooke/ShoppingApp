@@ -1,4 +1,4 @@
-"""Smoke test for GET /api/v1/health — see CLAUDE.md > Code Architecture &
+"""Smoke test for GET /api/v1/health — see docs/code-architecture.md > Code Architecture &
 Maintainability (every router gets at least a happy-path smoke test).
 """
 

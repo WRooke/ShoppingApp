@@ -1,5 +1,5 @@
 """Unit tests for app/services/unit_synonyms.py — unit-spelling canonicalisation (2026-09-12,
-see CLAUDE.md > Ingredient Unit Handling > Layer A).
+see docs/ingredient-handling.md > Ingredient Unit Handling > Layer A (unit spellings)).
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -168,7 +168,7 @@ def test_synonym_map_empty_when_no_rows(db):
     assert us.synonym_map(db) == {}
 
 
-# --- known_units_for_ingredient() (Layer B, 2026-09-12) ---------------------------------
+# --- known_units_for_ingredient() (Layer B = known units per ingredient, 2026-09-12) ---------------------------------
 
 
 def test_known_units_returns_units_used_before(db):
@@ -216,7 +216,7 @@ def test_known_units_ignores_unitless_lines(db):
 
 
 def test_learn_new_units_does_nothing_when_ai_disabled(db, monkeypatch):
-    # Both switches off (CLAUDE.md > Security §0c) -- must not raise, and must not write
+    # Both switches off (docs/security.md > API enable switch) -- must not raise, and must not write
     # anything -- exactly today's behaviour with the feature turned off.
     monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_enabled", False)
     monkeypatch.setattr("app.services.ai_extraction.settings.ai_extraction_fake_mode", False)

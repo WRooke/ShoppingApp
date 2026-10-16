@@ -39,7 +39,7 @@ def _free_port() -> int:
 def server_url():
     """Starts one scratch `app.main` server for the whole frontend session, torn down at the
     end. Own scratch DATABASE_PATH/LOGS_PATH/IMAGES_PATH (never the real dev DB),
-    AI_EXTRACTION_FAKE_MODE=true (zero key, zero cost — CLAUDE.md > Security §0c), a free
+    AI_EXTRACTION_FAKE_MODE=true (zero key, zero cost — docs/security.md > API enable switch), a free
     port. Explicit env values (not `setdefault`) so this subprocess's own scratch paths win
     regardless of what the top-level tests/conftest.py already put in THIS process's
     environment for the rest of the suite (see that file's own docstring warning about
@@ -53,7 +53,7 @@ def server_url():
     env["PORT"] = str(port)
     env["ALLOWED_ORIGINS"] = f"http://127.0.0.1:{port}"
     env["AI_EXTRACTION_FAKE_MODE"] = "true"
-    env["AI_EXTRACTION_ENABLED"] = "false"  # belt-and-braces; this is already the default
+    env["AI_EXTRACTION_ENABLED"] = "false"  # a second safeguard; this is already the default
     env["ANYLIST_ENABLED"] = "false"
     env["ANYLIST_FAKE_MODE"] = "false"
 

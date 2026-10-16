@@ -1,14 +1,14 @@
-/* Checklist ingredient panel (2026-09-30, chunk 7.5 — Review→Checklist merge / bottom-sheet
+/* Checklist ingredient panel (2026-09-30, the checklist ingredient panel work — Review→Checklist merge / bottom-sheet
    feedback batch). Split out of checklist.js once this piece pushed it over the file-size
-   guideline (CLAUDE.md > Code Architecture & Maintainability), same reason checklist-push.js
+   guideline (docs/code-architecture.md > Code Architecture & Maintainability), same reason checklist-push.js
    was split out before it.
 
-   The nested "Edit ingredient ▾" toggle + select-exclusive chip row approved in the chunk 7.1
-   mockup (https://claude.ai/artifact/B6SiNLcKvND7tWnjdrsXMf, 4 revision rounds) — appended
+   The nested "Edit ingredient ▾" toggle + select-exclusive chip row approved in the ingredient-panel mockup review
+   mockup (external mockup page https://claude.ai/artifact/B6SiNLcKvND7tWnjdrsXMf, not stored in the repository; 4 revision rounds) — appended
    into a row's already-expanded recipe-breakdown slot (checklist.js > rowNameParts()), so a
    row always shows its breakdown first, with everything else behind one more tap. Five chips:
    pack size, substitute, alias, coarse item, merge. Every chip ends with the same shared
-   this-list-only/always toggle (default: this list only, per §0.3 — a slip-of-the-thumb
+   this-list-only/always toggle (default: this list only, per the "Just this plan" default — a slip-of-the-thumb
    permanent edit mid-shop has a bigger blast radius than a scoped one) + an explicit Save
    button + a "Saved ✓" confirmation, so nothing ever commits as a side effect of typing.
 
@@ -60,12 +60,12 @@
     return chips;
   }
 
-  // The shared toggle+Save+"Saved ✓" row every chip ends with (§0.3). `permanentLabel` is the
+  // The shared toggle+Save+"Saved ✓" row every chip ends with. `permanentLabel` is the
   // chip-specific wording for the "Always" side (e.g. "Always (edits Settings)"); `onSave(mode)`
   // does the actual write and returns a Promise — this only owns the mode toggle, the disabled
   // state while saving, and the confirmation, not the save itself.
   function persistControls(alwaysCaption, onSave) {
-    var mode = "list"; // default: just this plan (§0.3)
+    var mode = "list"; // default: just this plan (the default)
     var toggleWrap = el("div", "persist-toggle");
     var listBtn = el("button", "persist-btn on", "Just this plan");
     var alwaysBtn = el("button", "persist-btn", "Always");

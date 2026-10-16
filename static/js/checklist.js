@@ -1,22 +1,21 @@
-/* Checklist screen (Phase 5 Chunk 5.5) — #/checklist/<session_id>.
+/* Checklist screen (Phase 5 Chunk 5.5, checklist screen) — #/checklist/<session_id>.
 
    Walks the consolidated shopping list one item at a time: "do you have this?".
    Items already on AnyList are pre-ticked and shown distinctly. The due "usuals" are their
-   own group. Irreconcilable-units lines (Chunk 4.6) get an inline resolve control. Items you
-   don't have (or explicitly tick "add") are what Chunk 5.6 pushes to AnyList.
+   own group. Irreconcilable-units lines (Chunk 4.6, consolidation and pack-size resolution) get an inline resolve control. Items you
+   don't have (or explicitly tick "add") are what Chunk 5.6 (sending to AnyList and send history) pushes to AnyList.
 
-   have_it is BINARY (no 'partial' — see CLAUDE.md > Deferred Decisions), set via two
+   have_it is BINARY (no 'partial' — see docs/deferred-decisions.md > Deferred Decisions), set via two
    independent one-tap toggles ("Have it" / "Need it") — 2026-09-24, replacing an earlier
    single button that cycled unknown -> yes -> no -> unknown (reaching a specific target could
    take up to two taps). Tapping the pressed button reverts to unknown; tapping either button
    reaches its target state in exactly one tap from any starting state. Tapping "Need it" also
-   sets add_to_list; anything else clears it. See CLAUDE.md > Checklist Screen Logic.
+   sets add_to_list; anything else clears it. See docs/checklist-and-shopping.md > Checklist Screen Logic.
 
    Phase 6 Chunk 6.3b: design system applied, shared Back link, step indicator
    continuing from 6.3 (Plan -> Review -> Checklist -> Push), a quiet "checked against
    AnyList" sync note instead of leaving push failures to speak for themselves, and "the
-   usuals" reworked from a bare checkbox into the stock-check prompt (kickoff decision
-   #8) — "Add to list" or "I'm stocked, skip this time" (the latter calls
+   usuals" reworked from a bare checkbox into the stock-check prompt (Phase 6 decision: The usuals ask "are you stocked?" instead of a bare checkbox) — "Add to list" or "I'm stocked, skip this time" (the latter calls
    POST /checklist/usuals/{id}/skip, which stamps last_added_at with no AnyList push at
    all). The sticky Push button, its rotating per-item progress label, and the
    discrepancy-warning banner for an unconfirmed push live in checklist-push.js — split
@@ -36,7 +35,7 @@
     // 2026-09-10 hand-testing: a note on a normally-resolved line (an overage hint, "(+ to
     // taste)", or — new — an Ingredient Aliases conversion note like "from 4 tbsp lemon
     // juice") used to only show up on the session-review screen (now deleted, 2026-09-30,
-    // chunk 7.4), never here on the checklist, even though this is the screen right before
+    // the Review-screen removal), never here on the checklist, even though this is the screen right before
     // push. Fixed by matching that screen's own equivalent formatting at the time.
     if (item.needs_review) return item.note || "Mixed units";
     var unit = item.display_unit || item.total_unit;
@@ -63,11 +62,11 @@
     return unit ? fmtNum(opt.quantity) + " " + unit : fmtNum(opt.quantity);
   }
 
-  // "Which recipe is this ingredient from" (CLAUDE.md > scaling-and-consolidation.md) — moved
-  // here 2026-09-30 (chunk 7.4) from the now-deleted session-review.js (Review screen), ported
+  // "Which recipe is this ingredient from" (docs/scaling-and-consolidation.md > scaling-and-consolidation.md) — moved
+  // here 2026-09-30 (the Review-screen removal) from the now-deleted session-review.js (Review screen), ported
   // verbatim: one row per contributing recipe SLOT, never merged (even two slots of the same
   // recipe show separately). Ephemeral display aid — the data itself is recomputed fresh on
-  // every checklist load (checklist.py > load_checklist(), chunk 7.3), never stored.
+  // every checklist load (checklist.py > load_checklist(), the checklist re-consolidating on load), never stored.
   function fmtContribution(c) {
     if (c.is_no_scale) return "to taste";
     var n = c.quantity === Math.round(c.quantity) ? String(Math.round(c.quantity)) : String(c.quantity);
@@ -92,11 +91,11 @@
   // becomes a real `<button>` (keyboard/screen-reader focusable, matching the now-deleted
   // session-review.js's original) — when there's a recipe breakdown to show, OR `extraBuilder`
   // is given (the ingredient panel, itemsGroup()'s regular rows only — point-of-need
-  // guardrail, CLAUDE.md > UI/UX: reviewGroup()'s rows don't get one, matching the plan's
+  // guardrail, docs/ui-ux.md > UI/UX: reviewGroup()'s rows don't get one, matching the plan's
   // decision to scope the panel to regular rows). A plain `<div>` otherwise. Returns
   // { nameEl, slot } — slot is null when there's nothing to expand at all.
   //
-  // 2026-09-30 (chunk 7.6) — expansion is driven by the caller's own `isExpanded` state
+  // 2026-09-30 (the panel back-navigation work) — expansion is driven by the caller's own `isExpanded` state
   // (screen-wide select-exclusive, see mount()'s expandedKey/toggleExpanded) rather than local
   // DOM toggling, so it re-renders correctly from a single source of truth on every Back press
   // (PanelBackGuard.close() calls rerender(), which rebuilds every row from expandedKey).
@@ -124,7 +123,7 @@
 
   // Shared Plan -> Checklist -> Push indicator (own small copy — see sessions.js's identical
   // helper and this file family's self-contained-feature-file precedent). Was
-  // Plan -> Review -> Checklist -> Push until 2026-09-30 (chunk 7.4), when the standalone
+  // Plan -> Review -> Checklist -> Push until 2026-09-30 (the Review-screen removal), when the standalone
   // Review screen was deleted and its useful parts (recipe breakdown, above) folded in here.
   // Push happens on this same screen (no separate route), so "Checklist" stays active through
   // both the pre-push and pushing states.
@@ -138,7 +137,7 @@
     return wrap;
   }
 
-  // 2026-09-30 (chunk 7.6) — scroll position across a Back-then-forward round trip. Module
+  // 2026-09-30 (the panel back-navigation work) — scroll position across a Back-then-forward round trip. Module
   // level (not inside mount()'s own closure), since it must survive from one mount() call to
   // the next one, across whatever screen was visited in between. Restored once per mount, on
   // the first load() only — a later reload (e.g. after a panel save) shouldn't jump the page.
@@ -166,13 +165,13 @@
     // a full page reload. Reassigned by summary() below; every state-changing handler calls
     // it so the count stays live. No-op until the first render.
     var refreshSummary = function () {};
-    // The last push's response (2026-10-06, Chunk 6.7). A push triggers a load() that rebuilds the
+    // The last push's response (2026-10-06, Chunk 6.7, user-feedback batch). A push triggers a load() that rebuilds the
     // whole body, which would wipe its result the instant it arrives; render() hands this back to
     // ChecklistPush, which shows it as the result card (counts, per-item Details, or "N items need
     // attention") until the user leaves the screen or pushes again.
     var lastPush = null;
 
-    // Fix 3 — "Select to merge" mode (checklist-time merge, CLAUDE.md > Deferred Decisions).
+    // Fix 3 — "Select to merge" mode (checklist-time merge, docs/deferred-decisions.md > Deferred Decisions).
     // Screen-level toggle, not a permanent per-row control — entering it hides the existing
     // have/need toggles and pack-size link on every regular row for the duration. Client-only
     // state, re-rendered from the last-loaded data (no API call) so toggling it or (un)checking
@@ -193,7 +192,7 @@
     var lastData = null;
     // "I have some" fields currently open: ingredient name -> typed text (checklist-have-some.js).
     var haveDrafts = {};
-    // Ingredient panel's Substitute chip quick-picks (2026-09-30, chunk 7.5) — fetched once
+    // Ingredient panel's Substitute chip quick-picks (2026-09-30, the checklist ingredient panel work) — fetched once
     // per load, same as the now-deleted session-review.js used to, keyed by original_name.
     // A failure here is non-fatal (empty quick-picks, manual entry still works) — never blocks
     // the checklist itself from loading.
@@ -253,7 +252,7 @@
       });
     }
 
-    // 2026-09-30 (chunk 7.6) — screen-wide select-exclusive row expansion (at most one row's
+    // 2026-09-30 (the panel back-navigation work) — screen-wide select-exclusive row expansion (at most one row's
     // breakdown/panel open at a time), backed by PanelBackGuard so a Back press/gesture closes
     // it before navigating away, rather than skipping straight past it. expandedKey is the
     // expanded row's ingredient_name, or null.
@@ -444,7 +443,7 @@
       refreshSummary = pushSummary.refresh; // reassigned each render(); every state change calls this
       body.appendChild(pushSummary.el);
 
-      // 2026-09-30 (chunk 7.6) — restore scroll position from before the user last left this
+      // 2026-09-30 (the panel back-navigation work) — restore scroll position from before the user last left this
       // screen, once per mount only (a later reload, e.g. after a panel save, must not jump
       // the page back to wherever they were before they even arrived this time).
       if (!restoredScroll && savedScroll && savedScroll.sessionId === sessionId) {
@@ -585,7 +584,7 @@
         // "chicken thigh") for this line's own resolved amount — see
         // services/checklist_display.py. Falls back to ingredient_name for safety if an older
         // cached response is ever re-rendered without display_name.
-        // 2026-09-30 (chunk 7.4/7.5) — tap-to-expand recipe breakdown + the ingredient panel
+        // 2026-09-30 (the Review-screen removal and checklist ingredient panel work) — tap-to-expand recipe breakdown + the ingredient panel
         // (pack size / substitute / alias / coarse item / merge), ported from the now-deleted
         // Review screen and the old standalone "+ Add pack size" link respectively. Suppressed
         // in merge-select mode, same as the have/need pair below — one row shouldn't carry two
@@ -911,12 +910,12 @@
       };
     }
 
-    // packSizeForm()/reconsolidateAndReload() removed 2026-09-30 (chunk 7.5) — the standalone
+    // packSizeForm()/reconsolidateAndReload() removed 2026-09-30 (the checklist ingredient panel work) — the standalone
     // "+ Add pack size" link they powered is gone; pack size is now the ingredient panel's own
     // Pack size chip (checklist-panel.js > packSizePanel()), which calls the new
     // POST .../pack-size endpoint directly and reloads via the panel's own onSaved callback.
 
-    // --- the usuals: a stock-check prompt, not a bare checkbox (kickoff decision #8) ---
+    // --- the usuals: a stock-check prompt, not a bare checkbox (Phase 6 decision: The usuals ask "are you stocked?" instead of a bare checkbox) ---
     function usualsGroup(usuals) {
       var wrap = el("div");
       wrap.appendChild(el("div", "sub-group-heading", "The usuals"));

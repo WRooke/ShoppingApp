@@ -1,19 +1,19 @@
-"""repoint milk and diced tomato product_units to Fix 5 aliases
+"""repoint milk and diced tomato product_units to Fix 5 (ingredient grouping audit) aliases
 
 Revision ID: f9e79977f8b0
 Revises: 62a354151f0d
 Create Date: 2026-09-27
 
-Fix 5, F5.2 follow-up. The maintainer reviewed a real `suggest_ingredient_groupings()` audit
+Fix 5 follow-up. The maintainer reviewed a real `suggest_ingredient_groupings()` audit
 and accepted "milk" -> "full cream milk" and "diced tomato"/"crushed tomato" -> "canned tomato"
 as household preferences (now seeded in `INGREDIENT_ALIAS_SEEDS`). `product_units` had
 pre-existing pack-size rows seeded under the OLD names ("milk" x2, "diced tomato" x1) — once
 those aliases are live, a real "milk"/"diced tomato" ingredient line resolves to the new
 canonical name before pack-size lookup ever runs, so these rows would become permanently
-unreachable, exactly the same class of bug F0's `c920cac31b6a` already fixed once for
+unreachable, exactly the same class of bug the yoghurt pack-size repoint's `c920cac31b6a` already fixed once for
 "yoghurt".
 
-**CLAUDE.md non-negotiable rule 3**: plain `UPDATE`s of the `ingredient_name` column on
+**The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules)**: plain `UPDATE`s of the `ingredient_name` column on
 existing rows only -- every other column (id, purchase_label, purchase_qty, purchase_unit,
 is_preseeded, created_at) is left untouched, and no row is added or removed. Collision-safe
 per row (same discipline as `62a354151f0d`'s alias-insert collisions): `product_units` has a

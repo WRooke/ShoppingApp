@@ -1,8 +1,8 @@
-/* Home screen — Phase 6 Chunk 6.1 (see CLAUDE.md > UI / UX and
-   docs/build-status/phase-6-polish.md kickoff decision #1). Replaces the Phase 1 stub.
+/* Home screen — Phase 6 Chunk 6.1 (see docs/ui-ux.md > UI / UX and
+   docs/build-status/phase-6-polish.md Phase 6 decision: Home shows quick actions only). Replaces the Phase 1 stub.
 
    Quick actions only, per the maintainer's explicit call — no recent/past-sessions list (that's
-   Chunk 6.6's history view instead). The one thing Home does surface: a "Continue: <label>"
+   Chunk 6.6 (mark cooked, history and archive)'s history view instead). The one thing Home does surface: a "Continue: <label>"
    button per session currently `status='active'` — a session mid-edit is the thing you're most
    likely to want the instant the app opens, which is a different question from "what did I do
    before" (history). The common case is exactly one active session; more than one is handled

@@ -1,6 +1,5 @@
 /* Settings — "Unit spellings" card (2026-09-12). Unit-spelling canonicalisation — e.g.
-   "gram"/"grams" and "kgs" both folded into "g"/"kg" on the shopping list. See CLAUDE.md >
-   Ingredient Unit Handling > Layer A.
+   "gram"/"grams" and "kgs" both folded into "g"/"kg" on the shopping list. See docs/ingredient-handling.md > Ingredient Unit Handling > Layer A (unit spellings).
 
    Distinct from "Ingredient groups" (settings-ingredient-aliases.js) even though the two
    cards look similar — that resolves two *ingredient names* being the same shopping item;

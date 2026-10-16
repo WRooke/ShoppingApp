@@ -4,7 +4,7 @@
    that introduced each block, not by CSS category — most of these classes are only ever
    used from one screen's own JS module. */
 
-/* --- capture progress indicator (static/js/capture.js) — Chunk 6.2, real-step-driven as of
+/* --- capture progress indicator (static/js/capture.js) — Chunk 6.2 (recipe and import screen design), real-step-driven as of
    2026-09-23. `.capture-progress` (spinner + label) still covers the one phase with no
    tracked backend step at all — fetching the page/photo, before capture_recipe() is even
    called. `.step-list-vertical`/`.step-row`/`.step-icon`/`.step-label` below render the 3
@@ -154,8 +154,8 @@
 }
 .draft-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 
-/* --- step indicator (sessions.js, checklist.js) — Chunk 6.3. Plan -> Checklist -> Push
-   (was Plan -> Review -> Checklist -> Push until 2026-09-30, chunk 7.4, when the standalone
+/* --- step indicator (sessions.js, checklist.js) — Chunk 6.3 (plan screen design). Plan -> Checklist -> Push
+   (was Plan -> Review -> Checklist -> Push until 2026-09-30, the Review-screen removal, when the standalone
    Review screen was deleted); the last two stay inactive placeholders on sessions.js's own
    copy, active on checklist.js's through both the pre-push and pushing states. --- */
 .step-list {
@@ -170,7 +170,7 @@
 .step-list .on { color: var(--accent); font-weight: 700; }
 .step-list .sep { color: var(--border-strong); }
 
-/* --- Settings index (settings.js) + Appearance toggle — Chunk 6.4 --- */
+/* --- Settings index (settings.js) + Appearance toggle — Chunk 6.4 (Settings and Status restructure) --- */
 .section-list a {
   display: flex;
   justify-content: space-between;
@@ -233,7 +233,7 @@
 .continue-card .v { font-weight: 600; color: var(--text); }
 .home-actions { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-2); }
 
-/* --- checklist screen (static/js/checklist.js) — Chunk 6.3b ---
+/* --- checklist screen (static/js/checklist.js) — Chunk 6.3b (checklist and send-to-AnyList screen design) ---
    .have-toggle/.checklist-row moved here from app.css (tokenized, no more literal hex). */
 .sync-note {
   display: flex; align-items: center; gap: .4rem;
@@ -247,12 +247,12 @@
   display: flex; align-items: center; gap: var(--sp-3);
   padding: var(--sp-3) 0; border-top: 1px solid var(--border);
   /* 2026-10-01 phase-7-review fix — checklist.js's expand-slot (recipe breakdown + the
-     ingredient panel, chunks 7.4/7.5) is appended as a third flex child with an inline
+     ingredient panel, the Review-screen removal and checklist ingredient panel work) is appended as a third flex child with an inline
      flex-basis:100%, meant to drop onto its own full-width line below .main/.have-need-pair
      (see rowNameParts()'s own docstring). Without flex-wrap here, a flex-basis alone never
      forces that line break — flex-shrink:1 (the default) instead squeezed all three items
      onto one line, crushing .meta's quantity text into a sliver narrow enough to wrap
-     character-by-character. Caught in the chunk 7.8 phase-end review screenshot pass. */
+     character-by-character. Caught in the Chunk 6.7 phase-end review (screenshot pass). */
   flex-wrap: wrap;
 }
 .checklist-row:first-of-type { border-top: none; }
@@ -275,8 +275,8 @@
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
 .pack-size-form { margin-top: var(--sp-2); padding-top: var(--sp-2); border-top: 1px dashed var(--border-strong); }
-/* 2026-09-30 (chunk 7.5) — same heading treatment as .swap-panel .hdr, for the ingredient
-   panel's Pack size/Coarse item chips, which reuse .pack-size-form's existing look. */
+/* 2026-09-30 (the checklist ingredient panel work) — same heading treatment as .swap-panel .hdr, for the ingredient
+   panel's Pack size and By the bunch chips, which reuse .pack-size-form's existing look. */
 .pack-size-form .hdr {
   font-size: var(--text-xs);
   font-weight: 700;
@@ -309,10 +309,10 @@
 
 .push-progress-note { text-align: center; font-size: var(--text-xs); margin-top: .4rem; }
 
-/* --- weekly planner (static/js/sessions.js) — Chunk 6.5. A strict 7-column grid didn't fit
+/* --- weekly planner (static/js/sessions.js) — Chunk 6.5 (weekly planner). A strict 7-column grid didn't fit
    at phone width (~400px, per this chunk's own mockup pass), so this is a vertically-stacked
    "day sections" layout instead — one of the fallbacks the plan explicitly allowed. Tap-to-
-   assign (kickoff decision #10 — drag-and-drop rejected as unreliable under touch at this
+   assign (chosen over drag-and-drop, which is unreliable on touch at this
    width): tap a slot's move button, then tap a day section to move it there. */
 .week { display: flex; flex-direction: column; gap: var(--sp-3); }
 .day-section {
@@ -379,7 +379,7 @@
   opacity: 1; pointer-events: auto; background: var(--accent); color: var(--accent-contrast); border-color: var(--accent);
 }
 
-/* --- "I cooked this" (static/js/recipes.js) — Chunk 6.6 --- */
+/* --- "I cooked this" (static/js/recipes.js) — Chunk 6.6 (mark cooked, history and archive) --- */
 .cooked-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
   margin: var(--sp-3) 0; padding: var(--sp-3); border-radius: var(--r-md);
@@ -424,7 +424,7 @@
    settings-product-units.js) — 2026-09-23. Replaces a flat/unclear row layout: rows sharing
    one canonical name (aliases) or one ingredient (product units, which can legitimately have
    several pack sizes) now render as a single card with a heading, instead of unrelated-
-   looking rows with no visual link between them. See CLAUDE.md > UI/UX and the mockup this
+   looking rows with no visual link between them. See docs/ui-ux.md > UI/UX and the mockup this
    was signed off from. */
 .settings-group-card {
   background: var(--surface);

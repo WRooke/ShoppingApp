@@ -1,8 +1,8 @@
 """The whole push — `checklist.load_checklist` + `checklist.push_to_anylist` + the REAL connector —
 over the stateful fake AnyList server (tests/services/anylist_fake_server.py).
 
-Scenario tests for each defect found in the Chunk 6.7 investigation (docs/anylist-push.md), then a
-seeded fuzz run. The oracle is the same everywhere and is independent of what the push claims:
+Scenario tests for each defect found in the Chunk 6.7 (user-feedback batch) investigation (docs/anylist-push.md), then a
+seeded fuzz run. The same independent checker is used everywhere and ignores what the push claims:
 after a push, EVERY row the user marked "Need it" has exactly one ACTIVE (uncrossed) matching item on
 the list with the wanted quantity — or the push said, by name, that it failed.
 """
@@ -91,7 +91,7 @@ def _active_matches(r, items):
     return [i for i in items if not i.checked and cl._names_match(r.ingredient_name, i.name)]
 
 
-def _oracle(db, s, server, pushed: dict | None = None, before: dict | None = None) -> list[str]:
+def _independent_check(db, s, server, pushed: dict | None = None, before: dict | None = None) -> list[str]:
     """Every Need-it row must be on the list ACTIVE with the wanted quantity. By default exactly
     once; with `before` ({row id: active matches before the push}) a duplicate that already
     existed (e.g. made on the phone) is tolerated but the push must never ADD one."""
@@ -114,7 +114,7 @@ def _oracle(db, s, server, pushed: dict | None = None, before: dict | None = Non
     return problems
 
 
-# --- defect A: decisions survive renames -------------------------------------------------
+# --- decisions survive renames -------------------------------------------------
 
 
 def test_need_it_survives_an_alias_added_between_visits_and_is_pushed(db, server):
@@ -130,10 +130,10 @@ def test_need_it_survives_an_alias_added_between_visits_and_is_pushed(db, server
     assert (butter.have_it, butter.add_to_list) == ("no", True)
 
     res = cl.push_to_anylist(db, s.id)
-    assert res["confirmed"] and not _oracle(db, s, server, res)
+    assert res["confirmed"] and not _independent_check(db, s, server, res)
 
 
-# --- defect B: crossed-off items -----------------------------------------------------------
+# --- crossed-off items -----------------------------------------------------------
 
 
 def test_crossed_off_item_is_not_on_the_list_does_not_preticks_and_is_uncrossed_by_the_push(db, server):
@@ -150,7 +150,7 @@ def test_crossed_off_item_is_not_on_the_list_does_not_preticks_and_is_uncrossed_
     assert server.items[ident]["checked"] is False  # un-crossed IN PLACE...
     assert server.items[ident]["note"] == "household note"  # ...so what the household typed survives
     assert len(server.named("milk")) == 1
-    assert not _oracle(db, s, server, res)
+    assert not _independent_check(db, s, server, res)
 
 
 def test_an_active_item_is_preferred_over_a_crossed_off_duplicate_whatever_the_list_order(db, server):
@@ -178,7 +178,7 @@ def test_a_household_note_survives_both_an_uncross_and_a_quantity_change(db, ser
     assert b not in server.items
 
 
-# --- defect E: failure handling ------------------------------------------------------------
+# --- failure handling ------------------------------------------------------------
 
 
 def test_a_failed_push_leaves_the_session_re_pushable_and_the_retry_heals_without_duplicates(db, server):
@@ -196,7 +196,7 @@ def test_a_failed_push_leaves_the_session_re_pushable_and_the_retry_heals_withou
     server.post_rule = None  # AnyList recovers
     res2 = cl.push_to_anylist(db, s.id)  # NOT forced
     assert res2["confirmed"] and res2["session_status"] == "pushed"
-    assert not _oracle(db, s, server, res2)
+    assert not _independent_check(db, s, server, res2)
     assert len(server.named("milk")) == 1 and len(server.named("eggs")) == 1
 
 
@@ -210,7 +210,7 @@ def test_partial_failure_keeps_what_landed_and_retries_only_what_failed(db, serv
     server.post_rule = None
     res2 = cl.push_to_anylist(db, s.id)
     assert res2["already_active"] == ["Milk"] and res2["added"] == ["Eggs"] and res2["confirmed"]
-    assert not _oracle(db, s, server, res2)
+    assert not _independent_check(db, s, server, res2)
 
 
 def test_a_stale_row_id_after_the_item_was_deleted_on_the_phone_is_re_added(db, server):
@@ -219,7 +219,7 @@ def test_a_stale_row_id_after_the_item_was_deleted_on_the_phone_is_re_added(db, 
     cl.push_to_anylist(db, s.id)
     server.phone_delete("milk")  # no reload: the row still holds the old id
     res = cl.push_to_anylist(db, s.id, force=True)
-    assert res["added"] == ["Milk"] and not _oracle(db, s, server, res)
+    assert res["added"] == ["Milk"] and not _independent_check(db, s, server, res)
 
 
 def test_two_rows_with_the_same_display_name_are_reported_by_row_not_by_name(db, server):
@@ -390,7 +390,7 @@ def _fuzz_one(seed: int, monkeypatch):
                 log.append(f"push:{fault}")
                 before = {r.id: len(_active_matches(r, ac.get_items())) for r in _need_rows(db, s)}
                 res = cl.push_to_anylist(db, s.id, force=True)
-                problems = _oracle(db, s, server, res, before)
+                problems = _independent_check(db, s, server, res, before)
                 ok_keys = {i["key"] for i in res["items"] if i["outcome"] != "failed"}
                 for r in _need_rows(db, s):
                     if f"item:{r.id}" in ok_keys and _line_problem(r, before):
@@ -488,7 +488,7 @@ def test_names_pushed_use_the_households_wording_and_correct_capitalisation(db, 
     res = cl.push_to_anylist(db, s.id)
     pushed = {i["name"] for i in res["items"]}
     assert pushed == {"Black Beans", "Salt", "Vegetable Oil", "Cheddar Cheese or Monterey Jack", "Baker's Chocolate"}
-    assert res["confirmed"] and not _oracle(db, s, server, res)
+    assert res["confirmed"] and not _independent_check(db, s, server, res)
 
 
 def test_items_pushed_earlier_under_old_spellings_are_still_found_not_duplicated(db, server):

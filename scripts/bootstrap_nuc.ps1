@@ -15,8 +15,7 @@
       - The router-side static IP / DHCP reservation (SETUP.md step 5) - no script has
         access to your router's admin UI.
       - Windows Task Scheduler entries for auto-start-on-boot and weekly backup
-        (SETUP.md steps 8-9) - kept as manual GUI steps on purpose (see CLAUDE.md >
-        Deployment Environment > Startup for why: scripting the "run whether user is
+        (SETUP.md steps 8-9) - kept as manual GUI steps on purpose (see docs/deployment-and-operations.md > Deployment Environment > Startup for why: scripting the "run whether user is
         logged on or not" boot task needs the account password handled non-interactively,
         which trades one kind of fragility for another).
 
@@ -108,7 +107,7 @@ if (Test-Path (Join-Path $InstallPath ".git")) {
     Write-Ok "Cloned."
 
     # The NUC always runs `production`, never whichever branch happens to be the repo's
-    # default (see CLAUDE.md > Deferred Decisions > Git branching strategy and DEPLOY.md) -
+    # default (see docs/deferred-decisions.md > Deferred Decisions > Git branching strategy and DEPLOY.md) -
     # scripts/update.py enforces this on every run, but check it here too so the very first
     # update.bat doesn't fail on something this script could have gotten right immediately.
     Push-Location $InstallPath

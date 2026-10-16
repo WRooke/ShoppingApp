@@ -1,8 +1,20 @@
 # Ingredient Handling — Normalisation, Substitution, Aliases & Units
 
+**Key to the "Fix N" labels used in this file and in code comments.** They name five pieces of
+work built on 2026-09-27/28 to make ingredient-name matching consistent. Where the labels appear
+elsewhere in the repo, they carry a short gloss at their first use in each file.
+
+| Label | What it is |
+|---|---|
+| Fix 1 | The shared name-matching key (`normalise_ingredient_name()`), used everywhere names are compared |
+| Fix 2 | Household aliases are fed into the AI extraction prompt, so imports already use the household's names |
+| Fix 3 | The Combine action on the checklist, and the "this plan only" combine records behind it |
+| Fix 4 | The as-you-type hint that suggests a "Same item, different names" entry while a recipe is edited |
+| Fix 5 | The one-off ingredient grouping audit (`scripts/suggest_ingredient_groupings.py`) |
+
 ## Ingredient Normalisation
 
-**Status: base mechanical normalisation built 2026-09-27 (the ingredient-name-matching plan) —
+**Status: base mechanical normalisation built 2026-09-27 (the 2026-09-27 ingredient-name matching work) —
 supersedes the original "do not implement automatic synonym matching" note below, which is
 stale and kept only for history.**
 
@@ -27,7 +39,7 @@ fresh from that raw value, so nothing needs to be pre-computed or stored.
 
 Existing rows in the 5 reference tables above, written before this module existed, were
 backfilled onto the new normalised form by a one-time Alembic data migration
-(`bcaf5b44af53`) — CLAUDE.md's non-negotiable rule 3 (no data loss on the prod database) meant
+(`bcaf5b44af53`) — the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules) (no data loss on the prod database) meant
 that migration never deletes a row: a collision between two existing rows leaves the "losing"
 row's value completely untouched rather than merging or dropping it, printing a report line for
 the maintainer to reconcile by hand via the existing Settings CRUD. See
@@ -47,7 +59,7 @@ matching" line no longer holds, superseded above:**
 
 ## Display names — what an ingredient is *called* on screen and on AnyList
 
-*(Written 2026-10-06, Chunk 6.7. Code: `app/services/checklist_display.py`, `text_normalize.title_case_name`.
+*(Written 2026-10-06, Chunk 6.7, user-feedback batch. Code: `app/services/checklist_display.py`, `text_normalize.title_case_name`.
 Tests: `tests/services/test_checklist_display.py`, `test_text_normalize.py`. Real-data preview:
 `python -m scripts.preview_display_names [db]`.)*
 
@@ -58,7 +70,7 @@ Tests: `tests/services/test_checklist_display.py`, `test_text_normalize.py`. Rea
 | What | `text_normalize.normalise_ingredient_name()` — lower-case, hyphens folded, last word singularised ("chicken thigh") | how the name *reads* ("chicken thighs", "salt", "black beans") |
 | Where stored | `session_checklist_items.ingredient_name`, `product_units`, `coarse_ingredients`, `ingredient_aliases`, `remembered_substitutions`, `usual_items` | **nowhere** — derived on every read/push, like `recipe_breakdown` |
 | Used for | consolidation, aliases, pack sizes, substitutions, the AnyList name match, everything that must agree | the checklist row label, the merge panel, the name written to AnyList, push progress labels |
-| Change it and… | stored data and matching change (needs a data-preserving migration, rule 3) | nothing but how text looks |
+| Change it and… | stored data and matching change (needs a data-preserving migration, the never-lose-production-data rule) | nothing but how text looks |
 
 **Nothing in this section changes a key or any matching.** That is the point, and it is enforced (below).
 
@@ -109,10 +121,10 @@ cheeses, mangoes, half-and-half, "or" names, brackets, apostrophes, hyphens, 300
    spelling difference is invisible to it. They are left as they are (a push never renames an item it only
    leaves alone or updates in place); only an item that is **re-created** (a quantity/note change that needs
    a replace) takes the new name. No duplicates, no migration, and the lists tidy themselves over time.
-3. **The "did you mean…" nudge in recipe entry** offered the singular *key* and wrote it into the recipe on
+3. **The "did you mean…" suggestion in recipe entry** offered the singular *key* and wrote it into the recipe on
    "use it" — which would have slowly rewritten the household's wording to singular, and the display follows the
    wording. It now offers the household's wording (`GET /recipes/ingredient-names` returns `wording`), while
-   comparing and aliasing by key. (Without this fix, accepting nudges would have been a slow leak of exactly the
+   comparing and aliasing by key. (Without this fix, accepting suggestions would have been a slow leak of exactly the
    plurals this feature restores.)
 4. **Extraction prompt:** new captures now write names the way a shopping list reads (plural for plural nouns,
    singular for mass nouns, "or"/"and" lower-case), as the recipe writes them. Keys are unaffected (they
@@ -143,7 +155,7 @@ had a bare-count row → stayed singular. Separately `str.title()` produced "Che
 ## Ingredient Substitution
 
 **Status: in scope, manual only.** Design = the MERGE of the Phase 4 approach and the
-addendum's capture-time flagging, confirmed 2026-09-06, built in Phase 3.9 chunk M4. **The
+addendum's capture-time flagging, confirmed 2026-09-06, built in Phase 3.9 chunk M4 (substitution redesign). **The
 AI-flagging half was removed 2026-09-30** — the maintainer judged the Gemini call that
 *suggested* a substitute added too little value for the call it cost ("I know what I'm doing
 when substituting"). Everything else described below — the recipe-level swap, the
@@ -159,12 +171,12 @@ recognises two names as *the same thing* ("green onion" = "spring onion"). Subst
 treats two *different* products as interchangeable for shopping, because one is obscure or
 hard to find — e.g. "bulgarian feta" → "regular feta".
 
-> **Note (2026-09-27, F0):** the `plain yoghurt` → `greek yoghurt` `remembered_substitutions`
+> **Note (2026-09-27, the yoghurt pack-size repoint):** the `plain yoghurt` → `greek yoghurt` `remembered_substitutions`
 > row is superseded, not deleted. The household's own prod data showed this exact pair already
 > recorded as a substitution, confirming it's a settled preference rather than a per-recipe
 > judgement call — so it was promoted to a silent `ingredient_aliases` row instead (see
 > [Ingredient Aliases](#ingredient-aliases)). The old substitution row is deliberately **left in
-> place** (CLAUDE.md non-negotiable rule 3 — no dropped row holding real household data) rather
+> place** (the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules) — no dropped row holding real household data) rather
 > than deleted: it's functionally inert now (substitution resolution runs before alias
 > resolution, and a remembered substitution never auto-applies on its own regardless), so it can
 > only ever resurface as a redundant-but-harmless "from your saved swaps" quick-pick if someone
@@ -180,7 +192,7 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
   more (removed 2026-09-30); the entry field and quick-picks are always there, just never
   pre-suggested.
 - **Stored** on the ingredient record: `recipe_ingredients.resolved_ingredient` (nullable —
-  the swap this recipe uses) + `substitution_note`, and (Phase 3.9 M8) optional
+  the swap this recipe uses) + `substitution_note`, and (Phase 3.9 M8 (substitution amount/unit change)) optional
   `resolved_quantity` / `resolved_unit` when the swap also changes the amount/unit ("2 corn
   cobs" → "2 cans"). `name` stays the original. Clearing `resolved_ingredient` clears all of
   it and reverts.
@@ -198,7 +210,7 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
   `resolved_unit`, scaled with servings); library-level equivalence pair that pre-fills it;
   session override carries the pair too. Resolved in `consolidate_session()`, never in pure
   `consolidate()`. No conversion table — the entered ratio is the equivalence. Full spec in
-  [AI Provider Migration > Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec).
+  [Ingredient Handling > Substitution — the current spec](#substitution--the-current-spec).
 
 > **Note (added during the 2026-09-12 CLAUDE.md split):** the superseded 2026-09-05 and
 > 2026-09-06(a) designs for this feature — kept "for the record" in the original document —
@@ -262,7 +274,7 @@ hard to find — e.g. "bulgarian feta" → "regular feta".
   ingredient's name as-is. **The recipe's own stored ingredient name is never modified** by this
   process — only the resolved name used for that session's consolidation and shopping list. See
   [Scaling Logic > Consolidation across recipes](./scaling-and-consolidation.md#scaling-logic), which this step feeds into.
-- **Management.** Settings ([Chunk 2.5](./build-status/phase-2-recipe-library.md#phase-2--recipe-library), already built) gains a
+- **Management.** Settings ([Chunk 2.5, Settings UI](./build-status/phase-2-recipe-library.md#phase-2--recipe-library), already built) gains a
   section listing existing substitution rules — view, change which substitute is the default,
   add/remove substitute options for an ingredient, delete a rule entirely. This is the only
   place a rule can be edited or reversed after creation; there is no separate creation path here
@@ -289,13 +301,13 @@ and the addendum's capture-time flagging idea are **merged** (decisions confirme
 | Axis | Merged behaviour |
 |---|---|
 | **Who proposes a swap** | ~~Both: a dedicated Gemini call flags candidates per recipe at capture~~ — **the AI half was removed 2026-09-30**; the user swaps manually at capture-review time, in the recipe editor, or session-only during planning. |
-| **Source of truth** | The **ingredient record**. `recipe_ingredients` gains `resolved_ingredient` (nullable — the swap this recipe actually uses) and `substitution_note` (freetext why). `name` stays the *original* (merge decision #2 — reuse `name`, no separate `original_ingredient` column). **M8:** also `resolved_quantity` / `resolved_unit` — the swap's *absolute* amount when it differs ("2 cob" → "2 can"). Only meaningful with `resolved_ingredient` set; both NULL = name-only. |
-| **Quantity/unit transform (M8)** | A swap can change the amount and unit, not just the name. Recipe-level: absolute `resolved_quantity`/`resolved_unit`, scaled by servings at consolidation. Library-level: an equivalence pair (`original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`) the quick-pick uses to pre-fill the recipe-level absolute — user still confirms. Session override: the same pair, applied to the scaled quantity. Resolved in `consolidate_session()` / `_scaled_lines()`, never in pure `consolidate()`. No cross-unit conversion table — the entered number is the equivalence. See [Ingredient Substitution Flagging](#ingredient-substitution-flagging--the-merged-spec). |
+| **Source of truth** | The **ingredient record**. `recipe_ingredients` gains `resolved_ingredient` (nullable — the swap this recipe actually uses) and `substitution_note` (freetext why). `name` stays the *original* (the decision to keep the original ingredient in `name` — reuse `name`, no separate `original_ingredient` column). **M8:** also `resolved_quantity` / `resolved_unit` — the swap's *absolute* amount when it differs ("2 cob" → "2 can"). Only meaningful with `resolved_ingredient` set; both NULL = name-only. |
+| **Quantity/unit transform (M8)** | A swap can change the amount and unit, not just the name. Recipe-level: absolute `resolved_quantity`/`resolved_unit`, scaled by servings at consolidation. Library-level: an equivalence pair (`original_qty`/`original_unit`/`substitute_qty`/`substitute_unit`) the quick-pick uses to pre-fill the recipe-level absolute — user still confirms. Session override: the same pair, applied to the scaled quantity. Resolved in `consolidate_session()` / `_scaled_lines()`, never in pure `consolidate()`. No cross-unit conversion table — the entered number is the equivalence. See [Ingredient Handling > Substitution — the current spec](#substitution--the-current-spec). |
 | **Auto-apply** | **Never silent.** `is_default` and `get_default_substitution_map()` are removed. Every swap is confirmed per recipe. |
-| **Memory** | A remembered swap is a **suggestion accelerator, not an action** (merge decision #1). `ingredient_substitutions` → `remembered_substitutions` (drop `is_default`; add `note`, `last_used_at`). When an ingredient is confirmed and a remembered swap exists for its name, that swap is **pre-selected / top-ranked** in the confirm UI under a visible "from your saved swaps" label — the user still clicks confirm. The AI *flagging* call is never told about past choices; only the UI pre-fill uses memory. |
+| **Memory** | A remembered swap is a **suggestion accelerator, not an action** (the decision that remembered swaps are only suggestions). `ingredient_substitutions` → `remembered_substitutions` (drop `is_default`; add `note`, `last_used_at`). When an ingredient is confirmed and a remembered swap exists for its name, that swap is **pre-selected / top-ranked** in the confirm UI under a visible "from your saved swaps" label — the user still clicks confirm. The AI *flagging* call is never told about past choices; only the UI pre-fill uses memory. |
 | **Reversibility** | Recipe-level: clear `resolved_ingredient` in the editor → back to `name`. The original is never lost. Deleting a `remembered_substitutions` entry never cascades to recipes or past sessions. |
-| **Consolidation** | `consolidation.consolidate()` becomes **pure again** — it reads `resolved_ingredient` (fallback `name`) as plain data, no substitution logic. Session-only planning swaps resolve in the `consolidate_session()` orchestrator *before* the pure function runs (merge decision #3 — the plumbing built in Chunk 4.7 stays, the resolution point moves). "Also remember" from a planning swap may add a `remembered_substitutions` row (merge decision #4). |
-| **1-to-many** | Out of scope for now (merge decision #5). `substitute_name` stays a single freetext string; `buttermilk → "milk + lemon juice"` is one string the user splits by hand if they want. 1:many is a [Deferred Decision](./deferred-decisions.md#deferred-decisions). Note this is a *different* axis from the M8 quantity/unit transform — M8 is one substitute with a different amount, not several substitute ingredients. |
+| **Consolidation** | `consolidation.consolidate()` becomes **pure again** — it reads `resolved_ingredient` (fallback `name`) as plain data, no substitution logic. Session-only planning swaps resolve in the `consolidate_session()` orchestrator *before* the pure function runs (the decision to resolve swaps inside the consolidation step — the plumbing built in Chunk 4.7, plan screens stays, the resolution point moves). "Also remember" from a planning swap may add a `remembered_substitutions` row (the decision that "Also remember" is optional). |
+| **1-to-many** | Out of scope for now (the decision to keep the substitute a single text string). `substitute_name` stays a single freetext string; `buttermilk → "milk + lemon juice"` is one string the user splits by hand if they want. 1:many is a [Deferred Decision](./deferred-decisions.md#deferred-decisions). Note this is a *different* axis from the M8 quantity/unit transform — M8 is one substitute with a different amount, not several substitute ingredients. |
 
 **Kept from Phase 4:** the library table (as `remembered_substitutions`), multiple
 substitutes per ingredient, Settings management (reframed as a quick-pick library),
@@ -384,10 +396,10 @@ updated). Everything below describes the manual-only mechanism that remains.
   "save this swap" tick, after extraction, before the recipe is saved.
 - **Recipe editor** (`recipe-edit.js`) — the same per-ingredient controls, so a swap can be
   added / changed / cleared later. Clearing `resolved_ingredient` reverts to `name`.
-- **Checklist ingredient panel** (`checklist-panel.js` — 2026-09-30, chunk 7.5) — the
+- **Checklist ingredient panel** (`checklist-panel.js` — 2026-09-30, the checklist ingredient panel work) — the
   Substitute chip, reached by tapping a row's name then "Edit ingredient". Moved here from the
-  now-deleted Review screen (`session-review.js`, chunk 7.4). No longer a purely client-held
-  override: `remember=False` (the default, §0.3) writes a real `session_ingredient_merges`
+  now-deleted Review screen (`session-review.js`, the Review-screen removal). No longer a purely client-held
+  override: `remember=False` (the default; the checklist's "Just this plan" setting) writes a real `session_ingredient_merges`
   (kind='substitute') row, read by `session_consolidation.py` on every consolidate call — this
   is what resolved the Review→Checklist merge's one blocking open question (an ad-hoc swap now
   survives a page reload, since it's server-side, not in-memory JS). `remember=True` writes a
@@ -468,7 +480,7 @@ under-buying one of them).
   prompt never touches). Building this table resolved the older
   [Deferred Decisions](./deferred-decisions.md#deferred-decisions) "Ingredient synonym
   normalisation" item's Settings-managed-alias-table half at the time (2026-09-10). **Fully
-  resolved 2026-09-27 (Fix 2, F2.3)**: the extraction prompt no longer hardcodes any pairs as
+  resolved 2026-09-27 (Fix 2 = aliases feed the extraction prompt)**: the extraction prompt no longer hardcodes any pairs as
   literal prose — the 3 legacy pairs (plain-salt group, "minced beef"→"beef mince",
   "green onion"/"scallion"→"spring onion") are now `source='system'` rows in *this* table,
   seeded once by migration `62a354151f0d`, and every real capture's system prompt is built
@@ -476,15 +488,15 @@ under-buying one of them).
   both those `system` rows and the household's own `user` rows — so a capture-review screen now
   shows the canonical name immediately for a household preference too (e.g. "heavy cream" →
   "thickened cream"), not only at the final shopping list. See [Recipe
-  Capture](./recipe-capture.md#claude-extraction-prompt-system)'s 2026-09-27b note for the exact
-  mechanism (the two hint sections, the character cap, the §0a wrapping).
+  Capture](./recipe-capture.md#ai-extraction-prompt-system)'s 2026-09-27b note for the exact
+  mechanism (the two hint sections, the character cap, the Security > Prompt injection hardening wrapping).
 - **Seeded with one starter group** (`app/seed_data.py > INGREDIENT_ALIAS_SEEDS`): "canola
   oil" and "oil spray" → "vegetable oil" — these three read as the same product to most
   households. "olive oil" is deliberately **not** included — a household commonly wants it kept
   distinct from a neutral oil (dressing vs frying), and this is exactly the kind of pair that
   shouldn't be auto-merged without a deliberate choice. Add more groups via Settings only as a
   real gap shows up — same "don't pre-guess" rule as product_units/usuals/substitutions.
-- **Finding real gaps beyond hand-testing (Fix 5, 2026-09-27)**: dialect/product-naming pairs
+- **Finding real gaps beyond hand-testing (Fix 5 = ingredient grouping audit, 2026-09-27)**: dialect/product-naming pairs
   like "stock"/"broth" share no characters in common, so string-similarity matching can't find
   them — only world knowledge (an LLM, or unbounded manual review) can. `scripts/
   suggest_ingredient_groupings.py` runs a one-off, maintainer-triggered AI audit against a
@@ -498,9 +510,9 @@ under-buying one of them).
   `settings-substitutions.js`), add a new alias by typing both names, delete to ungroup.
   `alias_name` isn't editable after creation (delete + recreate); `canonical_name` can be
   changed (re-grouping), same convention as `RememberedSubstitution`'s immutable
-  `original_name`. **Resolved 2026-09-27/28 (Fix 3, then Fix 4)** — the checklist's own merge
+  `original_name`. **Resolved 2026-09-27/28 (Fix 3 = Combine action, then Fix 4 = as-you-type name hint)** — the checklist's own merge
   action (below) offers "always treat these as the same ingredient?" inline when a mismatch is
-  noticed at shopping-list time (Fix 3); the on-the-fly alias nudge (`static/js/
+  noticed at shopping-list time (Fix 3); the as-you-type name suggestion (`static/js/
   ingredient-name-hints.js`, mirroring Ingredient Unit Handling's Layer C) catches it even
   earlier, right where a name is first typed — recipe entry, recipe editing, and capture-review
   all offer "keep both, treat as one shopping item" the moment a close-but-not-identical name is
@@ -523,7 +535,7 @@ under-buying one of them).
   Existing groups read "Shown as “lemon” · N names"; Remove says what it changed and offers
   Undo. The same left-to-right pattern is used by Unit spellings, Saved ingredient swaps and
   the checklist's Combine panel (see [UI/UX > Plain language & no
-  ambiguity](./ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67)).
+  ambiguity](./ui-ux.md#plain-language--no-ambiguity)).
 
 ### Session-scoped merges — the ephemeral counterpart (Fix 3, 2026-09-27)
 
@@ -531,7 +543,7 @@ A durable alias is the right tool when a household is confident two names are *a
 shopping item. Sometimes that confidence isn't there yet — a one-off mismatch between two
 recipes this week, or a household member who wants to try folding two lines together without
 committing every future recipe to it. The checklist's merge action (see [Checklist Screen Logic >
-Checklist-time ingredient merge](./checklist-and-shopping.md#checklist-time-ingredient-merge-fix-3-2026-09-27))
+Checklist-time ingredient merge](./checklist-and-shopping.md#checklist-time-ingredient-merge-the-combine-action))
 answers "always treat these as the same ingredient?" with **no** by writing a
 `session_ingredient_merges` row instead of an `ingredient_aliases` one:
 
@@ -549,7 +561,9 @@ answers "always treat these as the same ingredient?" with **no** by writing a
 - **Never a Settings-managed concept** — it exists only to be created and consumed within one
   session's lifetime; there is nothing to list, edit, or delete outside of it.
 
-### Quantity/unit equivalence transform (added 2026-09-10, second kickoff)
+### Quantity/unit equivalence transform
+
+*(added 2026-09-10, second kickoff)*
 
 Raised by "lemon juice should be put on the list as a lemon, same thing with limes" — a
 plain rename isn't enough here, since "2 tbsp lemon juice" needs to become "1 lemon", not
@@ -654,7 +668,7 @@ sources contributed — add ONE synthetic negative-quantity `IngredientLine` (`r
 equal to `max(group sums) - sum(group sums)`. That single correction nets the group's total
 down to the max once summed with everything else in `consolidation.consolidate()` — every
 real line, and everything the breakdown/conversion-notes show, is completely untouched, so
-the transparency work already done for both features (CLAUDE.md > "Which recipe is this
+the transparency work already done for both features (docs/scaling-and-consolidation.md > "Which recipe is this
 ingredient from" and > Ingredient Aliases' conversion notes) still shows the real, honest,
 per-recipe, per-source amounts. `consolidation.py`'s pure summing logic needed **no
 changes** — it has no idea this happened, same discipline as every other extension to this
@@ -663,6 +677,15 @@ pipeline (aliases, coarse ingredients).
 ---
 
 ## Ingredient Unit Handling
+
+**Key to the layer letters used here and in code comments:**
+
+| Layer | What it is | Where it is described below |
+|---|---|---|
+| A | Unit spellings: different spellings of one unit ("tbsp", "tablespoon") are treated as the same unit | Layer A |
+| B | Known units per ingredient: the units one ingredient is already used with, worked out live from saved recipes | Layer B |
+| C | Duplicate-unit hint: a near-duplicate unit is flagged and never blocked | Layer C |
+| D | Bought by the bunch (code: coarse ingredients): amounts are ignored and recipes are counted instead | Layer D |
 
 **Status: in scope, built 2026-09-12** — designed across two rounds of Decision Dialogue with
 the maintainer, then all six chunks built and verified the same day (see chunk list below).
@@ -701,7 +724,7 @@ layers instead of one "unit vocabulary" table:
 Four genuinely different problems fell out of that: (A) the same unit spelled two ways is
 treated as two different units (the actual cause of most real `needs_review` false
 positives); (B) one ingredient legitimately has several valid units, so there is no single
-"correct" unit to restrict an ingredient to; (C) a near-duplicate unit should be nudged
+"correct" unit to restrict an ingredient to; (C) a near-duplicate unit should be flagged
 toward the existing one, never blocked; (D) some ingredients shouldn't have their quantity
 summed at all, because the real-world purchase granularity is coarser than any recipe's
 stated amount. Layers A-C fix the actual reconciliation bug with **zero manual admin**
@@ -742,7 +765,7 @@ request rather than parked separately.
   the chance of a fresh typo-variant ever being typed, with zero setup, because it's built
   entirely from what's already in the library.
 
-### Layer C — duplicate-unit nudge (warn, never block)
+### Layer C — duplicate-unit hint (warn, never block)
 - When a typed unit doesn't exactly match anything in that ingredient's own known-units list
   (Layer B) but is fuzzy-close to one, show a dismissible inline hint — "did you mean
   'clove', already used 3 times for this ingredient?" — using the same `difflib`-based
@@ -828,26 +851,27 @@ dividing line is objective fact vs. household preference:
    — those aren't spelling variants, they're a different magnitude that would need a real
    conversion, exactly what this table must never attempt (see [Data
    Model > unit_synonyms](#unit_synonyms)).
-2. **A new, fourth Gemini call** — `services/ai_extraction.py > classify_units()` — alongside
-   the existing three (`extract_recipe`, `flag_substitutions`, `suggest_sections`), same §0c
+2. **A new Gemini call** — `services/ai_extraction/ > classify_units()` — alongside
+   `extract_recipe` and `suggest_sections` (a third existing call, `flag_substitutions`, was still in place
+   when this was designed; it was removed 2026-09-30), same Security > API enable switch
    gates (`AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`), same
    allow-list-validate-the-output discipline as `suggest_sections()`. Given a batch of raw
    unit strings, it asks only "is this a common alternate spelling of `g`/`kg`/`ml`/`l`/
    `tsp`/`tbsp`/`cup` — the exact same unit, not merely similar or convertible — or something
    else?" and returns a match only for a confident, same-magnitude spelling variant; anything
    else (a genuinely different/discrete unit, or the model unsure) comes back unmatched, same
-   as today's behaviour. **Deliberately not wrapped in the §0a untrusted-content delimiter**
+   as today's behaviour. **Deliberately not wrapped in the prompt-injection (untrusted-content) delimiter**
    — unlike the other three calls, its input is a unit the household itself typed into the
    ingredient form, not scraped or photographed content, so it isn't the untrusted-content
-   scenario §0a exists for. The output is still allow-list validated regardless (never trust
+   scenario Security > Prompt injection hardening exists for. The output is still allow-list validated regardless (never trust
    a model's output just because it parsed) — that's a general habit here, not one specific
-   to §0a.
+   to Security > Prompt injection hardening.
 3. **The trigger** — `services/unit_synonyms.py > learn_new_units()`, called after an
    ingredient is saved (manual entry, editing, or an edit made on the capture-review screen)
    with whichever raw unit(s) it introduced. A unit is only worth spending a call to classify
    at all when it (a) doesn't already resolve to a standard unit via the existing
    `strip_plural()` / `unit_synonyms` map, **and** (b) has never appeared as any
-   `recipe_ingredients.unit` value anywhere before. Condition (b) is the load-bearing one: a
+   `recipe_ingredients.unit` value anywhere before. Condition (b) is the essential one: a
    real, established discrete unit (`clove`, `bunch`, `pinch`, …) only ever gets asked about
    **once**, the very first time it's ever typed anywhere in the app — the moment that first
    (correctly negative) classification happens, it becomes an "already-used" unit like any

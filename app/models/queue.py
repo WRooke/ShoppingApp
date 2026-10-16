@@ -1,6 +1,5 @@
 """``capture_queue`` — recipe-capture AI tasks deferred because both Gemini models hit
-their quota (429). Retried ~hourly by a lifespan background poller. See CLAUDE.md >
-Data Model > capture_queue and > AI Provider Migration (Phase 3.9 M3)."""
+their quota (429). Retried ~hourly by a lifespan background poller. See docs/data-model.md > Data Model > capture_queue and > AI Provider Migration (Phase 3.9 M3 = fallback chain and capture queue)."""
 
 from __future__ import annotations
 

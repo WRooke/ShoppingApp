@@ -7,7 +7,7 @@ actually bootstrapped at Phase 3 Chunk 3.7 (the first change to an existing tabl
 [Code Architecture > Migrations](./code-architecture.md#migrations) for that history. `Base.metadata.create_all()`
 still runs on startup as the fresh-DB fast path.
 
-**Audit columns (Schema & Planning Addendum #5, build now):** `created_at` / `updated_at` are
+**Audit columns (decided during early planning; built in Phase 1):** `created_at` / `updated_at` are
 added to every *mutable* table below — trivial to add now, effectively impossible to backfill
 onto existing rows later. `shopping_history`, `api_usage`, and `api_usage_resets` are
 append-only logs that are never updated after insert, so they keep their existing single
@@ -28,7 +28,7 @@ base_servings   INTEGER NOT NULL DEFAULT 4
 -- hand-typed recipe can still cite a book; a URL recipe can too). Not mutually exclusive
 -- with source_url and not enforced as such. source_page is TEXT not INTEGER so "142-143",
 -- "142 & 145", "ch. 3" all work. Both nullable; shown on the recipe detail view, editable
--- from edit mode and the capture review screen. See CLAUDE.md > Recipe Capture and
+-- from edit mode and the capture review screen. See docs/recipe-capture.md > Recipe Capture and
 -- > Build Phases > Phase 3 > Chunk 3.7.
 source_book     TEXT            -- nullable, e.g. "Ottolenghi SIMPLE"
 source_page     TEXT            -- nullable, e.g. "142" or "142-143"
@@ -36,27 +36,27 @@ notes           TEXT           -- nullable, free text for the recipe overall (se
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 
--- Recipe history (Schema & Planning Addendum #2). Build now (Phase 1 schema),
+-- Recipe history. Built in the Phase 1 schema,
 -- logic wired up from Phase 2 onward (increment on "mark cooked", editable rating/note
 -- from the recipe detail view).
 times_made      INTEGER NOT NULL DEFAULT 0
 last_made_at    DATETIME        -- nullable
 rating          TEXT            -- nullable: 'up' | 'down' | NULL=unrated. Tri-state, not 5-star.
 
--- "Suggest something" schema prep (Addendum #3). Fields only — no suggestion logic or UI yet.
+-- "Suggest something" schema prep. Fields only — no suggestion logic or UI yet.
 cuisine         TEXT            -- nullable, freetext or small controlled list
 protein         TEXT            -- nullable, freetext or small controlled list
 
--- Soft-delete (Addendum #5). Build now (Phase 1 schema).
+-- Soft-delete. Built in the Phase 1 schema.
 archived_at     DATETIME        -- nullable; set instead of hard DELETE. Default library views
                                  -- filter WHERE archived_at IS NULL (Phase 2 logic).
 
--- AI capture status (Phase 3.9 M6). JSON array of still-outstanding AI sub-tasks for this
--- recipe, e.g. ["flag_substitutions","suggest_sections"]. NULL or "[]" => nothing pending
+-- AI capture status (Phase 3.9 M6 = Pending AI processing badge). JSON array of still-outstanding AI sub-tasks for this
+-- recipe, e.g. ["suggest_sections"]. NULL or "[]" => nothing pending
 -- (manual recipes, or a capture fully processed). Drives the "Pending AI processing" badge.
 ai_tasks_pending TEXT           -- nullable
 ```
-> **Resolved at kickoff:** the addendum proposed a second freetext `note` field
+> **Resolved at kickoff:** an early planning note proposed a second freetext `note` field
 > ("used half the chilli next time") alongside the above. Confirmed this is the same purpose
 > as the existing `notes` column — no second field was added.
 
@@ -65,7 +65,7 @@ ai_tasks_pending TEXT           -- nullable
 id              INTEGER PRIMARY KEY
 recipe_id       INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE
 name            TEXT NOT NULL       -- normalised lowercase, e.g. "beef mince". This is the
-                                     -- ORIGINAL ingredient (merge decision #2 — no separate
+                                     -- ORIGINAL ingredient (the decision to keep the original ingredient in `name` — no separate
                                      -- original_ingredient column).
 quantity        REAL NOT NULL
 unit            TEXT               -- nullable for unitless items (e.g. "eggs", "onions")
@@ -103,18 +103,17 @@ is_preseeded    BOOLEAN NOT NULL DEFAULT 0
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
-> **Phase 4 note (multi-pack-size purchase units, confirmed 2026-09-05):** `ingredient_name
-> UNIQUE` is a Phase 1 simplification that assumes one purchase pack size per ingredient. Real
+> **Multiple pack sizes per ingredient (confirmed 2026-09-05, built in Phase 4):** the original `ingredient_name
+> UNIQUE` was a Phase 1 simplification that assumes one purchase pack size per ingredient. Real
 > usage doesn't hold that assumption — some ingredients are genuinely sold in more than one
 > pack size (e.g. a 500g tub and a 1kg tub of the same product), and resolving a required
 > quantity against only the smaller size produces the wrong answer (buying two 500g tubs to
-> cover 750g instead of one 1kg tub). At Phase 4 kickoff, ship an Alembic migration that drops
-> the `UNIQUE(ingredient_name)` constraint and replaces it with `UNIQUE(ingredient_name,
+> cover 750g instead of one 1kg tub). Phase 4's Alembic migration dropped
+> the `UNIQUE(ingredient_name)` constraint and replaced it with `UNIQUE(ingredient_name,
 > purchase_label)` instead — a `product_units` row becomes one of possibly several pack-size
 > options for that ingredient, rather than the only one. No other column changes. See
 > [Purchase unit resolution](./scaling-and-consolidation.md#scaling-logic) for the selection algorithm this enables, and
-> [Deferred Decisions](./deferred-decisions.md#deferred-decisions). Do not implement before Phase 4 — this is a plan,
-> not a build-now item, and most ingredients will keep exactly one seeded pack size regardless
+> [Deferred Decisions](./deferred-decisions.md#deferred-decisions). Most ingredients will keep exactly one seeded pack size regardless
 > (a second option only gets added, via Settings, for the specific items where it's been
 > noticed to matter — there's no requirement to pre-enumerate pack sizes for every ingredient
 > in the seed data).
@@ -136,7 +135,7 @@ assessment](./decision-history.md#staples--usefulness-assessment-raised-2026-09-
 "assume always on hand" checklist grouping this backed had no cadence/memory, so it never
 actually saved a have/need decision; removed at the application layer (no router, service, or
 frontend code references it any more). **The table itself is intentionally *not* dropped** —
-CLAUDE.md's non-negotiable rule 3 ("data loss on the NUC's production database is never
+The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules) ("data loss on the NUC's production database is never
 acceptable") forbids a migration that would risk any existing row. It stays in the schema,
 unused, forever; no new rows are ever seeded into it going forward.
 ```
@@ -149,11 +148,11 @@ updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 
 ### `remembered_substitutions`
 
-**Phase 3.9 M4** — the Phase 4 `ingredient_substitutions` table, reshaped: **`is_default`
+**Phase 3.9 M4 (substitution redesign)** — the Phase 4 `ingredient_substitutions` table, reshaped: **`is_default`
 dropped** (no silent auto-apply anywhere), `note` and `last_used_at` added. It is now a
 **pure quick-pick library** — it never applies a swap; it only pre-fills / top-ranks the
 suggestion in a per-recipe confirm UI (see
-[AI Provider Migration > Ingredient Substitution Flagging](./ingredient-handling.md#ingredient-substitution-flagging--the-merged-spec)).
+[Ingredient Handling > Substitution — the current spec](./ingredient-handling.md#substitution--the-current-spec)).
 A row is created only when the user ticks "save this swap" at capture-review, in the recipe
 editor, or (optionally) after a planning-session swap.
 
@@ -311,7 +310,7 @@ sort_order      INTEGER NOT NULL DEFAULT 0
 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
-> **Phase 4 note (leftovers, Addendum #1):** the weekly planner needs a slot type that is *not*
+> **Leftovers slots (decided during early planning; built in Phase 4):** the weekly planner needs a slot type that is *not*
 > a recipe — "leftovers from [session/day]" — which pulls no ingredients into consolidation.
 > No new table: `recipe_id` becomes nullable and a `slot_type` flag (`'recipe'` | `'leftovers'`)
 > is added to this table **when Phase 4 build starts**, not now — do not implement speculatively.
@@ -367,7 +366,7 @@ anylist_response_json TEXT          -- nullable, raw AnyList response for diagno
 
 ### `usual_items`
 
-**Phase 5 Chunk 5.4** — "the usuals": recurring non-recipe household items (laundry powder,
+**Phase 5 Chunk 5.4 (The usuals)** — "the usuals": recurring non-recipe household items (laundry powder,
 dish soap) bought on a schedule independent of meal planning. Was distinct from the now-retired
 [`staples`](#staples) in the one way that mattered even before that removal: this table has
 real cadence/memory (`cadence_days`/`last_added_at`), which `staples` never did. Managed in
@@ -387,15 +386,15 @@ updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 
 ### `ai_call_log`
 
-**Phase 3.9 M5** — replaces `api_usage` + `api_usage_resets` (both dropped in the same
-migration; there is no real data — Chunk 3.6 never made a live call). Gemini's free tier has
+**Phase 3.9 M5 (diagnostics rework)** — replaces `api_usage` + `api_usage_resets` (both dropped in the same
+migration; there is no real data — Chunk 3.6 (live AI verification) never made a live call). Gemini's free tier has
 no per-call dollar cost, so there is no cost column and no "reset spend tracker". One
 append-only row per **attempted** Gemini call:
 
 ```
 id              INTEGER PRIMARY KEY
 timestamp       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-task            TEXT NOT NULL       -- 'extract' | 'flag_substitutions' | 'suggest_sections'
+task            TEXT NOT NULL       -- 'extract' | 'suggest_sections' (| 'flag_substitutions' on rows written before 2026-09-30, when that call was removed)
 model           TEXT NOT NULL       -- 'gemini-2.5-flash' | 'gemini-2.5-flash-lite'
 outcome         TEXT NOT NULL       -- 'success' | 'quota' | 'error'  ('quota' = 429; a task
                                      -- that then went to the queue also gets a 'queued' row —
@@ -410,14 +409,14 @@ log shows the most recent N. Append-only — never edited or deleted.
 
 ### `capture_queue`
 
-**Phase 3.9 M3** — a capture task deferred because both `gemini-2.5-flash` and
+**Phase 3.9 M3 (fallback chain and capture queue)** — a capture task deferred because both `gemini-2.5-flash` and
 `gemini-2.5-flash-lite` returned `429`. Retried ~hourly by a lifespan background poller (not
 on an assumed fixed reset). On success the task runs through the normal capture pipeline and
 its row is deleted.
 
 ```
 id              INTEGER PRIMARY KEY
-task            TEXT NOT NULL       -- 'extract_url' | 'extract_photo' | 'flag_substitutions' | 'suggest_sections'
+task            TEXT NOT NULL       -- 'extract_url' | 'extract_photo' | 'suggest_sections' (| 'flag_substitutions' on rows written before 2026-09-30, when that call was removed)
 payload_json    TEXT NOT NULL       -- JSON: {url|text} or {image_path}; plus {recipe_id} for the
                                      -- post-extraction enrichment tasks (flag/suggest)
 recipe_id       INTEGER            -- nullable REFERENCES recipes(id) ON DELETE CASCADE — set for
@@ -435,7 +434,7 @@ From the [Shopping List Store Layout](./checklist-and-shopping.md#shopping-list-
 (Phase 1 schema) — see that section for the rationale. **Resolved at kickoff:**
 `product_sections` keys off `ingredient_name` (text), matching the existing
 `product_units.ingredient_name` convention, rather than a `product_id` FK — there is no
-separate numeric "product" entity anywhere else in this schema, so the addendum's original
+separate numeric "product" entity anywhere else in this schema, so the original shop-layout note's
 `product_id` FK didn't resolve to anything.
 
 ```

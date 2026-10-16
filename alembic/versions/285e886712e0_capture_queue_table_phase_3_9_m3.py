@@ -1,11 +1,11 @@
-"""capture_queue table (Phase 3.9 M3)
+"""capture_queue table (Phase 3.9 M3 = fallback chain and capture queue)
 
 Revision ID: 285e886712e0
 Revises: 3474369f4c79
 Create Date: 2026-09-06
 
 New whole table — capture AI tasks deferred on a 429 from both Gemini models, retried
-hourly. See CLAUDE.md > Data Model > capture_queue.
+hourly. See docs/data-model.md > Data Model > capture_queue.
 """
 from typing import Sequence, Union
 

@@ -1,6 +1,6 @@
 """Migration test for a1b2c3d4e5f6 (session_checklist_items.have_quantity / have_unit).
 
-CLAUDE.md non-negotiable rule 3: an existing checklist row must come through the upgrade
+The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules): an existing checklist row must come through the upgrade
 byte-identical, with the two new columns NULL ("nothing recorded").
 """
 

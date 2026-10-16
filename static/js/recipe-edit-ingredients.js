@@ -1,6 +1,6 @@
-/* Ingredient row rendering for recipe-edit.js — split out per CLAUDE.md > Code Architecture
+/* Ingredient row rendering for recipe-edit.js — split out per docs/code-architecture.md > Code Architecture
    & Maintainability > file size discipline (recipe-edit.js was pushing past ~400 lines once
-   the Chunk 6.2 labelled-field rewrite + Undo-toast wiring landed). Small DOM helpers are
+   the Chunk 6.2 (recipe and import screen design) labelled-field rewrite + Undo-toast wiring landed). Small DOM helpers are
    duplicated rather than imported, matching this file family's existing precedent (recipes.js/
    recipe-form.js/capture-review.js already each keep their own copy) — feature files stay
    self-contained rather than reaching into each other's internals. */
@@ -73,9 +73,9 @@
     row.appendChild(grid);
     row.appendChild(miniField("Preparation", prepInput));
     row.appendChild(global.UnitHints.attach(nameInput, unitInput)); // 2026-09-12, see unit-hints.js
-    row.appendChild(global.IngredientNameHints.attach(nameInput)); // Fix 4, see ingredient-name-hints.js
+    row.appendChild(global.IngredientNameHints.attach(nameInput)); // Fix 4 (as-you-type name hint), see ingredient-name-hints.js
 
-    // Substitution (Phase 3.9 M4) — the swap this recipe uses. Blank clears it.
+    // Substitution (Phase 3.9 M4 = substitution redesign) — the swap this recipe uses. Blank clears it.
     var resolvedInput = el("input");
     resolvedInput.type = "text";
     resolvedInput.value = ing.resolved_ingredient || "";
@@ -86,7 +86,7 @@
     subNoteInput.value = ing.substitution_note || "";
     subNoteInput.className = "settings-notes-input";
 
-    // Substitution quantity/unit transform (Phase 3.9 M8) — the swap's absolute amount when
+    // Substitution quantity/unit transform (Phase 3.9 M8 = substitution amount/unit change) — the swap's absolute amount when
     // it isn't 1:1 in this recipe's unit ("2 cob" -> "2 can"). Blank = keep this row's own
     // quantity/unit. Only meaningful with a resolved ingredient set.
     var subQtyInput = el("input");
@@ -140,7 +140,7 @@
         })
         .then(function (updated) {
           // In place, no reload: a full re-render also rebuilt every OTHER row, throwing away
-          // anything typed there but not yet saved (2026-10-11, Chunk 6.7).
+          // anything typed there but not yet saved (2026-10-11, Chunk 6.7, user-feedback batch).
           if (updated) {
             nameInput.value = updated.name != null ? updated.name : nameInput.value;
             ing.name = updated.name != null ? updated.name : ing.name;
@@ -159,7 +159,7 @@
         });
     });
 
-    // Undo toast, not a confirm() dialog (kickoff decision #2) — reload() is a same-view
+    // Undo toast, not a confirm() dialog (Phase 6 decision: Undo toast on delete) — reload() is a same-view
     // DOM rebuild, not a navigation, so (unlike the whole-recipe delete in recipe-edit.js)
     // there's no hashchange racing the toast here; showing it is safe immediately after the
     // delete.

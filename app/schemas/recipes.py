@@ -3,7 +3,7 @@
 Kept separate from the SQLAlchemy ORM in app/models/recipes.py on purpose — an
 internal column can change without every response shape changing, and vice
 versa. Routers import from here, never expose a raw ORM object as a response
-body. See CLAUDE.md > Code Architecture & Maintainability.
+body. See docs/code-architecture.md > Code Architecture & Maintainability.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def _validate_resolved_transform(
     resolved_quantity: float | None,
     resolved_unit: str | None,
 ) -> None:
-    """Shared rule for the recipe-level M8 quantity/unit transform (CLAUDE.md > AI Provider
+    """Shared rule for the recipe-level M8 quantity/unit transform (docs/recipe-capture.md > AI Provider
     Migration > Ingredient Substitution Flagging > Quantity/unit transform):
 
       * ``resolved_quantity`` and ``resolved_unit`` are both-or-neither — a bare amount with
@@ -54,11 +54,11 @@ class RecipeIngredientBase(BaseModel):
     unit: str | None = None
     preparation: str | None = None
     sort_order: int = 0
-    # Substitution (Phase 3.9 M4) — the swap this recipe uses, set by explicit per-recipe
-    # confirmation. None = use `name`. See CLAUDE.md > AI Provider Migration.
+    # Substitution (Phase 3.9 M4 = substitution redesign) — the swap this recipe uses, set by explicit per-recipe
+    # confirmation. None = use `name`. See docs/recipe-capture.md > AI Provider Migration.
     resolved_ingredient: str | None = None
     substitution_note: str | None = None
-    # Substitution quantity/unit transform (Phase 3.9 M8) — the swap's absolute amount when it
+    # Substitution quantity/unit transform (Phase 3.9 M8 = substitution amount/unit change) — the swap's absolute amount when it
     # differs ("2 cob" -> "2 can"). Both-or-neither; only valid with resolved_ingredient set.
     resolved_quantity: float | None = None
     resolved_unit: str | None = None
@@ -125,8 +125,8 @@ class RecipeBase(BaseModel):
     source_url: str | None = None
     source_image_path: str | None = None
     base_servings: int = Field(4, ge=1)
-    # Source provenance (Chunk 3.7) — free text, orthogonal to source_type/source_url.
-    # See CLAUDE.md > Data Model > recipes.
+    # Source provenance (Chunk 3.7, recipe source URL / cookbook reference) — free text, orthogonal to source_type/source_url.
+    # See docs/data-model.md > Data Model > recipes.
     source_book: str | None = Field(None, max_length=200)
     source_page: str | None = Field(None, max_length=50)
     notes: str | None = None
@@ -138,7 +138,7 @@ class RecipeCreate(RecipeBase):
     ingredients: list[RecipeIngredientCreate] = Field(default_factory=list)
     # Duplicate-recipe prevention (Phase 4) — when true, skip the possible-duplicate check
     # for this request only. The frontend sets it after the user clicks "Save anyway" on the
-    # 409 warning panel. See CLAUDE.md > Duplicate Recipe Prevention.
+    # 409 warning panel. See docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention.
     allow_duplicate: bool = False
 
 
@@ -146,7 +146,7 @@ class RecipeUpdate(BaseModel):
     """Partial update — every field optional. Ingredients are managed through the
     nested ingredient endpoints, not through this. `rating` is included here (not
     in RecipeBase) since it's user-editable from the detail view but never set at
-    creation time — see CLAUDE.md > Data Model > recipes."""
+    creation time — see docs/data-model.md > Data Model > recipes."""
 
     name: str | None = Field(None, min_length=1)
     source_type: SourceType | None = None
@@ -201,7 +201,7 @@ class RecipeListResponse(BaseModel):
     offset: int
 
 
-# --- duplicate detection (Phase 4 — see CLAUDE.md > Duplicate Recipe Prevention) ----------
+# --- duplicate detection (Phase 4 — see docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention) ----------
 
 MatchedSignal = Literal["source_url", "name_exact", "book_page", "fuzzy_name"]
 

@@ -98,9 +98,9 @@
 - [x] **Chunk 7 — Admin reduction: auto-learn unit spellings.** Documented above, same day,
       before any code, per the maintainer's explicit ask.
       Done 2026-09-12. `services/ai_extraction.py > classify_units()` — the 4th Gemini call,
-      same §0c gates (`AI_EXTRACTION_ENABLED`/`AI_EXTRACTION_FAKE_MODE`) and
+      same API enable switch checks (docs/security.md > API enable switch) (`AI_EXTRACTION_ENABLED`/`AI_EXTRACTION_FAKE_MODE`) and
       allow-list-validate-the-output discipline as `suggest_sections()`, but — uniquely
-      among the four — does **not** wrap its input in the §0a untrusted-content delimiter,
+      among the four — does **not** wrap its input in the prompt-injection (untrusted-content) delimiter,
       since it's classifying the household's own typed unit strings, not scraped/
       photographed content (module docstring spells this out explicitly so it isn't
       mistaken for an oversight later). `services/unit_synonyms.py > learn_new_units()` —

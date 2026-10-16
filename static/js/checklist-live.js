@@ -1,4 +1,4 @@
-/* Checklist — live updates between phones (2026-10-16, Chunk 6.7 polish batch 3).
+/* Checklist — live updates between phones (2026-10-16, Chunk 6.7, user-feedback batch polish batch 3).
 
    Two people can have the same checklist open. When one taps Need it, the other sees it within
    about a second, without anyone pressing refresh. How: the phone holds ONE request open

@@ -1,8 +1,7 @@
 /* Shared "you might already have this recipe" warning panel + a live check-on-blur
    helper. Used by recipe-form.js (manual entry), capture-review.js (capture confirm)
-   and capture.js (URL short-circuit). One place for the panel markup per CLAUDE.md >
-   Code Architecture & Maintainability ("a new feature is a new file"), and per
-   CLAUDE.md > Duplicate Recipe Prevention this is always warn-with-override, never a
+   and capture.js (URL short-circuit). One place for the panel markup per docs/code-architecture.md > Code Architecture & Maintainability ("a new feature is a new file"), and per
+   docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention this is always warn-with-override, never a
    block. */
 
 (function (global) {

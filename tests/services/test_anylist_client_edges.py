@@ -1,5 +1,5 @@
 """Edge and error paths of the AnyList connector that the matrix/fault suites don't reach
-(Chunk 6.7 branch-coverage pass — every remaining branch on the push path is either tested here or
+(Chunk 6.7, user-feedback batch branch-coverage pass — every remaining branch on the push path is either tested here or
 was unreachable and removed). docs/anylist-push.md > Test map."""
 
 from __future__ import annotations

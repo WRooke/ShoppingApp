@@ -1,6 +1,6 @@
 """Phase B step 1 (2026-09-20): does add-shopping-list-item with checked=true in the item
 message actually land as checked on re-fetch? Every ADD tested so far in this investigation has
-used checked=false -- this specific case is untested and load-bearing for the lossless
+used checked=false -- this specific case is untested and essential for the lossless
 delete+re-add design (it needs to preserve a checked item's checked state across the cycle).
 Throwaway, TestList only.
 

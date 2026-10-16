@@ -1,7 +1,6 @@
-"""Remembered substitutions — the quick-pick library (Phase 3.9 M4).
+"""Remembered substitutions — the quick-pick library (Phase 3.9 M4 = substitution redesign).
 
-Was a table of global auto-applying rules with an ``is_default``; that's gone (CLAUDE.md >
-AI Provider Migration > The substitution merge). A ``remembered_substitutions`` row NEVER
+Was a table of global auto-applying rules with an ``is_default``; that's gone (docs/recipe-capture.md > AI Provider Migration > The substitution merge). A ``remembered_substitutions`` row NEVER
 applies a swap — it only pre-fills / top-ranks the suggestion in a per-recipe confirm UI
 (capture review, recipe editor). The actual swap a recipe uses lives on
 ``recipe_ingredients.resolved_ingredient``.

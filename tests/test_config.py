@@ -1,5 +1,5 @@
 """Unit tests for app/config.py — the Phase 5 hybrid AnyList credential resolver
-(CLAUDE.md > Security §2). keyring is monkeypatched; no real Credential Manager access.
+(docs/security.md > AnyList credentials). keyring is monkeypatched; no real Credential Manager access.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ def test_keyring_failure_degrades_to_env(monkeypatch):
     assert s.anylist_secret_source == "env"
 
 
-def test_gates_default_off_and_target_list_defaults(monkeypatch):
+def test_enable_switches_default_off_and_target_list_defaults(monkeypatch):
     _stub_keyring(monkeypatch, {})
     s = Settings()
     assert s.anylist_enabled is False
@@ -85,7 +85,7 @@ def test_gates_default_off_and_target_list_defaults(monkeypatch):
     assert s.anylist_target_list_name == "TestList"
 
 
-def test_gates_parse_narrow_true(monkeypatch):
+def test_enable_switches_parse_narrow_true(monkeypatch):
     _stub_keyring(monkeypatch, {})
     monkeypatch.setenv("ANYLIST_ENABLED", "TRUE")
     monkeypatch.setenv("ANYLIST_FAKE_MODE", "yes")
@@ -96,7 +96,7 @@ def test_gates_parse_narrow_true(monkeypatch):
     assert s.anylist_target_list_name == "MyTestList"
 
 
-def test_gate_typo_fails_safe_to_false(monkeypatch):
+def test_enable_switch_typo_fails_safe_to_false(monkeypatch):
     _stub_keyring(monkeypatch, {})
     monkeypatch.setenv("ANYLIST_ENABLED", "ture")  # typo
     s = Settings()

@@ -2,8 +2,8 @@
 capture (URL/photo extraction + confirm-save).
 
 HTTP only: parse the request, call app/services/*.py, wrap the result in
-the {"ok": ...} envelope (see CLAUDE.md > API Conventions). Business logic and
-query construction live in the service layer — see CLAUDE.md > Code
+the {"ok": ...} envelope (see docs/code-architecture.md > API Conventions). Business logic and
+query construction live in the service layer — see docs/code-architecture.md > Code
 Architecture & Maintainability. Every exception raised below is translated to a
 structured envelope centrally in app/main.py, not here.
 """
@@ -35,7 +35,7 @@ from app.services import unit_synonyms as unit_synonyms_service
 from app.services.ai_extraction import AiQuotaExhaustedError, ExtractionResult
 
 # Returned (inside the {"ok": true} envelope) when a capture is parked on the retry queue
-# because every Gemini model is over quota (Phase 3.9 M3).
+# because every Gemini model is over quota (Phase 3.9 M3 = fallback chain and capture queue).
 _QUEUED = {
     "queued": True,
     "message": (
@@ -122,7 +122,7 @@ def list_recipes(
 
 # Declared before GET /{recipe_id} on purpose — otherwise "check-duplicate" is parsed as a
 # recipe id and 422s. Lets the review + manual-entry screens warn live on name-field blur
-# rather than only on a submit-and-bounce (CLAUDE.md > Duplicate Recipe Prevention).
+# rather than only on a submit-and-bounce (docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention).
 @router.get("/check-duplicate")
 def check_duplicate(
     name: str = Query(..., min_length=1),
@@ -151,7 +151,7 @@ def check_duplicate(
 # Ingredient Unit Handling Layer B (2026-09-12, CLAUDE.md) — units already used for this
 # ingredient, pooled across its ingredient_aliases group, most-frequent first. Same
 # declared-before-{recipe_id} reasoning as check-duplicate above. Feeds the unit-input
-# quick-picks and the Layer C duplicate-unit nudge in manual entry / editing / capture review.
+# quick-picks and the Layer C (duplicate-unit hint) in manual entry / editing / capture review.
 @router.get("/ingredient-units")
 def ingredient_units(
     name: str = Query(..., min_length=1), db: Session = Depends(get_db)
@@ -160,15 +160,15 @@ def ingredient_units(
     return {"ok": True, "data": {"units": units}}
 
 
-# Fix 4 (2026-09-27, CLAUDE.md > Ingredient Handling > Ingredient Aliases) — the full known
+# Fix 4 (2026-09-27, docs/ingredient-handling.md > Ingredient Handling > Ingredient Aliases) — the full known
 # ingredient-name vocabulary (normalised), fetched once client-side to power the on-the-fly
-# alias nudge on the name field, mirroring Layer C's own unit-field nudge above. Same
+# name suggestion on the name field, mirroring Layer C's own unit-field hint above. Same
 # declared-before-{recipe_id} reasoning as check-duplicate/ingredient-units above.
 @router.get("/ingredient-names")
 def ingredient_names(db: Session = Depends(get_db)) -> dict:
     names = recipes_service.known_ingredient_names(db)
     # `wording`: key -> the household's own written form where it differs ("black bean" ->
-    # "black beans"), so the nudge offers the wording, not the singular matching key.
+    # "black beans"), so the suggestion offers the wording, not the singular matching key.
     return {"ok": True, "data": {"names": names, "wording": recipes_service.known_ingredient_wording(db)}}
 
 
@@ -186,7 +186,7 @@ def update_recipe(recipe_id: int, data: RecipeUpdate, db: Session = Depends(get_
 
 @router.delete("/{recipe_id}")
 def archive_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
-    """Soft delete — sets archived_at. See CLAUDE.md > Data Model > recipes."""
+    """Soft delete — sets archived_at. See docs/data-model.md > Data Model > recipes."""
     recipes_service.archive_recipe(db, recipe_id)
     return {"ok": True, "data": {"id": recipe_id, "archived": True}}
 
@@ -194,14 +194,14 @@ def archive_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
 @router.post("/{recipe_id}/restore")
 def restore_recipe(recipe_id: int, db: Session = Depends(get_db)) -> dict:
     """Clears archived_at — the "Restore existing" action on the duplicate-recipe warning
-    panel (CLAUDE.md > Duplicate Recipe Prevention)."""
+    panel (docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention)."""
     recipe = recipes_service.unarchive_recipe(db, recipe_id)
     return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}
 
 
 @router.post("/{recipe_id}/mark-cooked")
 def mark_cooked(recipe_id: int, db: Session = Depends(get_db)) -> dict:
-    """"I cooked this" (Phase 6 Chunk 6.6) — increments times_made, stamps last_made_at."""
+    """"I cooked this" (Phase 6 Chunk 6.6, mark cooked, history and archive) — increments times_made, stamps last_made_at."""
     recipe = recipes_service.mark_cooked(db, recipe_id)
     return {"ok": True, "data": RecipeRead.model_validate(recipe).model_dump(mode="json")}
 
@@ -240,21 +240,21 @@ def delete_ingredient(recipe_id: int, ingredient_id: int, db: Session = Depends(
     return {"ok": True, "data": {"id": ingredient_id, "deleted": True}}
 
 
-# --- capture (Phase 3 — see CLAUDE.md > Recipe Capture — AI Extraction) --------------------
+# --- capture (Phase 3 — see docs/recipe-capture.md > Recipe Capture — AI Extraction) --------------------
 #
 # The two extraction endpoints below return a CaptureResult for the frontend to review —
-# nothing is saved yet. /capture/confirm is the separate save step (Chunk 3.4). All three
+# nothing is saved yet. /capture/confirm is the separate save step (Chunk 3.4, capture review screen). All three
 # route through ai_extraction.extract_ingredients() (URL/photo) or
 # recipes_service.create_recipe_from_capture() (confirm), which enforce the
-# enable-switch/fake-mode gates and prompt-injection hardening — see CLAUDE.md > Security
-# §0a/§0c. Their exceptions (AiExtractionDisabledError, AiExtractionError, RecipeFetchError,
+# enable-switch and fake-mode checks and prompt-injection hardening — see docs/security.md > Prompt injection hardening
+# and > API enable switch. Their exceptions (AiExtractionDisabledError, AiExtractionError, RecipeFetchError,
 # InvalidImageError) are translated to the envelope centrally in app/main.py, not here.
 
 
 @router.post("/capture/url")
 def capture_from_url(data: CaptureUrlRequest, db: Session = Depends(get_db)) -> dict:
     # Duplicate short-circuit: an exact source_url match returns a 409 BEFORE the Gemini extraction
-    # call, so a re-capture of a page already in the library costs nothing (CLAUDE.md >
+    # call, so a re-capture of a page already in the library costs nothing (docs/duplicate-recipe-prevention.md >
     # Duplicate Recipe Prevention > URL capture short-circuit). "Capture again anyway"
     # re-submits with allow_duplicate=true.
     if not data.allow_duplicate:
@@ -320,7 +320,7 @@ def capture_from_photo(
 
 @router.get("/capture/progress/{token}")
 def capture_progress(token: str) -> dict:
-    """Polled by capture.js while a capture request is in flight (CLAUDE.md > UI/UX > Real
+    """Polled by capture.js while a capture request is in flight (docs/ui-ux.md > UI/UX > Real
     progress indicators) — see app/services/progress_tracker.py. 404 when the token is
     unknown (never started, already finished long enough ago to expire, or the frontend
     generated one but the capture hasn't reached its first step_active() call yet — the

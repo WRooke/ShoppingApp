@@ -1,12 +1,12 @@
 """"The usuals" — recurring non-recipe household items on a day-based cadence (Phase 5
-Chunk 5.4). CRUD + a due-date calculation. Plain Python / SQLAlchemy, no ``fastapi`` import.
+Chunk 5.4 (The usuals)). CRUD + a due-date calculation. Plain Python / SQLAlchemy, no ``fastapi`` import.
 
 An item is *due* when it has never been added (``last_added_at IS NULL``) or when
 ``last_added_at + cadence_days`` has passed. Due items surface as their own group on the
-checklist (Chunk 5.5); pushing one to AnyList stamps ``last_added_at`` (Chunk 5.6). Seeded
+checklist (Chunk 5.5, checklist screen); pushing one to AnyList stamps ``last_added_at`` (Chunk 5.6, sending to AnyList and send history). Seeded
 empty — no pre-guessing, same "don't pre-guess" discipline as every other reference list.
 
-See CLAUDE.md > Checklist Screen Logic > "The usuals" and > Data Model > usual_items.
+See docs/checklist-and-shopping.md > Checklist Screen Logic > "The usuals" and > Data Model > usual_items.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_aware(value: datetime) -> datetime:
-    """Coerce a naive datetime to aware UTC. Belt-and-braces alongside the UTCDateTime column
+    """Coerce a naive datetime to aware UTC. A second safeguard alongside the UTCDateTime column
     type (app/database.py): that type guarantees anything round-tripped through the DB comes
     back aware, but a caller can still hand is_due()/due_items()/mark_added() a naive value
     directly (an in-memory object never committed, a hand-built ``as_of``/``when``) — this is
@@ -134,7 +134,7 @@ def due_items(db: Session, *, as_of: datetime | None = None) -> list[UsualItem]:
 
 def due_as_checklist_rows(db: Session) -> list:
     """Due items shaped as schemas.checklist.ChecklistUsualRead for the checklist load
-    response (Chunk 5.3's `due_usuals` hook)."""
+    response (Chunk 5.3, checklist load's `due_usuals` hook)."""
     from app.schemas.checklist import ChecklistUsualRead
 
     return [

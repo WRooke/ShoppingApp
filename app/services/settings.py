@@ -1,6 +1,5 @@
-"""Settings business logic — CRUD for the `product_units` reference catalogue (see CLAUDE.md >
-Data Model > product_units). Plain Python / SQLAlchemy only, no `fastapi` import here — see
-CLAUDE.md > Code Architecture & Maintainability. app/routers/settings.py calls these functions
+"""Settings business logic — CRUD for the `product_units` reference catalogue (see docs/data-model.md > Data Model > product_units). Plain Python / SQLAlchemy only, no `fastapi` import here — see
+docs/code-architecture.md > Code Architecture & Maintainability. app/routers/settings.py calls these functions
 and translates the exceptions below into the {"ok": false, "error": ...} envelope.
 """
 
@@ -23,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_section_vocabulary() -> list[str]:
-    """The canonical, fixed section list for the capture review UI's dropdown (Chunk 3.4) and
-    the future store-setup UI (Phase 6) — see CLAUDE.md > Section Vocabulary Starter List.
+    """The canonical, fixed section list for the capture review UI's dropdown (Chunk 3.4, capture review screen) and
+    the future store-setup UI (Phase 6) — see docs/data-model.md > Section Vocabulary Starter List.
     Not a DB table, so this is the whole "service": expose the Python constant without every
     caller importing app.seed_data directly."""
     return list(SECTION_VOCABULARY)
@@ -45,7 +44,7 @@ class DuplicateProductUnitNameError(Exception):
 def _normalise_name(name: str) -> str:
     """Delegates to the shared text_normalize.normalise_ingredient_name() (2026-09-27) — so
     `product_units` lines up with consolidation's own grouping key (plurals/hyphens included),
-    not just a lowercase+strip match. See CLAUDE.md > Ingredient Normalisation."""
+    not just a lowercase+strip match. See docs/ingredient-handling.md > Ingredient Normalisation."""
     return text_normalize.normalise_ingredient_name(name)
 
 
@@ -90,7 +89,7 @@ def list_product_units(
     db: Session, *, limit: int = 100, offset: int = 0
 ) -> tuple[list[ProductUnit], int]:
     """Returns (page of product units, total count) for pagination (see
-    CLAUDE.md > API Conventions). Ordered by ingredient name — a short
+    docs/code-architecture.md > API Conventions). Ordered by ingredient name — a short
     reference list, not a feed, so alphabetical is what makes it scannable."""
     query = db.query(ProductUnit)
     total = query.count()
@@ -128,8 +127,7 @@ def update_product_unit(
 def delete_product_unit(db: Session, product_unit_id: int) -> None:
     """Hard delete — product_units has no soft-delete column, and deleting a
     (possibly is_preseeded) pack size the household doesn't actually buy is
-    exactly what this Settings screen is for (see CLAUDE.md > Build Phases >
-    Phase 2 > Chunk 2.5)."""
+    exactly what this Settings screen is for (see docs/build-status/phase-2-recipe-library.md > Chunk 2.5, Settings UI)."""
     product_unit = _get_product_unit(db, product_unit_id)
     db.delete(product_unit)
     db.commit()

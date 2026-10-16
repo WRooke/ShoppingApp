@@ -1,8 +1,7 @@
 """Starter data for the reference catalogue.
 
-Phase 1 defines the data and an idempotent ``seed_reference_data`` helper but
-does NOT call it. Wiring the seed into first-run startup is a Phase 2
-deliverable (see CLAUDE.md > Build Phases > Phase 2).
+``seed_reference_data`` is idempotent and is called at app startup (see ``app/main.py``), so
+running it again never duplicates or overwrites rows.
 """
 
 from __future__ import annotations
@@ -18,24 +17,24 @@ logger = logging.getLogger(__name__)
 # Australian common grocery pack sizes. Marked is_preseeded=1 on insert.
 #
 # A few ingredients carry MORE THAN ONE pack size on purpose (eggs, milk, yoghurt) — see
-# CLAUDE.md > Scaling Logic > "Multi-pack, seeded from day one". This is a deliberate small
+# docs/scaling-and-consolidation.md > Scaling Logic > "Multi-pack, seeded from day one". This is a deliberate small
 # departure from the "don't pre-enumerate pack sizes" norm, so the several-rows purchase
 # resolution path (services/purchase_units.py) is exercised in real use from the start.
-# Uniqueness is (ingredient_name, purchase_label) as of Phase 4 Chunk 4.1.
+# Uniqueness is (ingredient_name, purchase_label) as of Phase 4 Chunk 4.1 (planning-engine migrations).
 PRODUCT_UNIT_SEEDS: list[dict] = [
     # Dairy & eggs
-    # 2026-09-27 (ingredient-name-matching plan, F1.3) — "eggs"/"diced tomatoes" below renamed
-    # to their singularised form, and "yoghurt" to "greek yoghurt" (F0's promoted household
+    # 2026-09-27 (2026-09-27 ingredient-name matching work) — "eggs"/"diced tomatoes" below renamed
+    # to their singularised form, and "yoghurt" to "greek yoghurt" (the yoghurt pack-size repoint's promoted household
     # preference — see INGREDIENT_ALIAS_SEEDS below), because seed_reference_data() inserts
     # these rows directly, bypassing settings.py's normaliser entirely — the static source text
     # here IS the final matching key, not just a display label. Leaving a plural/orphaned form
     # here would keep re-seeding an unreachable row on every fresh install, the same class of
-    # bug F1.5's migration fixes for existing databases.
+    # bug the normalisation backfill migration's migration fixes for existing databases.
     {"ingredient_name": "egg", "purchase_label": "half dozen", "purchase_qty": 6, "purchase_unit": "each"},
     {"ingredient_name": "egg", "purchase_label": "dozen", "purchase_qty": 12, "purchase_unit": "each"},
-    # 2026-09-27 (Fix 5, F5.2) — "milk" -> "full cream milk" is now an accepted household alias
+    # 2026-09-27 (Fix 5 = ingredient grouping audit) — "milk" -> "full cream milk" is now an accepted household alias
     # (INGREDIENT_ALIAS_SEEDS below), so these must be seeded under the alias's canonical name
-    # or they'd become unreachable the same way F0's "yoghurt" rows were — see migration
+    # or they'd become unreachable the same way the yoghurt pack-size repoint's "yoghurt" rows were — see migration
     # f9e79977f8b0 for the equivalent repoint on existing databases.
     {"ingredient_name": "full cream milk", "purchase_label": "1L bottle", "purchase_qty": 1, "purchase_unit": "L"},
     {"ingredient_name": "full cream milk", "purchase_label": "2L bottle", "purchase_qty": 2, "purchase_unit": "L"},
@@ -58,7 +57,7 @@ PRODUCT_UNIT_SEEDS: list[dict] = [
     {"ingredient_name": "brown sugar", "purchase_label": "500g bag", "purchase_qty": 500, "purchase_unit": "g"},
     {"ingredient_name": "basmati rice", "purchase_label": "1kg bag", "purchase_qty": 1000, "purchase_unit": "g"},
     {"ingredient_name": "pasta", "purchase_label": "500g pack", "purchase_qty": 500, "purchase_unit": "g"},
-    # 2026-09-27 (Fix 5, F5.2) — "diced tomato"/"crushed tomato" -> "canned tomato" is now an
+    # 2026-09-27 (Fix 5) — "diced tomato"/"crushed tomato" -> "canned tomato" is now an
     # accepted household alias (INGREDIENT_ALIAS_SEEDS below); same repoint reasoning as milk
     # above.
     {"ingredient_name": "canned tomato", "purchase_label": "400g can", "purchase_qty": 400, "purchase_unit": "g"},
@@ -69,8 +68,8 @@ PRODUCT_UNIT_SEEDS: list[dict] = [
 ]
 
 SECTION_VOCABULARY: list[str] = [
-    # Canonical, fixed, store-independent section vocabulary (Shop Layout Reorganisation
-    # addendum). Not a DB table — store_sections.section_name and product_sections.section_name
+    # Canonical, fixed, store-independent section vocabulary (from the shop-layout design,
+    # docs/checklist-and-shopping.md > Shopping List Store Layout). Not a DB table — store_sections.section_name and product_sections.section_name
     # are free text, but the UI should only offer these. Starter list; confirm/adjust with the
     # household before the store setup + capture-time section-suggestion UI is built.
     "produce",
@@ -85,7 +84,7 @@ SECTION_VOCABULARY: list[str] = [
     "other",
 ]
 
-# "Same shopping item" groupings (2026-09-10 — see CLAUDE.md > Ingredient Aliases). Seeded
+# "Same shopping item" groupings (2026-09-10 — see docs/ingredient-handling.md > Ingredient Aliases). Seeded
 # with the one group that motivated the feature: "canola oil" and "oil spray" fold onto
 # "vegetable oil" — these three read as the same product to most households, so recipe
 # wordings for any of them correctly consolidate onto one shopping-list line.
@@ -105,7 +104,7 @@ SECTION_VOCABULARY: list[str] = [
 # maintainer flagged it as genuinely recipe-dependent (sometimes a real ingredient in its own
 # right, e.g. a marinade base bought as a carton, not always a fresh-squeeze stand-in), so
 # auto-converting it would be wrong often enough to not guess at.
-# 2026-09-27 (Fix 2, F2.2) — the 3 legacy hardcoded canonicalisation pairs the extraction
+# 2026-09-27 (Fix 2 = aliases feed the extraction prompt) — the 3 legacy hardcoded canonicalisation pairs the extraction
 # prompt used to carry as literal prose (plain-salt group, "minced beef" -> "beef mince",
 # "green onion"/"scallion" -> "spring onion") are seeded once, ever, by migration
 # 62a354151f0d, `source='system'`, NOT here. Do not add them to this list — this dict re-runs
@@ -141,8 +140,8 @@ INGREDIENT_ALIAS_SEEDS: list[dict] = [
         "note": "roughly 2 tsp zest per lime",
     },
     # 2026-09-27 — household-stated naming preferences, same standing as the oil-variant group
-    # above (a real, current preference, not a guess — see the ingredient-name-matching plan's
-    # F0 chunk). "heavy cream"/"broth" don't appear in any real recipe yet (confirmed against
+    # above (a real, current preference, not a guess — see the ingredient-name matching work's
+    # The yoghurt pack-size repoint chunk). "heavy cream"/"broth" don't appear in any real recipe yet (confirmed against
     # the prod DB) — these are forward-looking, so a future US-worded scraped recipe resolves
     # correctly the moment it's captured, not just at shopping-list time.
     {"alias_name": "heavy cream", "canonical_name": "thickened cream"},
@@ -156,7 +155,7 @@ INGREDIENT_ALIAS_SEEDS: list[dict] = [
     # first hop at consolidation time (alias_map() is a single dict lookup, no chain-following).
     {"alias_name": "plain yogurt", "canonical_name": "greek yoghurt"},  # AU spelling + preference
     {"alias_name": "plain yoghurt", "canonical_name": "greek yoghurt"},
-    # 2026-09-27 (Fix 5, F5.2) — accepted from a real `suggest_ingredient_groupings()` audit run
+    # 2026-09-27 (Fix 5) — accepted from a real `suggest_ingredient_groupings()` audit run
     # against the prod DB. Maintainer reviewed all 20 suggested groups; these 8 pairs were
     # confirmed as genuine "same shopping item" preferences. Explicitly rejected (not seeded):
     # "flour"/"plain flour" (self-raising flour is a distinct real product — keep separate);
@@ -186,8 +185,8 @@ INGREDIENT_ALIAS_SEEDS: list[dict] = [
     {"alias_name": "crushed tomato", "canonical_name": "canned tomato"},
 ]
 
-# Unit-spelling canonicalisation (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling >
-# Layer A). A small, ONE-TIME, universal set of English cooking-measurement word-forms — not
+# Unit-spelling canonicalisation (2026-09-12 — see docs/ingredient-handling.md > Ingredient Unit Handling >
+# Layer A (unit spellings)). A small, ONE-TIME, universal set of English cooking-measurement word-forms — not
 # per-ingredient, so this isn't the admin the maintainer is avoiding.
 #
 # Only the BASE (already-singular) form of each word-form needs a row: resolve_unit() always
@@ -217,7 +216,7 @@ UNIT_SYNONYM_SEEDS: list[dict] = [
     {"alias_unit": "teaspoon", "canonical_unit": "tsp"},
     {"alias_unit": "tablespoon", "canonical_unit": "tbsp"},
     {"alias_unit": "tbs", "canonical_unit": "tbsp"},
-    # 2026-09-12 — added as part of "admin reduction" (see CLAUDE.md > Ingredient Unit
+    # 2026-09-12 — added as part of "admin reduction" (see docs/ingredient-handling.md > Ingredient Unit
     # Handling > Admin reduction). More universal word-forms the original pass missed; same
     # "only the base form" rule as above (each one's plural resolves for free once
     # strip_plural() reduces it to the row below).
@@ -231,12 +230,12 @@ UNIT_SYNONYM_SEEDS: list[dict] = [
                                                     # above; "ltrs" -> this
 ]
 
-# Coarse ingredients (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling > Layer D).
+# Coarse ingredients (2026-09-12 — see docs/ingredient-handling.md > Ingredient Unit Handling > Layer D = bought by the bunch).
 # Skip quantity/unit math entirely at consolidation: any nonzero need resolves straight to a
 # purchase-label count. Seeded with the maintainer's own motivating example (parsley) plus
 # its obvious fresh-herb siblings — same "exercise it immediately" call as the oil-variant
 # and lemon/lime alias seeds. recipes_per_pack is a rough, editable guess, not derived from
-# anything — see the Known limitation note in CLAUDE.md > Ingredient Unit Handling.
+# anything — see the Known limitation note in docs/ingredient-handling.md > Ingredient Unit Handling.
 COARSE_INGREDIENT_SEEDS: list[dict] = [
     {"name": "parsley", "purchase_label": "bunch", "recipes_per_pack": 3},
     {"name": "coriander", "purchase_label": "bunch", "recipes_per_pack": 3},

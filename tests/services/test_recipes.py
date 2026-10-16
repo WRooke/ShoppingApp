@@ -1,5 +1,5 @@
 """Unit tests for app/services/recipes.py — exercised directly against a DB
-session, no FastAPI/HTTP involved (see CLAUDE.md > Code Architecture &
+session, no FastAPI/HTTP involved (see docs/code-architecture.md > Code Architecture &
 Maintainability). Router-level behaviour is covered separately by
 tests/routers/test_recipes.py.
 """
@@ -44,7 +44,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -109,7 +109,7 @@ def test_list_recipes_search_is_case_insensitive_substring(db):
 
 def test_list_recipes_pagination(db):
     for i in range(5):
-        # distinct, non-fuzzy-similar names; allow_duplicate as a belt-and-braces
+        # distinct, non-fuzzy-similar names; allow_duplicate as a second safeguard
         recipes_service.create_recipe(
             db, _make_recipe(name=f"Recipe {i}"), allow_duplicate=True
         )
@@ -295,7 +295,7 @@ def test_delete_ingredient_raises_when_missing(db):
         recipes_service.delete_ingredient(db, recipe.id, 999)
 
 
-# --- create_recipe_from_capture (Phase 3, Chunk 3.4) ------------------------
+# --- create_recipe_from_capture (Phase 3, Chunk 3.4, capture review screen) ------------------------
 
 
 def _make_capture_confirm(**overrides) -> CaptureConfirmRequest:
@@ -355,7 +355,7 @@ def test_create_recipe_from_capture_never_overwrites_existing_product_section(db
     assert row.source == "user_corrected"
 
 
-# --- source provenance (Chunk 3.7) ----------------------------------------
+# --- source provenance (Chunk 3.7, recipe source URL / cookbook reference) ----------------------------------------
 
 
 def test_create_recipe_stores_source_provenance(db):
@@ -404,7 +404,7 @@ def test_update_recipe_sets_source_provenance(db):
     assert updated.name == "Spaghetti Bolognese"  # untouched
 
 
-# --- duplicate recipe prevention (Phase 4 — CLAUDE.md > Duplicate Recipe Prevention) -----
+# --- duplicate recipe prevention (Phase 4 — docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention) -----
 
 
 def test_find_possible_duplicates_exact_name_case_and_whitespace_insensitive(db):
@@ -550,7 +550,7 @@ def test_find_recipe_by_source_url_prefers_live_over_archived(db):
     assert found.id == live.id
 
 
-# --- distinct_ingredient_names (Fix 5, F5.1 — feeds suggest_ingredient_groupings) -----------
+# --- distinct_ingredient_names (Fix 5 — feeds suggest_ingredient_groupings) -----------
 
 
 def test_distinct_ingredient_names_deduped_and_sorted(db):
@@ -620,7 +620,7 @@ def test_distinct_ingredient_names_exclude_aliased_false_includes_everything(db)
     assert recipes_service.distinct_ingredient_names(db, exclude_aliased=False) == ["canola oil"]
 
 
-# --- known_ingredient_names (Fix 4, F4.1 — feeds the on-the-fly alias nudge) -----------------
+# --- known_ingredient_names (Fix 4 — feeds the as-you-type name suggestion) -----------------
 
 
 def test_known_ingredient_names_dedupes_raw_name_against_alias_canonical(db):
@@ -639,7 +639,7 @@ def test_known_ingredient_names_dedupes_raw_name_against_alias_canonical(db):
 
 def test_known_ingredient_names_includes_canonical_never_used_as_raw_name(db):
     # "vegetable oil" is only ever a canonical target, never a raw recipe_ingredients.name --
-    # still a valid nudge target (unlike distinct_ingredient_names' default exclude-aliased
+    # still a valid suggestion target (unlike distinct_ingredient_names' default exclude-aliased
     # behaviour, this function has no exclusion at all).
     recipes_service.create_recipe(
         db, _make_recipe(ingredients=[RecipeIngredientCreate(name="canola oil", quantity=1, unit="tbsp")])

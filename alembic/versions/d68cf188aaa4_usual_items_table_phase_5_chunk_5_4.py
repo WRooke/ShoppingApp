@@ -5,7 +5,7 @@ Revises: c199ab55bf1e
 Create Date: 2026-09-07
 
 Phase 5 Chunk 5.4 — "the usuals": recurring non-recipe household items on a day-based
-cadence. See CLAUDE.md > Data Model > usual_items and > Checklist Screen Logic > "The usuals".
+cadence. See docs/data-model.md > Data Model > usual_items and > Checklist Screen Logic > "The usuals".
 New whole table, so `Base.metadata.create_all()` on a fresh DB already covers it; this
 migration is what brings an existing populated DB up to the same schema.
 tests/test_migrations.py keeps `upgrade head` == `create_all()`.

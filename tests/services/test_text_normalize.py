@@ -1,5 +1,5 @@
 """Unit tests for app/services/text_normalize.py — the shared ingredient-name normaliser
-(2026-09-27, see the ingredient-name-matching plan). Pure functions, no DB.
+(2026-09-27, see the 2026-09-27 ingredient-name matching work). Pure functions, no DB.
 """
 
 from __future__ import annotations
@@ -156,17 +156,17 @@ def test_must_not_merge_cases_stay_distinct():
         assert len(keys) == len(group), group
 
 
-# --- corpus regression guard (F1.1a) ------------------------------------------------------
+# --- corpus regression guard (the corpus comparison) ------------------------------------------------------
 # Every distinct ingredient name from both data/mealplanner.db and data/mealplanner_prod.db as
 # of the 2026-09-27 empirical library evaluation (192 names) normalised to a stable, reviewed
-# value with zero surprises — see the ingredient-name-matching plan's F1.1a decision rule. This
+# value with zero surprises — see the ingredient-name matching work's the corpus comparison decision rule. This
 # is a frozen snapshot, not a live DB query: a future `inflect` version bump or rule change that
 # silently changes real-word behaviour must fail this test, not slip through unnoticed. Encoded
 # as "no two names in this list collide except the ones already confirmed as intentional merges"
 # rather than asserting every single mapping, to stay maintainable.
 _REAL_CORPUS_MUST_NOT_COLLIDE = [
     # A representative slice most likely to exercise a future regression — full list intentionally
-    # not enumerated here (192 entries); see the plan's F1.1a for the full one-off comparison run.
+    # not enumerated here (192 entries); see the plan's the corpus comparison for the full one-off comparison run.
     "beef mince", "chicken breast", "chicken thigh", "egg", "egg yolk", "diced tomato",
     "cherry tomato", "tomato passata", "tomato paste", "coriander", "coriander leaves",
     "fresh coriander", "ground cumin", "cumin", "asparagus", "couscous", "hummus", "citrus",
@@ -188,7 +188,7 @@ def test_real_corpus_has_no_unexpected_collisions():
 
 
 # --- pluralise (2026-09-27 — checklist display, see app/services/checklist_display.py for the
-# DB-aware countability gate that decides WHETHER to call this; this module only knows HOW) ---
+# DB-aware countability check that decides WHETHER to call this; this module only knows HOW) ---
 
 
 def test_pluralise_regular_count_nouns():
@@ -208,13 +208,13 @@ def test_pluralise_is_the_inverse_of_singularise_for_real_pairs():
 
 
 def test_pluralise_does_not_crash_on_us_whitelisted_words():
-    # Not expected to be called on these in practice (checklist_display.py's countability gate
+    # Not expected to be called on these in practice (checklist_display.py's countability check
     # would never let a mass noun like this reach pluralise()), but must not raise either way.
     for word in ("asparagus", "hummus"):
         assert isinstance(pluralise(word), str)
 
 
-# --- title_case_name / looks_plural (Chunk 6.7, 2026-10-06) ---------------------------------------
+# --- title_case_name / looks_plural (Chunk 6.7, user-feedback batch, 2026-10-06) ---------------------------------------
 
 import pytest  # noqa: E402
 from app.services.text_normalize import looks_plural, title_case_name  # noqa: E402

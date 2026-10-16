@@ -24,8 +24,8 @@ static/js/[feature].js  →  static/js/api.js  →  backend routers/
   ever. Where possible (`scaling.py`, `consolidation.py`, `purchase_units.py` in particular —
   these carry the highest risk of subtle bugs per [Scaling Logic](./scaling-and-consolidation.md#scaling-logic)), functions
   take plain data in and return plain data out, so they can be unit-tested with no DB and no
-  network. `claude_client.py` and `anylist_client.py` are the exception in kind: they *do* talk
-  to the outside world, which is exactly why §"External integrations" below applies to them.
+  network. `services/ai_extraction/` and `anylist_client.py` are the exception in kind: they *do* talk
+  to the outside world, which is exactly why the "External integrations" section below applies to them.
 - **`models/`** — SQLAlchemy ORM only, already split one file per table group. Never imported by
   `routers/` directly for anything beyond type hints — routers go through `services/`.
 - **`schemas/`** (new — add alongside `models/`, one file per feature area matching `routers/`) —
@@ -42,14 +42,16 @@ static/js/[feature].js  →  static/js/api.js  →  backend routers/
 The AnyList connector already has a live fork point baked into the plan — Python-native now,
 Node-microservice fallback possible at Phase 5 (see [Tech Stack](./project-overview.md#tech-stack) and
 [AnyList — derisking spike](./project-overview.md#anylist--derisking-spike-bring-forward)) — which is a concrete example of why this
-rule exists, not a hypothetical. `services/anylist_client.py` and `services/claude_client.py` must
+rule exists, not a hypothetical. `services/anylist_client.py` and `services/ai_extraction/` must
 each expose a small function/class surface (e.g. `get_items()`, `add_item()`,
 `extract_ingredients()`) that the rest of the app codes against. If the AnyList implementation
 underneath ever swaps from native calls to the Node microservice, that swap is a rewrite of one
 file's internals, not a hunt through every router and service that happens to need shopping-list
 data. The same applies to anything else with an external dependency added later.
 
-### Prefer a known library over hand-rolling (added 2026-09-27)
+### Prefer a known library over hand-rolling
+
+*(added 2026-09-27)*
 Default to an external, actively-maintained, known-safe library over writing and maintaining
 equivalent logic by hand, whenever one exists that fits the need. There's no sense developing
 and maintaining code that's already freely available, tested, and has already found the edge
@@ -164,7 +166,7 @@ cases a first-pass hand-rolled version hasn't yet.
   internals (`starlette.testclient`'s `anyio.abc.BlockingPortal` alias,
   `google.genai.types`'s `_UnionGenericAlias`) — if either library's next version removes the
   warning, remove the matching line too (a stale `ignore:` for a warning that can no longer
-  fire is exactly the kind of comment/config drift ["keep comments true"](#documentation--comments--thorough-and-judicious-set-2026-09-06)
+  fire is exactly the kind of comment/config drift ["keep comments true"](#documentation--comments--thorough-and-judicious)
   warns against). Turning this on once surfaced a real, previously-invisible bug: 13
   `tests/services/test_*.py` `db()` fixtures created an in-memory SQLite engine but only
   closed the session, never the engine — the underlying connection leaked until Python's GC
@@ -188,9 +190,9 @@ cases a first-pass hand-rolled version hasn't yet.
   (see [`session_recipes`](./data-model.md#session_recipes)) should land as its own small piece of logic in
   `services/`, not as a growing pile of `if slot_type == ...` checks inside whatever else is
   already in `sessions.py`.
-- **Oversized files flagged 2026-09-06 to split at the Phase 3.9 M-review** — status after the
-  M-review (2026-09-07):
-  - ✅ `services/recipes.py` (571 → 366) — Chunk 4.2 duplicate-detection block moved to
+- **Oversized files flagged 2026-09-06 to split at the Phase 3.9 end-of-migration review** — status after the
+  the Phase 3.9 end-of-migration review (2026-09-07):
+  - ✅ `services/recipes.py` (571 → 366) — Chunk 4.2 (duplicate recipe prevention) duplicate-detection block moved to
     `services/recipe_duplicates.py`; `recipes.py` re-exports the public names so call sites
     are unchanged.
   - ✅ `services/sessions.py` (448 → 244) — the `consolidate_session` orchestrator moved to
@@ -200,7 +202,7 @@ cases a first-pass hand-rolled version hasn't yet.
     the deferred `# NOTE:` planned: `types.py` (model-ID constants + public dataclasses +
     exceptions — deliberately the one module with zero imports from its siblings, which is
     what keeps the package's import graph one-way), `prompts.py`, `schemas.py`,
-    `fixtures.py`, `client.py` (`_call_gemini` + the §0c gate + response cleaners), `calls.py`
+    `fixtures.py`, `client.py` (`_call_gemini` + the API enable switch check + response cleaners), `calls.py`
     (the 4 task functions + `capture_recipe()`), `__init__.py` re-exporting the full former
     public surface (including `genai`/`settings` themselves, so
     `patch("app.services.ai_extraction.genai.Client", ...)`-style test patches keep
@@ -237,14 +239,16 @@ cases a first-pass hand-rolled version hasn't yet.
     `ai_extraction/` package split above), so no call site — including the existing test
     suite's direct imports of several of these names — needed to change.
 
-### Documentation & comments — thorough and judicious (set 2026-09-06)
+### Documentation & comments — thorough and judicious
+
+*(set 2026-09-06)*
 Every file, function and non-obvious block must be documented well enough that a session
 which has read only CLAUDE.md plus the two or three files it's touching can make a correct
 change. This is not optional polish — it's what makes the incremental-over-many-sessions
 build safe (see the intro to this section).
 
 - **Every module** gets a docstring: what it's for, where it sits in the layering, and a
-  pointer to the CLAUDE.md section(s) it exists *because of* (e.g. "see CLAUDE.md > AI
+  pointer to the CLAUDE.md section(s) it exists *because of* (e.g. "see docs/recipe-capture.md > AI
   Provider Migration").
 - **Every non-trivial function** gets a docstring: what it does, what the args mean when not
   obvious, what it raises, and any invariant it upholds. One-line helpers can stay bare.
@@ -260,6 +264,34 @@ build safe (see the intro to this section).
   applied at the comment level.
 - This applies to **all further code** — Python, JS, migrations, scripts, tests.
 
+### Plain-language documentation standard
+
+Added 2026-10-16. Applies to everything written down in this project: docs, code comments, docstrings, migrations,
+test names and docstrings, scripts, and commit messages.
+
+**Write for a maintainer who was not in the planning sessions.** Everything recorded here must be
+understandable on its own, in plain language.
+
+1. **Say the thing; don't cite a code for it.** No bare section symbols (`§0b`), chunk or phase
+   numbers, "Fix 3", "decision #8", "defect A", "Layer C", "M4" or "rule 3" standing in for what
+   they mean. Name the behaviour or rule in words. If readers may want the history, also link the
+   `docs/build-status/` file.
+2. **Point to things that exist.** Cite a real file and heading, for example
+   `docs/security.md > API enable switch`. Never cite a heading in CLAUDE.md that has moved into
+   `docs/`, a deleted file, a chat, or a plan that is not in the repository.
+3. **Define a project term the first time it appears in a file**, or link its definition, and
+   spell out an abbreviation the first time it appears.
+4. **No private slang or metaphors**, for example "oracle", "gate", "grilling", "belt-and-braces",
+   "load-bearing", "footgun", "poison", "nudge", "dance". Use the plain description instead
+   ("independent checker", "the AI enable switch is off", "a second safeguard").
+5. **Name UI elements by their exact on-screen text** (see the
+   [UI label table](./ui-ux.md#ui-label--code-name-table)), with the code name in brackets the
+   first time, and say which screen the element is on.
+6. **Write the current state, not the story.** Dates and chunk numbers are not explanations.
+   Describe what is true now; put the history in `decision-history.md` or the `build-status/` files.
+7. **Do not quote conversations** ("as discussed", "the maintainer said"). State the decision and
+   the reason.
+
 ### Migrations
 - Alembic from Phase 2 onward, as already stated in [Data Model](./data-model.md#data-model). Once Alembic is in
   use, every schema change ships as a migration — never a hand-edited table or a reliance on
@@ -267,8 +299,8 @@ build safe (see the intro to this section).
   the migration chain alone, independent of this document.
 - **Reality check (2026-09-06):** Alembic was never actually set up in Phase 2 — the app still
   runs `Base.metadata.create_all()` on startup. This stayed invisible because every schema
-  change through Phase 3 Chunk 3.5 only *added whole tables*, which `create_all()` handles.
-  Adding `source_book`/`source_page` to the existing `recipes` table in Chunk 3.7 is the first
+  change through Phase 3 Chunk 3.5 (diagnostics wiring) only *added whole tables*, which `create_all()` handles.
+  Adding `source_book`/`source_page` to the existing `recipes` table in Chunk 3.7 (recipe source URL / cookbook reference) is the first
   change that genuinely needs a migration, so **Alembic is bootstrapped as the first step of
   Chunk 3.7** (its own commit: scaffold, wire `env.py` to `app.database.Base` and the config
   URL, a baseline revision representing the current schema, `alembic stamp head` on the
@@ -285,7 +317,7 @@ build safe (see the intro to this section).
   head` on a fresh empty DB is semantically identical (columns / PKs / FKs + `on_delete` /
   indexes / uniqueness) to `Base.metadata.create_all()` — codified as
   `tests/test_migrations.py`, which every future migration must keep green.
-- **Applying migrations (from Chunk 3.7b onward):** dev PC — run `alembic upgrade head` after
+- **Applying migrations (from Chunk 3.7b, source-reference schema and service onward):** dev PC — run `alembic upgrade head` after
   pulling a migration (startup `create_all()` does NOT add a column to an existing table).
   NUC — `scripts/update.py` runs `alembic upgrade head` between `pip install` and the
   restart, and aborts the restart (leaving the old version running) if it fails; wired up in
@@ -340,7 +372,9 @@ build safe (see the intro to this section).
   safety copy and tested restore path exist to backstop, not a substitute for getting the
   migration itself right.
 
-### API response-shape consistency (added 2026-10-11, Chunk 6.7)
+### API response-shape consistency
+
+*(added 2026-10-11, Chunk 6.7, user-feedback batch)*
 
 A schema the frontend caches (e.g. `ChecklistItemRead`) must come back **identical in shape and
 completeness from every endpoint that returns it** — the load endpoint and every mutation. The
@@ -356,22 +390,24 @@ spliced it over the cached row, so the recipe list vanished.
 - **A mutation that changes other rows returns all affected rows** (or the client reloads) —
   never a single row whose siblings changed.
 - **Clients never `Object.assign` a response over richer cached state** — see
-  [UI state must not silently vanish](./ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67).
+  [UI state must not silently vanish](./ui-ux.md#ui-state-must-not-silently-vanish).
 - **Tests:** each mutation endpoint test asserts the *full* response shape (including
   ephemeral fields), so a field only one endpoint fills fails loudly.
 
-### State held in process memory assumes ONE worker (added 2026-10-16)
+### State held in process memory assumes ONE worker
+
+*(added 2026-10-16)*
 
 The app runs as a single uvicorn process (`app.main` → `uvicorn.run(...)`, no `workers=`, never
 `--workers`). Two things rely on that and would silently break with more than one process:
 `services/progress_tracker.py` (capture/push progress by token) and, since 2026-10-16,
 `services/checklist_revisions.py` (the per-plan revision counter behind
-[live checklist updates](./checklist-and-shopping.md#live-updates-between-phones-2026-10-16-chunk-67-polish-batch-3)).
+[live checklist updates](./checklist-and-shopping.md#live-updates-between-phones)).
 If the app is ever run with several workers, both must move to the database or a shared store first.
 
 ### Keep this document and the code pointing at each other
 - Keep doing what Phase 1 already does: a docstring or comment that names the relevant CLAUDE.md
-  section (e.g. "see CLAUDE.md > Data Model") wherever code exists *because* of a decision made
+  section (e.g. "see docs/data-model.md > Data Model") wherever code exists *because* of a decision made
   here, not something derivable from the code alone.
 - If building something surfaces a gap, contradiction, or a decision that turns out to not fit
   reality, that gets folded back into this file (per the existing norm in
@@ -409,7 +445,7 @@ ShoppingApp/
 │   │   └── store.py           ← stores, store_sections, product_sections
 │   ├── schemas/                ← Pydantic request/response models (one file per feature area,
 │   │                              mirrors routers/ — kept separate from models/ on purpose, see
-│   │                              CLAUDE.md > Code Architecture & Maintainability)
+│   │                              docs/code-architecture.md > Code Architecture & Maintainability)
 │   ├── routers/                ← FastAPI routers (one file per feature area)
 │   │   ├── recipes.py
 │   │   ├── sessions.py
@@ -420,27 +456,27 @@ ShoppingApp/
 │   ├── services/               ← business logic (no HTTP concerns)
 │   │   ├── scaling.py
 │   │   ├── consolidation.py     ← pure consolidation rules (rounding/units/irreconcilable)
-│   │   ├── session_consolidation.py  ← consolidate_session orchestrator (DB plumbing); split from sessions.py at the M-review
+│   │   ├── session_consolidation.py  ← consolidate_session orchestrator (DB plumbing); split from sessions.py at the Phase 3.9 end-of-migration review
 │   │   ├── purchase_units.py
 │   │   ├── recipes.py           ← recipe + ingredient CRUD; re-exports the duplicate-prevention API
-│   │   ├── recipe_duplicates.py ← duplicate-recipe detection (Chunk 4.2); split from recipes.py at the M-review
-│   │   ├── substitutions.py     ← remembered_substitutions quick-pick library (M4) + M8 equivalence pair
-│   │   ├── ingredient_aliases.py ← "same shopping item" grouping (2026-09-10); distinct from substitutions.py, see CLAUDE.md > Ingredient Aliases
-│   │   ├── unit_synonyms.py     ← unit-spelling canonicalisation (2026-09-12), see CLAUDE.md > Ingredient Unit Handling > Layer A
-│   │   ├── coarse_ingredients.py ← ingredients that skip quantity math entirely (2026-09-12), see CLAUDE.md > Ingredient Unit Handling > Layer D
+│   │   ├── recipe_duplicates.py ← duplicate-recipe detection (Chunk 4.2); split from recipes.py at the Phase 3.9 end-of-migration review
+│   │   ├── substitutions.py     ← remembered_substitutions quick-pick library (M4 = substitution redesign) + M8 equivalence pair
+│   │   ├── ingredient_aliases.py ← "same shopping item" grouping (2026-09-10); distinct from substitutions.py, see docs/ingredient-handling.md > Ingredient Aliases
+│   │   ├── unit_synonyms.py     ← unit-spelling canonicalisation (2026-09-12), see docs/ingredient-handling.md > Ingredient Unit Handling > Layer A (unit spellings)
+│   │   ├── coarse_ingredients.py ← ingredients that skip quantity math entirely (2026-09-12), see docs/ingredient-handling.md > Ingredient Unit Handling > Layer D (bought by the bunch)
 │   │   ├── sessions.py
 │   │   ├── capture_url.py
 │   │   ├── capture_photo.py
-│   │   ├── ai_extraction/       ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1; split into this package at the Phase 5 review, 2026-09-12 — types/prompts/schemas/fixtures/client/calls + __init__ re-export)
-│   │   ├── capture_queue.py     ← 429 retry queue + hourly poller (Phase 3.9 M3)
+│   │   ├── ai_extraction/       ← Gemini per-task calls (was claude_client.py — renamed Phase 3.9 M1 = Gemini config and SDK switch; split into this package at the Phase 5 review, 2026-09-12 — types/prompts/schemas/fixtures/client/calls + __init__ re-export)
+│   │   ├── capture_queue.py     ← 429 retry queue + hourly poller (Phase 3.9 M3 = fallback chain and capture queue)
 │   │   ├── checklist.py         ← checklist load + AnyList push orchestrator (Phase 5)
 │   │   ├── usuals.py            ← "the usuals" recurring-items CRUD + due calc (Phase 5)
 │   │   ├── anylist_client.py    ← Python-native AnyList connector, small stable interface (Phase 5, from spike/)
 │   │   ├── version.py           ← build identity (content hash of app/ + static/) for the update banner; git describe is only a label — docs/deployment-and-operations.md
-│   │   └── progress_tracker.py  ← in-memory step tracking for the real capture/push progress UIs (2026-09-23), see CLAUDE.md > UI/UX
+│   │   └── progress_tracker.py  ← in-memory step tracking for the real capture/push progress UIs (2026-09-23), see docs/ui-ux.md > UI/UX
 │   ├── seed_data.py           ← product_units + section vocabulary starter data
 │   └── log_config.py          ← logging setup, in-memory ring buffer
-├── alembic/                    ← DB migrations (bootstrapped Phase 3 Chunk 3.7 — see CLAUDE.md > Migrations)
+├── alembic/                    ← DB migrations (bootstrapped Phase 3 Chunk 3.7 — see docs/code-architecture.md > Migrations)
 │   ├── env.py                  ← wired to app.database.Base + the config sqlite:/// URL
 │   └── versions/               ← one file per schema change from Chunk 3.7 onward
 ├── alembic.ini                 ← Alembic config (no hardcoded URL — env.py pulls it from app.config)
@@ -454,7 +490,7 @@ ShoppingApp/
 │   ├── git_utils.py             ← shared subprocess helper used by the scripts above
 │   └── bootstrap_nuc.ps1        ← NUC: one-time automated first-run setup (see SETUP.md)
 ├── tests/                      ← pytest, mirrors app/ structure (services/ unit tests with no
-│                                  DB/network, routers/ smoke tests) — see CLAUDE.md > Code
+│                                  DB/network, routers/ smoke tests) — see docs/code-architecture.md > Code
 │                                  Architecture & Maintainability. Added from Phase 2 onward.
 ├── static/                    ← frontend assets
 │   ├── index.html

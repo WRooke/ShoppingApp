@@ -1,9 +1,9 @@
 """Gemini structured-output (``response_schema``) Pydantic models — one per call.
 
 Part of the ``ai_extraction`` package (split from the former single-file module at the
-Phase 5 review, 2026-09-12 — see CLAUDE.md > Deferred Decisions). These are the shapes
+Phase 5 review, 2026-09-12 — see docs/deferred-decisions.md > Deferred Decisions). These are the shapes
 Gemini's structured-output mode is constrained to return; ``calls.py`` still parses the
-resulting JSON by hand and allow-list-validates fixed-vocabulary fields (§0a) rather than
+resulting JSON by hand and allow-list-validates fixed-vocabulary fields (Security > Prompt injection hardening) rather than
 trusting these schemas alone to guarantee a safe value — a field can be the right *type*
 and still be a value we don't want to accept (a hallucinated section name, say).
 """

@@ -1,7 +1,7 @@
 /* Recipe library view: browse list (search by name) + recipe detail in view
    mode. Edit mode (recipe-level fields + ingredient CRUD) lives in
    recipe-edit.js, and manual "new recipe from scratch" entry lives in
-   recipe-form.js (see CLAUDE.md > Code Architecture & Maintainability > file
+   recipe-form.js (see docs/code-architecture.md > Code Architecture & Maintainability > file
    size discipline — split by sub-feature rather than growing one file past
    ~400 lines). */
 
@@ -30,7 +30,7 @@
     return null;
   }
 
-  // "Pending AI processing" badge (Phase 3.9 M6) — a queued capture whose enrichment
+  // "Pending AI processing" badge (Phase 3.9 M6 = Pending AI processing badge) — a queued capture whose enrichment
   // (section suggestion) hasn't finished yet. Names the outstanding sub-task(s).
   function pendingBadge(tasks) {
     var pretty = (tasks || [])
@@ -221,7 +221,7 @@
 
   // --- entry point -----------------------------------------------------
   // Detail view (view mode, incl. "I cooked this") lives in recipe-detail.js — split out
-  // per CLAUDE.md > Code Architecture & Maintainability > file size discipline.
+  // per docs/code-architecture.md > Code Architecture & Maintainability > file size discipline.
 
   function mount(root, param) {
     if (param === "new") {

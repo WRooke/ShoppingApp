@@ -39,7 +39,7 @@ _LEVEL_ORDER = {
 
 # Newest entries are appended to the right. maxlen caps memory use — worst case is
 # ~20MB (5000 entries × the 4000-char/entry traceback cap above). Raised from 1000 to 5000
-# 2026-10-01 (diagnostics chunk 7.7, 5a) alongside removing /recent-errors' [:10] slice, so a
+# 2026-10-01 (the Status page fixes) alongside removing /recent-errors' [:10] slice, so a
 # burst of errors doesn't push genuinely recent ones out of the buffer before anyone's looked.
 RING_BUFFER_MAXLEN = 5000
 _ring: deque[dict] = deque(maxlen=RING_BUFFER_MAXLEN)
@@ -54,7 +54,7 @@ _error_ring: deque[dict] = deque(maxlen=ERROR_RING_MAXLEN)
 
 # --- redaction (2026-10-07 logging audit) ------------------------------------------------------
 # Secrets must never reach app.log, the console or /diagnostics even if some code path formats one
-# into an exception message or a debug dump (CLAUDE.md > Security §2, Personal Data Policy). Two
+# into an exception message or a debug dump (docs/security.md > AnyList credentials, Personal Data Policy). Two
 # layers: (1) the configured credential VALUES, read from settings at call time so a key added
 # later is covered, and (2) the Google API key shape, for a key that isn't the configured one.
 # Applied in the formatter (file + console) and in the ring buffers.
@@ -133,7 +133,7 @@ _WSAECONNRESET = 10054
 
 class _WinsockResetNoiseFilter(logging.Filter):
     """Downgrades the Proactor event loop's own WinError 10054 (ConnectionResetError)
-    noise from ERROR to DEBUG, instead of dropping it outright (diagnostics chunk 7.7, 5d).
+    noise from ERROR to DEBUG, instead of dropping it outright (the Status page fixes).
 
     On Windows, asyncio's ProactorEventLoop logs an ERROR via the ``asyncio`` logger
     whenever a client (a phone's browser going to sleep mid-request, a flaky WiFi drop on
@@ -153,9 +153,9 @@ class _WinsockResetNoiseFilter(logging.Filter):
 
     Downgrading to DEBUG — rather than returning False to drop the record — keeps it
     auditable: on a machine running with ``LOG_LEVEL=DEBUG`` the record still reaches
-    ``app.log``/the ring buffer (re-gated here to the same threshold every other DEBUG
-    record is already subject to via ``root.setLevel()``, since this one reaches that gate
-    late — the record was already created at ERROR before this filter ever saw it); at any
+    ``app.log``/the ring buffer (checked here against the same threshold every other DEBUG
+    record is already subject to via ``root.setLevel()``; this record needs the explicit
+    check because it was already created at ERROR before this filter ever saw it); at any
     stricter level it's fully absent, same as any other DEBUG-level log line.
     """
 
@@ -172,7 +172,7 @@ class _WinsockResetNoiseFilter(logging.Filter):
 # Requests the app's own pages make on a timer (the diagnostics page polls every 5 s, the nav badge
 # on every route change, capture/push progress every ~600 ms). Successful ones are demoted to DEBUG
 # so they don't bury everything else; failures (status >= 400) and every other request keep their
-# INFO line — CLAUDE.md > Security §4 still wants /api/v1 access visible.
+# INFO line — docs/security.md > App-level protections still wants /api/v1 access visible.
 _POLLING_PATH_PREFIXES = (
     "/api/v1/health",
     "/api/v1/diagnostics/status",
@@ -254,7 +254,7 @@ def setup_logging(*, rotate: bool = True) -> None:
     logging.getLogger("uvicorn.access").addFilter(_PollingAccessFilter())
 
     # uvicorn's access log stays at INFO (its default) rather than being quietened to
-    # WARNING: CLAUDE.md > Security §4 explicitly wants "light access logging on
+    # WARNING: docs/security.md > App-level protections explicitly wants "light access logging on
     # /api/v1/*" so an unfamiliar device's request pattern is visible, and uvicorn's
     # access log almost never emits above INFO — filtering to WARNING here would have
     # silently discarded it entirely rather than "quietening" it. Only the app's own

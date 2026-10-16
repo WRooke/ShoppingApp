@@ -6,13 +6,13 @@
 `google-genai` SDK, structured-output mode. See
 [AI Provider Migration (Phase 3.9)](#ai-provider-migration--anthropic-claude--google-gemini-phase-39)
 for the full spec — the provider swap, the Flash→Flash-Lite→queue chain, and the "Pending AI
-processing" badge. *(Code is on the `anthropic` SDK / Haiku 4.5 until Phase 3.9 chunk M1.)*
+processing" badge.
 
-**Two separate Gemini calls per capture**, not one combined call (Phase 3.9 M2; originally
+**Two separate Gemini calls per capture**, not one combined call (Phase 3.9 M2 = split into per-task AI calls; originally
 three — a third call, ingredient substitution flagging, was removed 2026-09-30. Manual
 substitution stays fully in place; only the AI *suggestion* layer was judged to add too
 little value for the call it cost. See [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution)
-and CLAUDE.md > Deferred Decisions):
+and docs/deferred-decisions.md > Deferred Decisions):
 1. **Recipe extraction** — ingredients + `cuisine` / `protein` (the JSON below, minus
    `suggested_section`).
 2. **Store section suggestion** — per ingredient (`suggested_section`), moved out of the
@@ -23,11 +23,13 @@ own fake-mode fixture, its own place in the Flash→Flash-Lite→queue chain. A 
 call 2 does not block extraction — the recipe is still usable, and
 `recipes.ai_tasks_pending` + the badge track what's outstanding.
 
-### Real capture progress UI (2026-09-23)
+### Real capture progress UI
+
+*(2026-09-23)*
 
 The whole capture is still one blocking HTTP request from the frontend's point of view — call
 1 (extraction, required) then calls 2/3 (enrichment) run sequentially inside
-`capture_recipe()` before the response returns. Phase 6 Chunk 6.2 originally covered that with
+`capture_recipe()` before the response returns. Phase 6 Chunk 6.2 (recipe and import screen design) originally covered that with
 a client-side-only rotating status label (no relation to real backend state, since there was
 no per-step signal to poll). That's replaced with genuine per-step progress: the frontend
 generates a token and sends it as `progress_token` on `POST /capture/url` / `/capture/photo`;
@@ -38,11 +40,11 @@ single-process) as it actually moves through `extract` → `sections` (a third s
 2026-09-30); `static/js/capture.js` polls `GET /recipes/capture/progress/{token}` every 600ms
 and renders a real step list instead of the old rotating label. A swallowed enrichment
 failure (sections) now shows that step as failed, rather than the capture just silently
-continuing with no visible sign anything went wrong with that piece. See CLAUDE.md > UI/UX >
+continuing with no visible sign anything went wrong with that piece. See docs/ui-ux.md > UI/UX >
 Real progress indicators, and the equivalent design for the AnyList push in
 [Checklist, AnyList Push & Shopping List Layout](./checklist-and-shopping.md#anylist-push-logic).
 
-The rest of this section — the extraction prompt, the §0a hardening, the review flow — is
+The rest of this section — the extraction prompt, the Security > Prompt injection hardening, the review flow — is
 otherwise preserved across the provider swap. Where it still says "Claude", read "the AI
 extraction service".
 
@@ -78,7 +80,7 @@ request" message via `RecipeFetchError` instead of a bare "HTTP 406".
 4. Return structured ingredient list for user review
 5. Keep image stored (linked to recipe record)
 
-### Claude extraction prompt (system)
+### AI extraction prompt (system)
 
 **Built at Phase 3 kickoff (2026-09-05) with the `suggested_section`/`cuisine`/`protein`
 extension already folded in** — schema for these fields has existed since Phase 1, and the
@@ -142,8 +144,8 @@ Rules:
 > combined-call shape; Phase 3.9 M2 actually moved section suggestion into its own call
 > (`suggest_sections()`) — the live `EXTRACTION_SYSTEM_PROMPT` in `app/services/ai_extraction.py`
 > no longer asks for it. `title`/`servings`/the "to serve" rule/the canonicalisation rule were
-> added the same session, folding in the 5 hand-testing issues staged in
-> `Capture-Fixes-Staged.md` (title/servings never extracted, "cooking salt" vs "kosher salt"
+> added the same session, folding in the 5 issues found while hand-testing, written up in
+> `Capture-Fixes-Staged.md` (a finished work order, kept as a record) (title/servings never extracted, "cooking salt" vs "kosher salt"
 > consolidation misses, verbose substitution notes, dropped "to serve" ingredients — issue 3's
 > full fix, a Settings-managed alias table, stays a
 > [Deferred Decision](./deferred-decisions.md#deferred-decisions); issue 4's note-length
@@ -188,7 +190,7 @@ Rules:
 > in sync opportunistically, not on every tweak.
 
 > **Note (2026-09-27b) — the extraction prompt is no longer a single static constant for every
-> call (Fix 2, F2.3).** `EXTRACTION_SYSTEM_PROMPT` itself stays a static base (and dropped its
+> call (Fix 2 = aliases feed the extraction prompt).** `EXTRACTION_SYSTEM_PROMPT` itself stays a static base (and dropped its
 > own hardcoded "minced beef"→"beef mince" and "green onion"/"scallion"→"spring onion" pairs —
 > see [Ingredient Aliases](./ingredient-handling.md#ingredient-aliases)), but every real call
 > now goes through `app/services/ai_extraction/calls.py::build_extraction_system_prompt(db)`,
@@ -200,7 +202,7 @@ Rules:
 > out the prompt). Both sections are wrapped exactly like scraped recipe content itself:
 > `ingredient_aliases` rows aren't reliably direct household input (an `alias_name` can be text
 > an AI extraction pulled from a scraped page, only passively reviewed, not necessarily
-> retyped), so this is the same §0a untrusted-content pattern, not an exemption. Fake-mode
+> retyped), so this is the same prompt-injection (untrusted-content) pattern, not an exemption. Fake-mode
 > capture is unaffected — it returns a canned fixture before this function is ever called, so
 > it stays a true zero-DB-dependency path. See [Ingredient
 > Aliases](./ingredient-handling.md#ingredient-aliases) for the alias mechanism itself.
@@ -208,7 +210,7 @@ Rules:
 The `suggested_section` enum in the prompt text is kept in sync with
 `SECTION_VOCABULARY` in `app/seed_data.py` by hand (see
 [Section Vocabulary Starter List](./data-model.md#section-vocabulary-starter-list) — it's still provisional,
-so if that list changes, update this prompt text too). The review UI (Chunk 3.4) shows every
+so if that list changes, update this prompt text too). The review UI (Chunk 3.4 (capture review screen)) shows every
 field as editable — `suggested_section` per ingredient, `cuisine`/`protein` per recipe — and on
 confirm writes `product_sections` rows with `source='ai_suggested'` for any newly-tagged
 ingredient. No substitution/alternatives suggestion mechanism is part of this review step
@@ -226,10 +228,12 @@ See [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution).
 - User confirms or edits, then saves
 - On save: normalise ingredient names to lowercase, store in `recipe_ingredients`
 - Log: recipe id, call type, model, token counts, outcome to `ai_call_log` (see
-  [`ai_call_log`](./data-model.md#ai_call_log) — replaced `api_usage` at Phase 3.9 M5; no cost column,
+  [`ai_call_log`](./data-model.md#ai_call_log) — replaced `api_usage` at Phase 3.9 M5 (diagnostics rework); no cost column,
   Gemini's free tier has none)
 
-### Source provenance on the review screen (Phase 3 Chunk 3.7, 2026-09-06)
+### Source provenance on the review screen
+
+*(Phase 3 Chunk 3.7, recipe source URL / cookbook reference, 2026-09-06)*
 The review screen also carries two optional freetext inputs — **cookbook name** and **page** —
 that the user fills in by hand while reviewing (same treatment as the existing `cuisine` /
 `protein` inputs). They write `recipes.source_book` / `recipes.source_page` on confirm. Most
@@ -238,7 +242,7 @@ without any new input.
 
 **The extraction prompt is deliberately NOT extended to read the book title/page out of a
 photo.** Reasons: OCR of a running-header book title / page number is unreliable; every new
-prompt field costs a fresh round of [§0a](./security.md#0a-prompt-injection-hardening-highest-priority)
+prompt field costs a fresh round of [Security > Prompt injection hardening](./security.md#prompt-injection-hardening-highest-priority)
 output-validation work on a prompt that was only just built and stabilised in Chunk 3.1; and
 the manual inputs fully cover the need. Best-effort AI pre-fill of these two fields is parked
 as a [Deferred Decision](./deferred-decisions.md#deferred-decisions) — revisit only if typing them every capture
@@ -248,21 +252,20 @@ turns out to be a real annoyance.
 
 ## AI Provider Migration — Anthropic Claude → Google Gemini (Phase 3.9)
 
-**Status: IN PROGRESS — added 2026-09-06, chunked as Phase 3.9 (chunks M0–M8 below; M0–M8
-all built and verified, only the M-review outstanding), decisions resolved 2026-09-06 (M8's
-2026-09-07).** This is the authoritative spec for the AI extraction
+**Status: complete — added 2026-09-06 as Phase 3.9 (chunks M0–M8 below), all built, verified and reviewed;
+decisions resolved 2026-09-06 (M8's 2026-09-07).** This is the authoritative spec for the AI extraction
 provider and for ingredient substitution going forward. It **supersedes** the earlier
 "Claude API" / "Anthropic API" / "Claude Haiku" references in the AI-extraction context and
 the Phase 4 [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution) design. As each chunk lands,
 the relevant section ([Tech Stack](./project-overview.md#tech-stack), [Recipe Capture](#recipe-capture--ai-extraction),
 [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution), [Diagnostics & Logging](./diagnostics-and-logging.md#diagnostics--logging),
-[Security §0a/§0b/§0c](./security.md#security), [Data Model](./data-model.md#data-model), [Environment
+[Security](./security.md#security) (Prompt injection hardening, API usage observability, API enable switch), [Data Model](./data-model.md#data-model), [Environment
 Variables](#environment-variables-env)) is rewritten in place and its `⚠️` banner removed.
 Non-AI uses of the name "Claude" (Claude Code as this project's dev tool; git commit
 `Co-Authored-By` lines) are unaffected.
 
 **Why:** the Anthropic account used for recipe extraction is permanently unable to add
-billing credit (see [Phase 3 Chunk 3.6](./build-status/phase-3-recipe-capture.md#phase-3--recipe-capture-ai), BLOCKED). Gemini's
+billing credit (see [Phase 3 Chunk 3.6, live AI verification](./build-status/phase-3-recipe-capture.md#phase-3--recipe-capture-ai), BLOCKED). Gemini's
 free tier replaces it.
 
 ### Provider & model selection
@@ -273,7 +276,7 @@ free tier replaces it.
   not the default; photo-capture accuracy is the priority.
 - **Queue (both exhausted):** the capture is queued and retried later (see Queueing).
 
-> **Model IDs — floating `*-latest` aliases, not pinned (resolved 2026-09-07 at M7).** The
+> **Model IDs — floating `*-latest` aliases, not pinned (resolved 2026-09-07 at M7 = live Gemini verification).** The
 > spec originally pinned `gemini-2.5-flash` / `gemini-2.5-flash-lite`. Between the spec being
 > written (2026-09-06) and the M7 live call being run (2026-09-07), Google retired
 > `gemini-2.5-flash` for newly-created keys — the live call came back `404 NOT_FOUND`,
@@ -342,14 +345,16 @@ schema parity from prior addenda.
 `.env`, plaintext — unchanged from the Anthropic key. `keyring` hardening stays deferred to
 Phase 5 with the AnyList credential work.
 
-### Resolved — free-tier data usage (2026-09-11)
+### Resolved — free-tier data usage
+
+*(2026-09-11)*
 
 On Gemini's free tier, prompt/response content (recipe photos and text) **may be used by
 Google to improve their products**. Enabling Cloud Billing on the project stops this, even at
 $0 spend under the free quota. **The maintainer has added a Cloud Billing payment method and
 is willing to pay for ongoing usage** — unlike the Anthropic account (permanently unable to
 add credit, the original reason this app migrated to Gemini at all), Google billing was
-viable. This closes the privacy concern; it does not reopen §0c's spend-discipline norms
+viable. This closes the privacy concern; it does not reopen Security > API enable switch's spend-discipline norms
 (enable switch off by default, no agent flips it, ask before every real call) or bring back
 the M5-removed cost tracking — those stay exactly as they are unless separately asked for.
 
@@ -364,7 +369,7 @@ CPU-only. **Do not add Ollama dependencies or code paths now.**
 > **Note (added during the 2026-09-12 CLAUDE.md split):** the migration's own historical
 > "Resolved decisions (2026-09-06)" record and its superseded "Diagnostics — replacing
 > 'Claude API spend tracking'" note now live in
-> [Decision Dialogues & Historical Record](./decision-history.md#resolved-decisions-2026-09-06).
-> The migration's chunk-by-chunk build/verification status (M0–M8 + M-review) lives in
+> [Decision Dialogues & Historical Record](./decision-history.md#resolved-decisions).
+> The migration's chunk-by-chunk build/verification status (M0–M8 + the Phase 3.9 end-of-migration review) lives in
 > [Build Status — Phase 3.9](./build-status/phase-3.9-ai-provider-migration.md).
 

@@ -1,7 +1,7 @@
-"""AnyList connector — Python-native, Phase 5 (see CLAUDE.md > Build Phases > Phase 5 and
+"""AnyList connector — Python-native, Phase 5 (see docs/build-status/phase-5-checklist-anylist.md and
 > Tech Stack > AnyList integration).
 
-One external integration behind one small, stable interface (CLAUDE.md > Code Architecture >
+One external integration behind one small, stable interface (docs/code-architecture.md > Code Architecture >
 "External integrations sit behind a small, stable interface"): the rest of the app calls
 ``get_items()`` / ``add_or_increment_items()`` / ``check_auth()`` and never touches
 ``httpx`` or the protobuf wire format directly. No ``fastapi`` import.
@@ -9,7 +9,7 @@ One external integration behind one small, stable interface (CLAUDE.md > Code Ar
 The wire codec and message shapes are lifted from ``spike/anylist_spike.py`` (Phase 1.5
 derisking spike) — AnyList's API is unofficial, reverse-engineered from the Node package
 ``codetheweb/anylist``, and speaks raw protobuf with no public ``.proto``. Several findings
-are load-bearing here, the last two from live-verification against the real API at Chunk 5.7
+are essential to get right here, the last two from live-verification against the real API at Chunk 5.7
 (2026-09-12), which corrected an earlier (2026-09-10) misdiagnosis — see the third bullet:
 
   * **Quantity lives in two fields.** A freshly *added* item carries ``quantityPb.amount``
@@ -49,7 +49,7 @@ are load-bearing here, the last two from live-verification against the real API 
     **Consequence:** a note is set correctly on an item's first push (still embedded in the
     add's own item message — safe, and the mechanism this finding doesn't touch) but does
     **not** update on a later push to an item that's already on the list — a real, accepted
-    limitation, not a bug left unfixed by oversight. See CLAUDE.md > AnyList Push Logic.
+    limitation, not a bug left unfixed by oversight. See docs/anylist-push.md > AnyList Push Logic.
   * **RESOLVED 2026-09-20 — "Not set" is a confirmed, permanent AnyList server-side limitation
     of ``set-list-item-quantity`` for anything but a bare number.** The field-21/18 split
     doesn't explain it (falsified by phone check, 2026-09-18: a field-18-only item displayed
@@ -80,9 +80,9 @@ are load-bearing here, the last two from live-verification against the real API 
     checklist screen's own "already pushed, push again?" retry, which never reloads first) adds
     it a second time as a duplicate. Fixed 2026-09-19: every add's identifier is returned via
     ``PushResult.added_ids`` (name -> new id); ``checklist.push_to_anylist()`` writes it back
-    onto the checklist row immediately. See CLAUDE.md > AnyList Push Logic.
+    onto the checklist row immediately. See docs/anylist-push.md > AnyList Push Logic.
 
-Safety (CLAUDE.md > Security §2, mirrors §0c for the AI): every real call is gated on
+Safety (docs/security.md > AnyList credentials, mirrors the AI enable switch in docs/security.md > API enable switch): every real call requires
 ``settings.anylist_enabled`` (default off — no agent flips it). ``settings.anylist_fake_mode``
 swaps in an in-memory fake list so the whole checklist + push flow runs offline. Manual
 verification runs only against ``settings.anylist_target_list_name`` (dev default
@@ -141,7 +141,7 @@ _MAX_CONSECUTIVE_FAILURES = 3
 # re-sent safely, after a read-back).
 _READ_ATTEMPTS = 3
 
-# 2026-10-06 (Chunk 6.7), live-verified on TestList (spike/anylist_checked_toggle_test.py): the
+# 2026-10-06 (Chunk 6.7, user-feedback batch), live-verified on TestList (spike/anylist_checked_toggle_test.py): the
 # reference client's `set-list-item-checked` op ('y'/'n' as `updatedValue`, NO item message) really
 # does cross an item off / un-cross it — 6/6 each way, with name, quantity and note untouched, a
 # later `set-list-item-quantity` still working (3/3) and an item that STARTED crossed off
@@ -170,7 +170,7 @@ class PushItem:
     actually send (see ``_decide``), so a stale id is harmless. ``note`` -> AnyList's
     ``details`` field (protobuf field 5). ``key`` is the caller's stable id for the line
     ("item:12", "usual:3") — per-item results and progress are reported by it, never by name,
-    because two lines can share a display name (Chunk 6.7, defect E)."""
+    because two lines can share a display name (Chunk 6.7: results are keyed by line id, not display name)."""
 
     name: str
     quantity: str | None
@@ -573,7 +573,7 @@ class _RealAnyList:
         ``on_item(ref, status)`` is called ``"active"`` right before a line's op(s) and
         ``"done"`` / ``"failed"`` right after they were sent (sent, not yet confirmed);
         ``on_stage(stage)`` with ``"sending"`` then ``"confirming"``. Both are optional and keep
-        this class free of any progress-tracker import (CLAUDE.md > Code Architecture).
+        this class free of any progress-tracker import (docs/code-architecture.md > Code Architecture).
 
         One failing line never aborts the batch: its error is recorded against it and the next
         line is attempted (a circuit breaker stops after ``_MAX_CONSECUTIVE_FAILURES`` in a row
@@ -951,7 +951,7 @@ def last_success_at() -> datetime | None:
 
 def _get_client() -> _RealAnyList | _FakeAnyList:
     """The process-wide connector. Fake when settings.anylist_fake_mode; otherwise a real
-    client gated on settings.anylist_enabled. Cached — a real client keeps its token across
+    client that requires settings.anylist_enabled. Cached — a real client keeps its token across
     calls (and re-logs in on a 401 itself)."""
     global _instance
     with _lock:
@@ -989,7 +989,7 @@ def add_or_increment_items(
     push_id: str | None = None,
 ) -> PushResult:
     """Make every wanted line be on the list, uncrossed, with the wanted quantity/note, and
-    confirm it by reading the list back. See ``docs/anylist-push.md`` and CLAUDE.md > AnyList
+    confirm it by reading the list back. See ``docs/anylist-push.md`` and docs/anylist-push.md > AnyList
     Push Logic.
 
     `on_item(ref, status)` / `on_stage(stage)` — see `_RealAnyList.add_or_increment_items`'s
@@ -1013,7 +1013,7 @@ def check_auth() -> AuthStatus:
             _mark_ok()
         return status
     except AnyListDisabledError as exc:
-        return AuthStatus(False, str(exc), utcnow())  # the §2 gate working as designed
+        return AuthStatus(False, str(exc), utcnow())  # the AnyList enable switch being off is working as designed
     except AnyListError as exc:
         # e.g. credentials not configured — _get_client() raises before the connector can log.
         logger.error("AnyList auth check failed: %s: %s", type(exc).__name__, exc)

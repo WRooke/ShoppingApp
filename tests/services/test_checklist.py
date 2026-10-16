@@ -36,7 +36,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -89,7 +89,7 @@ def test_names_match(a, b, expected):
 
 
 def test_load_succeeds_with_no_recipes_and_no_prior_consolidate(db):
-    # 2026-09-30 (chunk 7.3) — load_checklist() consolidates itself now; the old
+    # 2026-09-30 (the checklist re-consolidating on load) — load_checklist() consolidates itself now; the old
     # ChecklistNotReadyError (raised when session.checklist_items was empty, requiring the
     # now-deleted Review screen to have run consolidate first) is gone.
     s = sessions_service.create_session(db, PlanningSessionCreate())
@@ -228,7 +228,7 @@ def test_resolve_item_commits_a_total_and_clears_the_flag(db):
     assert row.note is None
 
 
-# --- push (Chunk 5.6) ---------------------------------------------------------
+# --- push (Chunk 5.6, sending to AnyList and send history) ---------------------------------------------------------
 
 
 def test_push_adds_needed_items_marks_session_and_writes_history(db):
@@ -261,7 +261,7 @@ def test_push_adds_needed_items_marks_session_and_writes_history(db):
 
 
 def test_push_reports_per_item_progress_when_given_a_token(db):
-    """2026-09-23 — real per-item push progress UI (CLAUDE.md > UI/UX). Fake-mode AnyList
+    """2026-09-23 — real per-item push progress UI (docs/ui-ux.md > UI/UX). Fake-mode AnyList
     still exercises the same on_item callback path the real connector uses."""
     from app.services import progress_tracker
 
@@ -439,7 +439,7 @@ def test_push_to_an_existing_item_drops_its_note(db):
     (2026-09-20, Phase B), which DOES sync the note; this test is specifically about the
     still-standing limitation on the simple bare-count update path.
 
-    Display note (2026-10-06, Chunk 6.7): this fixture's recipe writes "milk" (singular), so the
+    Display note (2026-10-06, Chunk 6.7, user-feedback batch): this fixture's recipe writes "milk" (singular), so the
     name pushed is "Milk" — the household's own wording. (Until 6.7 this synthetic bare-count row
     made the old countability logic call milk a count noun and push "Milks".)"""
     s = _session_with_items(db, [{"name": "milk", "quantity": 3, "unit": None}])

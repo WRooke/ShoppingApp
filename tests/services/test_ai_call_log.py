@@ -1,4 +1,4 @@
-"""Unit tests for app/services/ai_call_log.py (Phase 3.9 M5). No cost math — Gemini's free
+"""Unit tests for app/services/ai_call_log.py (Phase 3.9 M5 = diagnostics rework). No cost math — Gemini's free
 tier has no per-call dollar cost."""
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 

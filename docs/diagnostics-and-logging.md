@@ -15,7 +15,9 @@ readily apparent when, where, why and how something has failed.
   log the attempt at INFO, log success at INFO, log failure at ERROR with full exception info
 - Log format: `%(asctime)s [%(levelname)s] %(name)s: %(message)s`
 
-### Failure logging (2026-10-07 audit)
+### Failure logging
+
+*(2026-10-07 audit)*
 Every point of failure must say **what failed and why** in one line, without opening a debugger:
 the operation, the identifiers that locate it (`push_id`, `context`/recipe/session id, queue item
 id), the exception type and message, how long it took, and a traceback wherever the cause is not
@@ -84,13 +86,13 @@ box, already selected, for press-and-hold copying (`diagnostics.js > copyText`).
   the full line).
 - The in-memory ring buffer that backs the Diagnostics UI (`/logs`, `/recent-errors`) holds
   the most recent 5000 entries (`app/log_config.py::RING_BUFFER_MAXLEN`, raised from 1000 at
-  chunk 7.7) — bounded, not unbounded, so `app.log` (unbounded, rotated daily instead) is the
+  the Status page fixes) — bounded, not unbounded, so `app.log` (unbounded, rotated daily instead) is the
   place to look for anything older than the buffer currently holds
 - A `logging.Filter` on the `asyncio` logger downgrades WinError 10054
   (`ConnectionResetError`, WSAECONNRESET) noise from a Windows client dropping its TCP
   connection mid-request — routine on a home LAN/WiFi, not an application fault — from ERROR
   to DEBUG, so it no longer floods `/recent-errors`; still visible at DEBUG when
-  `LOG_LEVEL=DEBUG` (`app/log_config.py::_WinsockResetNoiseFilter`, chunk 7.7 5d). Nothing
+  `LOG_LEVEL=DEBUG` (`app/log_config.py::_WinsockResetNoiseFilter`, the Status page fixes 5d). Nothing
   else is filtered this way — an unrelated real connection error still surfaces at ERROR.
 
 ### Diagnostics web UI
@@ -100,7 +102,7 @@ A `/diagnostics` page in the web app (accessible from the main nav) must show:
   - Database connection
   - AI extraction service (Gemini) — last successful call timestamp, and which model handled
     it (`flash` / `flash-lite`) or whether the last capture is queued
-  - AnyList connection (last successful auth timestamp) — **plus, since 2026-10-06 (Chunk 6.7), the last push in full**:
+  - AnyList connection (last successful auth timestamp) — **plus, since 2026-10-06 (Chunk 6.7, user-feedback batch), the last push in full**:
     its `push_id` (the same id is on every log line of that push), when, confirmed or not, counts per outcome and the
     **per-item result** (added / updated / un-crossed / already-active / failed + the reason) and timings; and a list of recent
     pushes (`GET /api/v1/diagnostics/pushes`). This is the first stop for "why didn't X arrive?" — see
@@ -117,7 +119,7 @@ A `/diagnostics` page in the web app (accessible from the main nav) must show:
 - **Recent errors**: every ERROR-level (and above) entry currently in the ring buffer,
   highlighted prominently at the top, with a "Copy errors" button that copies all of them
   (timestamp, level, message, full traceback) to the clipboard in one go *(was a fixed "last
-  10" until 2026-10-01 diagnostics chunk 7.7, 5a/5b — a truncated slice was hiding real
+  10" until 2026-10-01 the Status page fixes — a truncated slice was hiding real
   errors on a busy day)*
 
 The diagnostics page must be built as a skeleton in Phase 1 and populated progressively as

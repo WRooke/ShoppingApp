@@ -1,18 +1,18 @@
-"""System prompts + the §0a untrusted-content wrapper, for every Gemini call this app makes.
+"""System prompts + the prompt-injection (untrusted-content) wrapper, for every Gemini call this app makes.
 
 Part of the ``ai_extraction`` package (split from the former single-file module at the
-Phase 5 review, 2026-09-12 — see CLAUDE.md > Deferred Decisions). No dependency on any
+Phase 5 review, 2026-09-12 — see docs/deferred-decisions.md > Deferred Decisions). No dependency on any
 sibling module — only on ``app.seed_data`` for the section vocabulary.
 
-CLAUDE.md > Security §0a (prompt injection hardening, highest priority): every prompt here
+docs/security.md > Prompt injection hardening (prompt injection hardening, highest priority): every prompt here
 that receives content from outside the household's own direct input tells the model that
 content is data, not instructions, and wraps it in ``_wrap_untrusted()``'s delimiter so it
 can't spoof its own closing tag. ``classify_units()``'s prompt (in ``calls.py``) is the one
 exception — its input is the household's own typed unit strings, not scraped/photographed
 content, so it's the one Gemini call in this app that deliberately skips the wrapper.
 
-**2026-09-27 (Fix 2, F2.3)** — ``format_hint_sections()`` below is a *pure* addition to that
-same §0a discipline, not an exception to the module's "no dependency on any sibling module"
+**2026-09-27 (Fix 2 = aliases feed the extraction prompt)** — ``format_hint_sections()`` below is a *pure* addition to that
+same prompt-injection hardening discipline (docs/security.md), not an exception to the module's "no dependency on any sibling module"
 rule: it takes already-fetched ``(alias_name, canonical_name)`` pairs as plain data (no ``db``
 argument, no import of ``ingredient_aliases``) and returns formatted, wrapped text. The actual
 ``db``-touching assembly — fetching system/user alias hints and calling this formatter —
@@ -37,7 +37,7 @@ _UNTRUSTED_CONTENT_TAG = "untrusted_recipe_source_7f3a"
 # The tag name is static (and lives in a repo), so "random-looking" alone is not a defence:
 # anything inside the untrusted text that spells the tag — opening or closing, any case, stray
 # whitespace — is neutralised before wrapping, so scraped text can never close the block early and
-# have the rest read as instructions (CLAUDE.md > Non-Negotiable Operating Rules, rule 1).
+# have the rest read as instructions (CLAUDE.md > Non-Negotiable Operating Rules, the prompt-injection rule).
 _DELIMITER_SPOOF_RE = re.compile(r"<\s*/?\s*" + re.escape(_UNTRUSTED_CONTENT_TAG), re.IGNORECASE)
 
 
@@ -46,14 +46,14 @@ def _wrap_untrusted(text: str) -> str:
     return f"<{_UNTRUSTED_CONTENT_TAG}>\n{safe}\n</{_UNTRUSTED_CONTENT_TAG}>"
 
 
-# Defensive ceiling on input text length (§0a) — bounds any injected payload, and
+# Defensive ceiling on input text length (Security > Prompt injection hardening) — bounds any injected payload, and
 # incidentally keeps per-call cost/latency predictable too.
 MAX_INPUT_TEXT_CHARS = 20_000
 
-# Fix 2, F2.3 — bounds the household-preference hint section `build_extraction_system_prompt()`
+# Fix 2 — bounds the household-preference hint section `build_extraction_system_prompt()`
 # (calls.py) adds to the prompt. Named, documented ceiling, same convention as
 # MAX_INPUT_TEXT_CHARS above: keeps prompt size (and cost/latency) predictable as a household's
-# own alias table grows, and doubles as the §0a payload bound on this input. No equivalent cap
+# own alias table grows, and doubles as the Security > Prompt injection hardening payload bound on this input. No equivalent cap
 # on the system-hint list — small, fixed-size, only ever grown by a migration, never by a
 # household, so it can't blow out the prompt the way an unbounded user table could.
 MAX_USER_HINT_CHARS = 2000
@@ -84,7 +84,7 @@ def format_hint_sections(
     (a fresh install with no system/user aliases yet gets the unmodified static prompt, not a
     dangling empty section).
 
-    §0a: each section is wrapped in its own `_wrap_untrusted()` delimiter, with the framing
+    Security > Prompt injection hardening: each section is wrapped in its own `_wrap_untrusted()` delimiter, with the framing
     heading OUTSIDE the tag (app-authored, trusted) and only the pairs themselves inside it —
     see `calls.py::build_extraction_system_prompt()` for why this data needs wrapping at all."""
     if not system_pairs and not user_pairs:
@@ -210,7 +210,7 @@ Return a JSON object: {{"units": [{{"unit": "<the input string, unchanged>",
 - Return one entry per input string, the string itself unchanged
 - Return ONLY valid JSON."""
 
-# Fix 5, F5.1 — AI-assisted ingredient-grouping discovery (CLAUDE.md > Deferred Decisions).
+# Fix 5 — AI-assisted ingredient-grouping discovery (docs/deferred-decisions.md > Deferred Decisions).
 # Household-scale is ~150-250 names today (confirmed against a real prod DB audit); this is
 # future-proofing against a much larger household's list, not a live concern. A genuinely new
 # precedent in this package: every other call either caps raw text length

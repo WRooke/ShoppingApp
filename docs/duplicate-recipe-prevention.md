@@ -2,12 +2,12 @@
 
 ## Duplicate Recipe Prevention
 
-**Status: in scope, Phase 4.** Designed 2026-09-06. The recipe library must not silently
+**Status: built in Phase 4.** Designed 2026-09-06. The recipe library must not silently
 accumulate multiple copies of the same recipe — whether re-added because the user forgot it
-was already there, or captured a second time under a slightly different name. None of the
+was already there, or captured a second time under a slightly different name. Before this was built, none of the
 three entry paths (`create_recipe`, `create_recipe_from_capture`, and the URL/photo/manual
-capture flows — see [Recipe Capture](./recipe-capture.md#recipe-capture--ai-extraction)) check for an existing
-recipe today.
+capture flows — see [Recipe Capture](./recipe-capture.md#recipe-capture--ai-extraction)) checked for an existing
+recipe.
 
 Distinct from [Ingredient Normalisation](./ingredient-handling.md#ingredient-normalisation) and
 [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution) above — those operate on *ingredient*
@@ -17,7 +17,7 @@ names within/across recipes. This operates on whole *recipes*, at save time.
 Placed with the planning-engine work at Phase 4 kickoff (confirmed 2026-09-06), even though
 capture (the main duplicate vector) is a Phase 3 feature. Reasons: it depends on the
 `recipes.source_book` / `recipes.source_page` columns from
-[Chunk 3.7b](./build-status/phase-3-recipe-capture.md#phase-3--recipe-capture-ai) for one of its match signals, so it can't land
+[Chunk 3.7b (source-reference schema and service)](./build-status/phase-3-recipe-capture.md#phase-3--recipe-capture-ai) for one of its match signals, so it can't land
 before those; Phase 3's remaining scope is deliberately kept tight (one blocked live-API
 chunk plus provenance); and "library hygiene at save time" sits naturally next to
 consolidation and substitution. The cost is that duplicates added during Phase 3
@@ -42,7 +42,7 @@ legitimately share a name — "pancakes"). So every match *warns* and offers a w
 - **URL capture short-circuit.** On `POST /recipes/capture/url`, the `source_url` match is
   checked *before* calling Claude. An exact hit returns immediately with the existing
   recipe's id and no extraction call — this also avoids a needless real API call, consistent
-  with [Security §0c](./security.md#0c-api-enable-switch--offline-development-highest-priority)'s
+  with [Security > API enable switch](./security.md#api-enable-switch--offline-development-highest-priority)'s
   minimise-real-calls intent. The UI offers "Open recipe #N" or "Capture again anyway".
 - **Archived recipes are included in the check.** A match against a recipe the user
   previously archived is among the most useful catches. It is shown with **Restore existing**

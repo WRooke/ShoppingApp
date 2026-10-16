@@ -1,6 +1,6 @@
 """Unit tests for app/services/scaling.py — pure arithmetic, no DB, no network.
 
-scaling.py deliberately only multiplies (see CLAUDE.md > Scaling Logic, revised at the
+scaling.py deliberately only multiplies (see docs/scaling-and-consolidation.md > Scaling Logic, revised at the
 2026-09-06 Phase 4 kickoff): rounding and unit conversion live downstream in
 consolidation.py / purchase_units.py, and are tested there.
 """

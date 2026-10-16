@@ -1,15 +1,15 @@
-"""Fix 5, F5.2 — one-off AI-assisted audit for ingredient-name groupings a household hasn't
-aliased yet (CLAUDE.md > Deferred Decisions > AI-assisted ingredient-grouping discovery).
+"""Fix 5 — one-off AI-assisted audit for ingredient-name groupings a household hasn't
+aliased yet (docs/deferred-decisions.md > Deferred Decisions > AI-assisted ingredient-grouping discovery).
 
 Read-only against whatever DB you point it at (only ever runs a SELECT via
 ``recipes_service.distinct_ingredient_names()`` — never writes a row). ``--db-path`` is
 required, deliberately with no default, so running this is always a conscious choice of which
 file to read — point it at a **restored copy** of the real database, never the live file
-directly, same discipline as every other real-data check in the ingredient-name-matching plan.
+directly, same discipline as every other real-data check in the ingredient-name matching work.
 
-Makes exactly ONE real Gemini call per run (§0c: needs ``AI_EXTRACTION_ENABLED=true`` +
-``GEMINI_API_KEY`` set first, and — per this app's standing rule — the maintainer's explicit
-go-ahead in conversation before it's actually run, even with the switch already on).
+Makes exactly ONE real Gemini call per run (docs/security.md > API enable switch: needs ``AI_EXTRACTION_ENABLED=true`` +
+``GEMINI_API_KEY`` set first, and — per this app's standing rule — the project owner's explicit
+approval before it's actually run, even with the switch already on).
 
 This script never writes anything. A suggestion the maintainer wants to keep becomes a normal,
 separate, human-reviewed addition to ``app/seed_data.py > INGREDIENT_ALIAS_SEEDS`` — the same
@@ -51,8 +51,8 @@ def main() -> int:
     if not ai_extraction.settings.ai_extraction_enabled:
         print(
             "AI_EXTRACTION_ENABLED is not 'true' -- this script needs it on, and the "
-            "maintainer's explicit go-ahead in conversation for this specific run (CLAUDE.md "
-            "> Security > section 0c). Not making any call."
+            "the project owner's explicit approval for this specific run (docs/security.md "
+            "> API enable switch). Not making any call."
         )
         return 1
 

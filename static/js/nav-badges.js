@@ -1,12 +1,12 @@
-/* Bottom-nav badge dots — Phase 6 Chunk 6.1 (see CLAUDE.md > UI / UX and
-   docs/build-status/phase-6-polish.md kickoff decisions #3/#11). App-shell level, not tied to
+/* Bottom-nav badge dots — Phase 6 Chunk 6.1 (see docs/ui-ux.md > UI / UX and
+   docs/build-status/phase-6-polish.md Phase 6 decision: nav badge dots and the error dot). App-shell level, not tied to
    any one view — static/index.html's nav markup already carries the (hidden-by-default)
    `<span class="nav-dot" data-badge="...">` slots this file toggles.
 
    Wired here: "Plan" (a session is currently active/unpushed) and "Diagnostics" (a recent
    unresolved error exists) — both piggyback on data this chunk already needs or that already
    has a cheap endpoint. NOT wired here: "Recipes" (pending AI processing) — deciding "does any
-   recipe have ai_tasks_pending" is a recipes-domain question, more naturally Chunk 6.2's own
+   recipe have ai_tasks_pending" is a recipes-domain question, more naturally Chunk 6.2 (recipe and import screen design)'s own
    job when it's actually working in that screen; the markup slot exists (`data-badge="recipes"`)
    but stays hidden until that chunk populates it. Documented here rather than silently done, so
    it isn't mistaken for an oversight.
@@ -35,7 +35,7 @@
         setBadge("plan", items.length > 0);
       })
       .catch(function (e) {
-        // Diagnostics-adjacent, not load-bearing — a failed check just leaves the dot as it
+        // Diagnostics-adjacent, not essential — a failed check just leaves the dot as it
         // was rather than surfacing its own error (a JS bug in the handler is still reported).
         if (global.ErrorReport) global.ErrorReport.reportCaught("plan badge", e);
       });

@@ -1,4 +1,4 @@
-"""Checklist "I have some" (Chunk 6.7, polish batch 3, item D): an amount already at home reduces
+"""Checklist "I have some" (Chunk 6.7, user-feedback batch, polish batch 3, item D): an amount already at home reduces
 what is bought, without ever changing what the recipes need (docs/checklist-and-shopping.md).
 """
 

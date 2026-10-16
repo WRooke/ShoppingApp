@@ -1,6 +1,6 @@
 Alembic migrations for ShoppingApp.
 
-Bootstrapped Phase 3 Chunk 3.7a. See CLAUDE.md > Code Architecture & Maintainability >
+Bootstrapped Phase 3 Chunk 3.7a. See docs/code-architecture.md > Code Architecture & Maintainability >
 Migrations for the why and the apply workflow (dev PC: `alembic upgrade head` after pulling a
 migration; NUC: run automatically by scripts/update.py).
 

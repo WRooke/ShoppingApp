@@ -6,7 +6,7 @@ Create Date: 2026-09-13 14:26:23.807878
 
 Adds the nullable JSON column that replaces frontend regex-parsing of `note` to build the
 "use 100 g" quick-resolve buttons on a `needs_review` checklist line — see
-services/consolidation.py > ReviewOption and CLAUDE.md > Scaling Logic > Rounding & unit rules.
+services/consolidation.py > ReviewOption and docs/scaling-and-consolidation.md > Scaling Logic > Rounding & unit rules.
 Nullable with no default, so it applies to a populated table without touching existing rows.
 """
 from typing import Sequence, Union

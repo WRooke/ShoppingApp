@@ -1,5 +1,5 @@
 """Smoke tests for /api/v1/settings — happy path + one error path per
-feature, per CLAUDE.md > Code Architecture & Maintainability. Deeper
+feature, per docs/code-architecture.md > Code Architecture & Maintainability. Deeper
 CRUD/edge-case coverage lives in tests/services/test_settings.py; these just
 prove the HTTP layer (routing, envelope, status codes, 404/409 translation)
 is wired up right.
@@ -105,7 +105,7 @@ def test_section_vocabulary_returns_ok_envelope(client):
     assert "other" in body["data"]["sections"]
 
 
-# --- remembered substitutions: quick-pick library (Phase 3.9 M4) -----------------------
+# --- remembered substitutions: quick-pick library (Phase 3.9 M4 = substitution redesign) -----------------------
 
 
 def _create_sub(client, original, substitute, **extra):
@@ -185,7 +185,7 @@ def test_create_substitution_half_equivalence_pair_returns_422(client):
     assert resp.status_code == 422
 
 
-# --- "the usuals" (Phase 5 Chunk 5.4) --------------------------------------------------
+# --- "the usuals" (Phase 5 Chunk 5.4, The usuals) --------------------------------------------------
 
 
 def test_usuals_patch_can_explicitly_clear_notes(client):
@@ -242,11 +242,11 @@ def test_create_ingredient_alias_happy_path(client):
     body = resp.json()["data"]
     assert body["alias_name"] == "zz canola oil"  # normalised (hyphen -> space)
     assert body["canonical_name"] == "zz vegetable oil"
-    assert body["source"] == "user"  # Fix 2, F2.1 — every API-created row defaults to 'user'
+    assert body["source"] == "user"  # Fix 2 — every API-created row defaults to 'user'
 
 
 def test_create_ingredient_alias_ignores_a_source_field_in_the_request_body(client):
-    # Fix 2, F2.1 — a household can never create a source='system' row via the API; IngredientAliasCreate
+    # Fix 2 — a household can never create a source='system' row via the API; IngredientAliasCreate
     # has no `source` field at all, so one sent in the body is silently dropped, not honoured.
     resp = client.post(
         "/api/v1/settings/ingredient-aliases",

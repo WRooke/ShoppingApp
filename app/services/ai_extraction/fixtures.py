@@ -1,7 +1,7 @@
-"""Canned fake-mode responses — CLAUDE.md > Security §0c (offline development).
+"""Canned fake-mode responses — docs/security.md > API enable switch (offline development).
 
 Part of the ``ai_extraction`` package (split from the former single-file module at the
-Phase 5 review, 2026-09-12 — see CLAUDE.md > Deferred Decisions). Every call function in
+Phase 5 review, 2026-09-12 — see docs/deferred-decisions.md > Deferred Decisions). Every call function in
 ``calls.py`` checks ``settings.ai_extraction_fake_mode`` first and, if set, returns one of
 these instead of touching the network — zero key, zero cost, deterministic (the same input
 always picks the same fixture, via ``_pick_fake_fixture``'s hash).
@@ -75,7 +75,7 @@ _FAKE_UNIT_CLASSIFICATIONS: dict[str, str] = {
     "tbspoon": "tbsp",
 }
 
-# Canned grouping suggestions for fake mode (see suggest_ingredient_groupings(), Fix 5 F5.1).
+# Canned grouping suggestions for fake mode (see suggest_ingredient_groupings(), Fix 5 = ingredient grouping audit).
 # A group is only ever surfaced when EVERY one of its names is present in the actual input list
 # — mirrors the real call's own membership-validation logic (calls.py), so fake mode exercises
 # that same filter rather than bypassing it.

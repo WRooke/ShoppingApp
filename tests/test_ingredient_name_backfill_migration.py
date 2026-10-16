@@ -1,10 +1,10 @@
-"""Migration tests for the ingredient-name-matching plan's data migrations. Uses the same
+"""Migration tests for the ingredient-name matching work's data migrations. Uses the same
 `alembic upgrade` -> temp SQLite DB pattern already established in test_migrations.py.
 
-CLAUDE.md non-negotiable rule 3 (data loss on prod is never acceptable, added 2026-09-27): every
+The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules; data loss on prod is never acceptable, added 2026-09-27): every
 test here asserts row counts are unchanged (or increase by exactly what a migration intends to
 add) and that untouched rows are byte-for-byte identical to their pre-migration state -- this is
-the automated check the ingredient-name-matching plan's Testing & Verification section calls for,
+the automated check the testing notes for the ingredient-name matching work calls for,
 not just an eyeballed review.
 """
 
@@ -41,7 +41,7 @@ def conn_factory(tmp_path):
     return db_path, _connect
 
 
-# --- F0: repoint orphaned "yoghurt" product_units rows ------------------------------
+# --- the yoghurt pack-size repoint: repoint orphaned "yoghurt" product_units rows ------------------------------
 
 
 def test_repoint_yoghurt_product_units_renames_only_the_name_column(conn_factory, monkeypatch):
@@ -137,12 +137,12 @@ def test_repoint_yoghurt_product_units_is_a_noop_with_no_matching_rows(conn_fact
         conn.close()
 
 
-# --- F1.5: backfill normalisation across the 5 reference tables --------------------------
-# CLAUDE.md non-negotiable rule 3: every test below asserts row COUNT is unchanged and that
+# --- the normalisation backfill migration: backfill normalisation across the 5 reference tables --------------------------
+# The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules): every test below asserts row COUNT is unchanged and that
 # every left-behind row is byte-for-byte identical to its pre-migration state.
 
 _F0_HEAD = "bcaf5b44af53"  # chain tip as of this migration
-_PRE_F15 = "c920cac31b6a"  # just before F1.5's own migration
+_PRE_F15 = "c920cac31b6a"  # just before the normalisation backfill migration's own migration
 
 
 def _row_count(conn, table: str) -> int:

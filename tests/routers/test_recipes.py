@@ -1,5 +1,5 @@
 """Smoke tests for /api/v1/recipes — happy path + one error path per feature,
-per CLAUDE.md > Code Architecture & Maintainability. Deeper CRUD/edge-case
+per docs/code-architecture.md > Code Architecture & Maintainability. Deeper CRUD/edge-case
 coverage lives in tests/services/test_recipes.py; these just prove the HTTP
 layer (routing, envelope, status codes, 404 translation) is wired up right.
 """
@@ -209,7 +209,7 @@ def test_delete_ingredient_not_found_returns_structured_404(client):
     assert resp.json()["error"]["code"] == "INGREDIENT_NOT_FOUND"
 
 
-# --- duplicate recipe prevention (Phase 4 — CLAUDE.md > Duplicate Recipe Prevention) -----
+# --- duplicate recipe prevention (Phase 4 — docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention) -----
 
 
 def test_create_recipe_possible_duplicate_returns_structured_409(client):
@@ -339,7 +339,7 @@ def test_ingredient_units_endpoint_returns_units_used_before(client):
     assert resp.json()["data"]["units"] == ["pinch"]
 
 
-# --- ingredient-names: on-the-fly alias nudge lookup (Fix 4, F4.1, 2026-09-27) ---------------
+# --- ingredient-names: as-you-type name suggestion lookup (Fix 4 = as-you-type name hint, 2026-09-27) ---------------
 
 
 def test_ingredient_names_endpoint_returns_deduped_normalised_names(client):
@@ -359,7 +359,7 @@ def test_ingredient_names_endpoint_returns_deduped_normalised_names(client):
 
 
 def test_ingredient_names_offers_the_households_wording_not_the_singular_key(client):
-    """Chunk 6.7: the alias nudge must OFFER "zz wording beans" (how the household writes it), never
+    """Chunk 6.7: the name suggestion must OFFER "zz wording beans" (how the household writes it), never
     the singular matching key "zz wording bean" — accepting the key would rewrite the recipe toward
     singular, and the checklist/AnyList display follows the household's own wording."""
     _create_recipe(

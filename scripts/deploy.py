@@ -7,13 +7,13 @@ NUC-side counterpart (update.bat) afterwards to actually pull it down and restar
 The cheap git checks run before the (slow) test suite so a trivial local mistake is reported
 immediately instead of after paying for a full test run - see the ordering note in main().
 
-2026-09-13 code review: this project deliberately has no CI pipeline (private, solo-maintainer
-repo; see CLAUDE.md > Deferred Decisions) — this script's test run IS the enforced gate. Before
+2026-09-13 code review: this project deliberately has no CI (continuous integration) service (private,
+solo-maintainer repo; see docs/deferred-decisions.md > Deferred Decisions) — so this script's test run is the check that blocks a push. Before
 this, scripts/validate_develop.py's test run was a purely manual pre-push habit that nothing
 actually required; now a red suite can't be tagged and pushed to production regardless of
 whether validate-develop.bat was run by hand first.
 
-Branch model (see CLAUDE.md > Deferred Decisions > Git branching strategy, decided at the
+Branch model (see docs/deferred-decisions.md > Deferred Decisions > Git branching strategy, decided at the
 Phase 2 review): `develop` is where all work happens; `production` is the NUC-deployed
 branch and only ever moves via this script, fast-forwarded to wherever `develop` currently
 is. There is deliberately no local checkout of `production` involved - this pushes
@@ -35,14 +35,14 @@ from scripts.git_utils import run_git, run_git_network
 from scripts.validate_develop import run_pytest
 
 # Deliberately NOT `from app.log_config import setup_logging` (2026-09-13 code review, adding
-# the test-suite gate below): that import pulls in app.config, whose module-level
+# the test-suite check below): that import pulls in app.config, whose module-level
 # load_dotenv() sets DATABASE_PATH/LOGS_PATH/IMAGES_PATH in THIS process's environment --
 # run_pytest() spawns pytest as a subprocess that inherits it, which would make
 # tests/conftest.py's os.environ.setdefault(...) a silent no-op and run the "isolated" suite
 # against the real dev database instead of a temp one. Same fix, same reasoning, as
 # scripts/validate_develop.py's own docstring (see tests/conftest.py's docstring too, and
 # DEPLOY.md > Things that can go wrong) -- this bit that script once already; plain
-# logging.basicConfig() can't poison a subprocess's environment the same way.
+# logging.basicConfig() can't change a subprocess's environment the same way.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -57,9 +57,9 @@ def _fail(message: str) -> None:
 
 
 def main() -> int:
-    # 2026-09-13 code review — the CI-substitute decision: no GitHub Actions (private,
+    # 2026-09-13 code review — why this script runs the tests itself: there is no CI (continuous integration) service, and no GitHub Actions (private,
     # solo-maintainer repo with a git-based deploy that doesn't run through it anyway), so
-    # this script itself is the enforced gate instead of the test suite passing being purely a
+    # this script itself is the check that blocks a bad push, instead of the test suite passing being purely a
     # manual habit (scripts/validate_develop.py, previously never actually invoked here). That
     # decision is about *whether* a red suite can ever reach production (never) - it does not
     # require tests to run first chronologically. They used to run first here, which meant a

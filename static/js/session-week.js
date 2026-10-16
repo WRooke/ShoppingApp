@@ -1,16 +1,15 @@
-/* Session workspace — the 7-day grid + tap-to-assign (Phase 6 Chunk 6.5). Split out of
-   sessions.js per CLAUDE.md > Code Architecture & Maintainability > file size discipline,
+/* Session workspace — the 7-day grid + tap-to-assign (Phase 6 Chunk 6.5, weekly planner). Split out of
+   sessions.js per docs/code-architecture.md > Code Architecture & Maintainability > file size discipline,
    matching this file family's existing self-contained-feature-file precedent
    (session-recipe-picker.js, checklist-push.js).
 
    A strict 7-column grid didn't fit at phone width (~400px, per this chunk's own mockup
    pass), so this is a vertically-stacked "day sections" layout instead — one of the
-   fallbacks CLAUDE.md's own chunk description explicitly allowed. Tap-to-assign (kickoff
-   decision #10 — drag-and-drop rejected as unreliable under touch at this width): tap a
+   fallbacks CLAUDE.md's own chunk description explicitly allowed. Tap-to-assign (drag-and-drop was rejected as unreliable under touch at this width): tap a
    slot's move button, then tap a day section to move it there. The whole highlighted day
    card is the tap target, not just its header (2026-09-20 mockup feedback — the highlight
    has to match what's actually tappable, or tapping the highlighted area does nothing and
-   reads as broken). day_of_week itself is unchanged (Phase 4 Chunk 4.4) — this is a visual
+   reads as broken). day_of_week itself is unchanged (Phase 4 Chunk 4.4 (plan and plan-recipe management)) — this is a visual
    layer only, no data-model change. */
 
 (function (global) {
@@ -155,7 +154,7 @@
     function slotRow(slot) {
       var row = el("div", "slot-row" + (movingId === slot.id ? " picked" : ""));
       var isLeftovers = slot.slot_type === "leftovers";
-      // Chunk 6.3 kickoff decision #9 — a slot's recipe name links to its own page.
+      // Chunk 6.3 (plan screen design) Phase 6 decision: a slot's recipe name links to its recipe — a slot's recipe name links to its own page.
       var name = isLeftovers
         ? el("span", "name plain", "Leftovers")
         : el("a", "name", slot.recipe_name || "Recipe #" + slot.recipe_id);

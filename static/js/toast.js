@@ -1,12 +1,11 @@
-/* Shared toast / undo snackbar — Phase 6 Chunk 6.1 (see CLAUDE.md > UI / UX and
-   docs/build-status/phase-6-polish.md kickoff decision #2). Built once here as app-shell
-   infrastructure; Chunks 6.2/6.3/6.3b/6.4/6.6 call global.Toast.show() from their own delete
+/* Shared toast / undo snackbar — Phase 6 Chunk 6.1 (see docs/ui-ux.md > UI / UX and
+   docs/build-status/phase-6-polish.md Phase 6 decision: Undo toast on delete). Built once here as app-shell
+   infrastructure; Chunks 6.2 (recipe and import screen design)/6.3/6.3b/6.4/6.6 call global.Toast.show() from their own delete
    flows — this file has no delete logic of its own, it only renders the message and, if given
    one, runs an "undo" callback.
 
    Deliberately simple: one toast visible at a time (a second call replaces the first, it does
-   not queue), and it dies on navigation rather than persisting across a route change (kickoff
-   decision #12 — the maintainer's own call, weighed against the extra state management a
+   not queue), and it dies on navigation rather than persisting across a route change (the maintainer's own call, weighed against the extra state management a
    persist-across-navigation version would need). router.js's hashchange handler calls
    Toast.dismiss() so a stale toast never survives onto a screen it no longer describes. */
 
@@ -47,7 +46,7 @@
   /* show(message, opts) — opts.actionLabel / opts.onAction for an "Undo"/"Retry"-style button;
      opts.tone === "error" for an error (danger colour, role=alert, stays a little longer).
      Undoing is the caller's job (re-POST the just-deleted data, etc.) — this component only
-     renders the prompt and the button, per CLAUDE.md > Code Architecture ("a small, stable
+     renders the prompt and the button, per docs/code-architecture.md > Code Architecture ("a small, stable
      interface", same discipline as the external-integration clients). */
   function show(message, opts) {
     opts = opts || {};

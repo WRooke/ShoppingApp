@@ -4,21 +4,21 @@ Revision ID: bcaf5b44af53
 Revises: c920cac31b6a
 Create Date: 2026-09-27
 
-F1.5 of the ingredient-name-matching plan. `app/services/text_normalize.py`'s
+A step of the 2026-09-27 ingredient-name matching work (see docs/ingredient-handling.md > Ingredient Normalisation). `app/services/text_normalize.py`'s
 `normalise_ingredient_name()` (plural-stripping + hyphen-folding) is now the grouping/matching
 key used everywhere an ingredient name is compared — but existing rows in the 5 reference
 tables below were written under the old, narrower lowercase+whitespace-only normalisation, so
 some no longer match what a freshly-consolidated shopping-list line looks like (e.g. the
 confirmed real "chicken thigh"/"chicken thighs" duplicate in `product_units`).
 
-**CLAUDE.md non-negotiable rule 3 (data loss on prod is never acceptable, added 2026-09-27):
+**The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules; data loss on prod is never acceptable, added 2026-09-27):
 this migration never deletes a row, in any table, under any circumstance.** For every
 collision (2+ existing rows that would now normalise to the same value under a column with a
 uniqueness constraint), exactly ONE row is renamed to the new normalised value; every other row
 in that collision group is left **completely untouched** — same id, same literal old value,
 same every other column. It simply stops being matched by the new normalisation going forward,
 exactly as unreachable as an already-orphaned row is today (e.g. the yoghurt `product_units`
-rows F0's migration already found) — never deleted, never silently merged away. Every
+rows the yoghurt pack-size repoint's migration already found) — never deleted, never silently merged away. Every
 left-behind row is printed in this migration's own output as a plain report for the maintainer
 to reconcile by hand via the existing Settings CRUD, at their own pace — not auto-applied here.
 
@@ -358,5 +358,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Documented no-op — nothing was ever deleted by upgrade(), so there is no data to
     # recover; renaming back to the exact prior string isn't tracked, same precedent as this
-    # plan's other data migrations (see F0's c920cac31b6a).
+    # plan's other data migrations (see the yoghurt pack-size repoint's c920cac31b6a).
     pass

@@ -1,5 +1,5 @@
 """Unit tests for app/services/substitutions.py — the remembered-substitutions quick-pick
-library (Phase 3.9 M4). No `is_default`, no auto-apply — a row only ever pre-fills a
+library (Phase 3.9 M4 = substitution redesign). No `is_default`, no auto-apply — a row only ever pre-fills a
 per-recipe confirm UI.
 """
 
@@ -37,7 +37,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -119,7 +119,7 @@ def test_touch_is_silent_noop_for_unknown_pair(db):
     subs.touch(db, original_name="ghost", substitute_name="phantom")  # no row, no error
 
 
-# --- M8: quantity/unit equivalence pair -------------------------------------
+# --- M8 (substitution amount/unit change): quantity/unit equivalence pair -------------------------------------
 
 
 def _cp(original, substitute, oq, ou, sq, su):

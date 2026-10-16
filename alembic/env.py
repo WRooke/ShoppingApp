@@ -1,8 +1,8 @@
 """Alembic environment — wired to the app's own SQLAlchemy metadata and .env config.
 
-Bootstrapped at Phase 3 Chunk 3.7 (see CLAUDE.md > Code Architecture & Maintainability >
+Bootstrapped at Phase 3 Chunk 3.7 (see docs/code-architecture.md > Code Architecture & Maintainability >
 Migrations). Alembic was never actually set up in Phase 2: the app still runs
-``Base.metadata.create_all()`` on startup, and every schema change up to Chunk 3.5 only
+``Base.metadata.create_all()`` on startup, and every schema change up to Chunk 3.5 (diagnostics wiring) only
 *added whole tables*, which ``create_all()`` handles. Adding columns to the existing
 ``recipes`` table in Chunk 3.7 is the first change that genuinely needs a migration, so
 Alembic is bootstrapped here. ``create_all()`` stays as the fresh-empty-DB fast path;

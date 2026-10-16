@@ -1,5 +1,5 @@
 """Pydantic models for ``coarse_ingredients`` — ingredients that skip quantity/unit math
-entirely at consolidation (2026-09-12, see CLAUDE.md > Ingredient Unit Handling > Layer D and
+entirely at consolidation (2026-09-12, see docs/ingredient-handling.md > Ingredient Unit Handling > Layer D = bought by the bunch and
 > Data Model > coarse_ingredients).
 """
 

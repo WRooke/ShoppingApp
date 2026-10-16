@@ -1,6 +1,6 @@
 """``stores``, ``store_sections`` and ``product_sections`` tables.
 
-From the Shop Layout Reorganisation addendum in CLAUDE.md. A product's *section*
+From the shop-layout design (docs/checklist-and-shopping.md > Shopping List Store Layout). A product's *section*
 (e.g. "dairy") is a property of the ingredient, store-independent. A store's
 *section order* (walking order) is a property of the store, product-independent.
 Sorting a list for a given store is: group by section -> order groups by that

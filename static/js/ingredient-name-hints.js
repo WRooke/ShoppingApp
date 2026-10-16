@@ -1,20 +1,20 @@
-/* On-the-fly ingredient-name alias nudge (Fix 4, 2026-09-27/28 — CLAUDE.md > Ingredient
-   Handling > Ingredient Aliases). Mirrors unit-hints.js's Layer C duplicate-unit nudge
+/* On-the-fly ingredient-name name suggestion (Fix 4 = as-you-type name hint, 2026-09-27/28 — docs/ingredient-handling.md > Ingredient
+   Handling > Ingredient Aliases). Mirrors unit-hints.js's Layer C (duplicate-unit hint)
    structurally, applied to the ingredient NAME field instead of the unit field: on blur, if
    what's typed is close to an already-known ingredient name but not an exact (post-
-   normalisation) match, offer a dismissible, never-blocking nudge with two one-tap actions.
+   normalisation) match, offer a dismissible, never-blocking suggestion with two one-tap actions.
 
-   Complementary to Fix 1: a plain plural/hyphen variant of an already-known name already
-   merges silently at consolidation time with no alias needed, so this nudge only fires for a
+   Complementary to Fix 1 (shared name-matching key): a plain plural/hyphen variant of an already-known name already
+   merges silently at consolidation time with no alias needed, so this suggestion only fires for a
    genuine different-wording pair (matched against the *normalised* form of both the typed text
-   and the known-names list, so it never nudges about something Fix 1 already handles).
+   and the known-names list, so it never suggests anything about something Fix 1 already handles).
 
    Client-side normalisation gap (deliberate, documented, see the ingredient-name-matching
    plan's Fix 4 grounding pass): this file ports only the HAND-ROLLED portion of
    app/services/text_normalize.py's singularise() rules (the US whitelist, "-ies", the
    sibilant-suffix "-es" drop, the generic "-s" drop). It does NOT replicate the "-ves"/true-
    irregular branches that delegate to the `inflect` library server-side (no JS equivalent is
-   vendored in this no-build-step app). Worst case: an occasional missed nudge-suppression for a
+   vendored in this no-build-step app). Worst case: an occasional missed suggestion-suppression for a
    rare pair like "olive"/"olives" or "goose"/"geese" — a cosmetic miss, dismissible with one
    tap, never a wrong merge and never a blocked save, same safe-failure direction as every other
    heuristic in this app. */
@@ -105,9 +105,9 @@
   // UnitHints' own per-ingredient-name cache, this list isn't parameterised).
   var _namesCache = null;
   // key -> the household's own written form where it differs ("black bean" -> "black beans"). The
-  // nudge compares and aliases by KEY but OFFERS (and writes on "use it") the household's wording:
+  // suggestion compares and aliases by KEY but OFFERS (and writes on "use it") the household's wording:
   // offering the singular key would rewrite recipes toward singular, which the checklist/AnyList
-  // display (derived from the household's wording) would then follow. 2026-10-06, Chunk 6.7.
+  // display (derived from the household's wording) would then follow. 2026-10-06, Chunk 6.7 (user-feedback batch).
   var _wordingCache = {};
   function fetchKnownNames(cb) {
     if (_namesCache) {
@@ -177,7 +177,7 @@
     };
   }
 
-  // Wires the nudge onto one ingredient-name field. Returns the container element the caller
+  // Wires the suggestion onto one ingredient-name field. Returns the container element the caller
   // appends into the row (matching unit-hints.js's own return-a-wrap-element pattern).
   function attach(nameInput) {
     var wrap = el("div", "ingredient-name-hints muted");
@@ -268,7 +268,7 @@
               })
               .then(function () {
                 // The typed text is deliberately left in the field -- a recipe keeps showing
-                // exactly what it said (CLAUDE.md > Ingredient Aliases); the new alias is what
+                // exactly what it said (docs/ingredient-handling.md > Ingredient Aliases); the new alias is what
                 // makes it resolve correctly at consolidation time from here on.
                 global.Toast.show('Saved -- "' + typed + '" will be treated as "' + shown + '" from now on.');
                 clear();

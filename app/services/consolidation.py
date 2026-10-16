@@ -1,10 +1,10 @@
 """Ingredient consolidation — pure. No DB, no network. One of the three highest
-bug-risk modules (CLAUDE.md > Code Architecture & Maintainability), heavily unit-tested.
+bug-risk modules (docs/code-architecture.md > Code Architecture & Maintainability), heavily unit-tested.
 
 Takes per-recipe *already-scaled* ingredient lines (from scaling.py) plus the default
 substitution map, and returns one consolidated item per resolved ingredient name. This
-is where every rounding and unit-normalisation rule from the 2026-09-06 grilling lives —
-see CLAUDE.md > Scaling Logic > Rounding & unit rules:
+is where every rounding and unit-normalisation rule from the 2026-09-06 design review lives —
+see docs/scaling-and-consolidation.md > Scaling Logic > Rounding & unit rules:
 
   * Australian volume conversions: tsp=5 ml, tbsp=20 ml, cup=250 ml; kg=1000 g, L=1000 ml.
     Volumes merge; mass never converts to volume (no density data).
@@ -33,8 +33,7 @@ whether/how a conversion happened — that logic lives in
 which recipe slot it came from (``recipe_id``/``recipe_label``). Every line's OWN
 (``quantity``, ``unit``) — already its post-substitution/post-alias, already-scaled final
 form — becomes one ``RecipeContribution`` in the group's ``ConsolidatedItem.recipe_breakdown``,
-listed one-per-line (never merged, even when two slots share a recipe — see CLAUDE.md >
-Ingredient Aliases' sibling section on this). Again purely opaque display metadata: this
+listed one-per-line (never merged, even when two slots share a recipe — see docs/ingredient-handling.md > Ingredient Aliases' sibling section on this). Again purely opaque display metadata: this
 module doesn't know what a "recipe" is, it just carries the label through.
 """
 
@@ -85,7 +84,7 @@ class IngredientLine:
 
 @dataclass(frozen=True)
 class RecipeContribution:
-    """One recipe slot's contribution to a consolidated line — CLAUDE.md > "Which recipe is
+    """One recipe slot's contribution to a consolidated line — docs/scaling-and-consolidation.md > "Which recipe is
     this ingredient from"."""
 
     recipe_id: int | None
@@ -105,7 +104,7 @@ class ReviewOption:
     whenever `note` carried extra appended text alongside the review breakdown (e.g. an
     Ingredient Aliases conversion fragment) — the regex had no reliable way to tell that text
     apart from the breakdown it was meant to parse. Persisted as
-    session_checklist_items.review_options_json; see CLAUDE.md > Scaling Logic > Rounding &
+    session_checklist_items.review_options_json; see docs/scaling-and-consolidation.md > Scaling Logic > Rounding &
     unit rules > Irreconcilable."""
 
     quantity: float
@@ -128,7 +127,7 @@ class ConsolidatedItem:
     # line in this group went through an alias quantity/unit conversion.
     conversion_notes: list[str] = field(default_factory=list)
     # 2026-09-11 — one entry per contributing line (never merged, even for two slots of the
-    # same recipe — CLAUDE.md > "Which recipe is this ingredient from"), for the ingredient
+    # same recipe — docs/scaling-and-consolidation.md > "Which recipe is this ingredient from"), for the ingredient
     # review screen's expandable "which recipe needed this" breakdown.
     recipe_breakdown: list[RecipeContribution] = field(default_factory=list)
     # 2026-09-12 — Ingredient Unit Handling Layer D ("coarse ingredients", e.g. parsley).
@@ -194,7 +193,7 @@ def _summarise_bucket(dimension: str, total: float) -> str:
 
 def _conversion_notes(lines: list[IngredientLine]) -> list[str]:
     """Sum matching (source_name, source_unit) pairs across every line in a group into
-    display-ready fragments ("3 tbsp lemon juice") — see CLAUDE.md > Ingredient Aliases. Two
+    display-ready fragments ("3 tbsp lemon juice") — see docs/ingredient-handling.md > Ingredient Aliases. Two
     recipes each contributing "2 tbsp lemon juice" (aliased to the same canonical "lemon")
     show as one combined "4 tbsp lemon juice", not two separate fragments."""
     totals: dict[tuple[str, str], float] = {}
@@ -211,7 +210,7 @@ def _conversion_notes(lines: list[IngredientLine]) -> list[str]:
 
 def _recipe_breakdown(lines: list[IngredientLine]) -> list[RecipeContribution]:
     """One entry per line that carries a recipe_label, in the order given — never merged
-    (CLAUDE.md > "Which recipe is this ingredient from": two slots of the same recipe show as
+    (docs/scaling-and-consolidation.md > "Which recipe is this ingredient from": two slots of the same recipe show as
     two separate rows, e.g. different serving sizes on different days)."""
     return [
         RecipeContribution(
@@ -285,7 +284,7 @@ def _resolve_group(name: str, lines: list[IngredientLine]) -> ConsolidatedItem:
                 # the same ingredient still gets a sane display unit instead of falling
                 # through to the ml branch below.
                 return _item(round(total / 250.0, 2), "cup", also_to_taste=has_to_taste)
-            # CLAUDE.md > Scaling Logic's "pure tbsp/tsp -> ceil to nearest 0.5" rule — long
+            # docs/scaling-and-consolidation.md > Scaling Logic's "pure tbsp/tsp -> ceil to nearest 0.5" rule — long
             # unreachable because this function unconditionally converted every tbsp/tsp
             # contribution to ml. 2026-09-10 hand-testing: a bulky/leafy ingredient measured
             # only in spoons (e.g. "baby spinach") doesn't read naturally as an ml figure
@@ -313,19 +312,19 @@ def _normalise_name(name: str) -> str:
     unit_synonyms.py — see that module's own docstring for why they all have to agree on this).
     Previously just ``" ".join(name.strip().lower().split())`` — plural/hyphen variants of the
     same ingredient ("carrot"/"carrots", "extra virgin olive oil"/"extra-virgin olive oil")
-    landed as separate, unmerged shopping-list lines. See CLAUDE.md > Ingredient Normalisation."""
+    landed as separate, unmerged shopping-list lines. See docs/ingredient-handling.md > Ingredient Normalisation."""
     return normalise_ingredient_name(name)
 
 
 def consolidate(lines: list[IngredientLine]) -> list[ConsolidatedItem]:
     """Group by ingredient name and apply the rounding/unit rules. Result sorted by name.
 
-    **Pure — no substitution logic** (Phase 3.9 M4/M8). Each ``IngredientLine`` arrives
+    **Pure — no substitution logic** (Phase 3.9 M4 = substitution redesign/M8 = substitution amount/unit change). Each ``IngredientLine`` arrives
     finished: the caller (``sessions.consolidate_session`` / ``_scaled_lines``) has already
     resolved ``recipe_ingredients.resolved_ingredient``, applied the M8 quantity/unit
     transform (``resolved_quantity`` / ``resolved_unit`` or a session-override equivalence
     pair), and scaled. A line that came back as ``6 can`` from a "corn cobs" -> "canned corn"
-    swap just buckets here as a free-text-unit discrete count. See CLAUDE.md > Scaling Logic
+    swap just buckets here as a free-text-unit discrete count. See docs/scaling-and-consolidation.md > Scaling Logic
     > Consolidation across recipes."""
     grouped: dict[str, list[IngredientLine]] = {}
     for ln in lines:

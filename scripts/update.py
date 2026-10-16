@@ -4,7 +4,7 @@ Run via update.bat, which calls this FIRST and only calls stop.bat / start.bat i
 this exits 0. That ordering means a failed update leaves the previous version running
 rather than taking the app down.
 
-Branch model (see CLAUDE.md > Deferred Decisions > Git branching strategy, decided at the
+Branch model (see docs/deferred-decisions.md > Deferred Decisions > Git branching strategy, decided at the
 Phase 2 review): the NUC always stays checked out on `production` - the branch
 scripts/deploy.py fast-forwards from the dev PC's `develop` branch. This always pulls
 `production` specifically, regardless of what happens to be checked out, so a NUC checkout
@@ -171,7 +171,7 @@ def main() -> int:
     # at this app's real (very low, two-household-members) concurrency risk. Instead: detect
     # whether the server is actually running right now and say so loudly, rather than
     # silently migrating against a live process either way — a human running update.bat can
-    # then judge whether to stop it by hand first. See CLAUDE.md > Code Architecture >
+    # then judge whether to stop it by hand first. See docs/code-architecture.md > Code Architecture >
     # Migrations and DEPLOY.md.
     if _server_is_running():
         logger.warning(
@@ -186,7 +186,7 @@ def main() -> int:
 
     # Apply any DB schema migrations the pulled commit added, BEFORE the restart, so the
     # new code never starts against an old schema. Alembic bootstrapped in Phase 3 Chunk
-    # 3.7 (see CLAUDE.md > Code Architecture > Migrations). Nullable-column adds are the
+    # 3.7 (see docs/code-architecture.md > Code Architecture > Migrations). Nullable-column adds are the
     # common case and safe on a populated table; a migration that fails here aborts the
     # update with the old version still running, same as a failed pip install above.
     logger.info("Update: applying database migrations (alembic upgrade head)...")

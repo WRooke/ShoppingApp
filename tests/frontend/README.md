@@ -11,7 +11,7 @@ never will (see `HEADLESS_VERIFY.md`).
 - **Here (`tests/frontend/`)**: a *regression test* — something that broke once for real (or
   is a near-miss the review found), written so it can never silently break again. Runs every
   time with the rest of `tests/` (`pytest tests/`, `scripts/validate_develop.py`, and
-  `scripts/deploy.py`'s pre-push test gate all pick these up automatically — same `tests/`
+  `scripts/deploy.py`'s pre-push test run all pick these up automatically — same `tests/`
   tree, no separate wiring).
 - **A one-off manual `scripts/cdp.py` session (per `HEADLESS_VERIFY.md`)**: exploratory
   checking *while building* a new feature, before there's anything stable enough to assert on

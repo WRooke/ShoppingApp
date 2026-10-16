@@ -1,5 +1,5 @@
 """Unit tests for app/services/session_merges.py — the session-scoped counterpart to
-ingredient_aliases (Fix 3, F3.1). No DB fixtures shared with ingredient_aliases — this is a
+ingredient_aliases (Fix 3 = Combine action). No DB fixtures shared with ingredient_aliases — this is a
 deliberately separate, ephemeral concept (see the module docstring).
 """
 
@@ -96,7 +96,7 @@ def test_deleting_a_session_cascades_to_its_merges(db):
     assert db.query(SessionIngredientMerge).count() == 0
 
 
-# --- generalised kinds (2026-09-30, chunk 7.5) ----------------------------------------
+# --- generalised kinds (2026-09-30, the checklist ingredient panel work) ----------------------------------------
 
 
 def test_add_and_read_back_substitute(db):

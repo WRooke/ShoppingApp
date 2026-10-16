@@ -60,7 +60,7 @@ def test_anylist_failure_is_an_error_with_type_and_traceback(client, caplog, boo
         resp = client.get("/__test/anylist-boom")
 
     assert resp.status_code == 502 and resp.json()["error"]["code"] == "ANYLIST_FAILED"
-    # the client never sees the raw text (Security §4) ...
+    # the client never sees the raw text (Security > App-level protections) ...
     assert "HTTP 503" not in resp.text
     # ... the log does, at ERROR, with the exception type and a traceback
     (record,) = [r for r in caplog.records if "AnyList call failed" in r.getMessage()]

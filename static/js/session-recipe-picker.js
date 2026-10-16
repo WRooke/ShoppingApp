@@ -1,6 +1,6 @@
-/* "Add a recipe" search-and-pick, split out of sessions.js per CLAUDE.md > Code Architecture
+/* "Add a recipe" search-and-pick, split out of sessions.js per docs/code-architecture.md > Code Architecture
    & Maintainability > file size discipline (sessions.js was pushing past ~400 lines once the
-   Chunk 6.3 step indicator, next-empty-day default, and Undo-on-remove wiring landed).
+   Chunk 6.3 (plan screen design) step indicator, next-empty-day default, and Undo-on-remove wiring landed).
    Self-contained, matching this file family's existing precedent. */
 
 (function (global) {

@@ -1,7 +1,7 @@
 """Smoke tests for /api/v1/recipes/capture/* — happy path + one error path per endpoint,
-per CLAUDE.md > Code Architecture & Maintainability.
+per docs/code-architecture.md > Code Architecture & Maintainability.
 
-Fake mode (CLAUDE.md > Security > §0c) is forced on for every test here so these never depend
+Fake mode (docs/security.md > API enable switch) is forced on for every test here so these never depend
 on the developer's local .env state and never make a real Gemini call — the URL endpoint's
 own network fetch is separately mocked (httpx.get), since fake mode only covers the Gemini
 call, not capture_url's own HTTP fetch.
@@ -176,7 +176,7 @@ def test_capture_progress_reflects_a_real_capture(client):
     body = progress_resp.json()
     assert body["ok"] is True
     # 2 steps as of 2026-09-30 (was 3 — "substitutions" removed with the AI
-    # substitution-flagging call; manual substitution stays, see CLAUDE.md > Deferred Decisions).
+    # substitution-flagging call; manual substitution stays, see docs/deferred-decisions.md > Deferred Decisions).
     assert [s["status"] for s in body["data"]["steps"]] == ["done", "done"]
 
 
@@ -189,7 +189,7 @@ def test_capture_progress_unknown_token_returns_structured_404(client):
     assert body["error"]["code"] == "PROGRESS_TOKEN_NOT_FOUND"
 
 
-# --- Gemini-429 retry queue (Phase 3.9 M3) --------------------------------------
+# --- Gemini-429 retry queue (Phase 3.9 M3 = fallback chain and capture queue) --------------------------------------
 
 
 def test_capture_url_over_quota_is_queued(client):

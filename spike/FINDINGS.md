@@ -64,7 +64,7 @@ ownership/auth is evidently derived entirely from the bearer token, not this fie
 - Token refresh on 401 (`/auth/token/refresh`) — documented from source, not exercised live.
 - Credential persistence — this spike reads plaintext from `.env` each run rather than the
   reference client's encrypted-file cache. Storage approach (`keyring` vs `.env`) is still an
-  open Phase 5 decision (see CLAUDE.md > Deferred Decisions) — unaffected by this finding.
+  open Phase 5 decision (see docs/deferred-decisions.md > Deferred Decisions) — unaffected by this finding.
 - Creating a new list — not attempted; `TestList` already existed in the account. Not needed for
   the planned app flow (lists are pre-existing, user-managed in the AnyList app itself).
 

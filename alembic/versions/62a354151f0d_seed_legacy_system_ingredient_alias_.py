@@ -4,12 +4,12 @@ Revision ID: 62a354151f0d
 Revises: 092f6bb91c9c
 Create Date: 2026-09-27
 
-F2.2 of the ingredient-name-matching plan (Fix 2). The extraction prompt's own
+A step of the 2026-09-27 ingredient-name matching work (see docs/ingredient-handling.md > Ingredient Normalisation) (Fix 2 = aliases feed the extraction prompt). The extraction prompt's own
 canonicalisation bullet has always hardcoded 3 pairs as literal prose: the plain-salt group,
-"minced beef" -> "beef mince", "green onion"/"scallion" -> "spring onion". F2.3 removes those
+"minced beef" -> "beef mince", "green onion"/"scallion" -> "spring onion". The extraction-prompt change removes those
 hardcoded pairs from the static prompt and replaces them with a *dynamic* hint section built
 from `source='system'` `ingredient_aliases` rows — this migration is what actually seeds those
-7 rows, exactly once, so the prompt's real-world coverage doesn't regress the moment F2.3
+7 rows, exactly once, so the prompt's real-world coverage doesn't regress the moment the extraction-prompt change
 ships.
 
 **Not** added to `INGREDIENT_ALIAS_SEEDS`/`seed_reference_data()` (which runs on every
@@ -17,9 +17,9 @@ startup) -- these rows must behave like any other `ingredient_aliases` row a hou
 delete via Settings: deleting one must NOT see it silently resurrected on the next restart.
 A one-time migration is the only mechanism here that gives that guarantee.
 
-**CLAUDE.md non-negotiable rule 3**: this migration is a deliberate, documented EXCEPTION to
+**The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules)**: this migration is a deliberate, documented EXCEPTION to
 "row count never decreases" in the sense that it *adds* rows (the plan's Testing &
-Verification section names this as the legitimate exception, alongside F2.2 there) -- but it
+Verification section names this as the legitimate exception, alongside the legacy alias seed migration there) -- but it
 still never destroys or silently overrides existing data. `alias_name` is UNIQUE: if a
 household already has its own alias for one of these 7 exact strings (e.g. they grouped
 "scallion" under something else via Settings before this migration ever ran), a blind bulk
@@ -92,7 +92,7 @@ def _normalise(name: str) -> str:
     return _singularise(_base_norm(name))
 
 
-# The 7 legacy pairs, previously hardcoded prose in EXTRACTION_SYSTEM_PROMPT (see F2.3).
+# The 7 legacy pairs, previously hardcoded prose in EXTRACTION_SYSTEM_PROMPT (see the extraction-prompt change).
 _SYSTEM_PAIRS = [
     ("table salt", "salt"),
     ("cooking salt", "salt"),

@@ -16,9 +16,9 @@ two clones of the same private GitHub repo, checked out on different branches:
 the remote `production` branch to match. `update.bat` (NUC, run from `production`) pulls
 that and restarts. Two branches, one repo — this is also the exact repo `backup.bat`
 already pushes weekly database backups to (see
-[CLAUDE.md > Backup & Restore](CLAUDE.md#backup--restore)), landing on `production` since
+[docs/deployment-and-operations.md > Backup & Restore](docs/deployment-and-operations.md#backup--restore)), landing on `production` since
 that's what the NUC is checked out on. See
-[CLAUDE.md > Deferred Decisions > Git branching strategy](CLAUDE.md#deferred-decisions) for
+[docs/deferred-decisions.md > Deferred Decisions > Git branching strategy](docs/deferred-decisions.md#deferred-decisions) for
 why this replaced the original single-`main` setup, decided at the Phase 2 review.
 
 Restarting the server on the NUC stays a manual step (running `update.bat` there) rather
@@ -36,10 +36,10 @@ renames or adds an environment variable, the NUC's `.env` must be hand-edited to
 rather than a crash. Check `.env.example` against the NUC's `.env` whenever a release note
 mentions config. (The Phase 3.9 M1 rename — `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`,
 `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`, `CLAUDE_API_FAKE_MODE` →
-`AI_EXTRACTION_FAKE_MODE`, see CLAUDE.md > AI Provider Migration — sat as a known-pending
+`AI_EXTRACTION_FAKE_MODE`, see docs/recipe-capture.md > AI Provider Migration — sat as a known-pending
 NUC `.env` edit from M1 until the Phase 5 review; confirmed applied on the NUC 2026-09-12.)
 
-**Phase 5 adds** `ANYLIST_ENABLED` / `ANYLIST_FAKE_MODE` / `ANYLIST_TARGET_LIST_NAME` (all
+**AnyList settings:** `ANYLIST_ENABLED` / `ANYLIST_FAKE_MODE` / `ANYLIST_TARGET_LIST_NAME` (all
 safe defaults: gate off, fake off, target `TestList`). The AnyList email/password are read
 from Windows Credential Manager first (`keyring set shoppingapp anylist_email` /
 `... anylist_password` on the NUC) and only fall back to `ANYLIST_EMAIL` / `ANYLIST_PASSWORD`
@@ -80,9 +80,8 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
 
-> **Migrating an existing single-`main` clone to this model** (this repo's actual history —
-> everything through the Phase 2 review — was pushed to `origin/main` before this branch
-> split was decided): on the dev PC, `git branch -m main develop` then `git push -u origin
+> **Only needed if your clone still has the old single `main` branch** (this repo's early history was
+> pushed to `origin/main` before the `develop`/`production` split was decided): on the dev PC, `git branch -m main develop` then `git push -u origin
 > develop`; `git branch production develop` then `git push -u origin production`. On
 > GitHub, change the repo's default branch to `develop` (Settings → Branches), then delete
 > the now-unused `main` from the remote (`git push origin --delete main`) once you're happy
@@ -149,7 +148,7 @@ that fails, it stops before touching the running server, so a bad update leaves 
 version running rather than the app down. Run it directly at the NUC's keyboard or over
 Remote Desktop.
 
-(Alembic was bootstrapped in Phase 3 Chunk 3.7 — see CLAUDE.md > Code Architecture >
+(Alembic was bootstrapped in Phase 3 Chunk 3.7 — see docs/code-architecture.md > Code Architecture >
 Migrations. A rollback to an *older* tag whose schema predates a migration is not
 auto-downgraded; if that ever comes up, run `alembic downgrade <rev>` by hand or restore a
 pre-migration backup.)
@@ -194,11 +193,11 @@ then next `update.bat` will fast-forward from wherever `production` currently is
 
 ## Why not X
 
-- **Docker** — ruled out project-wide (see CLAUDE.md > Tech Stack): the primary user is
+- **Docker** — ruled out project-wide (see docs/project-overview.md > Tech Stack): the primary user is
   unfamiliar with it and it adds a moving part this single-machine deployment doesn't need.
 - **Remote restart from the dev PC (WinRM/SSH)** — would make `deploy.bat` fully
   hands-off, but requires enabling and maintaining remoting/SSH on the NUC. Revisit if the
   manual `update.bat` step on the NUC becomes annoying in practice.
 - **Zip + network copy** — works fine on a LAN but re-invents versioning, rollback, and
   "what's actually running" that git already gives for free, and this repo already exists
-  for backups (see CLAUDE.md > Backup & Restore) so there's no new infrastructure to add.
+  for backups (see docs/deployment-and-operations.md > Backup & Restore) so there's no new infrastructure to add.

@@ -2,7 +2,7 @@
 
 The row shape is reused from ``schemas.sessions.ChecklistItemRead`` (same
 ``session_checklist_items`` table). This module only adds the checklist-specific
-*request* bodies. See CLAUDE.md > Checklist Screen Logic and > Build Phases > Phase 5.
+*request* bodies. See docs/checklist-and-shopping.md > Checklist Screen Logic and > Build Phases > Phase 5.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ class ChecklistLoadResponse(BaseModel):
     anylist_detail: str | None = None  # e.g. "FAKE MODE", or the failure reason
     items: list[ChecklistItemRead]
     usuals: list["ChecklistUsualRead"] = Field(default_factory=list)
-    # Live updates (Chunk 6.7 batch 3): where the long-poll starts. Filled by the router.
+    # Live updates (Chunk 6.7, user-feedback batch, batch 3): where the long-poll starts. Filled by the router.
     epoch: str | None = None
     rev: int | None = None
 
 
 class ChecklistUsualRead(BaseModel):
     """A "the usuals" item that is currently due — offered as its own checklist group
-    (Phase 5 Chunk 5.5). Not backed by session_checklist_items; carried alongside."""
+    (Phase 5 Chunk 5.5, checklist screen). Not backed by session_checklist_items; carried alongside."""
 
     id: int
     name: str
@@ -50,13 +50,13 @@ class ChecklistPushRequest(BaseModel):
     ingredient lines to push are read from the DB (add_to_list / have_it == 'no')."""
 
     usual_ids: list[int] = Field(default_factory=list)
-    # Real-step push progress UI (2026-09-23, CLAUDE.md > UI/UX) — a client-generated token
+    # Real-step push progress UI (2026-09-23, docs/ui-ux.md > UI/UX) — a client-generated token
     # polled via GET /checklist/push/progress/{token} while this request is in flight.
     progress_token: str | None = None
 
 
 class ChecklistItemResolve(BaseModel):
-    """Resolve a Chunk 4.6 irreconcilable-units line: commit a single total the user picked
+    """Resolve a Chunk 4.6 (consolidation and pack-size resolution) irreconcilable-units line: commit a single total the user picked
     (one of the shown parts, or a manual figure). Clears ``needs_review``."""
 
     total_quantity: float = Field(..., gt=0)
@@ -77,7 +77,7 @@ class ChecklistItemHaveSomeRequest(BaseModel):
 
 
 class ChecklistMergeRequest(BaseModel):
-    """POST /checklist/{id}/merge body (Fix 3, F3.3 — CLAUDE.md > Deferred Decisions >
+    """POST /checklist/{id}/merge body (Fix 3 — docs/deferred-decisions.md > Deferred Decisions >
     checklist-time merge). `item_names` are already-consolidated `ingredient_name` values (the
     matching key, not display names); `canonical_name` must be one of them. `remember=True`
     writes a durable `ingredient_aliases` row (`source='user'`); `remember=False` writes a
@@ -110,7 +110,7 @@ class ChecklistUndoMergeRequest(BaseModel):
     alias_ids: list[int] = Field(default_factory=list)
 
 
-# --- ingredient panel (2026-09-30, chunk 7.5) ---------------------------------------------
+# --- ingredient panel (2026-09-30, the checklist ingredient panel work) ---------------------------------------------
 #
 # Four sections of the Checklist ingredient panel each write either a session-scoped "this
 # list only" edit (session_ingredient_merges, via services/session_merges.py) or a permanent

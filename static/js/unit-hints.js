@@ -1,14 +1,13 @@
-/* Shared per-ingredient unit quick-picks + a duplicate-unit nudge (2026-09-12, Ingredient
+/* Shared per-ingredient unit quick-picks + a duplicate-unit hint (2026-09-12, Ingredient
    Unit Handling Layers B + C). Used by recipe-form.js (manual entry), recipe-edit.js
-   (editing), and capture-review.js (capture confirm) — one place for this UI per CLAUDE.md
-   > Code Architecture & Maintainability, same precedent as dup-warn.js.
+   (editing), and capture-review.js (capture confirm) — one place for this UI per docs/code-architecture.md > Code Architecture & Maintainability, same precedent as dup-warn.js.
 
-   Layer B: fetches units already used for the current ingredient name (pooled across its
+   Layer B (known units per ingredient): fetches units already used for the current ingredient name (pooled across its
    alias group server-side) and offers them as quick-pick buttons — reduces the chance of a
    fresh spelling variant ever being typed.
-   Layer C: on the unit field's blur, if what's typed doesn't match anything known but is
-   close to something that is, nudges toward the existing one. Never blocks — dismissing the
-   nudge keeps whatever was typed. */
+   Layer C (duplicate-unit hint): on the unit field's blur, if what's typed doesn't match anything known but is
+   close to something that is, points to the existing one. Never blocks — dismissing the
+   hint keeps whatever was typed. */
 
 (function (global) {
   "use strict";
@@ -69,7 +68,7 @@
     return best && bestDist > 0 && bestDist <= threshold ? best : null;
   }
 
-  // Wires quick-picks + the duplicate nudge onto one ingredient row. Returns the container
+  // Wires quick-picks + the duplicate-unit hint onto one ingredient row. Returns the container
   // element the caller appends into the row (matching the row-appends-its-own-children
   // pattern already used everywhere). Best-effort throughout — a failed fetch just means no
   // hints show, never an error the user has to deal with.

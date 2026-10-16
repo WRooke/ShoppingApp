@@ -1,8 +1,7 @@
-"""Shared quantity/unit equivalence-pair validation (Fix 3, F3.1 — see CLAUDE.md >
-Deferred Decisions > checklist-time merge).
+"""Shared quantity/unit equivalence-pair validation (Fix 3 — see docs/deferred-decisions.md > Deferred Decisions > checklist-time merge).
 
 Promoted from ``schemas/ingredient_aliases.py``'s private ``_validate_alias_pair`` so a second
-mechanism with the exact same equivalence-pair shape (``session_ingredient_merges``, F3.1)
+mechanism with the exact same equivalence-pair shape (``session_ingredient_merges``, the session merge table)
 doesn't need a third copy-paste — the same "don't repeat the matching-key mistake a second
 time" lesson this whole plan already learned once for ``text_normalize.py``, applied
 pre-emptively here. ``schemas/sessions.py`` already establishes the precedent of one schema

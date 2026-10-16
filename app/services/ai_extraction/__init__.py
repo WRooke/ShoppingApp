@@ -1,23 +1,23 @@
 """Google Gemini API integration — recipe capture AI calls.
 
-Phase 3.9 (see CLAUDE.md > AI Provider Migration). One integration behind one small stable
-interface (CLAUDE.md > Code Architecture & Maintainability > "External integrations sit
+Phase 3.9 (see docs/recipe-capture.md > AI Provider Migration). One integration behind one small stable
+interface (docs/code-architecture.md > Code Architecture & Maintainability > "External integrations sit
 behind a small, stable interface"): the rest of the app calls ``capture_recipe()`` (the
 orchestrator) or the individual task functions, never ``google.genai`` directly. No
 ``fastapi`` import anywhere in this package.
 
 **Package layout** (split from a single ~860-line file at the Phase 5 review, 2026-09-12 —
-see CLAUDE.md > Deferred Decisions; the old file's own ``# NOTE`` had this plan staged since
-the Phase 3.9 M-review):
+see docs/deferred-decisions.md > Deferred Decisions; the old file's own ``# NOTE`` had this plan staged since
+the Phase 3.9 end-of-migration review):
   * ``types.py``    — model-ID constants + the public dataclasses + exception classes.
                        No imports from any sibling module (see its own docstring for why —
                        keeping this one dependency-free is what keeps the package's import
                        graph a one-way line instead of a cycle).
-  * ``prompts.py``   — every system prompt + the §0a untrusted-content wrapper.
+  * ``prompts.py``   — every system prompt + the prompt-injection (untrusted-content) wrapper.
   * ``schemas.py``   — the Gemini ``response_schema`` Pydantic models.
-  * ``fixtures.py``  — canned fake-mode responses (§0c).
-  * ``client.py``    — ``_call_gemini`` (the Flash→Flash-Lite fallback chain + §0b usage
-                       logging), the §0c enable gate, and the response-cleaning helpers.
+  * ``fixtures.py``  — canned fake-mode responses (Security > API enable switch).
+  * ``client.py``    — ``_call_gemini`` (the Flash→Flash-Lite fallback chain + usage
+                       logging), the check that real calls are enabled, and the response-cleaning helpers.
   * ``calls.py``     — the four task functions + the ``capture_recipe()`` orchestrator —
                        this is what every other module in the app actually calls.
 
@@ -28,9 +28,9 @@ imported there (and re-exported here) rather than referenced through a different
 — so that `patch("app.services.ai_extraction.genai.Client", ...)`-style test patches (see
 ``tests/services/test_ai_extraction.py``) keep resolving to the same shared module object.
 
-**Two separate Gemini calls per capture** (M2; originally three — the AI substitution-flagging
+**Two separate Gemini calls per capture** (M2 = split into per-task AI calls; originally three — the AI substitution-flagging
 call was removed 2026-09-30, manual substitution stays, see ``calls.py``'s module docstring
-and CLAUDE.md > Deferred Decisions), each with its own system prompt, ``response_schema`` and
+and docs/deferred-decisions.md > Deferred Decisions), each with its own system prompt, ``response_schema`` and
 fake fixture:
   1. ``extract_recipe()``      — ingredients + cuisine/protein (NO section suggestion)
   2. ``suggest_sections()``    — per-ingredient store section (allow-list validated)
@@ -38,24 +38,24 @@ fake fixture:
 recipe is still usable (M3 turns a quota failure into a queued retry).
 
 A further call, unrelated to capture, lives here too for the same "one small stable
-interface" reason (CLAUDE.md > Ingredient Unit Handling > Admin reduction, 2026-09-12):
+interface" reason (docs/ingredient-handling.md > Ingredient Unit Handling > Admin reduction, 2026-09-12):
   3. ``classify_units()``      — is a never-before-seen unit spelling a same-magnitude
                                  variant of a standard unit (g/kg/ml/l/tsp/tbsp/cup)?
                                  Called from ``services/unit_synonyms.py > learn_new_units()``
                                  after an ingredient save, not from ``capture_recipe()``. Its
                                  input is the household's own typed data, not scraped/
                                  photographed content, so — uniquely among these — it does
-                                 NOT wrap its input in the §0a untrusted-content delimiter;
+                                 NOT wrap its input in the prompt-injection (untrusted-content) delimiter;
                                  the output is still allow-list validated regardless.
 
-Two highest-priority standing rules (CLAUDE.md > Security §0a/§0c):
-  * **§0c** — a real call needs ``settings.ai_extraction_enabled`` (off by default);
+Two highest-priority standing rules (see docs/security.md > Prompt injection hardening and > API enable switch):
+  * **API enable switch** — a real call needs ``settings.ai_extraction_enabled`` (off by default);
     ``settings.ai_extraction_fake_mode`` returns canned fixtures with no network. No agent
     flips the switch; the maintainer is asked before any real call even once it's on.
-  * **§0a** — untrusted recipe content is wrapped in a non-guessable delimiter, the system
+  * **Prompt injection hardening** — untrusted recipe content is wrapped in a non-guessable delimiter, the system
     prompt says treat it as data, input length is capped, and fixed-vocabulary fields
     (``suggested_section``) are allow-list validated on the way out.
-§0b: every attempt is logged to ``ai_call_log`` (task / model / outcome / tokens).
+Usage observability (docs/security.md > API usage observability): every attempt is logged to ``ai_call_log`` (task / model / outcome / tokens).
 """
 
 from __future__ import annotations

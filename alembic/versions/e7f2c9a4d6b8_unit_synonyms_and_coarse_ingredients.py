@@ -4,14 +4,14 @@ Revision ID: e7f2c9a4d6b8
 Revises: d5e7a9c3f1b6
 Create Date: 2026-09-12
 
-2026-09-12 — see CLAUDE.md > Ingredient Unit Handling. Two brand-new, independent tables:
+2026-09-12 — see docs/ingredient-handling.md > Ingredient Unit Handling. Two brand-new, independent tables:
 
-* ``unit_synonyms`` (Layer A) — unit-spelling canonicalisation, e.g. "grams" -> "g". The
+* ``unit_synonyms`` (Layer A = unit spellings) — unit-spelling canonicalisation, e.g. "grams" -> "g". The
   plainer sibling of ``ingredient_aliases`` (no equivalence pair needed).
-* ``coarse_ingredients`` (Layer D) — ingredients (fresh herbs) that skip quantity/unit math
+* ``coarse_ingredients`` (Layer D = bought by the bunch) — ingredients (fresh herbs) that skip quantity/unit math
   entirely and resolve straight to a purchase-label count.
 
-Both plain ``create_table`` — no existing rows, no server_default dance needed.
+Both plain ``create_table`` — no existing rows, no temporary server_default needed.
 """
 from typing import Sequence, Union
 

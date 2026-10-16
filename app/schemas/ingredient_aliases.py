@@ -1,14 +1,14 @@
 """Pydantic models for ``ingredient_aliases`` — the "same shopping item" grouping (2026-09-10,
-see CLAUDE.md > Ingredient Aliases and > Data Model > ingredient_aliases). Kept as its own
+see docs/ingredient-handling.md > Ingredient Aliases and > Data Model > ingredient_aliases). Kept as its own
 schema file, mirroring ``schemas/substitutions.py`` and ``schemas/usuals.py`` — a distinct
 Settings-managed reference table gets its own schema module, even though all of them surface
-on the same Settings page (CLAUDE.md > Code Architecture & Maintainability).
+on the same Settings page (docs/code-architecture.md > Code Architecture & Maintainability).
 
 2026-09-10 (lemon/lime juice -> whole fruit): an alias can optionally carry a quantity/unit
 equivalence pair, the same *shape* as ``remembered_substitutions``' M8 pair but with its own,
 slightly looser validator — see ``schemas/equivalence.py::validate_alias_pair`` for why it's
 not just ``schemas.substitutions.validate_equivalence_pair`` reused verbatim. 2026-09-27
-(Fix 3, F3.1): that validator moved to ``schemas/equivalence.py`` so
+(Fix 3 = Combine action): that validator moved to ``schemas/equivalence.py`` so
 ``schemas/session_merges.py`` could reuse the exact same rule without a third copy-paste.
 """
 
@@ -67,7 +67,7 @@ class IngredientAliasRead(_EquivalencePairMixin):
     alias_name: str
     canonical_name: str
     note: str | None
-    # 2026-09-27 (Fix 2, F2.1) -- "system" (a universal English fact) or "user" (a household
+    # 2026-09-27 (Fix 2 = aliases feed the extraction prompt) -- "system" (a universal English fact) or "user" (a household
     # preference; the default). No `source` field on IngredientAliasCreate -- a household can
     # never set this to "system" via the API, only a migration can. See
     # app/models/catalog.py > IngredientAlias.source.

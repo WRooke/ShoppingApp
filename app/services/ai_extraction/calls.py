@@ -2,12 +2,12 @@
 them for a single recipe capture.
 
 Part of the ``ai_extraction`` package (split from the former single-file module at the
-Phase 5 review, 2026-09-12 — see CLAUDE.md > Deferred Decisions). This is the module the
+Phase 5 review, 2026-09-12 — see docs/deferred-decisions.md > Deferred Decisions). This is the module the
 rest of the app actually calls into — ``__init__.py`` re-exports every name here unchanged,
 so nothing outside this package needed to change for the split.
 
-**Two separate Gemini calls per capture** (M2; originally three — the AI substitution-flagging
-call was removed 2026-09-30, see CLAUDE.md > Deferred Decisions and
+**Two separate Gemini calls per capture** (M2 = split into per-task AI calls; originally three — the AI substitution-flagging
+call was removed 2026-09-30, see docs/deferred-decisions.md > Deferred Decisions and
 docs/ingredient-handling.md's Substitution section: manual substitution stays, only the
 AI *suggestion* layer was judged to add too little value for the call it cost), each with its
 own system prompt, ``response_schema`` and fake fixture:
@@ -17,14 +17,14 @@ own system prompt, ``response_schema`` and fake fixture:
 recipe is still usable (M3 turns a quota failure into a queued retry).
 
 A further call, unrelated to capture, lives here too for the same "one small stable
-interface" reason (CLAUDE.md > Ingredient Unit Handling > Admin reduction, 2026-09-12):
+interface" reason (docs/ingredient-handling.md > Ingredient Unit Handling > Admin reduction, 2026-09-12):
   3. ``classify_units()``      — is a never-before-seen unit spelling a same-magnitude
                                  variant of a standard unit (g/kg/ml/l/tsp/tbsp/cup)?
                                  Called from ``services/unit_synonyms.py > learn_new_units()``
                                  after an ingredient save, not from ``capture_recipe()``. Its
                                  input is the household's own typed data, not scraped/
                                  photographed content, so — uniquely among these — it does
-                                 NOT wrap its input in the §0a untrusted-content delimiter;
+                                 NOT wrap its input in the prompt-injection (untrusted-content) delimiter;
                                  the output is still allow-list validated regardless.
 """
 
@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_extraction_system_prompt(db: Session) -> str:
-    """`EXTRACTION_SYSTEM_PROMPT` + the dynamic household-alias hint sections (Fix 2, F2.3).
+    """`EXTRACTION_SYSTEM_PROMPT` + the dynamic household-alias hint sections (Fix 2 = aliases feed the extraction prompt).
     Lives here, not in `prompts.py` — that module is deliberately pure prompt strings with no
     sibling-module dependency (see its own docstring); this function is the `db`-touching
     assembly step, same layer as every other task function in this file that already mixes
@@ -93,10 +93,10 @@ def build_extraction_system_prompt(db: Session) -> str:
     reaching this, so it stays a true zero-DB-dependency fixture path, unaffected by whatever
     is or isn't in a household's `ingredient_aliases` table.
 
-    §0a: `ingredient_aliases` rows are not reliably direct household input — an `alias_name`
+    Security > Prompt injection hardening: `ingredient_aliases` rows are not reliably direct household input — an `alias_name`
     can be, and often will be, text an AI extraction pulled from a scraped webpage or photo,
     only passively reviewed on the capture screen, not necessarily retyped by a person. That is
-    exactly the "content from outside the household's own direct input" pattern §0a exists for,
+    exactly the "content from outside the household's own direct input" pattern Security > Prompt injection hardening exists for,
     so both hint sections are wrapped in `_wrap_untrusted()` (via `format_hint_sections()`)
     exactly like the recipe content itself — this is NOT `classify_units()`'s exemption (a unit
     typed into a form field at that exact moment, touching nothing else first); ingredient
@@ -209,7 +209,7 @@ def suggest_sections(
     db: Session, *, context_id: str | None, ingredient_names: list[str]
 ) -> dict[str, str]:
     """{ingredient name: section} for names the model is confident about. Sections are
-    allow-list validated (§0a). Enrichment — caller treats failure as "no sections"."""
+    allow-list validated (Security > Prompt injection hardening). Enrichment — caller treats failure as "no sections"."""
     names = [n for n in ingredient_names if n]
     if not names:
         return {}
@@ -258,8 +258,7 @@ def classify_units(
     discrete unit (allow-list validated against _STANDARD_UNITS regardless of what comes
     back). Called by services/unit_synonyms.py > learn_new_units(), which treats any failure
     here (disabled/quota/parse/network) as "no match" — the unit is simply left as its own
-    distinct unit, exactly today's behaviour without this feature. See CLAUDE.md >
-    Ingredient Unit Handling > Admin reduction."""
+    distinct unit, exactly today's behaviour without this feature. See docs/ingredient-handling.md > Ingredient Unit Handling > Admin reduction."""
     texts = [u for u in unit_texts if u]
     if not texts:
         return {}
@@ -271,7 +270,7 @@ def classify_units(
 
     _require_enabled("classify_units")
     # Household's own typed input, not scraped/photographed content — this is the one call in
-    # this package that skips the §0a untrusted-content delimiter (see prompts.py docstring).
+    # this package that skips the prompt-injection (untrusted-content) delimiter (see prompts.py docstring).
     parts = [genai_types.Part.from_text(text=json.dumps(texts))]
     raw = _call_gemini(
         db,
@@ -299,19 +298,19 @@ def classify_units(
     return out
 
 
-# --- call 4: ingredient-grouping discovery (Fix 5, unrelated to capture) ---------------
+# --- call 4: ingredient-grouping discovery (Fix 5 = ingredient grouping audit, unrelated to capture) ---------------
 
 
 def suggest_ingredient_groupings(
     db: Session, *, context_id: str | None = None, names: list[str]
 ) -> list[GroupingSuggestion]:
     """AI-suggested "these names are the same shopping item" groups across a household's own
-    real ingredient vocabulary (CLAUDE.md > Deferred Decisions > AI-assisted ingredient-
+    real ingredient vocabulary (docs/deferred-decisions.md > Deferred Decisions > AI-assisted ingredient-
     grouping discovery). A review artifact, never auto-applied — see
     `scripts/suggest_ingredient_groupings.py`, the only caller. `names` should already exclude
     already-aliased names (see `services/recipes.py::distinct_ingredient_names`).
 
-    §0a: `names` is the household's full historical `recipe_ingredients.name` list, most of
+    Security > Prompt injection hardening: `names` is the household's full historical `recipe_ingredients.name` list, most of
     which passed through `extract_recipe()` from a scraped webpage or photo at some point and
     was only passively reviewed on capture-review, not necessarily retyped — exactly "content
     from outside the household's own direct input", so (unlike `classify_units()`, whose input
@@ -379,7 +378,7 @@ def suggest_ingredient_groupings(
 
 # --- orchestrator ------------------------------------------------------------
 
-# Real, backend-driven step names for the capture progress UI (CLAUDE.md > UI/UX > Real
+# Real, backend-driven step names for the capture progress UI (docs/ui-ux.md > UI/UX > Real
 # progress indicators) — polled via GET /api/v1/recipes/capture/progress/{token}, see
 # app/services/progress_tracker.py. Order matches the actual call sequence below. Was
 # ["extract", "sections", "substitutions"] until the AI substitution-flagging call was

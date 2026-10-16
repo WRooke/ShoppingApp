@@ -10,10 +10,10 @@
 fastapi==0.141.1
 uvicorn==0.52.4
 SQLAlchemy==2.0.52
-alembic==1.19.2  # DB migrations — bootstrapped Phase 3 Chunk 3.7a (see CLAUDE.md > Migrations)
+alembic==1.19.2  # DB migrations — bootstrapped Phase 3 Chunk 3.7a (see docs/code-architecture.md > Migrations)
 python-dotenv==1.2.3
 
-# Ingredient-name-matching plan (2026-09-27) — app/services/text_normalize.py::singularise().
+# ingredient-name matching work (2026-09-27) — app/services/text_normalize.py::singularise().
 # A deliberate, evaluated exception to "kept deliberately minimal" above: pluralisation has
 # real irregulars (geese/goose, knives/knife, children/child) a hand-rolled suffix-rule
 # approach can never cover without reinventing a small English morphology engine badly.
@@ -23,7 +23,7 @@ python-dotenv==1.2.3
 # only `typeguard`. Pure Python, no compiled extensions, no corpora download.
 inflect==7.5.0
 
-# Dev/test — see CLAUDE.md > Code Architecture & Maintainability. Added ahead of Phase 2
+# Dev/test — see docs/code-architecture.md > Code Architecture & Maintainability. Added ahead of Phase 2
 # so the tests/ convention exists from the first real business logic, not retrofitted later.
 pytest==9.1.1
 pytest-xdist==3.8.0  # parallel test runs (`pytest -n auto`); execnet is its only new dependency
@@ -31,7 +31,7 @@ execnet==2.1.2
 httpx==0.28.1  # required by fastapi.testclient.TestClient; also used directly in Phase 3
               # for recipe URL fetching (see services/capture_url.py)
 
-# Phase 3 — recipe capture (AI). Google Gemini as of Phase 3.9 (was anthropic; see CLAUDE.md >
+# Phase 3 — recipe capture (AI). Google Gemini as of Phase 3.9 (was anthropic; see docs/recipe-capture.md >
 # AI Provider Migration). google-genai pulls google-auth + its own requests/websockets.
 google-genai==2.22.0
 beautifulsoup4==4.15.0  # HTML parsing for URL capture (services/capture_url.py)
@@ -44,5 +44,5 @@ brotli==1.2.0  # httpx's brotli decoder for URL capture — see services/capture
 # Phase 5 — AnyList integration. The connector itself is native (httpx + a hand-rolled
 # protobuf codec, see services/anylist_client.py, adapted from spike/). `keyring` is only
 # for reading the AnyList credentials out of Windows Credential Manager when they're stored
-# there rather than in .env — see CLAUDE.md > Security §2 (hybrid credential storage).
+# there rather than in .env — see docs/security.md > AnyList credentials (hybrid credential storage).
 keyring==25.7.0

@@ -1,7 +1,7 @@
 """``product_units``, ``remembered_substitutions``, ``ingredient_aliases``, ``unit_synonyms``
 and ``coarse_ingredients`` — the editable reference catalogue managed from the Settings page.
 (``remembered_substitutions`` was ``ingredient_substitutions`` with an auto-applying
-``is_default`` until Phase 3.9 M4.) ``Staple`` below is a former member of this catalogue, kept
+``is_default`` until Phase 3.9 M4 (substitution redesign).) ``Staple`` below is a former member of this catalogue, kept
 for schema-preservation only — see its own docstring."""
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ from app.database import Base, UTCDateTime, utcnow
 
 class ProductUnit(Base):
     __tablename__ = "product_units"
-    # Phase 4 (Chunk 4.1): an ingredient can be sold in more than one pack size, so the
+    # Phase 4 (Chunk 4.1, planning-engine migrations): an ingredient can be sold in more than one pack size, so the
     # uniqueness moved from ``ingredient_name`` alone to (ingredient_name, purchase_label).
-    # See CLAUDE.md > Data Model > product_units and > Scaling Logic > Purchase unit resolution.
+    # See docs/data-model.md > Data Model > product_units and > Scaling Logic > Purchase unit resolution.
     __table_args__ = (
         UniqueConstraint(
             "ingredient_name", "purchase_label", name="uq_product_unit_ingredient_label"
@@ -39,7 +39,7 @@ class Staple(Base):
     to any other ingredient every session); removed at the application layer with no proven
     replacement demand. This class is intentionally kept, with no router/service/frontend code
     referencing it, purely so the ``staples`` table is never dropped from a database that may
-    already hold rows — CLAUDE.md's non-negotiable rule 3 ("data loss on the NUC's production
+    already hold rows — the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules) ("data loss on the NUC's production
     database is never acceptable") forbids a migration that would do that. Do not delete this
     class or write a migration dropping ``staples`` without re-reading that rule. See
     docs/decision-history.md > "Staples — usefulness assessment" for the full record.
@@ -55,7 +55,7 @@ class Staple(Base):
 
 
 class UsualItem(Base):
-    """"The usuals" (Phase 5 Chunk 5.4) — recurring non-recipe household items bought on a
+    """"The usuals" (Phase 5 Chunk 5.4, The usuals) — recurring non-recipe household items bought on a
     day-based schedule, independent of meal planning. Distinct from the now-retired ``Staple``
     (recipe ingredients that were assumed on-hand — see that class's docstring for why it was
     removed) in the one way that mattered even before the removal: "the usuals" actually has
@@ -63,7 +63,7 @@ class UsualItem(Base):
     Surfaced on the checklist as its own group only when *due*:
     ``last_added_at IS NULL`` or ``last_added_at + cadence_days`` has passed. Cadence is in
     days, not sessions — an ad-hoc single-recipe session is an unreliable clock. Managed in
-    Settings, seeded empty. See CLAUDE.md > Checklist Screen Logic > "The usuals" and >
+    Settings, seeded empty. See docs/checklist-and-shopping.md > Checklist Screen Logic > "The usuals" and >
     Data Model > usual_items.
     """
 
@@ -83,7 +83,7 @@ class RememberedSubstitution(Base):
     ``is_default`` that auto-applied; that's gone). It NEVER applies a swap on its own — it
     only pre-fills / top-ranks the suggestion in a per-recipe confirm UI. Every row exists
     because the user ticked "save this swap" at capture review, the recipe editor, or after a
-    planning swap. See CLAUDE.md > AI Provider Migration > Ingredient Substitution Flagging
+    planning swap. See docs/recipe-capture.md > AI Provider Migration > Ingredient Substitution Flagging
     and > Data Model > remembered_substitutions.
     """
 
@@ -97,7 +97,7 @@ class RememberedSubstitution(Base):
     substitute_name = Column(Text, nullable=False)  # normalised lowercase (freetext; 1:many stored verbatim)
     note = Column(Text, nullable=True)  # pre-fills recipe_ingredients.substitution_note
     last_used_at = Column(UTCDateTime(), nullable=True)  # quick-pick ordering, most-recent first
-    # Quantity/unit equivalence (Phase 3.9 M8 — see CLAUDE.md > AI Provider Migration >
+    # Quantity/unit equivalence (Phase 3.9 M8 — see docs/recipe-capture.md > AI Provider Migration >
     # Ingredient Substitution Flagging, and > Data Model > remembered_substitutions).
     # "original_qty original_unit ~= substitute_qty substitute_unit", e.g. 2 "cob" ~= 2 "can".
     # A ratio the quick-pick uses to PRE-FILL recipe_ingredients' resolved_quantity /
@@ -117,7 +117,7 @@ class IngredientAlias(Base):
     about oil variants — "canola oil"/"vegetable oil"/"oil spray" reading as separate lines).
 
     Deliberately a DIFFERENT concept from ``RememberedSubstitution`` above, not a variant of
-    it — see CLAUDE.md > Ingredient Aliases for the full distinction. In short: a substitution
+    it — see docs/ingredient-handling.md > Ingredient Aliases for the full distinction. In short: a substitution
     is "I don't want to buy X, buy Y instead" (a deliberate, per-recipe, confirmed swap,
     because the two are genuinely different products). An alias is "X and Y are the same
     thing to my household" (no swap, no confirmation, no recipe-level record — it's a pure
@@ -132,7 +132,7 @@ class IngredientAlias(Base):
     Resolved dynamically at consolidation time (services/session_consolidation.py), NOT
     written into ``recipe_ingredients.name`` — this is what makes adding a new alias benefit
     every existing recipe immediately, and keeps a recipe's own data showing what it actually
-    said. See CLAUDE.md > Ingredient Aliases and > Data Model > ingredient_aliases.
+    said. See docs/ingredient-handling.md > Ingredient Aliases and > Data Model > ingredient_aliases.
 
     2026-09-10 (lemon/lime juice -> whole fruit): an alias can optionally carry a quantity/
     unit equivalence pair too ("2 tbsp lemon juice ~= 1 lemon"), the same shape
@@ -153,7 +153,7 @@ class IngredientAlias(Base):
     alias_unit = Column(Text, nullable=True)
     canonical_qty = Column(Float, nullable=True)
     canonical_unit = Column(Text, nullable=True)  # nullable -- the canonical side is often a bare count
-    # 2026-09-27 (Fix 2, F2.1) -- "system" (a universal English fact, e.g. table salt -> salt;
+    # 2026-09-27 (Fix 2 = aliases feed the extraction prompt) -- "system" (a universal English fact, e.g. table salt -> salt;
     # only ever written by a migration, never via the API) or "user" (a household preference;
     # the default for every row created through create_alias()). Lets the extraction-prompt
     # builder (services/ai_extraction/calls.py::build_extraction_system_prompt) frame the two
@@ -165,8 +165,8 @@ class IngredientAlias(Base):
 
 
 class UnitSynonym(Base):
-    """Unit-spelling canonicalisation (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling
-    > Layer A). The plainer sibling of ``IngredientAlias`` above — same "warn/merge, no admin"
+    """Unit-spelling canonicalisation (2026-09-12 — see docs/ingredient-handling.md > Ingredient Unit Handling
+    > Layer A (unit spellings)). The plainer sibling of ``IngredientAlias`` above — same "warn/merge, no admin"
     spirit, but for the *spelling* of a unit rather than the *identity* of an ingredient, and
     with no equivalence pair: a unit doesn't need a quantity conversion to its own synonym
     ("tablespoon" just *is* "tbsp", not "N tablespoon ~= M tbsp").
@@ -195,7 +195,7 @@ class CoarseIngredient(Base):
     """An ingredient that skips the normal sum -> normalise -> round consolidation pipeline
     entirely because precision is pointless for it (2026-09-12 — "10g + 1 tbsp of parsley is
     probably just a bunch, I'm not out shopping for parsley by the gram and tablespoon"). See
-    CLAUDE.md > Ingredient Unit Handling > Layer D.
+    docs/ingredient-handling.md > Ingredient Unit Handling > Layer D (bought by the bunch).
 
     Deliberately its own table rather than a flag on ``ProductUnit`` — a coarse ingredient's
     "pack" concept (a plain purchase label + a recipe-count divisor) is simpler than, and

@@ -1,4 +1,4 @@
-"""Router-layer dependency that feeds the live checklist's revision counter (Chunk 6.7, polish
+"""Router-layer dependency that feeds the live checklist's revision counter (Chunk 6.7, user-feedback batch, polish
 batch 3, item C). Lives in ``routers/`` because it needs FastAPI's ``Request``; the counter itself
 is ``services/checklist_revisions.py``."""
 

@@ -1,7 +1,7 @@
-/* Settings — "Saved ingredient swaps" card (Phase 3.9 M4). Was a card of global
+/* Settings — "Saved ingredient swaps" card (Phase 3.9 M4 = substitution redesign). Was a card of global
    auto-applying rules with a default toggle; now it's a pure quick-pick library —
    a saved swap NEVER applies itself, it only pre-fills the per-recipe confirm UI
-   (capture review, recipe editor). See CLAUDE.md > AI Provider Migration >
+   (capture review, recipe editor). See docs/recipe-capture.md > AI Provider Migration >
    Ingredient Substitution Flagging.
 
    Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
@@ -28,7 +28,7 @@
     return wrap;
   }
 
-  /* M8 — the optional "N unit ≈ M unit" equivalence pair on a saved swap (CLAUDE.md > AI
+  /* M8 — the optional "N unit ≈ M unit" equivalence pair on a saved swap (docs/recipe-capture.md > AI
      Provider Migration > Ingredient Substitution Flagging > Quantity/unit transform). Four
      small labelled inputs; values() returns all four as numbers/strings-or-null (blank ->
      null), so a row can be cleared by emptying them and saving. The server enforces

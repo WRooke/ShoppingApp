@@ -126,7 +126,7 @@ change chunk order and scope, not just because they happened.
   unless updated in the same commit that changes the underlying structure. **Standing rule: run
   `pytest tests/frontend/` as part of every chunk's own verification**, alongside the
   phone-width headless-CDP pass, not deferred to the Phase 6 review.
-- **§0c fake-mode discipline is unchanged for this whole phase** — `AI_EXTRACTION_FAKE_MODE=true`
+- **Security > API enable switch fake-mode discipline is unchanged for this whole phase** — `AI_EXTRACTION_FAKE_MODE=true`
   covers the capture progress indicator (6.2), `ANYLIST_FAKE_MODE=true` covers the checklist
   push/sync indicators (6.3b). Nothing in Phase 6 needs a real Gemini or AnyList call to build or
   verify.
@@ -210,7 +210,7 @@ change chunk order and scope, not just because they happened.
       status label + spinner, deliberately **not** a checklist with checkmarks — the whole
       capture is one HTTP request (`capture_recipe()` runs all three Gemini calls before
       responding), so there's no real per-step signal to check off; claiming one was honest
-      per §0a/UI-UX tone. Ingredient rows (`recipe-edit.js`, `recipe-form.js`,
+      per Security > Prompt injection hardening/UI-UX tone. Ingredient rows (`recipe-edit.js`, `recipe-form.js`,
       `capture-review.js`, and the substitution panel in `ingredient-swap.js`) now use a shared
       labelled `.mini-field`/`.ing-grid` layout with `+`/`−` steppers, replacing the bare
       placeholder-only inputs. "Add to session" split into its own `add-to-session.js` (one
@@ -596,7 +596,7 @@ change chunk order and scope, not just because they happened.
         subsequent load, which the Review-merge step needed). `ChecklistNotReadyError` removed
         entirely, including its `main.py` 409 handler. 679 tests passed. See [Checklist,
         AnyList Push & Shopping List
-        Layout](../checklist-and-shopping.md#the-ingredient-panel-2026-09-30-chunk-75).
+        Layout](../checklist-and-shopping.md#the-ingredient-panel).
 
       - [x] **Delete Review, wire Plan → Checklist directly.** `session-review.js` deleted
         outright (not kept dormant); Plan's sticky action links straight to
@@ -733,7 +733,7 @@ change chunk order and scope, not just because they happened.
       - [x] **#2 no native popups** — all 3 `confirm()` and 22 `alert()` replaced (`Feedback.error` / `Feedback.card` /
         error toasts with Retry), merge panel with the two named buttons + Undo (`POST /checklist/{id}/undo-merge`, restores the
         Need it decision), merge-created groups tagged `source="merge"` and shown in Settings, `tests/test_no_native_dialogs.py`
-        guard + a dialog trap in the browser tests. Rule and catalogue: [UI/UX > No native dialogs](../ui-ux.md#no-native-dialogs--ask-and-report-inline-2026-10-06-chunk-67).
+        guard + a dialog trap in the browser tests. Rule and catalogue: [UI/UX > No native dialogs](../ui-ux.md#no-native-dialogs--ask-and-report-inline).
       - [x] **#4 ingredient names** — built and tested; analysis, rule, safety guarantee and trade-offs in
         [Ingredient Handling > Display names](../ingredient-handling.md#display-names--what-an-ingredient-is-called-on-screen-and-on-anylist).
         Display = the household's own recipe wording (never an invented plural), small-word-aware title case, extraction prompt
@@ -746,16 +746,16 @@ change chunk order and scope, not just because they happened.
         row is re-flagged when a new conflicting amount arrives; mixed units get a labelled
         "enter your own total" choice (a "keep both" option was built then removed at the
         maintainer's request); the merge response reports lines the amount ratio didn't apply to.
-        See [Checklist-time ingredient merge](../checklist-and-shopping.md#checklist-time-ingredient-merge-fix-3-2026-09-27-reachable-from-the-ingredient-panels).
+        See [Checklist-time ingredient merge](../checklist-and-shopping.md#checklist-time-ingredient-merge-the-combine-action).
       - **Recipe breakdown vanished after a Have it / Need it tap** — single-row edits omit it,
         every whole-list mutation returns it, the client keeps its cached copy.
       - **State that silently vanished or reset** (usual decisions, merge panel, typed amounts,
         stale caches behind Undo, `#/plan/new` Back trap, capture review rows, recipe-edit draft).
-        Rules: [UI state must not silently vanish](../ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67),
-        [API response-shape consistency](../code-architecture.md#api-response-shape-consistency-added-2026-10-11-chunk-67).
+        Rules: [UI state must not silently vanish](../ui-ux.md#ui-state-must-not-silently-vanish),
+        [API response-shape consistency](../code-architecture.md#api-response-shape-consistency).
       - **Plain language & no ambiguity** pass over Settings, Checklist/push, Plan, recipes,
         capture and Status; vocabulary table and copy checklist in
-        [UI/UX](../ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67). Mockups:
+        [UI/UX](../ui-ux.md#plain-language--no-ambiguity). Mockups:
         `docs/mockups/chunk-6.7-clarity/`.
       - Also built: an unsaved import is offered back after Back; recipe-edit rows save/add/delete
         in place; Settings deletes tidy counts/empty groups; the Status page folds the raw log under
@@ -781,10 +781,10 @@ change chunk order and scope, not just because they happened.
         without the fix).
       - **"I have some".** A link on the checklist row (not inside the ingredient panel) records an
         amount already at home; only the rest is bought and pushed. Additive migration
-        (`have_quantity` / `have_unit`). Details: [Checklist](../checklist-and-shopping.md#i-have-some--an-amount-already-at-home-2026-10-16-chunk-67-polish-batch-3).
+        (`have_quantity` / `have_unit`). Details: [Checklist](../checklist-and-shopping.md#i-have-some--an-amount-already-at-home).
       - **Live checklist.** Long-poll + in-memory revision counter; a second phone updates in about a
         second, held back while the person is mid-edit. Details:
-        [Live updates between phones](../checklist-and-shopping.md#live-updates-between-phones-2026-10-16-chunk-67-polish-batch-3).
+        [Live updates between phones](../checklist-and-shopping.md#live-updates-between-phones).
       - **Still to confirm on the NUC** after `deploy.bat` → `update.bat`: on the phone (Firefox, HTTP)
         Copy errors; two phones on one checklist; reload each open tab once (tabs loaded before the
         update still have the old scripts). The two old red entries on Status stay until the server

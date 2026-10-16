@@ -4,7 +4,7 @@ Revision ID: c920cac31b6a
 Revises: e62ee59a3bdc
 Create Date: 2026-09-27
 
-F0 of the ingredient-name-matching plan. The prod DB audit (2026-09-27) found `product_units`
+A step of the 2026-09-27 ingredient-name matching work (see docs/ingredient-handling.md > Ingredient Normalisation). The prod DB audit (2026-09-27) found `product_units`
 rows seeded as bare `"yoghurt"` (two pack sizes) that match NONE of the three real yoghurt
 ingredient names ever actually used (`"plain yoghurt"`, `"plain yogurt"`, `"greek yoghurt"`) --
 `ProductUnit.ingredient_name` is matched by literal equality against the final resolved
@@ -13,7 +13,7 @@ yoghurt"`/`"plain yogurt"` alias to `"greek yoghurt"` (see app/seed_data.py's
 INGREDIENT_ALIAS_SEEDS, same migration set), re-pointing these two rows makes pack-size
 resolution work for yoghurt again.
 
-**CLAUDE.md non-negotiable rule 3 (data loss on prod is never acceptable)**: this is a plain
+**The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules; data loss on prod is never acceptable)**: this is a plain
 `UPDATE` of the `ingredient_name` column on two EXISTING rows -- every other field (id,
 purchase_label, purchase_qty, purchase_unit, is_preseeded, created_at) is left untouched. No row
 is added or removed. If a row named "yoghurt" doesn't exist (e.g. a dev DB that never had it),

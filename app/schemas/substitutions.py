@@ -1,11 +1,11 @@
 """Pydantic models for the remembered-substitutions quick-pick library (Phase 3.9 M4 — see
-CLAUDE.md > Data Model > remembered_substitutions). Was ``IngredientSubstitution*`` with an
+docs/data-model.md > Data Model > remembered_substitutions). Was ``IngredientSubstitution*`` with an
 ``is_default``; that concept is gone.
 
 Phase 3.9 M8 adds an optional *quantity/unit equivalence pair* to each saved swap
 (``original_qty original_unit ~= substitute_qty substitute_unit``) — a ratio the per-recipe
 confirm UI uses to pre-fill ``recipe_ingredients.resolved_quantity`` / ``resolved_unit``. See
-CLAUDE.md > AI Provider Migration > Ingredient Substitution Flagging > Quantity/unit transform.
+docs/recipe-capture.md > AI Provider Migration > Ingredient Substitution Flagging > Quantity/unit transform.
 """
 
 from __future__ import annotations

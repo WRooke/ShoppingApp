@@ -1,7 +1,7 @@
 """Validate the develop branch before pushing.
 
 Runs tests, checks the working tree is clean, and verifies we're on the develop branch.
-This is the pre-push validation gate for the develop branch on the dev PC.
+This is the pre-push validation check for the develop branch on the dev PC.
 
 Invoke as ``python -m scripts.validate_develop`` from the project root (see validate-develop.bat).
 """
@@ -22,7 +22,7 @@ from scripts.git_utils import run_git
 # tests/conftest.py's `os.environ.setdefault(...)` runs -- setdefault is then a no-op, and
 # the "isolated" test suite silently runs against the real dev database instead of a temp
 # one (see conftest.py's docstring). Plain stdlib logging avoids importing app.config at
-# all, so this script can never poison that subprocess's environment.
+# all, so this script can never alter that subprocess's environment.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
-"""Smoke tests for /api/v1/diagnostics/* — see CLAUDE.md > Code Architecture &
+"""Smoke tests for /api/v1/diagnostics/* — see docs/code-architecture.md > Code Architecture &
 Maintainability. Assertions avoid depending on GEMINI_API_KEY / ANYLIST_* being configured
 in .env (varies by machine) and check shape/invariants instead.
 
-**Phase 3.9 M5:** the USD "spend tracker" + its reset button are gone (Gemini free tier).
+**Phase 3.9 M5 (diagnostics rework):** the USD "spend tracker" + its reset button are gone (Gemini free tier).
 The AI block now carries a daily quota indicator (`today_by_model`) + a recent-attempt log.
 """
 
@@ -150,7 +150,7 @@ def test_recent_errors_returns_ok_envelope(client):
 
 
 def test_recent_errors_returns_more_than_ten_when_more_than_ten_exist(client):
-    """2026-10-01 diagnostics chunk 7.7, 5a — /recent-errors used to hard-slice to the last
+    """2026-10-01 the Status page fixes — /recent-errors used to hard-slice to the last
     10 entries, hiding real errors on a busy day. It must now return every ERROR+ entry the
     ring buffer holds, with no fixed cap of its own."""
     logger = _logging.getLogger("tests.diagnostics.synthetic")

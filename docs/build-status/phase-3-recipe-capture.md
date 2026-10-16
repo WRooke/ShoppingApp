@@ -11,7 +11,7 @@ the way Phase 2 was. Since the substitution-flagging gap is what was blocking th
 the base extraction prompt in Chunk 3.1 rather than as a separate later pass — there's no
 reason to ship the Phase 1 ingredients-only prompt now and revise it again for Chunk 3.4.
 
-**Restructured mid-kickoff per [Security §0c](../security.md#0c-api-enable-switch--offline-development-highest-priority)**
+**Restructured mid-kickoff per [Security > API enable switch](../security.md#api-enable-switch--offline-development-highest-priority)**
 (the maintainer asked how much of this phase could be built without a real key at all): the
 single real-API dependency is pushed to its own final chunk (3.6) rather than sitting inside
 Chunk 3.1. Chunks 3.1-3.5 are all built and manually verified with `CLAUDE_API_FAKE_MODE=true`
@@ -24,24 +24,24 @@ already used from the start.
       `extract_ingredients(db, *, call_type, context_id=None, text=None, image_base64=None,
       ...)` returning parsed ingredients + `cuisine`/`protein`/per-ingredient
       `suggested_section` + token usage); `services/api_usage.py` (cost-calculation helper,
-      `log_api_usage()` — [Security §0b](../security.md#0b-api-usage-observability-no-hard-cap)).
-      Also folds in [Security §0a](../security.md#0a-prompt-injection-hardening-highest-priority)
+      `log_api_usage()` — [Security > API usage observability](../security.md#api-usage-observability-no-hard-cap)).
+      Also folds in [Security > Prompt injection hardening](../security.md#prompt-injection-hardening-highest-priority)
       (untrusted-content delimiter, explicit system-prompt instruction, input length cap,
       `suggested_section` allow-list validation) and
-      [§0c](../security.md#0c-api-enable-switch--offline-development-highest-priority) (`CLAUDE_API_ENABLED`
+      [Security > API enable switch](../security.md#api-enable-switch--offline-development-highest-priority) (`CLAUDE_API_ENABLED`
       gate, `CLAUDE_API_FAKE_MODE` canned-fixture path) — both raised mid-chunk, both built the
       same session.
       Verified 2026-09-05: 37 unit tests (`tests/services/test_api_usage.py`,
       `tests/services/test_claude_client.py`) plus 4 new diagnostics tests, all
-      mocked/fixture-based — no network, no real key needed, per §0c. Manually confirmed the
+      mocked/fixture-based — no network, no real key needed, per Security > API enable switch. Manually confirmed the
       fake-mode path end-to-end against a scratch DB (`extract_ingredients()` with
       `CLAUDE_API_FAKE_MODE=true`, no key set at all, returned a canned fixture correctly).
       Full suite 106/106. **The real-API call itself is deliberately deferred to Chunk 3.6,
-      not required to close this chunk** — see §0c for why.
+      not required to close this chunk** — see Security > API enable switch for why.
       **2026-09-06 revision:** the spend cap this chunk originally built
       (`enforce_spend_cap()`, `SpendCapExceededError`, `MAX_API_SPEND_AUD_CENTS`) was removed
-      — see the Non-Negotiable Operating Rules banner and Security §0b for why. Cost
-      calculation and `api_usage` logging, and the §0a/§0c hardening, are unaffected and stay
+      — see the Non-Negotiable Operating Rules banner and Security > API usage observability for why. Cost
+      calculation and `api_usage` logging, and the prompt-injection hardening and API enable switch rules, are unaffected and stay
       exactly as built.
 - [x] **Chunk 3.2 — URL capture endpoint.** `POST /api/v1/recipes/capture/url`: fetch (httpx,
       10s timeout, desktop UA), parse (BeautifulSoup4, prefer `<article>`/`<main>`/
@@ -74,7 +74,7 @@ already used from the start.
       `/diagnostics`, backed by `api_usage`.
       **2026-09-06 revision:** originally specified with spend-cap fields
       (`spend_cap_aud_cents`, `remaining_usd_cents`, `spend_cap_reached`) per the
-      then-current §0b — those are gone along with the cap itself (see Security §0b). What
+      then-current Security > API usage observability — those are gone along with the cap itself (see Security > API usage observability). What
       shipped instead: `routers/diagnostics.py` reports `estimated_spend_usd`,
       `total_input_tokens`, `total_output_tokens`, `last_success`, `api_enabled`, `fake_mode`,
       and `reset_at` (when the tracker was last reset, or null); `static/js/diagnostics.js`
@@ -88,7 +88,7 @@ already used from the start.
       point in the whole phase that actually needs a real Claude call: with a real
       `ANTHROPIC_API_KEY` in `.env`, `CLAUDE_API_ENABLED=true`, `CLAUDE_API_FAKE_MODE=false`,
       and the maintainer's explicit go-ahead given in conversation for this specific call (see
-      [Security §0c](../security.md#0c-api-enable-switch--offline-development-highest-priority) — a
+      [Security > API enable switch](../security.md#api-enable-switch--offline-development-highest-priority) — a
       standing "yes" is not enough, ask each time), run one real extraction (the staged
       scratchpad script, or through the actual UI) and confirm: a sane ingredient list comes
       back, a matching `api_usage` row is logged with a plausible cost, and
@@ -124,7 +124,7 @@ already used from the start.
       **To close:** once the account has any credit (the one call costs ≈⅓ of a US cent),
       re-run the check and confirm a sane ingredient list, one matching `api_usage` row, and
       `/diagnostics` green with `last_success` + spend populated. Needs a **fresh**
-      in-conversation go-ahead per §0c — a standing "yes" does not carry.
+      in-conversation go-ahead per Security > API enable switch — a standing "yes" does not carry.
       **Does not block:** Chunk 3.7 (no API involvement anywhere in it), the Phase 3 review
       (records this as a carried-forward open item), or Phase 4 build/verify work (all offline
       against manual + fake-mode recipes).
@@ -211,17 +211,17 @@ already used from the start.
         existing row). Source provenance (3.7): two optional freetext review-screen inputs
         write `source_book`/`source_page`; extraction prompt deliberately not extended to OCR
         them.
-      - **§0a prompt-injection hardening** — system-prompt data-not-instructions statement;
+      - **Security > Prompt injection hardening** — system-prompt data-not-instructions statement;
         non-guessable delimiter tag `untrusted_recipe_source_7f3a` wrapping the user content;
         `MAX_INPUT_TEXT_CHARS = 20_000` truncation with a WARNING log; `_clean_suggested_section`
         allow-list → `None` for any out-of-vocab value; no tool use granted to the call.
-      - **§0b observability** — `calculate_cost_usd_cents` + `log_api_usage` retained and
+      - **Security > API usage observability observability** — `calculate_cost_usd_cents` + `log_api_usage` retained and
         called inside `extract_ingredients()` immediately after every real call (before the
         parse, so a billed-but-unparseable response is still logged); `api_usage_resets` +
         `reset_api_usage_display()` is insert-only and never touches `api_usage`; diagnostics
         `/status` reports spend, tokens, `last_success`, `reset_at`, `api_enabled`,
         `fake_mode`. Hard cap gone from code — only explanatory doc/comment references remain.
-      - **§0c enable switch + fake mode** — `CLAUDE_API_ENABLED` (default `false`) checked
+      - **Security > API enable switch (enable switch + fake mode)** — `CLAUDE_API_ENABLED` (default `false`) checked
         before any real call → `ClaudeApiDisabledError` → 503; `CLAUDE_API_FAKE_MODE`
         (default `false`) returns a deterministic canned fixture and bypasses the switch.
         `app/config.py` and `.env.example` both default both flags to `false`.
@@ -239,7 +239,7 @@ already used from the start.
       - **Scaling Logic** — confirmed nothing in Phase 3 touches scaling; the pack-size
         resolution note added to that section this session is Phase 4 (Chunks 4.3 / 4.6).
       Gap found and fixed: the **Environment Variables (.env)** block showed
-      `CLAUDE_API_FAKE_MODE=true`, out of step with §0c, `app/config.py`, and `.env.example`
+      `CLAUDE_API_FAKE_MODE=true`, out of step with Security > API enable switch, `app/config.py`, and `.env.example`
       (all `false`) — aligned to `false` with a note.
       Notes, no action taken: (1) `claude_client.py` is ~385 lines, marginally over the
       ~300–400 "consider splitting" guideline, but it is dominated by the cohesive prompt
@@ -252,7 +252,7 @@ already used from the start.
       strict-JSON parsing (~80–85% confidence); the failure mode is contained and visible.
       Does not block Phase 4 build/verify, which runs offline against manual + fake-mode
       recipes; close 3.6 when the account has credit, with a fresh in-conversation go-ahead
-      per §0c.
+      per Security > API enable switch.
 
 **Deliverable:** User can capture a recipe from URL or photo, review the extracted
 ingredients, edit if needed, and save to the library.

@@ -26,7 +26,7 @@ through for you to sign in to GitHub (cloning a private repo) and to fill in `.e
 Notepad. Everything else runs unattended.
 
 **Still manual after it finishes, on purpose** — see [Deployment Environment > Startup
-in CLAUDE.md](CLAUDE.md#deployment-environment) for why:
+in docs/deployment-and-operations.md](docs/deployment-and-operations.md#deployment-environment) for why:
 - **Step 5** (static IP / router DHCP reservation) — no script has access to your router's
   admin UI.
 - **Steps 8–9** (Task Scheduler: auto-start on boot, weekly backup) — kept as manual GUI
@@ -75,8 +75,8 @@ git clone https://github.com/<you>/shoppingapp.git ShoppingApp
 Desktop (clutter / roaming) — used throughout the rest of this guide.)
 
 **If Git warns `LF will be replaced by CRLF the next time Git touches it`:** this repo's own
-`.gitattributes` (`text=auto eol=crlf` — see [CLAUDE.md > Project Directory
-Structure](CLAUDE.md#project-directory-structure)) deliberately forces CRLF in the working
+`.gitattributes` (`text=auto eol=crlf` — see [docs/code-architecture.md > Project Directory
+Structure](docs/code-architecture.md#project-directory-structure)) deliberately forces CRLF in the working
 tree, independent of the machine's `core.autocrlf` setting — the warning is just Git telling
 you a (harmless, intended) conversion is pending, not a real problem. It's noisy rather than
 useful here, so silence it once, scoped to this repo only:
@@ -182,7 +182,7 @@ Only if the router has no reservation feature.
 ### Once the NUC's address is fixed: update `ALLOWED_ORIGINS`
 
 The app only accepts cross-origin browser requests from origins listed in `ALLOWED_ORIGINS`
-in `.env` (see [CLAUDE.md > Security §4](CLAUDE.md#security) — this replaces an earlier
+in `.env` (see [docs/security.md > App-level protections](docs/security.md#app-level-protections-cors-errors-access-logs) — this replaces an earlier
 wide-open `allow_origins=["*"]` CORS setting). Add the NUC's new address to it:
 
 ```
@@ -203,7 +203,7 @@ The first time uvicorn binds the port, Windows may pop a firewall prompt — tic
 networks only** (not Public/Domain) and allow it.
 
 If you missed the prompt, add the rule manually in an **elevated** Command Prompt, scoped to
-the home LAN subnet rather than left open to any network (see [CLAUDE.md > Security](CLAUDE.md#security) —
+the home LAN subnet rather than left open to any network (see [docs/security.md > Network exposure](docs/security.md#network-exposure) —
 this is a `[Phase 1 fix]` item, not optional hardening):
 
 ```
@@ -244,7 +244,7 @@ A batch script for this is deliberately not provided — Task Scheduler is more 
    - Name: `ShoppingApp`
    - Select **Run whether user is logged on or not**.
    - **Leave "Run with highest privileges" UNTICKED.** This is a `[Phase 1 fix]` item (see
-     [CLAUDE.md > Security](CLAUDE.md#security)) — the app doesn't need admin rights to run, and running it elevated
+     [docs/security.md > Deployment and Task Scheduler](docs/security.md#deployment-and-task-scheduler)) — the app doesn't need admin rights to run, and running it elevated
      needlessly increases the blast radius if a dependency ever has a vulnerability. It does not
      need elevation to bind port 8080 (only ports below 1024 need that) or to write to its own
      project folder.
@@ -276,7 +276,7 @@ are gitignored so a pull never touches them.
 
 ## 9. Weekly automated backup (Task Scheduler)
 
-See [CLAUDE.md > Backup & Restore](CLAUDE.md#backup--restore) for what gets backed up and why.
+See [docs/deployment-and-operations.md > Backup & Restore](docs/deployment-and-operations.md#backup--restore) for what gets backed up and why.
 `backup.bat` does the work; this just schedules it weekly. Since step 2 already cloned the
 project from GitHub, backups get committed and pushed automatically as part of each run —
 into the same repo `update.bat` pulls code from (see [DEPLOY.md](DEPLOY.md)).

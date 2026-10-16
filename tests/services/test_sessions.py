@@ -41,7 +41,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -229,7 +229,7 @@ def test_reorder_slots_rejects_partial_or_foreign_id_list(db):
         sessions_service.reorder_slots(db, s.id, [s1.id])  # missing one
 
 
-# --- consolidate_session (Chunk 4.6) ---------------------------------
+# --- consolidate_session (Chunk 4.6, consolidation and pack-size resolution) ---------------------------------
 
 
 def _recipe_with(db, name, ings, base_servings=4):
@@ -269,7 +269,7 @@ def test_consolidate_scales_and_sums_across_recipes(db):
 
 def test_consolidate_folds_ingredient_aliases_into_the_canonical_name(db):
     # 2026-09-10 hand-testing ("oil vs oil spray vs vegetable oil vs canola oil is stupid,
-    # needs to be consolidated") -- see CLAUDE.md > Ingredient Aliases. Two recipes using
+    # needs to be consolidated") -- see docs/ingredient-handling.md > Ingredient Aliases. Two recipes using
     # different but aliased names must consolidate onto one line under the canonical name,
     # and the recipes' own stored ingredient names must be untouched (dynamic resolution,
     # not a rewrite).
@@ -360,7 +360,7 @@ def test_consolidate_alias_pair_falls_back_to_name_only_on_unit_mismatch(db):
 
 
 def test_consolidate_resolves_unit_spelling_before_summing(db):
-    # 2026-09-12, Ingredient Unit Handling Layer A -- "gram" is a free-text unit today
+    # 2026-09-12, Ingredient Unit Handling Layer A (unit spellings) -- "gram" is a free-text unit today
     # (consolidation._dimension() only recognises "g"/"kg" as mass), so without synonym
     # resolution this would land in a DIFFERENT bucket than "g" and get flagged needs_review
     # even though they're plainly the same thing. With the seeded gram->g synonym (via a
@@ -396,7 +396,7 @@ def test_consolidate_unit_synonym_lets_a_plural_typo_reconcile_too(db):
 
 
 def test_consolidate_coarse_ingredient_ignores_quantity_and_counts_recipe_slots(db):
-    # 2026-09-12, Ingredient Unit Handling Layer D -- parsley in "10g" and "1 tbsp" would
+    # 2026-09-12, Ingredient Unit Handling Layer D (bought by the bunch) -- parsley in "10g" and "1 tbsp" would
     # normally be flagged needs_review (mass + volume). Marked coarse, it skips quantity math
     # entirely: 2 contributing recipe slots, recipes_per_pack=3 -> ceil(2/3) = 1 pack.
     from app.services import coarse_ingredients as ci_service
@@ -442,7 +442,7 @@ def test_consolidate_coarse_ingredient_counts_slots_not_lines(db):
     """2026-09-13 code review: one recipe listing the same coarse ingredient across TWO
     separate recipe_ingredients rows (e.g. "parsley, chopped" + "parsley, to garnish") must
     still count as ONE contributing slot, not two — recipes_per_pack divides by slots, per
-    CLAUDE.md > Ingredient Unit Handling > Layer D, not by however many lines happen to
+    docs/ingredient-handling.md > Ingredient Unit Handling > Layer D, not by however many lines happen to
     mention the ingredient."""
     from app.services import coarse_ingredients as ci_service
     from app.schemas.coarse_ingredients import CoarseIngredientCreate
@@ -671,7 +671,7 @@ def test_consolidate_preserves_a_manually_resolved_review_line(db):
     # 2026-09-10 hand-testing ("doesn't remember amounts under review") — a mass+volume
     # conflict the user resolved via checklist.resolve_item() must survive a later
     # re-consolidate while the same ingredient still conflicts, instead of being silently
-    # re-flagged and reset. See CLAUDE.md > Scaling Logic > re-running consolidation.
+    # re-flagged and reset. See docs/scaling-and-consolidation.md > Scaling Logic > re-running consolidation.
     from app.services import checklist as checklist_service
 
     s = sessions_service.create_session(db, PlanningSessionCreate())
@@ -743,7 +743,7 @@ def test_consolidate_removes_lines_no_longer_needed(db):
 
 
 def test_consolidate_session_uses_per_recipe_resolved_ingredient(db):
-    # M4: the recipe carries a confirmed swap on the ingredient itself
+    # M4 (substitution redesign): the recipe carries a confirmed swap on the ingredient itself
     s = sessions_service.create_session(db, PlanningSessionCreate())
     r = _recipe_with(
         db,
@@ -759,7 +759,7 @@ def test_consolidate_session_uses_per_recipe_resolved_ingredient(db):
 
 def test_consolidate_session_override_beats_resolved_ingredient(db):
     # a session-only substitute keys off the DISPLAYED (already-resolved) name and wins for
-    # this run only — nothing is written back to the recipe. 2026-09-30 (chunk 7.5): the
+    # this run only — nothing is written back to the recipe. 2026-09-30 (the checklist ingredient panel work): the
     # substitute is a real session_ingredient_merges (kind='substitute') row now, not a
     # request-supplied SessionOverride.
     from app.services import session_merges
@@ -791,7 +791,7 @@ def test_consolidate_to_taste_item_note(db):
     assert items[0].note == "to taste"
 
 
-# --- M8: substitution quantity/unit transform -----------------------------
+# --- M8 (substitution amount/unit change): substitution quantity/unit transform -----------------------------
 
 
 def test_consolidate_recipe_level_transform_changes_amount_and_unit(db):
@@ -860,7 +860,7 @@ def test_consolidate_transformed_line_merges_with_a_plain_line_of_the_same_name(
 
 
 def test_consolidate_session_override_carries_an_equivalence_pair(db):
-    # 2026-09-30 (chunk 7.5): a session-only substitute is a real session_ingredient_merges
+    # 2026-09-30 (the checklist ingredient panel work): a session-only substitute is a real session_ingredient_merges
     # (kind='substitute') row now, not a request-supplied SessionOverride.
     from app.services import session_merges
 
@@ -910,7 +910,7 @@ def test_consolidate_session_override_pair_skipped_for_to_taste_line(db):
     assert items[0].total_quantity is None and items[0].note == "to taste"
 
 
-# --- Fix 3, F3.2: session-only checklist merge resolution ----------------------------------
+# --- Fix 3 (Combine action): session-only checklist merge resolution ----------------------------------
 
 
 def test_consolidate_session_merge_folds_two_names_into_one(db):
@@ -1043,7 +1043,7 @@ def test_consolidate_session_merge_scoped_to_its_own_session_only(db):
 
 
 def test_consolidate_session_merge_applies_after_an_existing_alias(db):
-    """A merge folds two ALREADY-ALIASED names together (F3.2's 'last step in the chain'
+    """A merge folds two ALREADY-ALIASED names together (the Combine action rules's 'last step in the chain'
     ordering) — confirmed by merging two names that are each already aliased elsewhere."""
     from app.schemas.ingredient_aliases import IngredientAliasCreate
     from app.services import ingredient_aliases as ia_service

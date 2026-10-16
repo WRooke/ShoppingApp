@@ -1,11 +1,11 @@
-"""recipes.source_book / recipes.source_page (Chunk 3.7b)
+"""recipes.source_book / recipes.source_page (Chunk 3.7b, source-reference schema and service)
 
 Revision ID: 9b903c88b3aa
 Revises: bf3919bfcbd9
 Create Date: 2026-09-06 16:24:27.537181
 
 First real migration after the Alembic baseline — adds the two nullable free-text source
-provenance columns to the existing ``recipes`` table (see CLAUDE.md > Data Model > recipes
+provenance columns to the existing ``recipes`` table (see docs/data-model.md > Data Model > recipes
 and > Build Phases > Phase 3 > Chunk 3.7b). Nullable with no default, so it applies to a
 populated table without touching existing rows.
 """

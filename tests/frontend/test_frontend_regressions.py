@@ -40,7 +40,7 @@ def _wait_for_value_match(browser, class_name: str, value: str, *, timeout: floa
 def test_unscheduling_a_session_slot_day_persists_after_reload(browser, api, server_url):
     """2026-09-13 code review, Stage 1 fix: services/sessions.py > update_slot() used to
     silently drop an explicit `day_of_week: null` (the `if value is not None` guard). Phase 6
-    Chunk 6.5 replaced the per-slot day <select> with the 7-day-grid + tap-to-assign UI
+    Chunk 6.5 (weekly planner) replaced the per-slot day <select> with the 7-day-grid + tap-to-assign UI
     (session-week.js) — this now drives that flow instead (move button -> tap the
     Unassigned section), still exercising api.js's PATCH body end to end, just through the
     UI that actually exists now."""
@@ -372,7 +372,7 @@ def test_have_need_toggle_reaches_any_target_state_in_one_tap(browser, api, serv
 
 
 def test_pack_size_chip_resolves_this_session_and_preserves_other_items(browser, api, server_url):
-    """2026-09-24, reworked 2026-09-30 (chunk 7.5) — the standalone "+ Add pack size" link is
+    """2026-09-24, reworked 2026-09-30 (the checklist ingredient panel work) — the standalone "+ Add pack size" link is
     gone; pack size is now the ingredient panel's Pack size chip (checklist-panel.js).
     Defaults to "this list only" (session_ingredient_merges, not the real product_units table)
     — still resolves the pack breakdown THIS session, while an unrelated item's already-made
@@ -469,7 +469,7 @@ def test_pack_size_chip_resolves_this_session_and_preserves_other_items(browser,
 def _wait_for_value_match_text(browser, selector: str, text: str, *, timeout: float = TIMEOUT) -> None:
     """Like _wait_for_value_match, but for element .textContent instead of .value — used for
     the checklist's .name divs/buttons, which aren't inputs. Prefix match, not exact equality
-    (2026-09-30, chunk 7.4): a row whose ingredient has a recipe breakdown renders its name as
+    (2026-09-30, the Review-screen removal): a row whose ingredient has a recipe breakdown renders its name as
     "<name> ▾" (checklist.js > rowNameParts()) — true for virtually every real checklist row,
     since any item consolidated from an actual recipe has at least one contributing recipe."""
     expr = (
@@ -485,7 +485,7 @@ def _wait_for_value_match_text(browser, selector: str, text: str, *, timeout: fl
 
 
 # The push progress/failure tests moved to tests/frontend/test_no_popups_and_push_ui.py when the push
-# UI was rewritten (Chunk 6.7, 2026-10-06).
+# UI was rewritten (Chunk 6.7, user-feedback batch, 2026-10-06).
 
 
 def test_queued_capture_shows_message_not_a_blank_review_form(browser, server_url):
@@ -525,9 +525,9 @@ def test_queued_capture_shows_message_not_a_blank_review_form(browser, server_ur
 
 
 def test_plan_goes_straight_to_checklist_no_review_step(browser, api, server_url):
-    """2026-09-30, chunk 7.4 — the standalone Review screen ("Review ingredients & shopping
+    """2026-09-30, the Review-screen removal — the standalone Review screen ("Review ingredients & shopping
     list") between Plan and Checklist is deleted; Plan's sticky action now links straight to
-    Checklist, which consolidates itself on load (chunk 7.3) with zero prior explicit
+    Checklist, which consolidates itself on load (the checklist re-consolidating on load) with zero prior explicit
     /consolidate call. Drives the real button click end to end (not just a direct
     #/checklist/<id> navigation, which every other checklist test already covers) so a
     regression in the button's own wiring would actually be caught."""
@@ -543,7 +543,7 @@ def test_plan_goes_straight_to_checklist_no_review_step(browser, api, server_url
     ).json()["data"]
     session = api.post("/api/v1/sessions", json={}).json()["data"]
     api.post(f"/api/v1/sessions/{session['id']}/recipes", json={"recipe_id": recipe["id"]})
-    # Deliberately no POST /sessions/{id}/consolidate here — the whole point of chunk 7.3.
+    # Deliberately no POST /sessions/{id}/consolidate here — the whole point of the checklist re-consolidating on load.
 
     browser.navigate(f"{server_url}/#/plan/{session['id']}")
     browser.wait_for(".step-list")
@@ -562,7 +562,7 @@ def test_plan_goes_straight_to_checklist_no_review_step(browser, api, server_url
 
 
 def _expand_and_open_edit(browser, item_name):
-    """Shared driver for the ingredient panel (chunk 7.5): tap a row's name to expand it, then
+    """Shared driver for the ingredient panel (the checklist ingredient panel work): tap a row's name to expand it, then
     tap "Edit ingredient" to reveal the select-exclusive chip row. Returns nothing; raises via
     assert if either step's target element never appears."""
     expand_result = browser.eval(
@@ -594,9 +594,9 @@ def _click_chip(browser, label):
 
 
 def test_edit_ingredient_chips_are_select_exclusive(browser, api, server_url):
-    """2026-09-30, chunk 7.5 — picking a chip closes whichever one was already open for that
+    """2026-09-30, the checklist ingredient panel work — picking a chip closes whichever one was already open for that
     row, so at most one sub-panel shows at a time (the mockup's approved design, settled after
-    the maintainer's own feedback round on chunk 7.1)."""
+    the maintainer's own feedback round on the ingredient-panel mockup review)."""
     item_name = normalise_ingredient_name(f"cdp-chip-exclusive-{uuid.uuid4().hex[:8]}")
     recipe = api.post(
         "/api/v1/recipes",
@@ -632,7 +632,7 @@ def test_edit_ingredient_chips_are_select_exclusive(browser, api, server_url):
 
 
 def test_alias_chip_this_list_only_default_survives_reload(browser, api, server_url):
-    """2026-09-30, chunk 7.5 — the persistence toggle defaults to "this list only" (§0.3);
+    """2026-09-30, the checklist ingredient panel work — the persistence toggle defaults to "this list only" (the "Just this plan" default);
     saving without touching the toggle writes a session-scoped session_ingredient_merges row
     (not a durable ingredient_aliases one), which — unlike the old client-held override this
     replaced — is real server-side state and survives a page reload."""
@@ -684,7 +684,7 @@ def test_alias_chip_this_list_only_default_survives_reload(browser, api, server_
 
 
 def test_have_need_buttons_work_without_opening_the_panel(browser, api, server_url):
-    """2026-09-30, chunk 7.5 — Have it / Need it stay on the collapsed row, independent of the
+    """2026-09-30, the checklist ingredient panel work — Have it / Need it stay on the collapsed row, independent of the
     name's expand-to-panel toggle; tapping them must never also expand the row."""
     item_name = normalise_ingredient_name(f"cdp-have-need-panel-{uuid.uuid4().hex[:8]}")
     recipe = api.post(
@@ -719,7 +719,7 @@ def test_have_need_buttons_work_without_opening_the_panel(browser, api, server_u
 
 
 def test_back_closes_open_panel_before_navigating_away(browser, api, server_url):
-    """2026-09-30, chunk 7.6 — pressing Back once while a row's panel is open closes the panel
+    """2026-09-30, the panel back-navigation work — pressing Back once while a row's panel is open closes the panel
     without changing the route (scenario the maintainer specifically asked to verify); a
     second Back press then does the real navigation. Drives the real Plan -> Checklist button
     click first so there's a genuine "real previous screen" to return to (not a bare
@@ -1043,7 +1043,7 @@ def test_a_capture_that_finishes_after_you_left_does_not_take_over_the_screen(br
 
 
 def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, server_url):
-    """2026-09-30, chunk 7.6 — tapping a recipe-breakdown link inside an OPEN panel (without
+    """2026-09-30, the panel back-navigation work — tapping a recipe-breakdown link inside an OPEN panel (without
     pressing Back first) must still leave the history stack balanced: Back from the recipe
     detail this lands on must return straight to Checklist, no leftover dead press, no skipped
     screen. This is the case a plain "push one entry, pop on popstate" guard gets wrong — a
@@ -1102,7 +1102,7 @@ def test_back_from_a_panel_link_returns_straight_to_checklist(browser, api, serv
 
 
 def test_checklist_scroll_position_restored_after_visiting_a_recipe(browser, api, server_url):
-    """2026-09-30, chunk 7.6 — scrolling down on Checklist, visiting a recipe, then returning
+    """2026-09-30, the panel back-navigation work — scrolling down on Checklist, visiting a recipe, then returning
     restores the scroll position (checklist.js's savedScrollY, captured in unmount(), restored
     once on the next mount())."""
     item_name = normalise_ingredient_name(f"cdp-scroll-{uuid.uuid4().hex[:8]}")
@@ -1153,10 +1153,10 @@ def test_checklist_scroll_position_restored_after_visiting_a_recipe(browser, api
 
 
 def test_expanded_row_meta_text_is_not_squeezed_onto_its_own_line(browser, api, server_url):
-    """2026-10-01, chunk 7.8 phase-end review — caught live via a screenshot (and flagged
+    """2026-10-01, the Chunk 6.7 phase-end review — caught live via a screenshot (and flagged
     independently by the maintainer looking at the same one): `.checklist-row` is a `flex`
     container with no `flex-wrap`, so the expand-slot (recipe breakdown + edit panel,
-    chunks 7.4/7.5), appended as a third flex child with an inline `flex-basis: 100%`, never
+    the Review-screen removal and checklist ingredient panel work), appended as a third flex child with an inline `flex-basis: 100%`, never
     actually got its own line the way `rowNameParts()`'s docstring says it should — instead
     `flex-shrink: 1` (the default) squeezed `.main`'s quantity text down to a sliver narrow
     enough to wrap character-by-character. Fixed with `flex-wrap: wrap` on `.checklist-row`
@@ -1206,7 +1206,7 @@ def test_expanded_row_meta_text_is_not_squeezed_onto_its_own_line(browser, api, 
 def test_name_nudge_offers_the_households_wording_and_use_it_writes_that(browser, server_url):
     """Chunk 6.7: "did you mean ...?" must offer how the household writes the ingredient ("black
     beans"), not the singular matching key ("black bean"), and "use it" must write that wording —
-    otherwise accepting nudges would rewrite recipes toward singular. The alias itself still goes
+    otherwise accepting suggestions would rewrite recipes toward singular. The alias itself still goes
     by the key (matching is by key)."""
     browser.navigate(f"{server_url}/#/home")
     browser.wait_for(".nav-item")

@@ -99,14 +99,14 @@ delivers this change already uses the new versions.
 so it will not show the new banner until it has been reloaded once. After that it is self-maintaining.
 
 **Process model, for reference.** Normally the server is started at boot by Task Scheduler
-(`SETUP.md` §8, unelevated, "restart every 1 minute up to 3 times if it fails"), and `update.bat`
+(`SETUP.md` step 8, Auto-start on boot, unelevated, "restart every 1 minute up to 3 times if it fails"), and `update.bat`
 stops it and starts a new one in the window you ran it from — **closing that window stops the
 server** (leave it open, or reboot to hand it back to Task Scheduler). When `update.bat` kills the
 Task Scheduler instance, the task sees a failure and retries in a minute; the retry finds the port
 busy and exits (that is now reported plainly by `start.bat` rather than mysteriously).
 
 **Checking it by hand.**
-- `http://<nuc>:8080/api/v1/health` → `data.build_id` (compare with the Diagnostics page and with
+- `http://<nuc>:8080/api/v1/health` → `data.build_id` (compare with the Status page and with
   what the phone shows), `version` (label), `boot_id`/`started_at` (which process, since when).
 - `logs/app.log`: `Build: id=… label=… boot_id=…` at every start; `Verify: OK …` or `Verify: PROBLEM …`
   after `start.bat`.
@@ -126,7 +126,7 @@ a second start, simulate an update (build id changed), stop.
 
 ## Backup & Restore
 
-**Build now (Phase 1)** — Schema & Planning Addendum #4.
+Built in Phase 1.
 
 - **Frequency:** weekly, via Windows Task Scheduler (`SETUP.md` step 9) — same mechanism as the
   auto-start task, no new infra.
@@ -149,7 +149,9 @@ a second start, simulate an update (build id changed), stop.
   during Phase 1** — run once end-to-end (list → dry run → `--yes` restore) rather than assumed
   to work when it's needed under pressure.
 
-### SQLite WAL mode and backup safety (2026-09-13 code review)
+### SQLite WAL mode and backup safety
+
+*(2026-09-13 code review)*
 
 - **WAL (write-ahead log) mode is on**, set via a `PRAGMA journal_mode=WAL` in
   `app/database.py`'s connect-event listener (alongside the existing `PRAGMA foreign_keys=ON`).

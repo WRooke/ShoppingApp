@@ -37,7 +37,7 @@ contextual and dormant by default, not a permanent extra control cluttering ever
   always-visible secondary buttons.
 - The row's default, common-case appearance should look no busier than it does today.
 
-**Established reference example:** [The ingredient panel](./checklist-and-shopping.md#the-ingredient-panel-2026-09-30-chunk-75)
+**Established reference example:** [The ingredient panel](./checklist-and-shopping.md#the-ingredient-panel)
 — tapping a checklist row expands pack size / substitute / alias / coarse-item / merge editing
 inline, each with an explicit "this list only" vs. "Always" choice, no Settings trip required
 unless "Always" is deliberately chosen.
@@ -54,7 +54,9 @@ primary or only way most of this data gets created or corrected day-to-day.
 - Error messages explain what went wrong and what to do: "Couldn't reach AnyList — check your
   connection and try again" not "Error 500".
 
-### Plain language & no ambiguity (2026-10-11, Chunk 6.7)
+### Plain language & no ambiguity
+
+*(2026-10-11, Chunk 6.7, user-feedback batch)*
 
 **Rule: every piece of user-facing text must be unambiguous to a non-technical household member
 who has never seen the code.** Set after phone testing found an alias form where "what gets
@@ -78,14 +80,14 @@ Apply it to every new label, button, placeholder, toast, empty state, error and 
 6. **Never show a raw `err.message`.** Map known error codes to plain copy; fall back to
    "Something went wrong — try again". The detail is not lost: the server logs it at the point
    of failure and `error-report.js` sends browser-side failures to the log
-   ([Failure logging](./diagnostics-and-logging.md#failure-logging-2026-10-07-audit)), so the
+   ([Failure logging](./diagnostics-and-logging.md#failure-logging)), so the
    maintainer finds it in Status > Recent errors rather than the household reading it.
 7. **Never silently drop or ignore input.** A half-filled pair, a row with only a unit, an
    unknown unit that will never match: show an inline message saying what was ignored/why.
 8. **The copy must be true.** Read the backend behaviour before writing a label. (The
    checklist "Always for this recipe" label claimed to change a recipe; it only saved a
    suggestion. A false label is worse than a vague one.)
-9. **UI-visible copy changes go through the mockup gate** like any other UI change.
+9. **UI-visible copy changes go through the mockup approval step** (an approved mockup is needed before any UI change is built), like any other UI change.
 
 **Vocabulary (one word per concept, everywhere) — approved 2026-10-11:**
 
@@ -104,6 +106,35 @@ Apply it to every new label, button, placeholder, toast, empty state, error and 
 | **aisle** | section | supermarket aisle |
 | **Import a recipe** | capture, fetch & extract | URL/photo import |
 
+### UI label ↔ code name table
+
+What each screen element is actually called on screen (copied from the code, exact text) and what it
+is called in the code, the database and the other docs. Use the **on-screen text** when describing a
+screen, and the code name when describing code. The vocabulary table above is the *approved* wording;
+the rows marked "differs" are where the screen still shows other words.
+
+| On-screen text (exact) | Where it appears | Code / docs name |
+|---|---|---|
+| Home · Recipes · Plan · Settings · Status | bottom navigation | routes `#/home`, `#/recipes`, `#/plan`, `#/settings`, `#/diagnostics` (the **Status** page is the "diagnostics" page) |
+| New plan · Continue | Home screen | a `planning_sessions` row (called a "session" in code and docs) |
+| Active · Past | tabs on the Plan screen | sessions with status `active`, and sessions with status `pushed` or `archived` |
+| In progress · Sent to AnyList · Archived | a plan's status | session status `active` · `pushed` · `archived` |
+| Archive plan | button on a plan | archives the session (status `archived`) |
+| I cooked this | button on a recipe | the "mark cooked" counter on a recipe |
+| Checklist | page title | the checklist view (`session_checklist_items` rows) |
+| Have it · Need it | buttons on each checklist row | `have_it` = `'yes'` (Have it) or `'no'` (Need it); untouched rows are not sent |
+| Send to AnyList | checklist button | the "push" (`static/js/checklist-push.js`, `POST /checklist/{id}/push`) |
+| Add to AnyList | button on a due usual | sends that one usual to AnyList |
+| The usuals | checklist group and Settings card | `usual_items` |
+| Edit ingredient ▾, then the buttons Pack size · Substitute · Also called · By the bunch · Combine | panel opened from a checklist row's name | `product_units` row · substitute · `ingredient_aliases` row · `coarse_ingredients` row · merge (`session_ingredient_merges`) |
+| Combine rows · Combine (N) · Combine for this plan | checklist multi-select mode | the checklist-time merge |
+| Pack sizes · Saved ingredient swaps · The usuals · Same item, different names · Unit spellings · Bought by the bunch | Settings index | `product_units` · `remembered_substitutions` · `usual_items` · `ingredient_aliases` · `unit_synonyms` · `coarse_ingredients` |
+| Import from a web page · Import from a photo | buttons on Recipes | start a recipe "capture" |
+| Capture from a web page · Capture from a photo · Fetch & extract · Upload & extract · Review extracted recipe | the import screens (differs: the approved word is "Import") | "capture" (`capture.js`, `capture-review.js`) |
+| Section · No section · Loading section list… | import review screen (differs: the approved word is "aisle") | a "section" is a supermarket aisle (`SECTION_VOCABULARY`, `store_sections`) |
+| Base servings | recipe form and import review (differs: the approved wording avoids "base servings") | `recipes.base_servings` |
+| Recent errors · Recent pushes · Capture queue · Advanced | Status page (developer detail) | log tail, push history, `capture_queue`, raw log |
+
 **Copy length (2026-10-11):** Settings forms keep their explanatory sentence(s); every other
 screen gets one short line per control (key lines such as "Need it = sent · Have it = skipped ·
 untouched = not sent" beat sentences). Fields on a phone are stacked, so copy never says
@@ -112,9 +143,12 @@ untouched = not sent" beat sentences). Fields on a phone are stacked, so copy ne
 **Pre-merge copy checklist** (answer each for every new/changed string): What exactly happens
 when I tap this? To what — one recipe, this plan, everything? Can I undo it? Which name wins?
 Is any word here one my household wouldn't use? Is anything I typed being ignored? Is this
-statement actually true of the code?
+statement actually true of the code? Does any doc or comment I touched use a private label, slang, or a
+section symbol instead of plain words ([Plain-language documentation standard](./code-architecture.md#plain-language-documentation-standard))?
 
-### UI state must not silently vanish (2026-10-11, Chunk 6.7)
+### UI state must not silently vanish
+
+*(2026-10-11, Chunk 6.7)*
 
 A whole-app audit found controls, data and typed input disappearing or resetting with no
 signal. The root case: the checklist PATCH response left `recipe_breakdown` at its default
@@ -134,7 +168,7 @@ after any Have it / Need it tap. Rules:
 - **Back/forward must never create records** (`#/plan/new` creates on click, then navigates).
 - **Failures leave a visible trace** that survives a re-render (toast or held per-item error),
   **and** a log line: no `catch(function () {})` that swallows a failure (see the "silent masks
-  are not allowed" rule in [Failure logging](./diagnostics-and-logging.md#failure-logging-2026-10-07-audit)).
+  are not allowed" rule in [Failure logging](./diagnostics-and-logging.md#failure-logging)).
   A fallback the server applies on the user's behalf (e.g. a conversion skipped because the
   units differ) logs a WARNING with the ids *and* is reported back to the user in the response.
 - **Tests for these rules follow the suite's one-assertion-per-behaviour rule**
@@ -142,7 +176,9 @@ after any Have it / Need it tap. Rules:
   `tests/services/`, the response shape in `tests/routers/`, only the DOM/state-survival
   behaviour in `tests/frontend/`. Extend an existing test before adding a sibling.
 
-### New UI must match the current style (2026-10-11)
+### New UI must match the current style
+
+*(2026-10-11)*
 
 Every UI tweak is consistent with what is already on screen; nothing gets a one-off look.
 Concretely: all text-entry controls (text, number, url, search, select, textarea) share the one
@@ -165,7 +201,9 @@ neighbouring screen before calling it done (`scripts/cdp.py` + a screenshot is e
 - Typography: one sans-serif family, clear hierarchy, no decorative type.
 - No animations except functional transitions (e.g. checklist item ticked → slides/fades out).
 
-### No native dialogs — ask and report inline (2026-10-06, Chunk 6.7)
+### No native dialogs — ask and report inline
+
+*(2026-10-06, Chunk 6.7)*
 
 **Rule: the app never uses the browser's own `alert()`, `confirm()` or `prompt()`.** They are clunky,
 hide the page, can't say what a button does ("OK"/"Cancel"), and on a phone show the server's raw

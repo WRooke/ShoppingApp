@@ -1,11 +1,11 @@
-/* Core shared components — Phase 6 Chunk 6.1 (see CLAUDE.md > UI / UX, and
-   docs/build-status/phase-6-polish.md). Built once here, reused by every screen; Chunks 6.2-6.4
+/* Core shared components — Phase 6 Chunk 6.1 (see docs/ui-ux.md > UI / UX, and
+   docs/build-status/phase-6-polish.md). Built once here, reused by every screen; Chunks 6.2 (recipe and import screen design)-6.4
    apply these classes to their own screens as each is touched, they do not redefine them.
    Consumes tokens.css exclusively — no literal colour/size values below.
 
    Existing class contracts from pre-Phase-6 screens are preserved on purpose, not renamed:
    `button` / `.btn` / `.primary`, `.card`, `.field` (+ label/input/select/textarea), `.dot` +
-   `.status-row`, `.muted`, `.stub` are all used across recipes.js/sessions.js/settings*.js/
+   `.status-row`, `.muted` are all used across recipes.js/sessions.js/settings*.js/
    checklist.js/session-review.js today. Restyling them here (new tokens, new radius, focus
    rings, press feedback) upgrades every one of those screens for free, with no changes to the
    files this chunk doesn't otherwise touch. */
@@ -46,8 +46,8 @@ h1, h2, h3 { font-family: var(--font-ui); }
   margin: 0 auto;
 }
 
-/* --- bottom nav (emoji icon set — kickoff decision #10, replacing the text-caption
-   placeholder; nav-dot badges — kickoff decisions #3/#11) --- */
+/* --- bottom nav (emoji icon set, replacing the earlier text-caption
+   placeholder; nav-dot badges for a plan in progress, pending AI work and a recent error) --- */
 .bottom-nav {
   position: fixed;
   bottom: 0;
@@ -130,7 +130,7 @@ button:disabled, .btn:disabled { opacity: .55; cursor: default; transform: none;
 .btn-block { width: 100%; }
 .btn-sm { min-height: 36px; padding: .4rem .8rem; font-size: var(--text-sm); }
 
-/* sticky primary-action bar — kickoff decision #12, applied per long screen from Chunk 6.2
+/* sticky primary-action bar — Phase 6 decision: pin the main action above the bottom nav on long screens, applied per long screen from Chunk 6.2
    onward (this chunk only defines the pattern) */
 .sticky-actions {
   position: sticky;
@@ -161,8 +161,8 @@ button:disabled, .btn:disabled { opacity: .55; cursor: default; transform: none;
 /* --- standard loading / empty / error pattern (the other two-thirds of it — skeleton
    loading is above). Chunks 6.2-6.4 apply these in place of each screen's current ad-hoc
    "Loading...", "No X yet", "Couldn't load X: " + err.message text swaps and alert() calls;
-   this chunk only defines the pattern. `.stub` (the old Phase 1 route-placeholder class) is
-   removed here — confirmed dead, nothing renders it since Home became a real view. --- */
+   this chunk only defines the pattern. The old `.stub` class (a Phase 1 route placeholder) was
+   removed; nothing renders it now that Home is a real view. --- */
 .empty-state {
   text-align: center;
   color: var(--text-dim);
@@ -184,7 +184,7 @@ button:disabled, .btn:disabled { opacity: .55; cursor: default; transform: none;
    rows found in the maintainer's screenshots (that markup change is those chunks' own job —
    this chunk only carries the shared pattern's styling forward).
 
-   Convention for any quantity/servings input built from here on (kickoff decision #3): give it
+   Convention for any quantity/servings input built from here on (Phase 6 decision: number-friendly mobile inputs): give it
    inputmode="decimal" (or "numeric" for a whole-number-only field) in the markup — a phone then
    shows a number pad instead of the full keyboard. CSS can't set inputmode, so this is a
    markup-side rule for whichever chunk adds the input, not something enforced here. --- */
@@ -257,7 +257,7 @@ input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   color: var(--text-dim);
 }
 
-/* --- skeleton loading placeholders (kickoff decision #12 — the actual shape of the standard
+/* --- skeleton loading placeholders (Phase 6 decision: skeleton placeholders instead of bare "Loading..." — the actual shape of the standard
    loading-state pattern; Chunks 6.2-6.4 use these classes instead of bare "Loading..." text) --- */
 .skeleton {
   border-radius: var(--r-sm);
@@ -299,7 +299,7 @@ input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   opacity: 0;
   transition: opacity .18s ease;
   pointer-events: auto;
-  /* 2026-10-06 (Chunk 6.7): wraps (error messages are sentences, not one word) but never wider than
+  /* 2026-10-06 (Chunk 6.7, user-feedback batch): wraps (error messages are sentences, not one word) but never wider than
      the screen. */
   white-space: normal;
   max-width: min(92vw, 28rem);
@@ -323,7 +323,7 @@ input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
 /* --- client auto-update banner (static/js/update-banner.js) ---
    Deliberately not a Toast: persistent (no auto-dismiss timer) and survives navigation until
-   tapped, unlike Toast which dies on both — see CLAUDE.md > UI/UX > Client auto-update
+   tapped, unlike Toast which dies on both — see docs/ui-ux.md > UI/UX > Client auto-update
    notification. Fixed at the very top of the viewport, above the app header. */
 .update-banner {
   position: fixed;
@@ -359,7 +359,7 @@ body.has-update-banner .app-header { top: var(--update-banner-h, 0px); } /* the 
   font-weight: 700;
 }
 
-/* --- shared "Back" link (static/js/back-link.js — kickoff decision #9) --- */
+/* --- shared "Back" link (static/js/back-link.js — Phase 6 decision: one shared Back link) --- */
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -378,5 +378,5 @@ body.has-update-banner .app-header { top: var(--update-banner-h, 0px); } /* the 
 
 /* Per-screen component styles (capture progress, filter chips, ingredient/swap rows, step
    indicators, Settings index, Home) live in components-screens.css — split out once this
-   file passed the ~400 line guideline partway through Chunk 6.4. Both files consume
+   file passed the ~400 line guideline partway through Chunk 6.4 (Settings and Status restructure). Both files consume
    tokens.css exclusively and are loaded together (see index.html). */

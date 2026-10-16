@@ -49,9 +49,9 @@ class SessionRecipe(Base):
     session_id = Column(
         Integer, ForeignKey("planning_sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # Phase 4 (Chunk 4.1): a slot can be a real recipe or a non-recipe "leftovers" marker
+    # Phase 4 (Chunk 4.1, planning-engine migrations): a slot can be a real recipe or a non-recipe "leftovers" marker
     # that pulls nothing into consolidation, so recipe_id is nullable and slot_type flags
-    # which it is. See CLAUDE.md > Data Model > session_recipes (Phase 4 note).
+    # which it is. See docs/data-model.md > Data Model > session_recipes (Phase 4 note).
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=True)
     slot_type = Column(Text, nullable=False, default="recipe")  # 'recipe' | 'leftovers'
     day_of_week = Column(Integer, nullable=True)  # 1=Monday .. 7=Sunday
@@ -77,7 +77,7 @@ class SessionChecklistItem(Base):
     total_quantity = Column(Float, nullable=True)
     total_unit = Column(Text, nullable=True)
     # Retired 2026-09-27 alongside the Staple model (app/models/catalog.py) — nothing ever sets
-    # this True again. Kept, not dropped, per CLAUDE.md's non-negotiable rule 3 (no data loss on
+    # this True again. Kept, not dropped, per the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules) (no data loss on
     # the NUC's production database); see docs/decision-history.md > "Staples — usefulness
     # assessment" for the full record.
     is_staple = Column(Boolean, nullable=False, default=False)
@@ -90,13 +90,13 @@ class SessionChecklistItem(Base):
     anylist_item_id = Column(Text, nullable=True)
     # Phase 4 Chunk 4.6 — a display-only hint carrying an irreconcilable-units breakdown
     # ("100 g + 200 ml"), a "to taste" marker, or an overage note ("450 g spare"). See
-    # CLAUDE.md > Scaling Logic > Rounding & unit rules.
+    # docs/scaling-and-consolidation.md > Scaling Logic > Rounding & unit rules.
     needs_review = Column(Boolean, nullable=False, default=False)
     note = Column(Text, nullable=True)
     # 2026-09-10 hand-testing — marks a needs_review conflict the user manually resolved
     # (services/checklist.py > resolve_item()) so a later consolidate_session() recompute
     # doesn't clobber it while the same ingredient still conflicts. Cleared once the conflict
-    # is gone. See CLAUDE.md > Scaling Logic > re-running consolidation.
+    # is gone. See docs/scaling-and-consolidation.md > Scaling Logic > re-running consolidation.
     review_resolved_by_user = Column(Boolean, nullable=False, default=False)
     # 2026-09-13 code review — JSON array of {"quantity": float, "unit": str|None}, one per
     # `needs_review` conflict part (e.g. [{"quantity": 100, "unit": "g"}, {"quantity": 200,
@@ -105,13 +105,13 @@ class SessionChecklistItem(Base):
     # "use 100 g" quick-resolve buttons — `note` can carry extra appended text (an alias
     # conversion fragment) alongside the review breakdown, which the regex had no reliable way
     # to tell apart from the breakdown itself. See services/consolidation.py > ReviewOption
-    # and CLAUDE.md > Scaling Logic > Rounding & unit rules > Irreconcilable.
+    # and docs/scaling-and-consolidation.md > Scaling Logic > Rounding & unit rules > Irreconcilable.
     review_options_json = Column(Text, nullable=True)
-    # 2026-10-16 (Chunk 6.7, polish batch 3, "I have some") — how much of this ingredient the
+    # 2026-10-16 (Chunk 6.7, user-feedback batch, polish batch 3, "I have some") — how much of this ingredient the
     # household already has, in `have_unit` (always the row's own total_unit when set). USER
     # state: consolidation never resets it. `total_quantity` keeps meaning the full amount the
     # recipes need; the amount to buy is derived (services/have_some.py). Both nullable and
-    # additive per CLAUDE.md rule 3.
+    # additive per the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules).
     have_quantity = Column(Float, nullable=True)
     have_unit = Column(Text, nullable=True)
     created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
@@ -152,18 +152,18 @@ class SessionChecklistItem(Base):
 
 
 class SessionIngredientMerge(Base):
-    """Fix 3, F3.1 (CLAUDE.md > Deferred Decisions > checklist-time merge) — a session-scoped,
+    """Fix 3 (docs/deferred-decisions.md > Deferred Decisions > checklist-time merge) — a session-scoped,
     ephemeral "this list only" edit, the counterpart to writing a durable Settings row (the
     checklist panel's "remember" tick writes one of those instead — see
     `services/checklist.py::merge_items()` and the panel endpoints in `routers/checklist.py`).
 
-    **2026-09-30 (chunk 7.5, Checklist ingredient panel) — generalised beyond just "merge"**,
+    **2026-09-30 (the checklist ingredient panel work, Checklist ingredient panel) — generalised beyond just "merge"**,
     per `kind`, rather than building a sibling table per new session-scoped edit type (the
     maintainer's own steer — this table already had the right shape: session-scoped row,
     upsert-by-key, optional "remember" escape hatch to a permanent table):
       - `merge`      (original, unchanged) — fold `member_name` into `canonical_name`.
       - `substitute` — an ad-hoc ingredient swap, moved here from the now-deleted Review
-        screen's purely client-held `overrides` list (see CLAUDE.md > Deferred Decisions);
+        screen's purely client-held `overrides` list (see docs/deferred-decisions.md > Deferred Decisions);
         `member_name` = the original ingredient, `canonical_name` = the substitute.
       - `pack_size`  — a "this list only" pack size; `purchase_label`/`purchase_qty`/
         `purchase_unit` used instead of `canonical_name`/the alias/canonical qty-unit pair.

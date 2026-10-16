@@ -18,7 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 # Windows Credential Manager service name for the AnyList credentials (Phase 5, hybrid
-# storage — see CLAUDE.md > Security §2). Set them once with:
+# storage — see docs/security.md > AnyList credentials). Set them once with:
 #   keyring set shoppingapp anylist_email     / keyring set shoppingapp anylist_password
 _KEYRING_SERVICE = "shoppingapp"
 
@@ -50,7 +50,7 @@ class Settings:
         self.port: int = int(os.getenv("PORT", "8080"))
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
-        # CORS (see CLAUDE.md > Security §4). Comma-separated exact origins the browser is
+        # CORS (see docs/security.md > App-level protections). Comma-separated exact origins the browser is
         # allowed to call this API cross-origin from. Defaults cover local dev only; the NUC
         # deployment should set this to http://<nuc-static-ip>:8080 once step 5 of SETUP.md
         # assigns that address, rather than leaving it wide open to any origin.
@@ -63,10 +63,10 @@ class Settings:
         ]
 
         # AI recipe extraction — Google Gemini as of Phase 3.9 (was Anthropic Claude). See
-        # CLAUDE.md > AI Provider Migration. Env vars renamed at M1; §0c semantics unchanged.
+        # docs/recipe-capture.md > AI Provider Migration. The environment variables were renamed when the provider changed; the enable-switch behaviour is unchanged (docs/security.md > API enable switch).
         self.gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
 
-        # AnyList credentials (Phase 5) — hybrid storage per CLAUDE.md > Security §2: try the
+        # AnyList credentials (Phase 5) — hybrid storage per docs/security.md > AnyList credentials: try the
         # OS keyring (Windows Credential Manager) first, fall back to the .env vars. Each
         # secret falls back independently. `anylist_secret_source` records where the pair
         # actually came from so app.main can log a one-time WARNING about the plaintext
@@ -83,17 +83,17 @@ class Settings:
         else:
             self.anylist_secret_source = "missing"
 
-        # Gate on real AnyList calls + offline fake-list mode (Phase 5) — mirrors §0c for the
-        # AI. Both default OFF; no agent flips ANYLIST_ENABLED. ANYLIST_TARGET_LIST_NAME is
+        # Switch that allows real AnyList calls + offline fake-list mode (Phase 5) — mirrors the AI enable switch (docs/security.md > API enable switch)
+        # for the AI. Both default OFF; no agent flips ANYLIST_ENABLED. ANYLIST_TARGET_LIST_NAME is
         # the dev test list — the real household list is never the target without a fresh,
-        # explicit go-ahead. See CLAUDE.md > Security §2 and > Build Phases > Phase 5.
+        # explicit go-ahead. See docs/security.md > AnyList credentials and > Build Phases > Phase 5.
         self.anylist_enabled: bool = self._as_bool(os.getenv("ANYLIST_ENABLED", "false"))
         self.anylist_fake_mode: bool = self._as_bool(os.getenv("ANYLIST_FAKE_MODE", "false"))
         self.anylist_target_list_name: str = os.getenv(
             "ANYLIST_TARGET_LIST_NAME", "TestList"
         ).strip() or "TestList"
 
-        # Gate on real Gemini API calls — see CLAUDE.md > Security > §0c. Defaults OFF: a real
+        # Switch that allows real Gemini API calls — see docs/security.md > API enable switch. Defaults OFF: a real
         # call is refused even with a valid key unless this is explicitly set to true. An agent
         # session must never flip this to true in .env on its own initiative. (A hard AU$0.50
         # spend cap used to sit alongside the old CLAUDE_API_ENABLED switch — removed
@@ -102,8 +102,8 @@ class Settings:
             os.getenv("AI_EXTRACTION_ENABLED", "false")
         )
 
-        # Dev-only escape hatch that bypasses both gates above entirely by never calling the
-        # real API at all — see CLAUDE.md > Security > §0c. When true, the extraction calls
+        # Dev-only escape hatch that bypasses both switches above entirely by never calling the
+        # real API at all — see docs/security.md > API enable switch. When true, the extraction calls
         # return a canned fixture, zero cost, zero network. Must never be true on the NUC.
         self.ai_extraction_fake_mode: bool = self._as_bool(
             os.getenv("AI_EXTRACTION_FAKE_MODE", "false")
@@ -124,7 +124,7 @@ class Settings:
     def _as_bool(value: str) -> bool:
         """Parses an env var as a boolean. Deliberately narrow — only these exact strings
         count as true — so a typo in .env fails safe (reads as false) rather than silently
-        enabling a highest-priority gate (see CLAUDE.md > Security > §0c)."""
+        turning on a highest-priority enable switch (see docs/security.md > API enable switch)."""
         return value.strip().lower() in ("1", "true", "yes", "on")
 
     @property

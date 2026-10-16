@@ -1,4 +1,4 @@
-"""Guard (Chunk 6.7, 2026-10-06): the frontend must never use the browser's native dialogs.
+"""Guard (Chunk 6.7, user-feedback batch, 2026-10-06): the frontend must never use the browser's native dialogs.
 
 Rule and replacements: docs/ui-ux.md > "No native dialogs" (Feedback.error / Feedback.card /
 Toast with tone "error"). Comments are ignored (they legitimately mention confirm()); a use in code

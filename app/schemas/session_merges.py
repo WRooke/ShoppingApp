@@ -1,5 +1,4 @@
-"""Pydantic models for ``session_ingredient_merges`` (Fix 3, F3.1 — see CLAUDE.md >
-Deferred Decisions > checklist-time merge and > Data Model > session_ingredient_merges).
+"""Pydantic models for ``session_ingredient_merges`` (Fix 3 — see docs/deferred-decisions.md > Deferred Decisions > checklist-time merge and > Data Model > session_ingredient_merges).
 
 A session-scoped, ephemeral counterpart to ``ingredient_aliases``: "fold these two checklist
 items into one, for this session only" (``remember=False`` at the router) vs. a durable

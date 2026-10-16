@@ -1,16 +1,16 @@
-"""session_checklist_items.needs_review + note (Chunk 4.6)
+"""session_checklist_items.needs_review + note (Chunk 4.6, consolidation and pack-size resolution)
 
 Revision ID: 3474369f4c79
 Revises: 1bc1ac8991f4
 Create Date: 2026-09-06
 
 Phase 4 Chunk 4.6 surfaced the need for two display-only columns on the consolidated
-checklist (see CLAUDE.md > Scaling Logic > Rounding & unit rules):
+checklist (see docs/scaling-and-consolidation.md > Scaling Logic > Rounding & unit rules):
   * needs_review — mass + volume for one ingredient can't be merged (no density data);
     the line is flagged, total_quantity/unit stay NULL, the parts go in `note`.
   * note — also carries a "to taste" marker and an overage note ("450 g spare").
 
-Same server_default-then-drop dance as migration 1bc1ac8991f4's slot_type, so
+Same temporary-server_default technique as migration 1bc1ac8991f4's slot_type, so
 needs_review matches Base.metadata.create_all() (Python-side defaults only).
 """
 from typing import Sequence, Union

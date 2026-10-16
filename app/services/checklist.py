@@ -1,9 +1,9 @@
 """Checklist screen orchestrator (Phase 5) — load the consolidated checklist for a session,
-match it against the current AnyList list to pre-tick, and (Chunk 5.6) push the result.
+match it against the current AnyList list to pre-tick, and (Chunk 5.6, sending to AnyList and send history) push the result.
 
 Plain Python / SQLAlchemy + the ``anylist_client`` interface; no ``fastapi`` import. Routers
 (app/routers/checklist.py) translate the exceptions below into the ``{"ok": ...}`` envelope
-centrally in app/main.py. See CLAUDE.md > Checklist Screen Logic and > AnyList Push Logic.
+centrally in app/main.py. See docs/checklist-and-shopping.md > Checklist Screen Logic and > AnyList Push Logic.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def _singularise(s: str) -> str:
     to be its own weaker, local copy (missing the -us guard and irregular -ies/-ves endings).
     `anylist_name` is raw external text this app doesn't control, so _names_match() below still
     needs its own explicit singularise fallback tier even though `ingredient_name` on our side
-    is already fully normalised by the time it gets here (CLAUDE.md > Checklist Screen Logic:
+    is already fully normalised by the time it gets here (docs/checklist-and-shopping.md > Checklist Screen Logic:
     "fuzzy name match — normalised lowercase, strip plurals if needed"). A false negative just
     means the user ticks the item by hand; a false positive would pre-tick the wrong thing."""
     return text_normalize.singularise(s)
@@ -100,7 +100,7 @@ def _names_match(ingredient_name: str, anylist_name: str | None) -> bool:
     run through the app's own key function ONCE equals the stored key — `ingredient_name` is
     already a key, so it must NOT be normalised a second time: `singularise` is not idempotent
     for some `-ses` words (cheeses -> "chees" -> "chee"), which made an item never match its own
-    AnyList entry (Chunk 6.7, defect F; see docs/ingredient-handling.md). (3) The older
+    AnyList entry (Chunk 6.7, user-feedback batch, plural-key mismatch; see docs/ingredient-handling.md). (3) The older
     both-sides-singularised comparison, kept so nothing that matched before stops matching.
     A false negative would add a duplicate on push; a false positive would update the wrong
     item, so tier 3 is deliberately no looser than it was."""
@@ -127,7 +127,7 @@ def _best_match(
     """The item a push should write to: an ACTIVE (uncrossed) one if there is any, else a
     crossed-off one (the push will re-add it uncrossed), else None. List order is arbitrary, so
     "first match" must never be allowed to pick last week's crossed-off item over this week's
-    live one (Chunk 6.7, defect B)."""
+    live one (Chunk 6.7, crossed-off items counted as on the list)."""
     active = [m for m in matches if not m.checked]
     return (active or matches or [None])[0]
 
@@ -137,7 +137,7 @@ def _find_match(
 ) -> anylist_client.AnyListItem | None:
     """The ACTIVE item for this ingredient, or None. A crossed-off item is not "on the list" —
     it is already bought — so it must neither pre-tick the row as "Have it" nor count as on
-    the list (Chunk 6.7, defect B). `_best_match` is the push-time twin that may return a
+    the list (Chunk 6.7, crossed-off items counted as on the list). `_best_match` is the push-time twin that may return a
     crossed-off item."""
     active = [m for m in _matches(ingredient_name, anylist_items) if not m.checked]
     return active[0] if active else None
@@ -156,14 +156,14 @@ def load_checklist(
     *upgraded* from 'unknown' to 'yes' by a pre-tick, never downgraded. Never touches
     `add_to_list`.
 
-    **2026-09-30 (chunk 7.3, Review→Checklist merge):** used to raise `ChecklistNotReadyError`
+    **2026-09-30 (the checklist re-consolidating on load, Review→Checklist merge):** used to raise `ChecklistNotReadyError`
     if the session had no consolidated checklist yet, requiring a caller (the now-deleted
     Review screen) to run `POST /sessions/{id}/consolidate` first. Now calls
     `consolidate_session_with_breakdown()` itself, every load, so Checklist works standalone.
     Safe to do unconditionally: `consolidate_session()`'s upsert is already documented as
     non-destructive to per-line state (`have_it`/`add_to_list`/`already_on_anylist` preserved
     for lines that persist, only computed fields recomputed) — the exact property the
-    upgrade-only pre-tick logic below already depends on. `recipe_breakdown` (CLAUDE.md >
+    upgrade-only pre-tick logic below already depends on. `recipe_breakdown` (docs/scaling-and-consolidation.md >
     "Which recipe is this ingredient from") is a byproduct of that same pass, no second
     consolidation needed for it — see `docs/scaling-and-consolidation.md`, no longer
     review-screen-only now that Checklist is the one place this runs."""
@@ -188,7 +188,7 @@ def load_checklist(
             continue  # keep whatever match state was there; don't wipe it on a transient fail
         # Only an ACTIVE (uncrossed) AnyList item counts as "already on the list" - a crossed-off
         # one is already bought and must neither pre-tick this row "Have it" nor be written to
-        # as if it were live (Chunk 6.7, defect B; _find_match is active-only).
+        # as if it were live (Chunk 6.7, crossed-off items counted as on the list; _find_match is active-only).
         match = _find_match(ci.ingredient_name, anylist_items)
         if match is not None:
             ci.already_on_anylist = True
@@ -258,12 +258,12 @@ def update_item(
 def resolve_item(
     db: Session, session_id: int, item_id: int, *, total_quantity: float, total_unit: str | None
 ) -> SessionChecklistItem:
-    """Commit a single total for a Chunk 4.6 irreconcilable-units line and clear the flag.
+    """Commit a single total for a Chunk 4.6 (consolidation and pack-size resolution) irreconcilable-units line and clear the flag.
 
     ``review_resolved_by_user`` is set so a later ``consolidate_session()`` re-run (e.g. after
     adding another recipe) doesn't silently re-flag and reset this choice while the same
     ingredient still conflicts — 2026-09-10 hand-testing ("doesn't remember amounts under
-    review"). See CLAUDE.md > Scaling Logic > re-running consolidation."""
+    review"). See docs/scaling-and-consolidation.md > Scaling Logic > re-running consolidation."""
     row = _get_item(db, session_id, item_id)
     row.total_quantity = total_quantity
     row.total_unit = total_unit
@@ -314,7 +314,7 @@ def set_have_some(
     return row
 
 
-# --- merge (Fix 3, F3.3 — CLAUDE.md > Deferred Decisions > checklist-time merge) -----------
+# --- merge (Fix 3 — docs/deferred-decisions.md > Deferred Decisions > checklist-time merge) -----------
 
 _HAVE_IT_STRENGTH = HAVE_IT_STRENGTH  # shared with session_consolidation (rename state-carry)
 
@@ -341,7 +341,7 @@ def merge_items(
 
     The equivalence pair, when given, applies uniformly to every non-canonical name in
     `item_names` — the request schema carries exactly one pair, matching the checklist UI's own
-    simple "select 2+, keep one name, optionally set one ratio" shape (F3.4); a merge needing a
+    simple "select 2+, keep one name, optionally set one ratio" shape (the Combine action rules); a merge needing a
     *different* ratio per member isn't supported by this action (same "don't build past what's
     asked for" discipline as everywhere else in this app).
 
@@ -451,7 +451,7 @@ def undo_merge(
     in `alias_ids` (a "merge every time"), re-consolidate so the members come back as their own
     lines, and give each restored line the same Need it / Have it decision the merged line had —
     otherwise Undo would silently drop a decision the user had made (the same class of loss as
-    docs/anylist-push.md defect A). Idempotent: undoing something already undone changes nothing.
+    the "decisions lost on rename" problem in docs/anylist-push.md). Idempotent: undoing something already undone changes nothing.
     Pre-push only, like the merge it reverses."""
     session = sessions_service.get_session(db, session_id)
     if session.status == "pushed":
@@ -498,9 +498,9 @@ def undo_merge(
     return sorted(session.checklist_items, key=lambda ci: ci.ingredient_name)
 
 
-# --- ingredient panel (2026-09-30, chunk 7.5) ---------------------------------------------
+# --- ingredient panel (2026-09-30, the checklist ingredient panel work) ---------------------------------------------
 #
-# Four sections of the Checklist ingredient panel (CLAUDE.md > Checklist Screen Logic) — each
+# Four sections of the Checklist ingredient panel (docs/checklist-and-shopping.md > Checklist Screen Logic) — each
 # writes either a session-scoped "this list only" edit (session_ingredient_merges, via
 # services/session_merges.py) or a permanent one (an existing global Settings table), per its
 # own `remember` flag. All four are pre-push only, same reasoning as merge_items() above:
@@ -562,7 +562,7 @@ def substitute_item(
 def alias_item(
     db: Session, session_id: int, item_id: int, *, alias_name: str, remember: bool
 ) -> list[SessionChecklistItem]:
-    """The ingredient panel's Alias chip — "same item as <alias_name>". Mechanically identical
+    """The ingredient panel's Also called chip (alias) — "same item as <alias_name>". Mechanically identical
     to a 2-item Merge (member_name -> canonical_name fold); the only difference is that
     `alias_name` is freely typed rather than picked from another checklist row, so this
     doesn't need merge_items()'s have_it/add_to_list-preservation logic (there's no existing
@@ -641,8 +641,8 @@ def coarse_item(
     recipes_per_pack: int,
     remember: bool,
 ) -> list[SessionChecklistItem]:
-    """The ingredient panel's Coarse item chip — CLAUDE.md > Ingredient Unit Handling >
-    Layer D, applied "this list only" when not remembered."""
+    """The ingredient panel's By the bunch chip (coarse item) — docs/ingredient-handling.md > Ingredient Unit Handling >
+    Layer D (bought by the bunch), applied "this list only" when not remembered."""
     session = sessions_service.get_session(db, session_id)
     if session.status == "pushed":
         raise SessionAlreadyPushedError(session_id)
@@ -676,12 +676,12 @@ def coarse_item(
 
 
 def _anylist_quantity(item: SessionChecklistItem) -> str | None:
-    """The 'need' amount for AnyList's quantity field (CLAUDE.md > AnyList Push Logic step 3)
+    """The 'need' amount for AnyList's quantity field (docs/anylist-push.md > AnyList Push Logic step 3)
     — how much to actually buy, not the pack-count string. Falls back to the pack breakdown
     only when there's no plain numeric total at all (a coarse ingredient, e.g. "2 × bunch",
-    which has no numeric total by design — CLAUDE.md > Ingredient Unit Handling > Layer D).
+    which has no numeric total by design — docs/ingredient-handling.md > Ingredient Unit Handling > Layer D).
 
-    **Maintainer request, Chunk 5.7 live-verification (2026-09-12).** Previously this
+    **Maintainer request, Chunk 5.7 (live AnyList verification) live-verification (2026-09-12).** Previously this
     function (then `_display_quantity`) sent the pack-breakdown string itself (e.g.
     "2 × 500g pack") to AnyList's quantity field. That's moved to the note instead (see
     `_anylist_note`) — the quantity field is reserved for the plain figure a shopper needs,
@@ -702,7 +702,7 @@ def _anylist_note(item: SessionChecklistItem) -> str | None:
     """The note sent to AnyList's ``details`` field: pack-size context (moved here from the
     quantity field, see `_anylist_quantity`) plus whatever the checklist's own `.note` already
     carries — an overage hint, "to taste", a needs_review breakdown, an alias conversion note
-    (CLAUDE.md > Scaling Logic, > Ingredient Aliases). Doesn't touch
+    (docs/scaling-and-consolidation.md > Scaling Logic, > Ingredient Aliases). Doesn't touch
     `session_checklist_items.note`/`.display_qty` themselves (the app's own checklist screen
     is unaffected) — this only shapes what crosses over to the real AnyList list."""
     parts = []
@@ -740,7 +740,7 @@ def push_to_anylist(
 ) -> dict:
     """Push the checklist to AnyList so that every line the user needs (``add_to_list`` or
     ``have_it == 'no'``), plus any ticked due "usuals", ends up ON the list, NOT crossed off,
-    with the right quantity and note — and prove it. See CLAUDE.md > AnyList Push Logic and
+    with the right quantity and note — and prove it. See docs/anylist-push.md > AnyList Push Logic and
     docs/anylist-push.md (the authoritative description, runbook and test map).
 
     Flow: (1) read the list fresh — nothing is changed if this fails (502); (2) match each wanted

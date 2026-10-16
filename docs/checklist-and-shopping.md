@@ -4,10 +4,9 @@
 
 At checklist screen load:
 0. **Consolidate the session first** (`services/checklist.py > load_checklist()`, **2026-09-30,
-   chunk 7.3**) — every load, not just the first. Checklist used to require a separate,
+   the checklist re-consolidating on load**) — every load, not just the first. Checklist used to require a separate,
    standalone "Review" screen to have already run `POST /sessions/{id}/consolidate` at least
-   once (raising `409 CHECKLIST_NOT_CONSOLIDATED` otherwise); that screen is deleted (chunk
-   7.4, below) and Checklist now works standalone, straight from Plan. Safe to do
+   once (raising `409 CHECKLIST_NOT_CONSOLIDATED` otherwise); that screen is deleted (the Review-screen removal, below) and Checklist now works standalone, straight from Plan. Safe to do
    unconditionally: consolidation's upsert already preserves `have_it`/`add_to_list`/
    `already_on_anylist` for every line that persists (see [Scaling Logic > "Re-running
    consolidation is a merge, not a rebuild"](./scaling-and-consolidation.md#scaling-logic)).
@@ -30,14 +29,14 @@ At checklist screen load:
    accepted `have_it`/`add_to_list` independently, with no validation on the transition).
 5. Items marked 'no' or where `add_to_list` is True get pushed to AnyList
 
-### The ingredient panel (2026-09-30, chunk 7.5)
+### The ingredient panel
 
 The reference implementation of [UI/UX > Design principle: resolve at the point of
 need](./ui-ux.md#design-principle-resolve-at-the-point-of-need-not-in-settings) — fixing a
 pack size, a substitution, an alias, or a coarse-ingredient marking right here instead of
 sending the user to Settings. Superseded the 2026-09-24 standalone "+ Add pack size" link
 (below is its full replacement, not an addition alongside it) after a maintainer mockup review
-(chunk 7.1, 4 revision rounds — https://claude.ai/artifact/B6SiNLcKvND7tWnjdrsXMf) settled the
+(the ingredient-panel mockup review, 4 revision rounds — mockup page https://claude.ai/artifact/B6SiNLcKvND7tWnjdrsXMf, an external page that is not stored in this repository) settled the
 design: an inline expand-in-place panel, not a bottom sheet, matching this app's only existing
 pattern for this class of control (this section, the needs-review resolve control, and the
 merge panel below are all the same interaction idiom — the maintainer's own explicit
@@ -56,7 +55,7 @@ preference, kept on record as a possible future reconsideration if rows ever fee
 Pack size only when `item.total_quantity != null && !item.display_qty` (the exact condition
 the old standalone link used); Merge only when 2+ regular rows exist to merge with. Substitute,
 Alias, and Coarse item are always offered — there's always a valid "add one" action for these,
-not a broken state to detect, same standing the now-deleted Review screen's own "Swap" button
+not a broken state to detect, same standing the now-deleted Review screen (a separate step between Plan and Checklist, removed 2026-09-30)'s own "Swap" button
 had on every row.
 
 **Every chip except Merge ends with the same shared persistence toggle** — "This list only"
@@ -77,7 +76,7 @@ one.
   /settings/product-units`, the same endpoint Settings' own "Product units" card uses) — every
   future session resolves it automatically from then on.
 - **Substitute** (`substitutePanel`) — an ad-hoc ingredient swap, moved here from the
-  now-deleted Review screen's own swap form (chunk 7.4/7.5). See [Ingredient
+  now-deleted Review screen's own swap form (the Review-screen removal and checklist ingredient panel work). See [Ingredient
   Substitution](./ingredient-handling.md#ingredient-substitution) for the full design,
   including what "this list only" vs. "Always" write to and why "Always" here means a
   `remembered_substitutions` quick-pick, not the recipe's own `resolved_ingredient`.
@@ -96,7 +95,7 @@ one.
   second, parallel merge mechanism.
 
 **Re-consolidation, not just a reload, is required for any of this to resolve *this*
-session** — as of chunk 7.3, `GET /checklist/{id}` already re-consolidates on every load, so a
+session** — as of the checklist re-consolidating on load, `GET /checklist/{id}` already re-consolidates on every load, so a
 plain reload after any chip's save picks everything up automatically; no separate consolidate
 call is needed from the frontend any more (the panel's `onSaved` callback is just `load`).
 This is safe because consolidation is a **merge, not a rebuild** (see [Scaling Logic >
@@ -111,7 +110,7 @@ again' memory..." row.
 
 **Row expansion is screen-wide select-exclusive** (at most one row's breakdown/panel open at
 once, same one-open-at-a-time idiom as the chips within it), backed by a small shared module,
-`static/js/panel-back-guard.js` (2026-09-30, chunk 7.6) — pressing Back (hardware button,
+`static/js/panel-back-guard.js` (2026-09-30, the panel back-navigation work) — pressing Back (hardware button,
 browser control, or an Android edge-swipe gesture; all fire the identical `popstate` event)
 closes an open row before navigating away, rather than skipping past it. Also intercepts —
 globally, in the capturing phase, before the link's own default navigation — any link tapped
@@ -121,8 +120,9 @@ guard's synthetic history entry dangling. See the module's own docstring for the
 "why a naive push-one-entry-pop-on-popstate approach silently eats a later Back press"
 reasoning — this was the maintainer's own specific concern during review.
 
-### Checklist-time ingredient merge (Fix 3, 2026-09-27; reachable from the ingredient panel's
-Merge chip since chunk 7.5)
+### Checklist-time ingredient merge (the Combine action)
+
+Built 2026-09-27; since 2026-09-30 it is reached from the ingredient panel's Combine chip.
 
 Rather than requiring a trip to Settings to notice and fix an ingredient-name mismatch (e.g. a
 recipe's "corn" and another's "canned corn" showing as two separate lines), the checklist
@@ -130,7 +130,7 @@ screen itself offers a **"Select to merge"** mode (`checklist.js`, screen-level 
 only when 2+ regular rows exist — not a permanent per-row control, matching the existing
 convention that a row shouldn't carry two competing sets of controls at once). Reachable two
 ways: the heading's own "Select to merge" link (select 2+ rows by hand), or the ingredient
-panel's Merge chip on any single row (pre-selects that row, then prompts for a second).
+panel's Combine chip on any single row (pre-selects that row, then prompts for a second).
 Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
 - **Keep which name?** — a radio choice of which selected item's name becomes canonical for the
   merge.
@@ -147,7 +147,7 @@ Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
   for every future recipe; tagged "from a checklist merge" in Settings); **Merge for this shopping list
   only** writes a session-scoped
   `session_ingredient_merges` row instead; either way a toast offers **Undo** (`POST .../undo-merge`; see
-  [UI/UX > No native dialogs](./ui-ux.md#no-native-dialogs--ask-and-report-inline-2026-10-06-chunk-67)). The old
+  [UI/UX > No native dialogs](./ui-ux.md#no-native-dialogs--ask-and-report-inline)). The old
   yes/no `confirm()` is gone. The rest of this bullet describes the same two outcomes
    (this week only, cascade-deleted with the session — see
   [Ingredient Aliases](./ingredient-handling.md#ingredient-aliases) for the table shape and how
@@ -156,7 +156,7 @@ Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
   un-cleanable stray duplicate on the real AnyList list). Not proactively hidden once pushed;
   surfaced the same reactive way the Push button's own "already pushed" case already is (a
   friendly message on the 409, not a pre-emptive status fetch just to hide the control).
-- **No amount is ever silently lost in a merge (2026-10-11, Chunk 6.7).** Four rules, each with
+- **No amount is ever silently lost in a merge (2026-10-11, Chunk 6.7, user-feedback batch).** Four rules, each with
   a regression test:
   1. *Mixed kinds of unit* (a weight + a volume, a count + a weight) can't be added, so the merged
      row is "needs review": pick one part, or **enter your own total** (the household resolves the
@@ -176,37 +176,39 @@ Selecting 2+ rows and tapping "Merge (N)" opens a small panel:
   (strongest value wins: "no" beats "yes" beats "unknown" for have-it; any "add to list" wins) —
   merging never silently discards an in-progress decision.
 
-### Review→Checklist merge — resolution of the 2026-09-24 handover (2026-09-30)
+### Review→Checklist merge — how an ad-hoc swap survives re-consolidation
+
+*(2026-09-30)*
 
 A standalone Review screen (`session-review.js`, between Plan and Checklist) used to be the
 only place that triggered consolidation, showed the recipe breakdown, and offered an ad-hoc
 session-only ingredient swap. An investigation written 2026-09-24
-(`HANDOVER-review-checklist-merge.md`, since folded in here and deleted per its own stated
-lifecycle) found it mostly redundant with Checklist and proposed merging it in, but flagged one
+(a handover note, since folded in here and deleted) found it mostly redundant with Checklist and proposed merging it in, but flagged one
 blocking question first: **how does an ad-hoc, not-yet-remembered swap survive Checklist
 re-consolidating on every load**, when two existing call sites (pack-size save, Fix-3 merge)
-already re-consolidate with no override list at all? Resolved as part of this merge (chunks
-7.3–7.5): a new session-scoped override store (generalising the existing
-`session_ingredient_merges` table Fix 3 already built, rather than a parallel mechanism) holds
+already re-consolidate with no override list at all? Resolved as part of this merge (the checklist re-consolidation, Review-screen removal and ingredient panel work): a new session-scoped override store (generalising the existing
+`session_ingredient_merges` table Fix 3 (Combine action) already built, rather than a parallel mechanism) holds
 every "this list only" edit — including the ad-hoc swap — and `session_consolidation.py` reads
 it internally on every consolidate call, regardless of what triggered it. The three other
-open items the handover raised: the step indicator collapses to `Plan → Checklist → Push`
-(done, chunk 7.4); `session-review.js` is deleted outright, not kept dormant (done, chunk 7.4);
-row crowding is addressed by the ingredient panel's own mockup gate (chunk 7.1) rather than a
+open items that investigation raised: the step indicator collapses to `Plan → Checklist → Push`
+(done, the Review-screen removal); `session-review.js` is deleted outright, not kept dormant (done, the Review-screen removal);
+row crowding is addressed by the ingredient panel's own mockup approval step (the ingredient-panel mockup review) rather than a
 separate pass.
 
-### Recipe breakdown — "which recipe is this from" (moved here 2026-09-30, chunk 7.4)
+### Recipe breakdown — "which recipe is this from" (moved here 2026-09-30, the Review-screen removal)
 
 Every regular and needs-review row's name becomes a tappable `▾`/`▴` toggle when
 `item.recipe_breakdown` is non-empty (`checklist.js > rowNameParts()`), expanding to a small
 list of "Recipe name — amount" rows, each linking to its recipe (`#/recipes/<id>`). Ported
 verbatim from the now-deleted standalone Review screen (`session-review.js`), which was the
-only place this ran before Checklist consolidated itself (chunk 7.3 makes `recipe_breakdown`
+only place this ran before Checklist consolidated itself (the checklist re-consolidating on load makes `recipe_breakdown`
 available on every checklist load, not just a one-off review pass). Full design — one row per
 contributing recipe *slot*, never merged, ephemeral/recomputed every load — in [Scaling Logic
 \> Which Recipe Is This Ingredient From](./scaling-and-consolidation.md#which-recipe-is-this-ingredient-from).
 
-### "I have some" — an amount already at home (2026-10-16, Chunk 6.7 polish batch 3)
+### "I have some" — an amount already at home
+
+*(2026-10-16, Chunk 6.7 polish batch 3)*
 
 A leftover tomato when the plan needs 3: every row with a single numeric amount shows a small
 **I have some** link under its amount (`checklist-have-some.js`) — deliberately on the row, not a
@@ -239,12 +241,14 @@ remembered anywhere.
   different units the survivor keeps its own and the other is dropped (`_carry_state_across_renames`).
 - **API.** `POST /api/v1/checklist/{session}/items/{item}/have-some` `{quantity: number | null}` →
   the whole list (`{items}`, complete shape per
-  [API response-shape consistency](./code-architecture.md#api-response-shape-consistency-added-2026-10-11-chunk-67)).
+  [API response-shape consistency](./code-architecture.md#api-response-shape-consistency)).
   Allowed after a push like a Have it tap; the new amount reaches AnyList on the next forced re-push.
 - **Typed text survives re-renders** (`haveDrafts` in `checklist.js`), per
-  [UI state must not silently vanish](./ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67).
+  [UI state must not silently vanish](./ui-ux.md#ui-state-must-not-silently-vanish).
 
-### Live updates between phones (2026-10-16, Chunk 6.7 polish batch 3)
+### Live updates between phones
+
+*(2026-10-16, Chunk 6.7 polish batch 3)*
 
 Two household members can have the same checklist open. A Have it / Need it tap, a panel save, a
 combined row, "I have some", a recipe added to the plan — anything that changes the list — shows up
@@ -294,7 +298,7 @@ usefulness assessment](./decision-history.md#staples--usefulness-assessment-rais
 - **Day-based cadence.** Each item carries `cadence_days` ("buy roughly every N days"). It is
   *due* when `last_added_at IS NULL` or `last_added_at + cadence_days` has passed. Days rather
   than "every N sessions" because ad-hoc single-recipe sessions make a session an unreliable
-  clock. `last_added_at` is stamped when the item is actually pushed to AnyList (Chunk 5.6),
+  clock. `last_added_at` is stamped when the item is actually pushed to AnyList (Chunk 5.6, sending to AnyList and send history),
   not merely offered.
 - **Checklist group, not a separate screen.** Due usuals render as the final group on the
   existing checklist screen, each with a checkbox; ticked ones ride the same push as the
@@ -302,7 +306,7 @@ usefulness assessment](./decision-history.md#staples--usefulness-assessment-rais
 - **Managed in Settings** (`settings-usuals.js`), same CRUD shape as product-units.
   Seeded empty — same "don't pre-guess" discipline as every other reference list.
 
-Built in [Phase 5 Chunks 5.4 / 5.5 / 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration).
+Built in [Phase 5 Chunks 5.4 (The usuals) / 5.5 / 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration).
 
 ---
 
@@ -358,7 +362,9 @@ Name and quantity formatting for what is sent: the name is the display name
 "need" total — not the pack sentence), the note is `_anylist_note()` (pack breakdown plus the
 checklist note, joined with " · ").
 
-### Rename-proof decisions (Chunk 6.7)
+### Rename-proof decisions
+
+*(Chunk 6.7)*
 
 A "Need it" tick lives on a row keyed by `ingredient_name`. When a row is renamed (an alias, a
 merge, a substitute, or a Settings alias added between visits) consolidation deletes the old row
@@ -368,7 +374,9 @@ now carries the decision across (`session_consolidation._carry_state_across_rena
 strongest `have_it` wins, `add_to_list` is OR-ed, a survivor is never downgraded, and a row whose
 ingredient truly disappeared is dropped as before.
 
-### Real push progress UI (2026-09-23, revised 2026-10-06)
+### Real push progress UI
+
+*(2026-09-23, revised 2026-10-06)*
 
 The frontend sends a `progress_token` on `POST /checklist/{id}/push` and polls
 `GET /checklist/push/progress/{token}` every 500 ms. The response is `{stage, steps}`: `stage` is

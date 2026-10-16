@@ -1,10 +1,10 @@
 """Purchase-unit resolution — pure arithmetic, no DB, no network. One of the three
-highest bug-risk modules (CLAUDE.md > Code Architecture & Maintainability), heavily
+highest bug-risk modules (docs/code-architecture.md > Code Architecture & Maintainability), heavily
 unit-tested.
 
 Given a required quantity and the pack sizes an ingredient is sold in (all already
 normalised by the caller to ONE common unit — g, ml, or a bare count), work out which
-whole packs to buy. Algorithm and display rules: CLAUDE.md > Scaling Logic > Purchase
+whole packs to buy. Algorithm and display rules: docs/scaling-and-consolidation.md > Scaling Logic > Purchase
 unit resolution.
   * 0 packs  -> None (the caller just shows the required quantity)
   * 1 pack   -> ceil(required / pack) of it

@@ -1,4 +1,4 @@
-""""Same shopping item" ingredient aliases (2026-09-10 — see CLAUDE.md > Ingredient Aliases).
+""""Same shopping item" ingredient aliases (2026-09-10 — see docs/ingredient-handling.md > Ingredient Aliases).
 
 Generalised from hand-testing feedback specifically about oil ("canola oil" / "vegetable oil"
 / "oil spray" reading as separate shopping-list lines) into a plain, reusable mechanism: any
@@ -6,7 +6,7 @@ number of ``alias_name`` rows can point at one ``canonical_name``, and every ing
 gets folded through this map once at consolidation time
 (``services/session_consolidation.py``), before grouping. Nothing here is oil-specific.
 
-**Distinct from ``services/substitutions.py``** — read CLAUDE.md > Ingredient Aliases before
+**Distinct from ``services/substitutions.py``** — read docs/ingredient-handling.md > Ingredient Aliases before
 touching either file if the distinction isn't obvious from the names alone:
   * A substitution is a deliberate, per-recipe, user-confirmed swap of one product for a
     genuinely different one ("bulgarian feta" -> "regular feta") — recorded on the specific
@@ -121,8 +121,8 @@ def create_alias(
     the whole table stays flat, not just the new row. Raises InvalidIngredientAliasError for a
     self-alias, DuplicateIngredientAliasError if ``alias_name`` is already grouped.
 
-    ``source`` records where the row came from: "user" (typed in Settings or the name nudge — the
-    default), or "merge" (created by a checklist "merge every time", 2026-10-06 Chunk 6.7, so
+    ``source`` records where the row came from: "user" (typed in Settings or the name suggestion — the
+    default), or "merge" (created by a checklist "merge every time", 2026-10-06 Chunk 6.7 (user-feedback batch), so
     Settings can tag it "from a checklist merge" and a learned merge is distinguishable from a
     hand-made one). It is NOT a field of ``IngredientAliasCreate``: a client can never choose
     it ("system" rows are written by migrations only) — only server code passes it."""
@@ -268,7 +268,7 @@ class AliasResolution:
 
 def alias_map(db: Session) -> dict[str, AliasResolution]:
     """The whole table as {alias_name: AliasResolution} — loaded once per consolidate rather
-    than a query per ingredient line. See CLAUDE.md > Ingredient Aliases > Where it applies."""
+    than a query per ingredient line. See docs/ingredient-handling.md > Ingredient Aliases > Where it applies."""
     return {
         row.alias_name: AliasResolution(
             canonical_name=row.canonical_name,
@@ -286,11 +286,11 @@ def hint_pairs(db: Session, *, source: str) -> list[tuple[str, str]]:
     newest-first (``created_at`` descending). Deliberately a separate, lighter-weight query
     from ``alias_map()`` above — that one returns every row keyed for O(1) consolidation-time
     lookup (a different shape for a different purpose); this one feeds the extraction-prompt
-    builder (``ai_extraction/calls.py::build_extraction_system_prompt``, Fix 2 F2.3), which
+    builder (``ai_extraction/calls.py::build_extraction_system_prompt``, Fix 2 = aliases feed the extraction prompt), which
     only ever needs a plain, orderable list to cap and format, never a lookup by name.
 
     Deliberately ignores the qty/unit equivalence-pair columns — a quantity conversion is a
-    consolidation-time concern (CLAUDE.md > Ingredient Aliases), never an extraction-prompt
+    consolidation-time concern (docs/ingredient-handling.md > Ingredient Aliases), never an extraction-prompt
     one; a pair-carrying alias still surfaces here as a plain name hint, nothing more."""
     rows = (
         db.query(IngredientAlias.alias_name, IngredientAlias.canonical_name)

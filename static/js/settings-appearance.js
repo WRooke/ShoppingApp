@@ -1,7 +1,7 @@
-/* Settings — "Appearance" card (Phase 6 Chunk 6.4, kickoff decision #9). The Light/Dark/
-   System toggle, built on Chunk 6.1's data-theme token mechanism (see tokens.css, and
+/* Settings — "Appearance" card (Phase 6 Chunk 6.4, Settings and Status restructure, Phase 6 decision: Light / Dark / System switch). The Light/Dark/
+   System toggle, built on Chunk 6.1 (visual design foundation)'s data-theme token mechanism (see tokens.css, and
    index.html's own pre-paint script that reads this same `localStorage["theme"]` key
-   before first render). Split out of settings.js per CLAUDE.md > Code Architecture &
+   before first render). Split out of settings.js per docs/code-architecture.md > Code Architecture &
    Maintainability > file size discipline — settings.js was pushing well past 400 lines
    once the index + product-units + this card all landed in one file. */
 

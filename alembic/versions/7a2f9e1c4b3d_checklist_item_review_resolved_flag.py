@@ -9,13 +9,13 @@ unconditionally overwrote total_quantity/total_unit/needs_review/note on every r
 a needs_review conflict (e.g. "100 g + 200 ml") the user had manually resolved via
 POST /checklist/{id}/items/{id}/resolve got silently re-flagged and reset the next time the
 session was re-consolidated (adding a recipe, changing servings, re-opening the review
-screen). See CLAUDE.md > Scaling Logic > re-running consolidation and > Checklist Screen
+screen). See docs/scaling-and-consolidation.md > Scaling Logic > re-running consolidation and > Checklist Screen
 Logic.
 
 review_resolved_by_user marks "this row's current total_quantity/total_unit is a manual
 choice the recompute must not clobber while the same ingredient still conflicts". Set True by
 services/checklist.py > resolve_item(); consulted (and cleared once the conflict is gone) by
-services/session_consolidation.py > consolidate_session(). Same server_default-then-drop dance
+services/session_consolidation.py > consolidate_session(). Same temporary-server_default technique (explained in migration 1bc1ac8991f4)
 as migrations 1bc1ac8991f4 / 3474369f4c79, so it matches Base.metadata.create_all() (Python-
 side defaults only).
 """

@@ -1,10 +1,9 @@
 """Planning-session business logic (Phase 4) — session CRUD and ordered slot
-management. Plain Python / SQLAlchemy only, no `fastapi` import — see CLAUDE.md >
-Code Architecture & Maintainability. Routers translate the exceptions below into
+management. Plain Python / SQLAlchemy only, no `fastapi` import — see docs/code-architecture.md > Code Architecture & Maintainability. Routers translate the exceptions below into
 the {"ok": false, "error": ...} envelope centrally in app/main.py.
 
 A slot (`session_recipes` row) is either a real recipe or a 'leftovers' marker.
-Per CLAUDE.md > Code Architecture > file size discipline, the leftovers path is its
+Per docs/code-architecture.md > Code Architecture > file size discipline, the leftovers path is its
 own function (`add_leftovers_slot`), not an `if slot_type == ...` branch inside the
 recipe path.
 """
@@ -106,7 +105,7 @@ def update_session(
 
 def archive_session(db: Session, session_id: int) -> PlanningSession:
     """Convenience for the common status change — sets status='archived'. There is no
-    hard delete for sessions (CLAUDE.md > Build Phases > Phase 4 Chunk 4.4)."""
+    hard delete for sessions (docs/build-status/phase-4-planning-engine.md Chunk 4.4, plan and plan-recipe management)."""
     session = get_session(db, session_id)
     session.status = "archived"
     db.commit()
@@ -197,7 +196,7 @@ def update_slot(
     # fields the caller actually sent, so an explicit `{"day_of_week": null}` must apply (it's
     # how a slot gets un-scheduled back to "no day"). A None-guard on top of exclude_unset would
     # silently make that impossible — found as a real bug during the 2026-09-13 code review
-    # (CLAUDE.md > Code Architecture & Maintainability describes the exclude_unset convention
+    # (docs/code-architecture.md > Code Architecture & Maintainability describes the exclude_unset convention
     # every other update_* function follows without this guard).
     for field, value in changes.items():
         setattr(slot, field, value)
@@ -236,7 +235,7 @@ def reorder_slots(db: Session, session_id: int, ordered_ids: list[int]) -> list[
     return sorted(session.recipes, key=lambda s: s.sort_order)
 
 
-# The consolidation orchestrator lives in its own module (Phase 3.9 M-review split, CLAUDE.md
+# The consolidation orchestrator lives in its own module (the Phase 3.9 end-of-migration review split, CLAUDE.md
 # > Code Architecture > File size). Re-exported here so `sessions_service.consolidate_session`
 # and the tests keep resolving unchanged. Imported at the bottom so `get_session` is defined
 # before session_consolidation imports it back.

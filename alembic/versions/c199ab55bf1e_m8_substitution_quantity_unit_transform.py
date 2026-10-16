@@ -5,7 +5,7 @@ Revises: 15b1aab757ac
 Create Date: 2026-09-07 21:00:40.068406
 
 Phase 3.9 M8 — a substitution can change the *amount and unit*, not just the name
-("2 whole corn cobs" -> "2 cans of corn"). See CLAUDE.md > AI Provider Migration >
+("2 whole corn cobs" -> "2 cans of corn"). See docs/recipe-capture.md > AI Provider Migration >
 Ingredient Substitution Flagging, and > Data Model > recipe_ingredients /
 remembered_substitutions.
 
@@ -13,7 +13,7 @@ remembered_substitutions.
     for this recipe. Only meaningful with resolved_ingredient set; both NULL = name-only.
   * remembered_substitutions gains the four equivalence-pair columns
     (original_qty / original_unit / substitute_qty / substitute_unit) the quick-pick uses to
-    pre-fill the recipe-level absolute. All NULL = a name-only quick-pick (unchanged from M4).
+    pre-fill the recipe-level absolute. All NULL = a name-only quick-pick (unchanged from M4 = substitution redesign).
 
 All six columns are nullable with no server default — Python-side defaults only, so
 `alembic upgrade head` stays byte-for-byte equivalent to `Base.metadata.create_all()`

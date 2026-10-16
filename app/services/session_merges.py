@@ -1,10 +1,10 @@
-"""Session-scoped ingredient overrides (Fix 3, F3.1 — see CLAUDE.md > Deferred Decisions >
+"""Session-scoped ingredient overrides (Fix 3 — see docs/deferred-decisions.md > Deferred Decisions >
 checklist-time merge and > Data Model > session_ingredient_merges).
 
 The session-only counterpart to a durable Settings row: "apply this edit for this session's
 shopping list only" rather than a permanent household preference. One table,
 `session_ingredient_merges`, holds every kind of "this list only" edit the Checklist
-ingredient panel makes (2026-09-30, chunk 7.5), discriminated by `kind`:
+ingredient panel makes (2026-09-30, the checklist ingredient panel work), discriminated by `kind`:
 
   * ``merge``       (original, Fix 3) — fold `member_name` into `canonical_name`, the same
                      shape as an `ingredient_aliases` row. Written by the checklist Merge

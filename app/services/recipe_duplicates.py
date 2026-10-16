@@ -1,7 +1,7 @@
-"""Duplicate recipe prevention (Phase 4 Chunk 4.2) — split out of ``services/recipes.py`` at
-the Phase 3.9 M-review per CLAUDE.md > Code Architecture > File size and scope discipline.
+"""Duplicate recipe prevention (Phase 4 Chunk 4.2, duplicate recipe prevention) — split out of ``services/recipes.py`` at
+the Phase 3.9 end-of-migration review per docs/code-architecture.md > Code Architecture > File size and scope discipline.
 
-Warn-with-override, never a hard block — see CLAUDE.md > Duplicate Recipe Prevention. All
+Warn-with-override, never a hard block — see docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention. All
 functions here are DB-read-only / pure (no network), so they unit-test with an in-memory
 SQLite session and nothing else. ``services/recipes.py`` re-exports the public names
 (``DuplicateMatch``, ``PossibleDuplicateRecipeError``, ``find_possible_duplicates``,
@@ -26,7 +26,7 @@ from app.schemas.recipes import RecipeCreate
 # overlapping page, conservative stdlib fuzzy name. Ingredient-set overlap is deliberately
 # NOT a signal here (still deferred). Thresholds locked at Phase 4 kickoff: difflib ratio
 # >= 0.85 OR token-set Jaccard >= 0.8 — start strict, only loosen if real near-dupes slip
-# through. See CLAUDE.md > Duplicate Recipe Prevention.
+# through. See docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention.
 
 _NAME_STOPWORDS = frozenset(
     {"the", "a", "an", "and", "with", "of", "in", "for", "on", "to"}

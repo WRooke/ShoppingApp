@@ -1,6 +1,6 @@
 """In-process progress tracking for long-running, single-HTTP-request operations that the
 frontend wants to show real step-by-step feedback for — recipe capture (3 sequential Gemini
-calls) and the AnyList push (one HTTP request per item). See CLAUDE.md > UI/UX > Real
+calls) and the AnyList push (one HTTP request per item). See docs/ui-ux.md > UI/UX > Real
 progress indicators.
 
 Both operations are one blocking request/response from the frontend's point of view, with no

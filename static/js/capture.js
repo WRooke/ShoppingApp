@@ -1,6 +1,6 @@
 /* Recipe capture — URL and photo entry forms. Calls the two extraction endpoints
    (POST /capture/url, /capture/photo) and hands the raw result to capture-review.js
-   for editing + confirm-save. Split from that file per CLAUDE.md > Code Architecture
+   for editing + confirm-save. Split from that file per docs/code-architecture.md > Code Architecture
    & Maintainability > file size discipline — this file is "get an extraction",
    capture-review.js is "review and save one". */
 
@@ -98,7 +98,7 @@
 
   // Errors from the capture endpoints (CLAUDE_API_DISABLED, EXTRACTION_FAILED,
   // RECIPE_FETCH_FAILED, INVALID_IMAGE) already carry a plain-language message from the
-  // backend — see CLAUDE.md > API Conventions and > UI/UX > Tone & copy — so there's nothing
+  // backend — see docs/code-architecture.md > API Conventions and > UI/UX > Tone & copy — so there's nothing
   // code-specific to branch on here, just show it.
   function describeError(err) {
     return err.message || "Something went wrong.";
@@ -209,7 +209,7 @@
           if (mountedAt !== global.Router.currentMount()) return;
           goBtn.disabled = false;
           // Exact source_url match — the backend short-circuited before any Claude call
-          // (CLAUDE.md > Duplicate Recipe Prevention > URL capture short-circuit).
+          // (docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention > URL capture short-circuit).
           if (err.code === "POSSIBLE_DUPLICATE_RECIPE" && Array.isArray(err.detail)) {
             dupPanel.appendChild(
               global.DupWarn.panel(err.detail, {

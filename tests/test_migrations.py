@@ -1,5 +1,5 @@
 """Guard: the Alembic migration chain must build exactly the schema the ORM models
-describe. Bootstrapped Phase 3 Chunk 3.7a — see CLAUDE.md > Code Architecture &
+describe. Bootstrapped Phase 3 Chunk 3.7a — see docs/code-architecture.md > Code Architecture &
 Maintainability > Migrations.
 
 ``Base.metadata.create_all()`` stays the fresh-DB fast path on startup, so it and

@@ -1,5 +1,5 @@
-"""Session consolidation orchestrator (Phase 4 Chunk 4.6) — split out of
-``services/sessions.py`` at the Phase 3.9 M-review per CLAUDE.md > Code Architecture > File
+"""Session consolidation orchestrator (Phase 4 Chunk 4.6, consolidation and pack-size resolution) — split out of
+``services/sessions.py`` at the Phase 3.9 end-of-migration review per docs/code-architecture.md > Code Architecture > File
 size and scope discipline.
 
 This is the DB plumbing around the *pure* ``services/consolidation.py`` +
@@ -9,7 +9,7 @@ override, — 2026-09-10 — the ``ingredient_aliases`` "same shopping item" map
 — the ``unit_synonyms`` spelling map), runs them through consolidation, resolves pack sizes,
 and upserts ``session_checklist_items`` without discarding per-line checklist state
 (``have_it`` / ``add_to_list`` / ``already_on_anylist`` / ``anylist_item_id``). The
-rounding/unit rules themselves live in ``consolidation.py``. See CLAUDE.md > Scaling Logic,
+rounding/unit rules themselves live in ``consolidation.py``. See docs/scaling-and-consolidation.md > Scaling Logic,
 > Ingredient Aliases, > Ingredient Unit Handling, and > Build Phases > Phase 4 > Chunk 4.6.
 """
 
@@ -40,7 +40,7 @@ from app.services.sessions import get_session
 
 logger = logging.getLogger(__name__)
 
-# 1=Monday..7=Sunday (CLAUDE.md > Data Model > session_recipes). Only used to disambiguate
+# 1=Monday..7=Sunday (docs/data-model.md > Data Model > session_recipes). Only used to disambiguate
 # _recipe_label() below when the same recipe is slotted into a session more than once.
 _DAY_ABBR = {1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun"}
 
@@ -56,7 +56,7 @@ def _effective_source(ing) -> tuple[float, str | None]:
     """The (quantity, unit) to scale for one recipe ingredient. Normally the recipe's own
     values; but when an M8 swap changes the *amount* (`resolved_ingredient` set AND
     `resolved_quantity` not NULL) the swap's absolute amount is scaled instead — so it grows
-    with servings like any other quantity. See CLAUDE.md > Scaling Logic > Consolidation
+    with servings like any other quantity. See docs/scaling-and-consolidation.md > Scaling Logic > Consolidation
     across recipes > Substitution quantity/unit transform."""
     if ing.resolved_ingredient and ing.resolved_quantity is not None:
         return ing.resolved_quantity, ing.resolved_unit
@@ -67,8 +67,7 @@ def _apply_session_substitute(
     name: str, qty: float, unit: str | None, scaled: bool,
     substitute_map: dict[str, ingredient_aliases.AliasResolution],
 ) -> tuple[str, float, str | None, tuple[float, str | None, str] | None]:
-    """Fold a session-only ad-hoc substitute into an already-scaled line. 2026-09-30 (chunk
-    7.5): reads from `session_merges.session_substitute_map()` (a real DB table,
+    """Fold a session-only ad-hoc substitute into an already-scaled line. 2026-09-30 (the checklist ingredient panel work): reads from `session_merges.session_substitute_map()` (a real DB table,
     `session_ingredient_merges` kind='substitute') instead of a client-held `SessionOverride`
     list — same matching rule and return shape as `_apply_alias`/`_apply_session_merge` below,
     reusing the same `AliasResolution` type deliberately (an ad-hoc substitute IS an alias
@@ -100,7 +99,7 @@ def _apply_alias(
     mismatch means we can't trust the ratio, so fall back to a name-only rename instead of
     guessing. Returns (name, qty, unit, source) where `source` is
     `(pre_conversion_qty, pre_conversion_unit, pre_conversion_name)` when a transform applied
-    (for the "from 3 tbsp lemon juice" display note — CLAUDE.md > Ingredient Aliases), else
+    (for the "from 3 tbsp lemon juice" display note — docs/ingredient-handling.md > Ingredient Aliases), else
     None."""
     alias = alias_map.get(_norm(name))
     if alias is None:
@@ -119,17 +118,17 @@ def _apply_session_merge(
     name: str, qty: float, unit: str | None, scaled: bool,
     merge_map: dict[str, ingredient_aliases.AliasResolution],
 ) -> tuple[str, float, str | None, tuple[float, str | None, str] | None]:
-    """Fold a Fix 3 session-only merge into an already-scaled line, as the pass applied
+    """Fold a Fix 3 (Combine action) session-only merge into an already-scaled line, as the pass applied
     immediately AFTER `_apply_alias` — a merge can fold two *already-aliased* names together
     (it sees whatever name the alias step already produced), but never the reverse, so this
     is strictly the last resolution step in the chain. Identical matching rule and return
     shape to `_apply_alias` above (reuses the same `AliasResolution` type via
     `session_merges.session_merge_map()`, deliberately — a session merge IS an alias
-    resolution, just scoped to one session instead of durable). See CLAUDE.md > Deferred
+    resolution, just scoped to one session instead of durable). See docs/deferred-decisions.md > Deferred
     Decisions > checklist-time merge."""
     # Follow the chain: merging A into B and later B into C (two separate Merge actions) must land
     # A's amount under C too - a single lookup left it stranded under "B" as its own row
-    # (2026-10-11, Chunk 6.7). `seen` guards a cycle (A->B then B->A). The FIRST step's
+    # (2026-10-11, Chunk 6.7, user-feedback batch). `seen` guards a cycle (A->B then B->A). The FIRST step's
     # pre-conversion amount is what the "from 4 tbsp ..." note should quote.
     source = None
     seen: set[str] = set()
@@ -214,7 +213,7 @@ def _carry_state_across_renames(
     alias added between two visits) makes the old row stale and a brand-new row appear — which
     used to start life as `have_it='unknown'`, silently discarding a "Need it" the user had
     already set (and then, if the new name matched something already on AnyList, pre-ticking it
-    "Have it" so it was never pushed). 2026-10-06, Chunk 6.7 push-drop investigation, defect A:
+    "Have it" so it was never pushed). 2026-10-06, Chunk 6.7 push-drop investigation, decisions lost on rename:
     see docs/anylist-push.md.
 
     For every row about to be deleted, work out which surviving row its name now resolves to
@@ -263,7 +262,7 @@ def _coarse_items(
     coarse_cfg: dict[str, coarse_ingredients.CoarseIngredient],
 ) -> tuple[list[consolidation.ConsolidatedItem], list[consolidation.IngredientLine]]:
     """Partition already-resolved lines into (coarse ConsolidatedItems, remaining normal
-    lines) — CLAUDE.md > Ingredient Unit Handling > Layer D. A coarse ingredient's lines
+    lines) — docs/ingredient-handling.md > Ingredient Unit Handling > Layer D (bought by the bunch). A coarse ingredient's lines
     never reach the pure `consolidation.consolidate()` at all: instead of summing quantity,
     `packs_needed = ceil(number of contributing recipe SLOTS / recipes_per_pack)`, ignoring
     what quantity/unit each line actually carries (that's the whole point — precision is
@@ -319,7 +318,7 @@ def _apply_shared_extraction_adjustment(
     physical unit in one cooking act (zest it, then juice it) — buying enough for the larger
     demand covers the smaller one "for free". A plain rename alias (no `source_name`, e.g.
     the oil-variant case) is never affected: it's a different, genuinely-additive substance,
-    unchanged. See CLAUDE.md > Ingredient Aliases > Shared-source combining for the full
+    unchanged. See docs/ingredient-handling.md > Ingredient Aliases > Shared-source combining for the full
     design and the deliberate, accepted trade-off this represents.
 
     Implementation: for each canonical name with 2+ distinct `source_name` groups among this
@@ -331,7 +330,7 @@ def _apply_shared_extraction_adjustment(
     display concern, it's what lets `_coarse_items()` correctly recognise this correction line
     as belonging to the same slot as the real lines it adjusts, rather than inflating a coarse
     ingredient's slot count if its canonical name ever happens to also be a shared-extraction
-    target (CLAUDE.md > Ingredient Unit Handling > Layer D).
+    target (docs/ingredient-handling.md > Ingredient Unit Handling > Layer D).
     Every real line this slot produced is returned completely untouched alongside it, so the
     breakdown and conversion notes keep showing the real, honest, per-source amounts; only
     the final summed total (computed later, in the pure `consolidation.consolidate()`, which
@@ -367,27 +366,26 @@ def _scaled_lines(
     synonym_map: dict[str, str],
     merge_map: dict[str, ingredient_aliases.AliasResolution],
 ) -> list[consolidation.IngredientLine]:
-    """Scaled ingredient lines with the *effective* name (and, for M8/aliases, amount/unit)
-    already resolved: the ingredient's own unit is canonicalised (2026-09-12, CLAUDE.md >
-    Ingredient Unit Handling > Layer A) BEFORE anything else runs, so a recipe spelling a unit
+    """Scaled ingredient lines with the *effective* name (and, for M8 = substitution amount/unit change/aliases, amount/unit)
+    already resolved: the ingredient's own unit is canonicalised (2026-09-12, docs/ingredient-handling.md > Ingredient Unit Handling > Layer A = unit spellings) BEFORE anything else runs, so a recipe spelling a unit
     differently ("tablespoons" vs "tbsp") doesn't cause a session substitute's or an alias's
     own configured unit to spuriously fail to match; then per-recipe `resolved_ingredient` /
     `resolved_quantity` (fallback `name` / `quantity`), then a session-only ad-hoc substitute
-    keyed off that resolved name (2026-09-30, chunk 7.5 — `session_merges.session_substitute_map()`,
+    keyed off that resolved name (2026-09-30, the checklist ingredient panel work — `session_merges.session_substitute_map()`,
     replacing the old client-held `SessionOverride` list), then — 2026-09-10 — the
     ingredient_aliases "same shopping item" map (optionally with its own quantity/unit
     transform, e.g. "lemon juice" -> "lemon"), as a final normalisation pass applied to
-    whatever name/amount resulted from the steps before it (CLAUDE.md > Ingredient Aliases >
+    whatever name/amount resulted from the steps before it (docs/ingredient-handling.md > Ingredient Aliases >
     Where it applies). `consolidation.consolidate()` itself does no substitution, aliasing, or
-    unit-spelling resolution (Phase 3.9 M4/M8; 2026-09-10; 2026-09-12). Each line also carries
-    which recipe slot it came from: `recipe_id`/`recipe_label` (2026-09-11, CLAUDE.md > "Which
+    unit-spelling resolution (Phase 3.9 M4 = substitution redesign/M8; 2026-09-10; 2026-09-12). Each line also carries
+    which recipe slot it came from: `recipe_id`/`recipe_label` (2026-09-11, docs/scaling-and-consolidation.md > "Which
     recipe is this ingredient from"), purely for display, and `slot_id` (2026-09-13), purely
     for `_coarse_items()`'s slot-counting — neither plays any part in the resolution above.
     After the alias map, a Fix 3 session-only merge (`merge_map`) gets its own final pass — the
     same shape and matching rule, applied last, so a merge can fold two already-aliased names
-    together (CLAUDE.md > Deferred Decisions > checklist-time merge). Finally, each recipe
+    together (docs/deferred-decisions.md > Deferred Decisions > checklist-time merge). Finally, each recipe
     slot's OWN lines get one more pass — `_apply_shared_extraction_adjustment()` (2026-09-12,
-    CLAUDE.md > Ingredient Aliases > Shared-source combining) — collapsing 2+ different alias
+    docs/ingredient-handling.md > Ingredient Aliases > Shared-source combining) — collapsing 2+ different alias
     sources sharing a canonical name *within that one recipe* down to their max rather than
     their sum (e.g. lemon juice + lemon zest in one recipe -> one shared lemon, not two)."""
     lines: list[consolidation.IngredientLine] = []
@@ -431,13 +429,13 @@ def consolidate_session(db: Session, session_id: int) -> list[SessionChecklistIt
     """Rebuild the consolidated checklist for a session. Upsert, not wipe: computed
     fields are recomputed, new lines added, gone lines removed, but per-line state
     (have_it / add_to_list / already_on_anylist / anylist_item_id) is PRESERVED for
-    lines that persist (CLAUDE.md > Scaling Logic > re-running consolidation).
+    lines that persist (docs/scaling-and-consolidation.md > Scaling Logic > re-running consolidation).
 
     Thin wrapper kept at this exact name/signature for every existing caller (the checklist
     load/push path, and the bulk of the test suite) — see `consolidate_session_with_breakdown`
     below for the one caller (the ingredient-review endpoint) that also needs the pure
-    `ConsolidatedItem`s themselves, e.g. for `recipe_breakdown` (CLAUDE.md > "Which recipe is
-    this ingredient from"). **2026-09-30 (chunk 7.5):** no longer takes an `overrides`
+    `ConsolidatedItem`s themselves, e.g. for `recipe_breakdown` (docs/scaling-and-consolidation.md > "Which recipe is
+    this ingredient from"). **2026-09-30 (the checklist ingredient panel work):** no longer takes an `overrides`
     parameter — every session-scoped "this list only" edit (substitute/pack_size/coarse, plus
     the pre-existing merge) is read internally from `session_ingredient_merges` instead of
     being passed in by the caller, so it applies uniformly regardless of what triggered this
@@ -452,8 +450,8 @@ def consolidate_session_with_breakdown(
     """Same upsert as `consolidate_session`, plus a {ingredient_name: recipe_breakdown} map —
     computed for free alongside it (no second consolidation pass) since the upsert loop
     already iterates the pure `ConsolidatedItem`s that carry this. Not persisted anywhere
-    (CLAUDE.md > "Which recipe is this ingredient from") — recomputed fresh on every call,
-    same as the rest of consolidation. Two callers as of chunk 7.4: `routers/sessions.py`'s
+    (docs/scaling-and-consolidation.md > "Which recipe is this ingredient from") — recomputed fresh on every call,
+    same as the rest of consolidation. Two callers as of the Review-screen removal: `routers/sessions.py`'s
     own consolidate endpoint, and `checklist.py::load_checklist()`."""
     rows, items = _consolidate_session_impl(db, session_id)
     breakdown = {item.name: item.recipe_breakdown for item in items}
@@ -477,7 +475,7 @@ def _consolidate_session_impl(
     )
     # Ingredient Unit Handling Layer D (2026-09-12) — a coarse ingredient's lines never reach
     # the pure consolidate() below; they're grouped and resolved by _coarse_items() instead.
-    # 2026-09-30 (chunk 7.5) — a session-scoped "this list only" coarse marking is merged in
+    # 2026-09-30 (the checklist ingredient panel work) — a session-scoped "this list only" coarse marking is merged in
     # ahead of the global coarse_ingredients config, taking precedence for the same name (a
     # household override for this shopping list beats the standing household default).
     coarse_cfg = dict(coarse_ingredients.coarse_map(db))
@@ -551,7 +549,7 @@ def _consolidate_session_impl(
                 .filter(ProductUnit.ingredient_name == item.name)
                 .all()
             )
-            # 2026-09-30 (chunk 7.5) — a session-scoped "this list only" pack size is offered
+            # 2026-09-30 (the checklist ingredient panel work) — a session-scoped "this list only" pack size is offered
             # as just another pack option for this consolidate pass, without ever being
             # written to product_units. pack_options_for() only reads purchase_label/
             # purchase_qty/purchase_unit off each row (duck-typed), which PackSizeOverride
@@ -595,7 +593,7 @@ def _consolidate_session_impl(
             row.note = f"{row.note} ({frag})" if row.note else frag
 
     # Before the leftover rows are deleted: carry a renamed row's decisions onto the row it
-    # became (see _carry_state_across_renames — Chunk 6.7, defect A).
+    # became (see _carry_state_across_renames — Chunk 6.7, decisions lost on rename).
     _carry_state_across_renames(
         list(existing.values()), rows_by_name, substitute_map, alias_map, merge_map
     )

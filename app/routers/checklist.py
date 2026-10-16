@@ -1,4 +1,4 @@
-"""Checklist screen API (Phase 5 — see CLAUDE.md > Build Phases > Phase 5, Chunks 5.3/5.6).
+"""Checklist screen API (Phase 5 — see docs/build-status/phase-5-checklist-anylist.md, Chunks 5.3, checklist load/5.6).
 
 HTTP only: parse, call app/services/checklist.py, wrap in the {"ok": ...} envelope. Exception
 translation is central in app/main.py.
@@ -76,10 +76,10 @@ def _items(db: Session, rows, session_id: int) -> list[dict]:
 
 @router.get("/{session_id}")
 def load_checklist(session_id: int, db: Session = Depends(get_db)) -> dict:
-    # 2026-09-30 (chunk 7.3) — load_checklist() now consolidates itself (no more standalone
+    # 2026-09-30 (the checklist re-consolidating on load) — load_checklist() now consolidates itself (no more standalone
     # Review screen to have done it first) and returns recipe_breakdown alongside the items,
     # same ephemeral map routers/sessions.py's own consolidate endpoint has always attached —
-    # see CLAUDE.md > "Which recipe is this ingredient from", no longer review-screen-only.
+    # see docs/scaling-and-consolidation.md > "Which recipe is this ingredient from", no longer review-screen-only.
     items, anylist_ok, anylist_detail, breakdown = checklist_service.load_checklist(db, session_id)
     index = checklist_display.WordingIndex.build(db)  # one pass over the recipes, not one per row
     body = ChecklistLoadResponse(
@@ -196,7 +196,7 @@ def merge_items(
     data: ChecklistMergeRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Fold 2+ checklist lines into one (Fix 3 — CLAUDE.md > Deferred Decisions >
+    """Fold 2+ checklist lines into one (Fix 3 — docs/deferred-decisions.md > Deferred Decisions >
     checklist-time merge). Pre-push only (409 SESSION_ALREADY_PUSHED once pushed); a
     `remember=True` merge that names an already-aliased item surfaces 409
     DUPLICATE_INGREDIENT_ALIAS, same as Settings' own alias creation."""
@@ -250,7 +250,7 @@ def substitute_item(
     data: ChecklistItemSubstituteRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Ingredient panel — Substitute chip (2026-09-30, chunk 7.5). Pre-push only (409
+    """Ingredient panel — Substitute chip (2026-09-30, the checklist ingredient panel work). Pre-push only (409
     SESSION_ALREADY_PUSHED). `remember=True` writes a `remembered_substitutions` quick-pick —
     see `ChecklistItemSubstituteRequest`'s docstring for why not the recipe's own
     `resolved_ingredient`."""
@@ -271,7 +271,7 @@ def alias_item(
     data: ChecklistItemAliasRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Ingredient panel — Alias chip. Pre-push only; `remember=True` and an already-aliased
+    """Ingredient panel — Also called chip (alias). Pre-push only; `remember=True` and an already-aliased
     name surfaces 409 DUPLICATE_INGREDIENT_ALIAS, same as Settings' own alias creation."""
     rows = checklist_service.alias_item(
         db, session_id, item_id, alias_name=data.alias_name, remember=data.remember
@@ -303,7 +303,7 @@ def coarse_item(
     data: ChecklistItemCoarseRequest,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Ingredient panel — Coarse item chip. Pre-push only; `remember=True` writes a real
+    """Ingredient panel — By the bunch chip (coarse item). Pre-push only; `remember=True` writes a real
     `coarse_ingredients` row."""
     rows = checklist_service.coarse_item(
         db, session_id, item_id,
@@ -315,7 +315,7 @@ def coarse_item(
 
 @router.post("/usuals/{usual_id}/skip")
 def skip_usual(usual_id: int, db: Session = Depends(get_db)) -> dict:
-    """"I'm stocked, skip this time" (Phase 6 Chunk 6.3b, kickoff decision #8) — the same
+    """"I'm stocked, skip this time" (Phase 6 Chunk 6.3b, checklist and send-to-AnyList screen design, Phase 6 decision: The usuals ask "are you stocked?" instead of a bare checkbox) — the same
     last_added_at stamp a push already applies via usuals_service.mark_added(), just not
     gated on an actual AnyList push. Not session-scoped: usual_items has no session_id, and
     the due-check that surfaces it on the checklist is global."""
@@ -344,7 +344,7 @@ def push(
 
 @router.get("/push/progress/{token}")
 def push_progress(token: str) -> dict:
-    """Polled by checklist-push.js while a push request is in flight (CLAUDE.md > UI/UX >
+    """Polled by checklist-push.js while a push request is in flight (docs/ui-ux.md > UI/UX >
     Real progress indicators) — see app/services/progress_tracker.py. Same shape and 404
     behaviour as GET /recipes/capture/progress/{token}."""
     steps = progress_tracker.get(token)

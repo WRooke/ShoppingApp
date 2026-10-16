@@ -1,10 +1,10 @@
 """Pydantic request/response models for recipe capture (URL/photo extraction, then a
-separate confirm-save step). See CLAUDE.md > Recipe Capture — AI Extraction and > Build
+separate confirm-save step). See docs/recipe-capture.md > Recipe Capture — AI Extraction and > Build
 Phases > Phase 3.
 
 Kept separate from schemas/recipes.py — capture's extraction result shape (raw, unsaved,
 carries `suggested_section`/`original_text`) is deliberately not the same contract as a saved
-recipe, per CLAUDE.md > Code Architecture & Maintainability.
+recipe, per docs/code-architecture.md > Code Architecture & Maintainability.
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ class CaptureUrlRequest(BaseModel):
     url: str = Field(..., min_length=1)
     # Duplicate prevention (Phase 4): on an exact source_url match the endpoint short-circuits
     # with a 409 before calling Claude. "Capture again anyway" re-submits with this true. See
-    # CLAUDE.md > Duplicate Recipe Prevention > URL capture short-circuit.
+    # docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention > URL capture short-circuit.
     allow_duplicate: bool = False
-    # Real-step capture progress UI (2026-09-23, CLAUDE.md > UI/UX) — a client-generated token
+    # Real-step capture progress UI (2026-09-23, docs/ui-ux.md > UI/UX) — a client-generated token
     # the frontend then polls via GET /recipes/capture/progress/{token} while this request is
     # in flight. Optional: a capture_queue retry (no live client waiting) never sends one, and
     # app.services.progress_tracker treats an empty/missing token as a no-op throughout.
@@ -29,7 +29,7 @@ class CaptureUrlRequest(BaseModel):
 
 class CapturedIngredient(BaseModel):
     """One extracted ingredient, not yet saved. `suggested_section` is AI-suggested and
-    editable in the review UI (Chunk 3.4) — never trusted as final until confirm-save."""
+    editable in the review UI (Chunk 3.4, capture review screen) — never trusted as final until confirm-save."""
 
     name: str
     quantity: float
@@ -48,7 +48,7 @@ class CaptureResult(BaseModel):
     source_image_path: str | None = None
     # AI-prefilled title/servings (Capture-Fixes-Staged.md issues 1 & 2, 2026-09-07) — both
     # editable on the review screen, never trusted as final until confirm-save, same as every
-    # other extracted field. See CLAUDE.md > Recipe Capture > After extraction.
+    # other extracted field. See docs/recipe-capture.md > Recipe Capture > After extraction.
     title: str | None = None
     servings: int | None = None
     cuisine: str | None = None
@@ -91,8 +91,8 @@ class CaptureConfirmRequest(BaseModel):
     source_url: str | None = None
     source_image_path: str | None = None
     base_servings: int = Field(4, ge=1)
-    # Source provenance (Chunk 3.7) — the review screen's optional cookbook name / page
-    # inputs. See CLAUDE.md > Recipe Capture > Source provenance on the review screen.
+    # Source provenance (Chunk 3.7, recipe source URL / cookbook reference) — the review screen's optional cookbook name / page
+    # inputs. See docs/recipe-capture.md > Recipe Capture > Source provenance on the review screen.
     source_book: str | None = Field(None, max_length=200)
     source_page: str | None = Field(None, max_length=50)
     notes: str | None = None

@@ -1,4 +1,4 @@
-"""In-memory "something changed" counter behind the live checklist (Chunk 6.7, polish batch 3,
+"""In-memory "something changed" counter behind the live checklist (Chunk 6.7, user-feedback batch, polish batch 3,
 item C — docs/checklist-and-shopping.md > Live updates between phones).
 
 Each plan has a revision number that goes up whenever anything that shows on its checklist is

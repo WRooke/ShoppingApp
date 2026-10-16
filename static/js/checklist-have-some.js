@@ -1,4 +1,4 @@
-/* Checklist — the "I have some" control under a row's amount (2026-10-16, Chunk 6.7 polish
+/* Checklist — the "I have some" control under a row's amount (2026-10-16, Chunk 6.7, user-feedback batch polish
    batch 3). A leftover tomato when the plan needs 3: type how many are already at home and the
    list only asks for the rest. Always this plan only (never remembered anywhere).
 

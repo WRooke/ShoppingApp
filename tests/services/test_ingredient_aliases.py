@@ -1,5 +1,5 @@
 """Unit tests for app/services/ingredient_aliases.py — the "same shopping item" grouping
-(2026-09-10, see CLAUDE.md > Ingredient Aliases). No DB fixtures shared with substitutions —
+(2026-09-10, see docs/ingredient-handling.md > Ingredient Aliases). No DB fixtures shared with substitutions —
 this is a deliberately separate concept (see the module docstring).
 """
 
@@ -34,7 +34,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -236,12 +236,12 @@ def test_delete_only_removes_that_row(db):
     assert total == 1 and remaining[0].id == b.id
 
 
-# --- hint_pairs (Fix 2, F2.3 — feeds the extraction-prompt builder) ------------------------
+# --- hint_pairs (Fix 2 — feeds the extraction-prompt builder) ------------------------
 
 
 def _make_system(db, alias, canonical):
     """create_alias() always defaults to source='user' (no API path creates 'system' rows —
-    only a migration does, see F2.1/F2.2), so tests needing a system row set it directly."""
+    only a migration does, see the alias source-column migration/the legacy alias seed migration), so tests needing a system row set it directly."""
     row = ia.create_alias(db, _c(alias, canonical))
     row.source = "system"
     db.commit()
@@ -277,7 +277,7 @@ def test_hint_pairs_newest_first(db):
 def test_hint_pairs_ignores_equivalence_pair_fields(db):
     # A pair-carrying alias (a quantity/unit conversion, consolidation-time only) must still
     # surface here as a plain name hint, with no qty/unit info leaked into the extraction
-    # prompt — see CLAUDE.md > Ingredient Aliases for why that's a consolidation-time concern.
+    # prompt — see docs/ingredient-handling.md > Ingredient Aliases for why that's a consolidation-time concern.
     ia.create_alias(
         db,
         IngredientAliasCreate(

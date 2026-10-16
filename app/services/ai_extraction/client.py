@@ -1,9 +1,9 @@
 """The Gemini call mechanics shared by every task: the Flash -> Flash-Lite fallback chain,
-the §0c enable gate, and the small response-cleaning helpers each call in ``calls.py`` uses
+the check that real calls are enabled (docs/security.md > API enable switch), and the small response-cleaning helpers each call in ``calls.py`` uses
 to sanitise what comes back.
 
 Part of the ``ai_extraction`` package (split from the former single-file module at the
-Phase 5 review, 2026-09-12 — see CLAUDE.md > Deferred Decisions). Imports ``genai`` and
+Phase 5 review, 2026-09-12 — see docs/deferred-decisions.md > Deferred Decisions). Imports ``genai`` and
 ``settings`` at module level rather than inside functions specifically so
 ``app.services.ai_extraction.genai`` / ``...settings`` stay valid patch targets for tests
 (``unittest.mock.patch`` resolves a dotted path by importing the module and walking
@@ -71,7 +71,7 @@ def _strip_code_fence(raw_text: str) -> str:
 
 
 def _clean_suggested_section(value: object) -> str | None:
-    """§0a — only ever a value from the fixed section vocabulary, or None."""
+    """Security > Prompt injection hardening — only ever a value from the fixed section vocabulary, or None."""
     if isinstance(value, str) and value in _SECTION_VOCABULARY_SET:
         return value
     return None
@@ -110,7 +110,7 @@ def describe_raw(raw: str | None) -> str:
     """A bounded, safe stand-in for a model reply in a log line: its length plus the first
     ``_RAW_LOG_CHARS`` characters. The full reply derives from scraped pages / photographed
     cookbooks (untrusted, possibly personal) and can be 8k tokens, so it is never logged whole
-    (CLAUDE.md > Security §0a, Personal Data Policy)."""
+    (docs/security.md > Prompt injection hardening, Personal Data Policy)."""
     raw = raw or ""
     head = raw[:_RAW_LOG_CHARS].replace("\n", " ")
     return f"{len(raw)} chars: {head!r}{'...' if len(raw) > _RAW_LOG_CHARS else ''}"
@@ -143,7 +143,7 @@ def _call_gemini(
     parts: list[genai_types.Part],
 ) -> str:
     """One Gemini structured-output call, with the Flash → Flash-Lite fallback chain. Logs
-    usage right after a success (§0b, with the model that actually answered), returns the raw
+    usage right after a success (Security > API usage observability, with the model that actually answered), returns the raw
     JSON text. A 429 from every model in the chain -> AiQuotaExhaustedError (caller queues).
     Any non-quota SDK/transport failure -> AiExtractionError immediately (no fallback — a
     weaker model won't fix a bad request or a network fault)."""

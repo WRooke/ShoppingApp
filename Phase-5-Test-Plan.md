@@ -1,5 +1,7 @@
 # Phase 5 — hand test plan
 
+(Chunk numbers such as 5.3 in the headings are the build steps listed in `docs/build-status/phase-5-checklist-anylist.md`; you do not need them to run the steps.)
+
 Manual verification of the **Phase 5 deliverable**: *"Full end-to-end flow works. User can
 complete a planning session and push the result to AnyList (`TestList` in dev)."*
 
@@ -10,9 +12,9 @@ click-through pass for the Phase 5 review.
 
 > **Sections 1–7 run entirely offline** — `ANYLIST_FAKE_MODE=true`, no account, no network.
 > **Section 8 is the only live AnyList call.** It needs `ANYLIST_ENABLED=true`,
-> `ANYLIST_TARGET_LIST_NAME=TestList`, real credentials, and a **fresh, explicit
-> in-conversation go-ahead** for that specific run (a standing "yes" does not carry — see
-> CLAUDE.md > Security §2). **The real household shopping list is never touched.**
+> `ANYLIST_TARGET_LIST_NAME=TestList`, real credentials, and a **fresh, explicit approval from the
+> project owner** for that specific run (for example a message saying "OK to run the live AnyList check today"; an
+> approval for an earlier run does not carry — see docs/security.md > AnyList credentials). **The real household shopping list is never touched.**
 
 ---
 
@@ -22,12 +24,11 @@ click-through pass for the Phase 5 review.
   ```
   .venv\Scripts\python -m scripts.seed_phase5_fixtures --reset
   ```
-  This creates `data/phase5-test.db` with the schema, the app's reference data (staples incl.
-  **olive oil**; product_units incl. the **beef mince** 500 g pack + the eggs/milk/yoghurt
+  This creates `data/phase5-test.db` with the schema, the app's reference data (product_units incl. the **beef mince** 500 g pack + the eggs/milk/yoghurt
   multi-packs), and three manual recipes:
   - **P5 — Milk & Passata** — `milk` 1 L (matches the fake AnyList list) + `passata` 400 g
-  - **P5 — Beef & Oil** — `beef mince` 500 g (seeded pack) + `olive oil` 2 tbsp (a staple)
-  - **P5 — Cream Conflict** — `cream` 100 g + `cream` 200 ml in one recipe → a Chunk 4.6
+  - **P5 — Beef & Oil** — `beef mince` 500 g (seeded pack) + `olive oil` 2 tbsp
+  - **P5 — Cream Conflict** — `cream` 100 g + `cream` 200 ml in one recipe → a Chunk 4.6 (consolidation and pack-size resolution)
     `needs_review` line at consolidation
   It creates no sessions and no usuals — those are test-plan steps.
 - **Start the server against it**, fake modes on:
@@ -38,10 +39,12 @@ click-through pass for the Phase 5 review.
 - The fake AnyList list (`TestList`) is auto-seeded with **milk**, **eggs**, **butter** on
   first call.
 - Keep `/#/diagnostics` open in a second tab — recent-errors must stay clean throughout
-  (the one expected `WARNING` at startup is the keyring/plaintext nudge; that's fine).
+  (the one expected `WARNING` at startup is the keyring/plaintext reminder; that's fine).
 - Frontend drive: a phone browser, or `scripts/cdp.py` per `HEADLESS_VERIFY.md`.
 
 ---
+
+> **On-screen labels used in these steps.** Each checklist line has two buttons: **Have it** (you already own it, so it is skipped when sending to AnyList) and **Need it** (it is sent to AnyList). A line you have not touched is not sent. In the API these are stored as `have_it` values `'yes'` (Have it) and `'no'` (Need it).
 
 ## 1. Config & credential resolution (5.1)
 
@@ -98,9 +101,7 @@ Build one session covering every group, consolidate, open the checklist:
    use this) instead.
 3. **Ingredients** group: the binary tap cycle works; `beef mince` shows its pack breakdown
    (`… need ~X`).
-4. **Staples used this session** group: `olive oil` appears with an "add to list" checkbox
-   (unchecked). Tick it → `GET …/checklist/<sid>` shows `add_to_list: true` for that line.
-   A staple **not** used by any recipe this session does not appear.
+4. *(Removed: the "staples" feature was retired on 2026-09-27, so there is nothing to check here.)*
 5. **The usuals — due now** group: the due usuals appear with checkboxes; ticking is
    client-held (no request yet).
 6. No browser console errors anywhere.
@@ -128,7 +129,7 @@ One clean run, no shortcuts:
 
 1. New session → add 2–3 recipes, mixed servings, one leftovers day → Review → consolidate.
 2. Resolve any needs-review line. Swap one awkward ingredient (Phase 4 flow still works).
-3. Open the checklist → walk every item (have / need), tick a staple, tick a due usual,
+3. Open the checklist → walk every item (have / need), tick a due usual,
    resolve nothing outstanding.
 4. Push → confirmation is sensible, session goes `pushed`, `shopping_history` written,
    diagnostics AnyList block updates.
@@ -139,7 +140,7 @@ One clean run, no shortcuts:
 
 ## 8. Live AnyList verification — `TestList` only (5.7) — **needs a fresh go-ahead**
 
-> Do **not** run this section without an explicit, current in-conversation "yes" for this
+> Do **not** run this section without the project owner's explicit, current approval for this
 > specific check. `ANYLIST_ENABLED=true`, `ANYLIST_FAKE_MODE=false`,
 > `ANYLIST_TARGET_LIST_NAME=TestList`, real credentials (keyring or `.env`). The real
 > household list is out of bounds.
@@ -162,7 +163,7 @@ One clean run, no shortcuts:
    the app). Confirm `TestList` is back to its pre-test state.
 9. Set `ANYLIST_ENABLED=false` again when done.
 
-If §8 passes, tick **Chunk 5.7** in CLAUDE.md.
+If section 8 passes, tick **Chunk 5.7 (live AnyList verification)** in CLAUDE.md.
 
 ---
 

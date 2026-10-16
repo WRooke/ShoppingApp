@@ -3,7 +3,7 @@
 Gemini's free tier has no per-call dollar cost, so there is no cost math and no "reset spend
 tracker". ``ai_extraction.py`` calls ``log_ai_call()`` for every attempted Gemini call
 (success, quota-exhausted, or error). The diagnostics page counts today's rows per model
-(quota indicator) and lists the most recent (attempt log). See CLAUDE.md > Data Model >
+(quota indicator) and lists the most recent (attempt log). See docs/data-model.md > Data Model >
 ai_call_log and > AI Provider Migration > Diagnostics.
 """
 
@@ -26,7 +26,7 @@ _TASK = {
     "recipe_photo": "extract",
     # "flag_substitutions" removed 2026-09-30 along with the AI substitution-flagging call
     # itself — kept out of this map deliberately, but NOT removed from historical
-    # ai_call_log/capture_queue rows (rule 3: no destructive change to existing data). Old
+    # ai_call_log/capture_queue rows (the never-lose-production-data rule: no destructive change to existing data). Old
     # rows with task="flag_substitutions" stay exactly as logged; task_for() below only
     # affects new calls, and nothing calls it with this call_type any more.
     "suggest_sections": "suggest_sections",

@@ -1,8 +1,8 @@
-"""``ai_call_log`` — one append-only row per *attempted* Gemini call (Phase 3.9 M5;
+"""``ai_call_log`` — one append-only row per *attempted* Gemini call (Phase 3.9 M5 = diagnostics rework;
 replaced ``api_usage`` + ``api_usage_resets``). Gemini's free tier has no per-call dollar
 cost, so there is no cost column and no "reset spend tracker" — the diagnostics page counts
 today's rows per model (quota indicator) and lists the most recent (attempt log). See
-CLAUDE.md > Data Model > ai_call_log."""
+docs/data-model.md > Data Model > ai_call_log."""
 
 from __future__ import annotations
 

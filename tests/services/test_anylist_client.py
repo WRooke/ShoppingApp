@@ -1,4 +1,4 @@
-"""Unit tests for app/services/anylist_client.py — Phase 5 Chunk 5.2, extended at Chunk 5.7's
+"""Unit tests for app/services/anylist_client.py — Phase 5 Chunk 5.2 (AnyList connector), extended at Chunk 5.7 (live AnyList verification)'s
 live-verification fix (2026-09-12).
 
 No network: fake mode, a hand-built protobuf blob for the read path, and httpx.MockTransport
@@ -148,10 +148,10 @@ def test_operation_list_is_length_delimited_field_1_repeated():
     assert [bytes(v) for v in decoded[1]] == [b"\x01\x02", b"\x03"]
 
 
-# --- gate -------------------------------------------------------------------
+# --- enable switch -------------------------------------------------------------------
 
 
-def test_disabled_gate_raises(monkeypatch):
+def test_real_calls_raise_when_anylist_disabled(monkeypatch):
     monkeypatch.setattr(ac.settings, "anylist_fake_mode", False, raising=False)
     monkeypatch.setattr(ac.settings, "anylist_enabled", False, raising=False)
     with pytest.raises(AnyListDisabledError):
@@ -200,7 +200,7 @@ def test_fake_mode_add_and_bare_count_update(monkeypatch):
 def test_fake_mode_unit_bearing_update_replaces_under_a_new_id(monkeypatch):
     """2026-09-20 fix (Phase B): a unit-bearing quantity change goes through delete + re-add
     under a new id (fake mode mirrors this, not just the real connector) — a crossed-off item
-    comes back UN-crossed (Chunk 6.7), and unlike a bare-count update, the note DOES sync, since
+    comes back UN-crossed (Chunk 6.7, user-feedback batch), and unlike a bare-count update, the note DOES sync, since
     this is a real add under the hood, not the update handler that's confirmed to never touch it."""
     _fake_mode(monkeypatch)
     monkeypatch.setattr(ac.settings, "anylist_target_list_name", "TestList", raising=False)

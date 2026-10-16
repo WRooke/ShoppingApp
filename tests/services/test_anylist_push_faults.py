@@ -1,7 +1,8 @@
 """The AnyList push, exhaustively, against a stateful fake server with fault injection
 (Chunk 6.7 — docs/anylist-push.md > Test map).
 
-One oracle decides every scenario, independent of what the connector claims:
+One independent checker decides every scenario. It judges only by what is really on the fake
+list, never by what the connector claims:
 
 * a line the connector reports OK must really be on the list — exactly once ACTIVE, uncrossed,
   with the wanted quantity (never a false "confirmed");
@@ -106,7 +107,7 @@ def _run(monkeypatch, state: str, fault: str, qty, note, id_mode: str):
     return server, item, result, bystanders, before
 
 
-def _check_oracle(server, item, result, bystanders, before, transient: bool, label: str):
+def _independent_check(server, item, result, bystanders, before, transient: bool, label: str):
     problems = []
     (r,) = result.items
     satisfied = _satisfied(server, item)
@@ -164,7 +165,7 @@ def test_push_matrix(monkeypatch, state, fault):
         monkeypatch.undo()  # a fresh client/server per scenario
         server, item, result, bystanders, before = _run(monkeypatch, state, fault, qty, note, id_mode)
         label = f"state={state} fault={fault} want=({qty!r},{note!r}) id={id_mode}"
-        problems += _check_oracle(server, item, result, bystanders, before, fault in TRANSIENT, label)
+        problems += _independent_check(server, item, result, bystanders, before, fault in TRANSIENT, label)
     assert not problems, "\n".join(problems[:15]) + f"\n({len(problems)} problem(s) in this cell)"
 
 

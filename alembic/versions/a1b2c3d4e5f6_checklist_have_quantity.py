@@ -1,11 +1,11 @@
-"""session_checklist_items.have_quantity / have_unit ("I have some", Chunk 6.7 batch 3)
+"""session_checklist_items.have_quantity / have_unit ("I have some", Chunk 6.7, user-feedback batch, batch 3)
 
 Revision ID: a1b2c3d4e5f6
 Revises: c7c1ecd37ec8
 Create Date: 2026-10-16
 
 Adds two NULLABLE columns holding how much of an ingredient the household already has, so the
-checklist can buy only the difference. Purely additive per CLAUDE.md rule 3: no existing row is
+checklist can buy only the difference. Purely additive per the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules): no existing row is
 touched (both columns start NULL = "nothing recorded"), nothing is dropped or narrowed.
 tests/test_migrations.py keeps `upgrade head` == `create_all()`.
 """

@@ -23,33 +23,33 @@ class Recipe(Base):
     source_image_path = Column(Text, nullable=True)
     base_servings = Column(Integer, nullable=False, default=4)
 
-    # --- source provenance (Chunk 3.7) ------------------------------------
+    # --- source provenance (Chunk 3.7, recipe source URL / cookbook reference) ------------------------------------
     # Where the recipe ORIGINALLY came from, in a human-meaningful form. Orthogonal to
     # source_type (which records how the ingredients got INTO the app): a photographed or
     # hand-typed recipe can still cite a book, and a URL recipe can too. Not mutually
     # exclusive with source_url and not enforced as such. source_page is Text, not Integer,
-    # so "142-143", "142 & 145", "ch. 3" all work. See CLAUDE.md > Data Model > recipes and
+    # so "142-143", "142 & 145", "ch. 3" all work. See docs/data-model.md > Data Model > recipes and
     # > Build Phases > Phase 3 > Chunk 3.7.
     source_book = Column(Text, nullable=True)  # e.g. "Ottolenghi SIMPLE"
     source_page = Column(Text, nullable=True)  # e.g. "142" or "142-143"
 
-    notes = Column(Text, nullable=True)  # single freeform notes field (see CLAUDE.md > Data Model)
+    notes = Column(Text, nullable=True)  # single freeform notes field (see docs/data-model.md > Data Model)
     created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
     updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 
-    # --- recipe history (Schema & Planning Addendum #2) ---------------------
+    # --- recipe history ---------------------
     times_made = Column(Integer, nullable=False, default=0)
     last_made_at = Column(UTCDateTime(), nullable=True)
     rating = Column(Text, nullable=True)  # 'up' | 'down' | null=unrated (tri-state, not 5-star)
 
-    # --- "suggest something" schema prep (Addendum #3) — fields only, no logic yet ---
+    # --- "suggest something" schema prep — fields only, no logic yet ---
     cuisine = Column(Text, nullable=True)
     protein = Column(Text, nullable=True)
 
-    # --- soft-delete (Addendum #5) ------------------------------------------
+    # --- soft-delete ------------------------------------------
     archived_at = Column(UTCDateTime(), nullable=True)  # set instead of hard-deleting
 
-    # --- AI capture status (Phase 3.9 M6) ---------------------------------
+    # --- AI capture status (Phase 3.9 M6 = Pending AI processing badge) ---------------------------------
     # JSON array of still-outstanding AI capture sub-tasks (currently only
     # ["suggest_sections"] — see capture_queue). NULL / "[]" => nothing pending.
     ai_tasks_pending = Column(Text, nullable=True)
@@ -92,12 +92,12 @@ class RecipeIngredient(Base):
     unit = Column(Text, nullable=True)  # null for unitless items (eggs, onions)
     preparation = Column(Text, nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
-    # Substitution (Phase 3.9 M4). The swap THIS recipe uses, set only by explicit per-recipe
+    # Substitution (Phase 3.9 M4 = substitution redesign). The swap THIS recipe uses, set only by explicit per-recipe
     # confirmation (capture review / recipe editor). NULL = no substitution, use `name`.
     # Clearing it reverts. Consolidation reads resolved_ingredient (fallback `name`).
     resolved_ingredient = Column(Text, nullable=True)
     substitution_note = Column(Text, nullable=True)
-    # Substitution quantity/unit transform (Phase 3.9 M8 — see CLAUDE.md > AI Provider
+    # Substitution quantity/unit transform (Phase 3.9 M8 — see docs/recipe-capture.md > AI Provider
     # Migration > Ingredient Substitution Flagging, and > Scaling Logic > Consolidation across
     # recipes). The ABSOLUTE amount this recipe's swap actually buys, e.g. "2 whole corn cobs"
     # -> resolved "canned corn" at 2 / "can". Only meaningful alongside resolved_ingredient;

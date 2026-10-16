@@ -95,21 +95,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """App startup/shutdown. On startup: create tables (fresh-DB fast path — Alembic owns
-    schema *changes*, see CLAUDE.md > Migrations), seed the idempotent reference data, and
-    start the hourly capture-queue retry poller (Phase 3.9 M3). On shutdown: cancel the
+    schema *changes*, see docs/code-architecture.md > Migrations), seed the idempotent reference data, and
+    start the hourly capture-queue retry poller (Phase 3.9 M3 = fallback chain and capture queue). On shutdown: cancel the
     poller. A failure in init_db / seed is fatal (re-raised); the poller's own errors are
     caught per-iteration so one bad run doesn't kill it."""
     logger.info(
         "=== ShoppingApp starting (port %s, log level %s) ===", settings.port, settings.log_level
     )
     version_service.get_build_info()  # logs "Build: id=… label=… boot_id=…" so every restart is traceable
-    # Phase 5 — nudge toward keyring storage for the AnyList credentials (CLAUDE.md > Security
-    # §2). Logged here, not in config.py, because logging isn't configured at config import.
+    # Phase 5 — reminder to use keyring storage for the AnyList credentials (docs/security.md > AnyList credentials).
+    # Logged here, not in config.py, because logging isn't configured at config import.
     if settings.anylist_secret_source in ("env", "mixed"):
         logger.warning(
             "AnyList credentials loaded from .env (plaintext). Prefer Windows Credential "
             "Manager: `keyring set shoppingapp anylist_email` / `... anylist_password`. "
-            "See CLAUDE.md > Security §2."
+            "See docs/security.md > AnyList credentials."
         )
     try:
         init_db()
@@ -119,7 +119,7 @@ async def lifespan(app: FastAPI):
     schema_check.check_schema_revision(engine)  # warns loudly if the schema is behind the code
 
     # Reference data (product_units starter list) — idempotent, safe to
-    # run on every startup. See CLAUDE.md > Build Phases > Phase 2, Chunk 2.1.
+    # run on every startup. See docs/build-status/phase-2-recipe-library.md, Chunk 2.1 (recipe data layer).
     db = SessionLocal()
     try:
         seed_reference_data(db)
@@ -161,7 +161,7 @@ async def _capture_queue_poll_loop() -> None:
 app = FastAPI(title="ShoppingApp", version="0.1.0", lifespan=lifespan)
 
 # Local network access from phones on the home WiFi — but scoped to known origins only
-# (see CLAUDE.md > Security §4). ALLOWED_ORIGINS in .env controls this; defaults to
+# (see docs/security.md > App-level protections). ALLOWED_ORIGINS in .env controls this; defaults to
 # localhost/127.0.0.1 for dev. Without this scoping, any origin's JS (e.g. a malicious ad
 # in an ordinary browser tab on the same WiFi) could read/write this API cross-origin, since
 # there is no login to fall back on.
@@ -179,7 +179,7 @@ app.add_middleware(
 # `@app.exception_handler` functions, each a near-verbatim copy of the same 10-line
 # "log a line, build the envelope, return a JSONResponse" template with different field names
 # substituted in (main.py had grown to 721 lines, well past the project's own ~300-400 line
-# guideline — CLAUDE.md > Code Architecture > File size and scope discipline). Replaced with
+# guideline — docs/code-architecture.md > Code Architecture > File size and scope discipline). Replaced with
 # two small factories covering the two shapes almost all of them actually are (see each
 # factory's own docstring for which), registered from the tables below; only the handlers
 # with a genuinely different shape (a dynamic status code, a non-None `detail`, or
@@ -196,13 +196,13 @@ def _domain_error_handler(
     status_code: int, code: str, message: Callable[[Exception], str], *, log_level: int = logging.INFO
 ) -> Callable:
     """Factory for the common shape: an internal domain exception (NotFound / Duplicate /
-    Invalid / a disabled §0c-or-§2 gate) whose message is entirely safe to both log and return
+    Invalid / an AI extraction or AnyList switch that is turned off) whose message is entirely safe to both log and return
     to the client — it's built from OUR OWN exception's own attributes, never wraps arbitrary
     external error text (contrast `_external_error_handler` below, which is exactly for that
     case). `detail` is always None for this shape. Logs one consistent
     `"<message> (<method> <path>)"` line at `log_level` — a deliberate small normalisation
     versus the handlers this replaces (a couple, e.g. UsualItemNotFoundError's, previously
-    logged no request context at all; the "disabled" gates previously used a differently-
+    logged no request context at all; the "switched off" cases previously used a differently-
     worded but equivalent log line) — every simple error now logs at least as much as before.
     """
 
@@ -223,7 +223,7 @@ def _external_error_handler(
     log_level: int = logging.ERROR,
 ) -> Callable:
     """Factory for a call into an external system (Gemini/AnyList) whose own exception text
-    can carry detail we don't control — CLAUDE.md > Security §4: this is a LAN-only app with
+    can carry detail we don't control — docs/security.md > App-level protections: this is a LAN-only app with
     no login, so raw internal/external exception text must never cross the wire to an
     unauthenticated client. The client always gets a fixed, safe `message` with `None`
     detail; the raw exception is still logged in full server-side for diagnostics.
@@ -325,7 +325,7 @@ _DOMAIN_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         503,
         "AI_EXTRACTION_DISABLED",
         lambda e: "Recipe capture is currently switched off. Ask the maintainer to enable it.",
-        log_level=logging.WARNING,  # the highest-priority §0c gate working as designed, not a failure
+        log_level=logging.WARNING,  # the AI enable switch being off is working as designed, not a failure
     ),
     InvalidImageError: _domain_error_handler(422, "INVALID_IMAGE", lambda e: e.reason),
     ProgressTokenNotFoundError: _domain_error_handler(
@@ -355,7 +355,7 @@ _DOMAIN_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         503,
         "ANYLIST_DISABLED",
         lambda e: "AnyList sync is currently switched off. Ask the maintainer to enable it.",
-        log_level=logging.WARNING,  # the §2 gate working as designed, not a failure
+        log_level=logging.WARNING,  # the AnyList enable switch being off is working as designed, not a failure
     ),
 }
 
@@ -367,7 +367,7 @@ _EXTERNAL_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         log_prefix="AI extraction failed",
         log_level=logging.WARNING,  # already ERROR-logged at the point of failure (see below)
         # Already logged at ERROR with exc_info=True inside ai_extraction.py at the point of
-        # failure too (CLAUDE.md > Diagnostics & Logging) — this WARNING is just the envelope
+        # failure too (docs/diagnostics-and-logging.md > Diagnostics & Logging) — this WARNING is just the envelope
         # translation's own record of which request it surfaced on.
     ),
     AnyListAuthError: _external_error_handler(
@@ -431,7 +431,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(PossibleDuplicateRecipeError)
 async def possible_duplicate_recipe_handler(request: Request, exc: PossibleDuplicateRecipeError):
     # Warn-with-override, not a hard block — the frontend shows the matches and offers
-    # "Save anyway" (re-submits with allow_duplicate=true). See CLAUDE.md > Duplicate
+    # "Save anyway" (re-submits with allow_duplicate=true). See docs/duplicate-recipe-prevention.md > Duplicate
     # Recipe Prevention. Not an error-level event.
     logger.info(
         "Possible duplicate recipe on %s %s: %d match(es)",
@@ -536,9 +536,9 @@ def favicon():
     # A bare Response (not JSONResponse) for a real empty body. JSONResponse would
     # serialise content=None to the 4-byte body b"null" while Starlette declares
     # Content-Length: 0 for a 204, a mismatch h11 rejects as LocalProtocolError —
-    # found via Phase 2 Chunk 2.3 browser testing: every page load requests this
+    # found via Phase 2 Chunk 2.3 (recipe library UI) browser testing: every page load requests this
     # and was spamming ERROR-level noise into the exact diagnostics panel meant
-    # to surface real problems (see CLAUDE.md > Diagnostics & Logging).
+    # to surface real problems (see docs/diagnostics-and-logging.md > Diagnostics & Logging).
     return Response(status_code=204)
 
 

@@ -1,5 +1,5 @@
 """Unit tests for app/services/capture_photo.py. ai_extraction is mocked — no network, no
-Claude call, per CLAUDE.md > Code Architecture & Maintainability > Tests. Images are written
+Claude call, per docs/code-architecture.md > Code Architecture & Maintainability > Tests. Images are written
 to conftest.py's temp IMAGES_PATH, not the real project images/ directory.
 """
 

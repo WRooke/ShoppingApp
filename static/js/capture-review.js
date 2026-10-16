@@ -5,7 +5,7 @@
    ingredient, and on confirm the chosen resolved_ingredient / substitution_note go in the
    payload (a "save this swap" tick also POSTs a remembered_substitutions row). No AI
    suggestion feeds this any more — the AI substitution-flagging call was removed 2026-09-30
-   (manual substitution stays; see CLAUDE.md > Deferred Decisions and
+   (manual substitution stays; see docs/deferred-decisions.md > Deferred Decisions and
    docs/ingredient-handling.md). */
 
 (function (global) {
@@ -66,7 +66,7 @@
     return select;
   }
 
-  // An import that was read but not saved survives going Back (2026-10-11, Chunk 6.7): the AI call
+  // An import that was read but not saved survives going Back (2026-10-11, Chunk 6.7, user-feedback batch): the AI call
   // is paid for, and Back used to throw the whole extraction away. Held in sessionStorage (this tab
   // only), cleared on save; capture.js offers it back as "Unsaved import — Continue / Discard".
   var PENDING_KEY = "capture-pending-import";
@@ -132,9 +132,9 @@
     proteinInput.value = captureResult.protein || "";
     card.appendChild(labeledField("Protein (optional)", proteinInput));
 
-    // Source provenance (Chunk 3.7). A URL capture already carries source_url through
+    // Source provenance (Chunk 3.7, recipe source URL / cookbook reference). A URL capture already carries source_url through
     // captureResult, so only the by-hand cookbook name/page are collected here — most
-    // relevant for a photographed cookbook page. See CLAUDE.md > Recipe Capture >
+    // relevant for a photographed cookbook page. See docs/recipe-capture.md > Recipe Capture >
     // Source provenance on the review screen.
     var sourceBookInput = el("input");
     sourceBookInput.type = "text";
@@ -148,7 +148,7 @@
     notesInput.rows = 3;
     card.appendChild(labeledField("Notes (optional)", notesInput));
 
-    // Draft autosave (Chunk 6.2 kickoff decision #12) — one global slot, not per-capture:
+    // Draft autosave (Chunk 6.2 Phase 6 decision: draft autosave on forms) — one global slot, not per-capture:
     // a household captures one recipe at a time in practice, and there's no stable id to
     // key on until it's actually saved. Recipe-level fields only, same as recipe-form.js/
     // recipe-edit.js — not the dynamic ingredient list built further down.
@@ -277,7 +277,7 @@
           rowEl.appendChild(miniField("Preparation", prepI));
           rowEl.appendChild(miniField("Section", sectionI));
           rowEl.appendChild(global.UnitHints.attach(nameI, unitI)); // 2026-09-12, see unit-hints.js
-          rowEl.appendChild(global.IngredientNameHints.attach(nameI)); // Fix 4, see ingredient-name-hints.js
+          rowEl.appendChild(global.IngredientNameHints.attach(nameI)); // Fix 4 (as-you-type name hint), see ingredient-name-hints.js
           var removeRow = el("div", "log-controls");
           removeRow.style.marginTop = "8px";
           removeRow.appendChild(removeBtn);

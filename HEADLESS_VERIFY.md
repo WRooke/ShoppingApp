@@ -46,8 +46,8 @@ dir, **never** in the repo. Nothing here gets committed except `scripts/cdp.py` 
 - Always override `DATABASE_PATH`, `LOGS_PATH`, `IMAGES_PATH` to a scratch location. The
   default is the real `data/mealplanner.db`.
 - `AI_EXTRACTION_FAKE_MODE=true` — capture flows return canned fixtures, zero key, zero cost
-  (CLAUDE.md > Security §0c). Never set `AI_EXTRACTION_ENABLED`. (Both were renamed from
-  `CLAUDE_API_*` at Phase 3.9 M1 — see CLAUDE.md > AI Provider Migration.)
+  (docs/security.md > API enable switch). Never set `AI_EXTRACTION_ENABLED`. (Both were renamed from
+  `CLAUDE_API_*` at Phase 3.9 M1 — see docs/recipe-capture.md > AI Provider Migration.)
 - Pick a port Plex/other stuff won't have (8099 is fine). Set `ALLOWED_ORIGINS` to match.
 - `data/mealplanner.db` is the working dev DB — leave it alone. If a check needs seed
   recipes, create them through the API against the scratch server.

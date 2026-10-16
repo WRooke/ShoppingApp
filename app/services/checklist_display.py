@@ -3,7 +3,7 @@
 **History.** 2026-09-27: the checklist showed "8 chicken thigh" (the matching key) where a real
 quantity makes the plural natural, so this module pluralised "count nouns", deciding countability
 from whether the ingredient had ever been recorded with a bare count (``unit IS NULL``) anywhere
-in the alias group. **2026-10-06 (Chunk 6.7) replaced that** — it produced "salts", "parmesans",
+in the alias group. **2026-10-06 (Chunk 6.7, user-feedback batch) replaced that** — it produced "salts", "parmesans",
 "vegetable oils" (one stray NULL-unit "salt" row, or one "oil spray" row elsewhere in the alias
 group, made a whole group "countable") while leaving always-measured plural nouns singular
 ("black bean", "cashew nut", "corn chip", "salted peanut"). See docs/ingredient-handling.md >

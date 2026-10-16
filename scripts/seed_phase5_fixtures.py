@@ -2,12 +2,11 @@
 
 Creates ``data/phase5-test.db`` (or ``--database <path>``) with:
   * the full schema (``Base.metadata.create_all`` — the fresh-DB fast path)
-  * the app's own idempotent reference data (staples incl. "olive oil";
-    ~30 product_units incl. "beef mince" 500g pack; section vocabulary)
+  * the app's own idempotent reference data (~30 product_units incl. "beef mince" 500g pack; section vocabulary)
   * three manual recipes tailored to the test plan's Setup section:
       - "P5 — Milk & Passata"   : milk 1 L (matches the fake AnyList list) + passata 400 g
-      - "P5 — Beef & Oil"       : beef mince 500 g (seeded pack) + olive oil 2 tbsp (a staple)
-      - "P5 — Cream Conflict"   : cream 100 g + cream 200 ml in ONE recipe -> a Chunk 4.6
+      - "P5 — Beef & Oil"       : beef mince 500 g (seeded pack) + olive oil 2 tbsp
+      - "P5 — Cream Conflict"   : cream 100 g + cream 200 ml in ONE recipe -> a Chunk 4.6 (consolidation and pack-size resolution)
                                   irreconcilable-units (`needs_review`) line at consolidation
 
 Idempotent: re-running skips recipes that already exist by name. ``--reset`` deletes the

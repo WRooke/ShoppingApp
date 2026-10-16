@@ -1,9 +1,9 @@
 """Pydantic request/response models for the planning-session API (Phase 4).
 
 Kept separate from the SQLAlchemy ORM in app/models/planning.py on purpose — see
-CLAUDE.md > Code Architecture & Maintainability. A session holds ordered *slots*
+docs/code-architecture.md > Code Architecture & Maintainability. A session holds ordered *slots*
 (`session_recipes` rows): each slot is either a real recipe or a non-recipe
-"leftovers" marker that pulls nothing into consolidation (CLAUDE.md > Data Model >
+"leftovers" marker that pulls nothing into consolidation (docs/data-model.md > Data Model >
 session_recipes).
 """
 
@@ -85,7 +85,7 @@ class PlanningSessionListResponse(BaseModel):
 
 class SessionRecipeCreate(BaseModel):
     """Add a real recipe to a session. `scaled_servings` defaults to the household
-    target (DEFAULT_TARGET_SERVINGS) when omitted — see CLAUDE.md > Scaling Logic."""
+    target (DEFAULT_TARGET_SERVINGS) when omitted — see docs/scaling-and-consolidation.md > Scaling Logic."""
 
     recipe_id: int
     day_of_week: int | None = Field(None, ge=1, le=7)
@@ -115,10 +115,10 @@ class SlotOrderUpdate(BaseModel):
     ordered_ids: list[int] = Field(..., min_length=1)
 
 
-# --- consolidation (Chunk 4.6) --------------------------------------------
+# --- consolidation (Chunk 4.6, consolidation and pack-size resolution) --------------------------------------------
 
 
-# SessionOverride / ConsolidateRequest removed 2026-09-30 (chunk 7.5) — the ad-hoc,
+# SessionOverride / ConsolidateRequest removed 2026-09-30 (the checklist ingredient panel work) — the ad-hoc,
 # session-only ingredient substitute used to be held client-side and sent in on every
 # consolidate call; it's now a real `session_ingredient_merges` (kind='substitute') row,
 # written via the checklist panel's own endpoint (routers/checklist.py) and read internally by
@@ -171,7 +171,7 @@ class ChecklistItemRead(BaseModel):
     # 2026-09-11 — NOT a session_checklist_items column; always [] straight out of
     # model_validate(row) (pydantic falls back to the default when the ORM object has no such
     # attribute). The consolidate endpoint fills this in per-item afterwards via model_copy —
-    # see routers/sessions.py and CLAUDE.md > "Which recipe is this ingredient from".
+    # see routers/sessions.py and docs/scaling-and-consolidation.md > "Which recipe is this ingredient from".
     recipe_breakdown: list["RecipeContribution"] = Field(default_factory=list)
 
 
@@ -191,9 +191,9 @@ class ReviewOptionRead(BaseModel):
 
 class RecipeContribution(BaseModel):
     """One recipe slot's contribution to a consolidated ingredient-review line — 2026-09-11,
-    CLAUDE.md > "Which recipe is this ingredient from". Ephemeral: computed fresh on every
+    docs/scaling-and-consolidation.md > "Which recipe is this ingredient from". Ephemeral: computed fresh on every
     consolidate pass, never persisted to session_checklist_items — not needed in shopping
-    history. **2026-09-30 (chunk 7.3):** no longer review-screen-only — the now-deleted Review
+    history. **2026-09-30 (the checklist re-consolidating on load):** no longer review-screen-only — the now-deleted Review
     screen's breakdown toggle moved onto Checklist rows, which attaches this the same way
     routers/sessions.py's own consolidate endpoint always has (see routers/checklist.py's
     GET /{session_id})."""

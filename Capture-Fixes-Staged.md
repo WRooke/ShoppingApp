@@ -1,7 +1,12 @@
 # Capture fixes — staged bundle
 
+**Read this first:** this is a finished work order (done 2026-09-07), kept as a record of five problems
+found while hand-testing recipe import and how each was fixed. "Staged" means the five fixes were
+written up together before being built. Nothing in it is waiting to be done except one real-Gemini re-check
+(see "Still open" below).
+
 Source: `Capture-Notes.txt` (hand-testing notes on the Phase 3.9 Gemini capture flow).
-**Status: Implemented 2026-09-07** (all 5 issues) — ahead of the M-review, at the
+**Status: Implemented 2026-09-07** (all 5 issues) — ahead of the Phase 3.9 end-of-migration review, at the
 maintainer's request, rather than waiting. Prompt/schema/frontend changes as specced below,
 built as-is with no changes to the plan. CLAUDE.md's extraction-prompt block, "After
 extraction", the "Ingredient Substitution Flagging" merged spec (issue 4's note tightening),
@@ -10,7 +15,7 @@ bring-forward recommendation) were all updated in place. Fake fixtures + offline
 updated (`tests/services/test_ai_extraction.py`, `tests/services/test_capture_url.py`) —
 suite stays green, no real Gemini call made. **Still open, per the original plan:**
 re-verify title/servings/canonicalisation/note-length/"to serve" against a real Gemini
-response, only under a fresh §0c go-ahead — piggyback on the M-review's live check rather
+response, only under a fresh API-enable-switch approval — piggyback on the Phase 3.9 end-of-migration review's live check rather
 than spending a call solely for this.
 
 Issues 1, 2, 4, 5 are essentially one edit to `app/services/ai_extraction.py` (prompt +
@@ -37,12 +42,12 @@ field. Frontend never populates them — [`static/js/capture-review.js:58-71`](s
 | `app/schemas/capture.py` | Add `title: str \| None` and `servings: int \| None` to `CaptureResult`. |
 | `app/routers/recipes.py` | `_capture_result()` passes `result.title` / `result.servings` through. |
 | `static/js/capture-review.js` | Pre-fill `nameInput.value = captureResult.title || ""` and `servingsInput.value = captureResult.servings || 4`. Both stay editable. |
-| `app/services/capture_url.py` | **Belt-and-braces, no AI / no §0a cost:** parse `<title>` / `<meta property="og:title">` / first `<h1>` from the fetched HTML and pass as a fallback title to `capture_recipe()` (new kwarg, used only when the AI title comes back null). |
+| `app/services/capture_url.py` | **Second, independent safeguard — uses no AI call, so it adds no prompt-injection surface:** parse `<title>` / `<meta property="og:title">` / first `<h1>` from the fetched HTML and pass as a fallback title to `capture_recipe()` (new kwarg, used only when the AI title comes back null). |
 
-**§0a note (CLAUDE.md > Security §0a):** `title` is untrusted free text, but it is displayed
+**Security > Prompt injection hardening note (docs/security.md > Prompt injection hardening):** `title` is untrusted free text, but it is displayed
 and fully editable on the review screen before anything is saved — same blast radius as the
 ingredient `name` field, which is already accepted. `servings` is Pydantic-validated
-`int >= 1`. Low added risk; one sentence in CLAUDE.md > Recipe Capture is enough.
+`int >= 1`. Low added risk; one sentence in docs/recipe-capture.md > Recipe Capture is enough.
 
 **No migration** — `recipes.name` and `recipes.base_servings` already exist.
 
@@ -59,8 +64,7 @@ one line; a staple named non-canonically (`cooking salt`) misses the `salt` stap
 wrongly lands on the shopping list.
 
 **Root cause:** two gaps.
-- (a) `EXTRACTION_SYSTEM_PROMPT` never applies canonical forms, even though CLAUDE.md >
-  Ingredient Normalisation already *specifies* some (`"beef mince"` not `"minced beef"`,
+- (a) `EXTRACTION_SYSTEM_PROMPT` never applies canonical forms, even though docs/ingredient-handling.md > Ingredient Normalisation already *specifies* some (`"beef mince"` not `"minced beef"`,
   `"spring onion"` not `"green onion"`). They were never put in the prompt.
 - (b) Consolidation (`services/consolidation.py`) and staple detection
   (`services/sessions.py` `consolidate_session`) match on the exact normalised name.
@@ -94,7 +98,7 @@ Prompt wording sketch:
 post-extraction in `create_recipe_from_capture` **and** in `consolidate_session`'s
 effective-name step would also fix manually-typed recipes and give consistent staple
 matching. That is the **"Ingredient synonym normalisation (automatic)"** row in
-CLAUDE.md > Deferred Decisions (currently *"Phase 6 or later"*). Recommend pulling it into
+docs/deferred-decisions.md > Deferred Decisions (currently *"Phase 6 or later"*). Recommend pulling it into
 Phase 5/6 as a **Settings-managed alias table** (user-editable, seeded with the salt group),
 with the same dried/fresh caution baked into the seed. Not building it now.
 
@@ -155,7 +159,7 @@ serving suggestions" line.
 2. Update the fake fixtures and `tests/services/test_ai_extraction.py` (title/servings
    present, verbose note nulled, "to serve" fixture ingredient) — stays fully offline.
 3. Issue 3 minimal (prompt) rides in the same commit. Add the deferred-decision note about
-   the Settings alias table to CLAUDE.md > Deferred Decisions.
-4. Re-verify with a real Gemini call **only** under a fresh §0c go-ahead (piggyback on the
-   M-review's live check if one is being done anyway).
+   the Settings alias table to docs/deferred-decisions.md > Deferred Decisions.
+4. Re-verify with a real Gemini call **only** under a fresh API-enable-switch approval (piggyback on the
+   the Phase 3.9 end-of-migration review's live check if one is being done anyway).
 5. Update the `⚠️`-free CLAUDE.md sections listed under each issue.

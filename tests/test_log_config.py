@@ -1,5 +1,5 @@
-"""Tests for app/log_config.py's WinError 10054 noise filter — see CLAUDE.md > Diagnostics &
-Logging and docs/diagnostics-and-logging.md. Diagnostics chunk 7.7, 5d.
+"""Tests for app/log_config.py's WinError 10054 noise filter — see docs/diagnostics-and-logging.md
+(Status page work from the Chunk 6.7 user-feedback batch).
 
 Exercises `_WinsockResetNoiseFilter` directly rather than round-tripping a real socket error,
 since triggering an actual Proactor WSAECONNRESET deterministically in a test is impractical —

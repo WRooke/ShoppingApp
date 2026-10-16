@@ -1,6 +1,6 @@
 """Pydantic models for "the usuals" — recurring non-recipe household items (Phase 5
-Chunk 5.4). Same CRUD shape as product_units; adds ``cadence_days`` and the read-only
-``last_added_at`` / ``is_due``. See CLAUDE.md > Data Model > usual_items.
+Chunk 5.4 (The usuals)). Same CRUD shape as product_units; adds ``cadence_days`` and the read-only
+``last_added_at`` / ``is_due``. See docs/data-model.md > Data Model > usual_items.
 """
 
 from __future__ import annotations

@@ -5,15 +5,15 @@ Revises: 9b903c88b3aa
 Create Date: 2026-09-06 16:58:50.468499
 
 Phase 4 Chunk 4.1 — schema groundwork only, no behaviour wired to it yet. Three changes,
-each from an already-decided Data Model note in CLAUDE.md:
+each from an already-decided note in docs/data-model.md:
 
   * ``session_recipes`` — ``recipe_id`` becomes nullable and a ``slot_type`` flag is added
     ('recipe' | 'leftovers'), so a session slot can be a non-recipe "leftovers" marker that
-    contributes nothing to consolidation. See CLAUDE.md > Data Model > session_recipes.
+    contributes nothing to consolidation. See docs/data-model.md > Data Model > session_recipes.
   * ``product_units`` — uniqueness moves from ``ingredient_name`` alone to
     (ingredient_name, purchase_label): one ingredient can have several pack-size rows. See
-    CLAUDE.md > Data Model > product_units and > Scaling Logic > Purchase unit resolution.
-  * ``ingredient_substitutions`` — new table (schema already in CLAUDE.md > Data Model).
+    docs/data-model.md > Data Model > product_units and > Scaling Logic > Purchase unit resolution.
+  * ``ingredient_substitutions`` — new table (schema already in docs/data-model.md > Data Model).
 
 ``slot_type`` is added with a temporary ``server_default='recipe'`` purely to backfill
 existing rows during the SQLite batch table-copy, then the default is dropped so the column

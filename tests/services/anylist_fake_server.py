@@ -1,5 +1,5 @@
 """A stateful fake of AnyList's server for httpx.MockTransport — the test double behind the push
-matrix, fault-injection and fuzz suites (Chunk 6.7; see docs/anylist-push.md > Test map).
+matrix, fault-injection and fuzz suites (Chunk 6.7, user-feedback batch; see docs/anylist-push.md > Test map).
 
 It models what the spike and the live TestList runs actually established, NOT an idealised
 server (docs/build-status/anylist-fault-finding-spike.md):

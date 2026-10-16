@@ -1,11 +1,11 @@
-"""baseline schema (Phase 1 through Chunk 3.5 tables)
+"""baseline schema (Phase 1 through Chunk 3.5, diagnostics wiring tables)
 
 Revision ID: bf3919bfcbd9
 Revises:
 Create Date: 2026-09-06 16:14:36.948616
 
-Alembic bootstrap baseline — see CLAUDE.md > Code Architecture & Maintainability > Migrations
-and > Build Phases > Phase 3 > Chunk 3.7a. This reproduces the exact schema that
+Alembic bootstrap baseline — see docs/code-architecture.md > Code Architecture & Maintainability > Migrations
+and > Build Phases > Phase 3 > Chunk 3.7a (Alembic bootstrap). This reproduces the exact schema that
 ``Base.metadata.create_all()`` built through Chunk 3.5 (every table added by whole-table
 changes only). Existing databases (the dev DB, any backup restore) are marked current with
 ``alembic stamp head`` rather than run through this — ``upgrade`` from empty is only for a

@@ -1,6 +1,6 @@
 """ORM models. Importing this package registers every table on ``Base.metadata``.
 
-One module per table group (see CLAUDE.md > Data Model).
+One module per table group (see docs/data-model.md > Data Model).
 """
 
 from app.models.catalog import (

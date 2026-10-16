@@ -1,8 +1,8 @@
 /* Shared row-delete behaviour for every Settings card — Phase 6 Chunk 6.4 (see
-   docs/build-status/phase-6-polish.md kickoff decisions #2/#9). All 6 cards (product units,
+   docs/build-status/phase-6-polish.md Phase 6 decision: Undo on delete and one shared set of row actions). All 6 cards (product units,
    substitutions, usuals, ingredient aliases, unit synonyms, coarse ingredients) follow the
    identical "list of editable rows" shape, so this is the "one
-   reusable wiring applied consistently" the kickoff decision asked for, rather than six
+   reusable wiring applied consistently" the Phase 6 plan asked for, rather than six
    near-identical copies.
 
    Two things this buys, in one place: an in-place DOM removal instead of the old
@@ -58,7 +58,7 @@
     });
   }
 
-  // After an in-place delete, keep what is on screen true (2026-10-11, Chunk 6.7): a group card
+  // After an in-place delete, keep what is on screen true (2026-10-11, Chunk 6.7, user-feedback batch): a group card
   // whose last row went is removed and the others' counts are updated; a sub-group heading with no
   // rows left is removed; an emptied list shows its empty state again. No reload, so scroll and
   // any unsaved typing elsewhere on the page are untouched.

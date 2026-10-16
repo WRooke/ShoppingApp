@@ -1,5 +1,5 @@
-"""Unit-spelling canonicalisation (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling >
-Layer A). Fixes the actual bug hand-testing surfaced: "clove" and "cloves", or "g" and
+"""Unit-spelling canonicalisation (2026-09-12 — see docs/ingredient-handling.md > Ingredient Unit Handling >
+Layer A (unit spellings)). Fixes the actual bug hand-testing surfaced: "clove" and "cloves", or "g" and
 "grams", were treated as genuinely different units and landed in different, unmergeable
 consolidation buckets — not a vocabulary-restriction problem, a plain reconciliation bug.
 
@@ -26,7 +26,7 @@ de-duplicate its results anyway — putting it here keeps the unit theme in one 
 than pushing `recipes.py` past the file-size guideline for a query that's arguably more
 about units than about recipes.
 
-``learn_new_units()`` (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling > Admin
+``learn_new_units()`` (2026-09-12 — see docs/ingredient-handling.md > Ingredient Unit Handling > Admin
 reduction) closes the loop on the remaining manual admin for this table: a genuinely
 never-before-seen unit spelling gets one on-demand classification call
 (``ai_extraction.classify_units()``) asking only whether it's a same-magnitude variant of a
@@ -206,13 +206,13 @@ def known_units_for_ingredient(db: Session, name: str) -> list[str]:
     """Units already used for this ingredient (pooled across its alias group), most-
     frequently-used first, each already canonicalised through ``resolve_unit`` — so "grams"
     and "g" already show up as one entry, "g", not two. Zero admin: a plain query over
-    ``recipe_ingredients``, no new table (CLAUDE.md > Ingredient Unit Handling > Layer B).
+    ``recipe_ingredients``, no new table (docs/ingredient-handling.md > Ingredient Unit Handling > Layer B).
     Surfaced as quick-pick buttons on the unit input in manual entry / editing / capture
-    review, and as the comparison set for the Layer C duplicate-unit nudge.
+    review, and as the comparison set for the Layer C (duplicate-unit hint).
 
     2026-09-27 — matched in Python against the *normalised* name, not via a SQL
     ``RecipeIngredient.name.in_(names)`` filter: ``recipe_ingredients.name`` is deliberately
-    NEVER rewritten through ``text_normalize`` (CLAUDE.md > Ingredient Normalisation — a
+    NEVER rewritten through ``text_normalize`` (docs/ingredient-handling.md > Ingredient Normalisation — a
     recipe's own detail page always shows exactly what it said), so a raw stored name can
     differ in shape (plural, hyphenated) from the normalised group names `alias_group_names`
     now returns. Household-scale data, so a full table scan here is cheap."""
@@ -246,7 +246,7 @@ def learn_new_units(
     context_id: str | None = None,
 ) -> None:
     """Best-effort, on-demand classification of never-before-seen unit spellings against the
-    app's standard unit set — see CLAUDE.md > Ingredient Unit Handling > Admin reduction.
+    app's standard unit set — see docs/ingredient-handling.md > Ingredient Unit Handling > Admin reduction.
     Called after an ingredient save (manual entry, editing, or a capture-review edit) with
     whichever raw `unit` value(s) it introduced.
 
@@ -254,7 +254,7 @@ def learn_new_units(
     resolve to a standard unit via ``strip_plural()``/the existing synonym map, AND (b) has
     never appeared as any ``recipe_ingredients.unit`` value anywhere before
     (``exclude_ingredient_ids`` excludes the row(s) just saved, so they don't count as their
-    own prior use). Condition (b) is load-bearing: a real, established discrete unit
+    own prior use). Condition (b) is the essential one: a real, established discrete unit
     ("clove", "bunch", "pinch", ...) only ever gets classified **once**, the first time it's
     ever typed anywhere in the app — the moment that first (correctly negative)
     classification happens it becomes an "already-used" unit like any other and is never
@@ -299,7 +299,7 @@ def learn_new_units(
         return
 
     # Deferred import: this is the only function in this module that talks to the network,
-    # and only ai_extraction.py knows about §0c (AI_EXTRACTION_ENABLED/FAKE_MODE) -- keeping
+    # and only ai_extraction.py knows about Security > API enable switch (AI_EXTRACTION_ENABLED/FAKE_MODE) -- keeping
     # the import local avoids paying for it on every ordinary ingredient save where nothing
     # novel was typed (the overwhelmingly common case).
     from app.services import ai_extraction
@@ -315,7 +315,7 @@ def learn_new_units(
         # nothing more to add here beyond noting the unit stays unclassified.
         logger.info("learn_new_units: classification skipped for %s (%s)", novel, exc)
         return
-    except Exception:  # belt-and-braces -- this must never break a recipe/ingredient save
+    except Exception:  # second safeguard -- this must never break a recipe/ingredient save
         logger.warning("learn_new_units: unexpected failure classifying %s", novel, exc_info=True)
         return
 

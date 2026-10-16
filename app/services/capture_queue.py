@@ -1,4 +1,4 @@
-"""The recipe-capture retry queue (Phase 3.9 M3).
+"""The recipe-capture retry queue (Phase 3.9 M3 = fallback chain and capture queue).
 
 A capture AI call that hits 429 on *both* Gemini models
 (``ai_extraction.AiQuotaExhaustedError``) is parked here instead of failing the user's
@@ -10,7 +10,7 @@ Task types and how ``run_once`` handles each:
     recipe (placeholder name — the user renames/reviews it later) and, if section
     suggestion is still owed, enqueue a ``suggest_sections`` follow-up + set the badge.
   * ``suggest_sections`` — retry the call for the saved ``recipe_id``, tag
-    ``product_sections``, clear ``recipes.ai_tasks_pending`` (M6).
+    ``product_sections``, clear ``recipes.ai_tasks_pending`` (M6 = Pending AI processing badge).
 A task still over quota is kept (``record_attempt``) and retried next hour; any other error
 is logged and the task is kept too.
 
@@ -43,7 +43,7 @@ from app.services import recipes as recipes_service
 
 logger = logging.getLogger(__name__)
 
-# How often the lifespan poller (app.main) calls run_once(). ~hourly — CLAUDE.md > AI
+# How often the lifespan poller (app.main) calls run_once(). ~hourly — docs/recipe-capture.md > AI
 # Provider Migration deliberately does NOT tie retries to an assumed quota reset time.
 POLL_INTERVAL_SECONDS = 3600
 
@@ -228,7 +228,7 @@ def run_once(db: Session) -> dict:
                 "capture_queue: task=%s id=%s failed on retry (attempt %d): %s: %s",
                 item.task, item.id, item.attempt_count + 1, type(exc).__name__, exc, exc_info=True,
             )
-            db.rollback()  # a failed commit mid-task must not poison record_attempt below
+            db.rollback()  # a failed commit mid-task must not leave the session in a failed state for record_attempt below
             record_attempt(db, item, error=f"{type(exc).__name__}: {exc}"[:500])
             summary["still_queued"] += 1
     if summary["processed"]:

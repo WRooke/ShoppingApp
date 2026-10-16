@@ -1,4 +1,4 @@
-"""recipes.ai_tasks_pending (Phase 3.9 M6)
+"""recipes.ai_tasks_pending (Phase 3.9 M6 = Pending AI processing badge)
 
 Revision ID: 15b1aab757ac
 Revises: b6e557ca6088
@@ -6,7 +6,7 @@ Create Date: 2026-09-06
 
 One nullable TEXT column on ``recipes`` — a JSON array of still-outstanding AI capture
 sub-tasks (currently only ``["suggest_sections"]``), NULL / "[]" meaning nothing pending.
-Drives the "Pending AI processing" badge. See CLAUDE.md > Data Model > recipes and
+Drives the "Pending AI processing" badge. See docs/data-model.md > Data Model > recipes and
 > AI Provider Migration (M6).
 """
 from typing import Sequence, Union

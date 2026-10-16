@@ -1,5 +1,5 @@
 """Unit tests for app/services/settings.py — exercised directly against a DB
-session, no FastAPI/HTTP involved (see CLAUDE.md > Code Architecture &
+session, no FastAPI/HTTP involved (see docs/code-architecture.md > Code Architecture &
 Maintainability). Router-level behaviour is covered separately by
 tests/routers/test_settings.py.
 """
@@ -38,7 +38,7 @@ def db():
         # happens to run -- which pytest's own unraisable-exception check (via an
         # explicit gc.collect()) turns into a `ResourceWarning: unclosed database`
         # attributed to some unrelated, later test. See pytest.ini's `filterwarnings
-        # = error` and CLAUDE.md > Code Architecture > "keep comments true".
+        # = error` and docs/code-architecture.md > Code Architecture > "keep comments true".
         session.close()
         engine.dispose()
 
@@ -66,8 +66,8 @@ def test_create_product_unit_normalises_name_and_defaults_not_preseeded(db):
 
 
 def test_create_product_unit_duplicate_ingredient_and_label_raises(db):
-    # Phase 4 (Chunk 4.1): uniqueness is (ingredient_name, purchase_label), so it's the
-    # exact pack that must be unique — see CLAUDE.md > Data Model > product_units.
+    # Phase 4 (Chunk 4.1, planning-engine migrations): uniqueness is (ingredient_name, purchase_label), so it's the
+    # exact pack that must be unique — see docs/data-model.md > Data Model > product_units.
     settings_service.create_product_unit(db, _make_product_unit())
 
     with pytest.raises(settings_service.DuplicateProductUnitNameError):

@@ -1,10 +1,10 @@
 """URL-based recipe capture — fetch the page, extract readable text, hand it to Claude.
 
-See CLAUDE.md > Recipe Capture — AI Extraction > URL capture flow. Plain Python /
-httpx / BeautifulSoup only, no `fastapi` import — see CLAUDE.md > Code Architecture &
+See docs/recipe-capture.md > Recipe Capture — AI Extraction > URL capture flow. Plain Python /
+httpx / BeautifulSoup only, no `fastapi` import — see docs/code-architecture.md > Code Architecture &
 Maintainability. Never executes anything derived from the fetched page — it's parsed as
-text only and handed to `ai_extraction`, which treats it as untrusted data (see CLAUDE.md >
-Security §0a and §4).
+text only and handed to `ai_extraction`, which treats it as untrusted data (see docs/security.md > Prompt injection hardening
+and > App-level protections).
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ ACCEPT_HEADERS = {
 }
 
 # Prefer these elements' text over the whole page — cuts down nav/ad/footer noise before it
-# ever reaches Claude. See CLAUDE.md > Recipe Capture > URL capture flow.
+# ever reaches Claude. See docs/recipe-capture.md > Recipe Capture > URL capture flow.
 PREFERRED_SELECTORS = ["article", "main", "[class*=recipe]", "[class*=ingredient]"]
 
 # Stripped outright regardless of which selector matched — never genuinely recipe content.
@@ -75,7 +75,7 @@ def _extract_text(html: str) -> str:
     """Best-effort readable text from a recipe page. Falls back to the whole page's text if
     none of the preferred selectors match anything — still safe to send on, since
     ai_extraction wraps it in the untrusted-content delimiter and enforces a length cap
-    regardless of how it was extracted (see CLAUDE.md > Security §0a)."""
+    regardless of how it was extracted (see docs/security.md > Prompt injection hardening)."""
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup.find_all(_NOISE_TAGS):
         tag.decompose()
@@ -154,10 +154,10 @@ def fetch_and_extract(
     with call_type='recipe_url'. Raises RecipeFetchError on fetch failure; extraction-side
     errors (spend cap, disabled, unparseable response) propagate from ai_extraction as-is.
     If the AI didn't return a title, falls back to one parsed straight from the page's own
-    HTML (see _extract_title) — belt-and-braces, no extra AI cost.
+    HTML (see _extract_title) — a second safeguard that costs no extra AI call.
 
     `progress_token`, when given, is forwarded to capture_recipe() for the real-step capture
-    progress UI (CLAUDE.md > UI/UX) — the fetch itself has no separate tracked step, since a
+    progress UI (docs/ui-ux.md > UI/UX) — the fetch itself has no separate tracked step, since a
     slow/blocked page fetch surfaces as a plain RecipeFetchError before any step is even
     started, same as today."""
     shown = loggable_url(url)

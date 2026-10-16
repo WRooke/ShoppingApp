@@ -1,5 +1,4 @@
-/* Draft autosave — Phase 6 Chunk 6.2 (see docs/build-status/phase-6-polish.md kickoff
-   decision #12). A `localStorage` draft of a form's recipe-level fields, surviving a
+/* Draft autosave — Phase 6 Chunk 6.2 (see docs/build-status/phase-6-polish.md, the smoothness decisions). A `localStorage` draft of a form's recipe-level fields, surviving a
    killed/reloaded phone tab (common when backgrounding for a while mid-edit). Scoped to
    the top-level fields only (name, servings, cuisine, protein, source, notes) — the dynamic
    ingredient list is deliberately not drafted: restoring a variable-length list of rows
@@ -59,7 +58,7 @@
       var restoredAny = false;
       Object.keys(fields).forEach(function (name) {
         // `in`, not truthiness: a field the user deliberately CLEARED is saved as "" and must
-        // restore as empty, not fall back to the server's old value (2026-10-11, Chunk 6.7).
+        // restore as empty, not fall back to the server's old value (2026-10-11, Chunk 6.7, user-feedback batch).
         if (Object.prototype.hasOwnProperty.call(data, name) && typeof data[name] === "string") {
           fields[name].value = data[name];
           if (data[name]) restoredAny = true; // "restored" notes only announce real text

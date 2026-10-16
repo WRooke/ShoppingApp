@@ -1,4 +1,4 @@
-"""ai_call_log replaces api_usage + api_usage_resets (Phase 3.9 M5)
+"""ai_call_log replaces api_usage + api_usage_resets (Phase 3.9 M5 = diagnostics rework)
 
 Revision ID: b6e557ca6088
 Revises: 173367a2aab2
@@ -6,8 +6,8 @@ Create Date: 2026-09-06
 
 Gemini's free tier has no per-call dollar cost, so USD spend tracking goes away entirely:
 drop api_usage + api_usage_resets, add ai_call_log (one row per attempted Gemini call —
-task / model / outcome / token counts / error). No real data is lost — Chunk 3.6 never made
-a live call. See CLAUDE.md > Data Model > ai_call_log.
+task / model / outcome / token counts / error). No real data is lost — Chunk 3.6 (live AI verification) never made
+a live call. See docs/data-model.md > Data Model > ai_call_log.
 """
 from typing import Sequence, Union
 

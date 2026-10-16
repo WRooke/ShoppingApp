@@ -359,9 +359,9 @@
           { ordered_ids: orderedIds }
         );
       },
-      // consolidate() removed 2026-09-30 (chunk 7.5) — no remaining frontend caller.
+      // consolidate() removed 2026-09-30 (the checklist ingredient panel work) — no remaining frontend caller.
       // checklist.js's own load() (GET /checklist/{id}) now always re-consolidates itself
-      // first (chunk 7.3), so nothing needs to POST /sessions/{id}/consolidate directly any
+      // first (the checklist re-consolidating on load), so nothing needs to POST /sessions/{id}/consolidate directly any
       // more; the endpoint itself stays (still exercised by the backend test suite, still a
       // reasonable standalone API surface), just unused from the UI.
     },
@@ -423,7 +423,7 @@
       undoMerge: function (sessionId, data) {
         return jsonBody("POST", "/api/v1/checklist/" + encodeURIComponent(sessionId) + "/undo-merge", data);
       },
-      // Ingredient panel (2026-09-30, chunk 7.5) — each writes either a session-scoped "this
+      // Ingredient panel (2026-09-30, the checklist ingredient panel work) — each writes either a session-scoped "this
       // list only" edit or a permanent one, per `data.remember`. See routers/checklist.py.
       substitute: function (sessionId, itemId, data) {
         return jsonBody(

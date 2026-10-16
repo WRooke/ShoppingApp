@@ -8,14 +8,14 @@
    different product, confirmed per recipe, never silent. An alias is "X and Y are the same
    thing to my household" — no swap, no confirmation, no per-recipe record; it's applied
    silently, uniformly, and immediately to every recipe (past and future) at shopping-list
-   time. See CLAUDE.md > Ingredient Aliases.
+   time. See docs/ingredient-handling.md > Ingredient Aliases.
 
    Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
    delete instead of confirm(), and in-place DOM removal on delete instead of a full list
    rebuild (the scroll-position bug) — see settings-substitutions.js's header comment for
    why Add still rebuilds the whole list (same reasoning applies here).
 
-   2026-09-23 redesign (see CLAUDE.md > UI/UX, mockup-approved): the alias name is now a
+   2026-09-23 redesign (see docs/ui-ux.md > UI/UX, mockup-approved): the alias name is now a
    labelled, visibly-disabled field instead of a bare unexplained span, the 4-field
    equivalence pair sits under its own "Amount conversion" sub-heading so it reads as one
    concept, Delete is visually de-emphasised (a plain underlined text button) and separated
@@ -214,7 +214,7 @@
       },
     });
 
-    // Where a group came from (Chunk 6.7, mockups: popups.html #9): a small tag for built-in groups
+    // Where a group came from (Chunk 6.7, user-feedback batch, mockups: popups.html #9): a small tag for built-in groups
     // (migration-seeded, source "system") and for groups a checklist "merge every time" created
     // (source "merge"), so a learned merge can be told apart from one typed by hand (no tag).
     var nameLine = el("div");

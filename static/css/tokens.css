@@ -1,11 +1,11 @@
-/* Design tokens — Phase 6 Chunk 6.1 (see CLAUDE.md > UI / UX > Design direction, and
-   docs/build-status/phase-6-polish.md kickoff decisions #5/#9/#10/#12).
+/* Design tokens — Phase 6 Chunk 6.1 (see docs/ui-ux.md > UI / UX > Design direction, and
+   docs/build-status/phase-6-polish.md Phase 6 decision: the visual-refresh decisions).
 
    Colour, spacing, type and radius scales live here as CSS custom properties; every other
    stylesheet consumes them, never a literal hex/px. Split out of app.css because this file
    alone is already large once dark mode is included, and because "the tokens" are a distinct
    concern from "the components built from them" (components.css) and "screens not yet
-   migrated to either" (app.css) — see CLAUDE.md > Code Architecture > File size and scope
+   migrated to either" (app.css) — see docs/code-architecture.md > Code Architecture > File size and scope
    discipline.
 
    Legacy names kept as first-class tokens, not aliases-to-be-removed: --bg/--surface/--border/
@@ -15,7 +15,7 @@
    every untouched screen inherit the new palette and full dark-mode support for free, with zero
    edits to those files. New tokens (spacing/type scale, --accent-hover/--accent-tint, --surface-2,
    --border-strong, --text-faint, --focus, --shadow-*) are additions Chunks 6.1's own new
-   components need and Chunks 6.2-6.4 will draw on as they migrate their own screens. */
+   components need and Chunks 6.2 (recipe and import screen design)-6.4 will draw on as they migrate their own screens. */
 
 @font-face {
   font-family: "IBM Plex Sans";
@@ -114,7 +114,7 @@
 /* --- colour: dark ---
    Guarded two ways per the standard three-state pattern (system/light/dark):
    - prefers-color-scheme covers the un-stamped "System" default (no data-theme attribute)
-   - [data-theme="dark"] covers an explicit choice, once Chunk 6.4 ships the toggle, and wins
+   - [data-theme="dark"] covers an explicit choice, once Chunk 6.4 (Settings and Status restructure) ships the toggle, and wins
      over prefers-color-scheme either way (a later, more specific rule) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

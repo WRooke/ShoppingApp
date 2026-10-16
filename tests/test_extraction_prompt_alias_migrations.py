@@ -1,12 +1,12 @@
-"""Migration tests for Fix 2 (aliases feed the extraction prompt) — F2.1 (the
-`ingredient_aliases.source` column) and F2.2 (seeding the 3 legacy system alias groups).
+"""Migration tests for Fix 2 (aliases feed the extraction prompt) — the alias source-column migration (the
+`ingredient_aliases.source` column) and the legacy alias seed migration (seeding the 3 legacy system alias groups).
 
 Same `alembic upgrade` -> temp SQLite DB pattern as `test_ingredient_name_backfill_migration.py`
-(Fix 1's own migration tests). CLAUDE.md non-negotiable rule 3 (data loss on prod is never
-acceptable): F2.1 asserts row count is unchanged and every existing row's other columns are
-byte-identical; F2.2 is a deliberate, documented exception (it *adds* rows) and asserts the
+(Fix 1 = shared name-matching key's own migration tests). The never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules) (data loss on prod is never
+acceptable): The alias source-column migration asserts row count is unchanged and every existing row's other columns are
+byte-identical; the legacy alias seed migration is a deliberate, documented exception (it *adds* rows) and asserts the
 count increases by exactly the number of rows it seeds, never decreases, per the
-ingredient-name-matching plan's Testing & Verification section.
+ingredient-name matching work's Testing & Verification section.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ from app import config as app_config
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-_PRE_F21 = "bcaf5b44af53"  # chain tip as of Fix 1 (F1.5), just before F2.1
-_F21_HEAD = "092f6bb91c9c"  # F2.1 — ingredient_aliases.source column
-_F22_HEAD = "62a354151f0d"  # F2.2 — seed the 3 legacy system alias groups
+_PRE_F21 = "bcaf5b44af53"  # chain tip as of Fix 1 (the normalisation backfill migration), just before the alias source-column migration
+_F21_HEAD = "092f6bb91c9c"  # The alias source-column migration — ingredient_aliases.source column
+_F22_HEAD = "62a354151f0d"  # The legacy alias seed migration — seed the 3 legacy system alias groups
 
 _EXPECTED_SYSTEM_PAIRS = {
     ("table salt", "salt"),
@@ -67,7 +67,7 @@ def _row_count(conn, table: str) -> int:
     return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 
-# --- F2.1: ingredient_aliases.source column ------------------------------------------
+# --- the alias source-column migration: ingredient_aliases.source column ------------------------------------------
 
 
 def test_source_column_added_with_user_default_no_data_loss(conn_factory, monkeypatch):
@@ -96,7 +96,7 @@ def test_source_column_added_with_user_default_no_data_loss(conn_factory, monkey
 
     conn = connect()
     try:
-        assert _row_count(conn, "ingredient_aliases") == before_count  # rule 3 — no data loss
+        assert _row_count(conn, "ingredient_aliases") == before_count  # The never-lose-production-data rule — no data loss
         after = dict(
             conn.execute(
                 "SELECT id, alias_name, canonical_name, note, source FROM ingredient_aliases "
@@ -112,7 +112,7 @@ def test_source_column_added_with_user_default_no_data_loss(conn_factory, monkey
         conn.close()
 
 
-# --- F2.2: seed the 3 legacy system alias groups (7 rows) ----------------------------------
+# --- the legacy alias seed migration: seed the 3 legacy system alias groups (7 rows) ----------------------------------
 
 
 def test_seeds_exactly_the_7_expected_system_rows(conn_factory, monkeypatch):
@@ -130,7 +130,7 @@ def test_seeds_exactly_the_7_expected_system_rows(conn_factory, monkeypatch):
     conn = connect()
     try:
         after_count = _row_count(conn, "ingredient_aliases")
-        # rule 3's one legitimate exception: count increases by exactly 7, never decreases.
+        # The never-lose-production-data rule's one legitimate exception: count increases by exactly 7, never decreases.
         assert after_count == before_count + 7
         rows = conn.execute(
             "SELECT alias_name, canonical_name, source FROM ingredient_aliases "
@@ -196,7 +196,7 @@ def test_downgrade_removes_only_the_7_system_rows(conn_factory, monkeypatch):
 
     conn = connect()
     try:
-        # An unrelated F0-style user row that happens to already exist.
+        # An unrelated the yoghurt pack-size repoint-style user row that happens to already exist.
         conn.execute(
             "INSERT INTO ingredient_aliases "
             "(alias_name, canonical_name, source, created_at, updated_at) VALUES "
@@ -207,7 +207,7 @@ def test_downgrade_removes_only_the_7_system_rows(conn_factory, monkeypatch):
         conn.close()
 
     _upgrade_to(db_path, monkeypatch, _F22_HEAD)
-    _downgrade_to(db_path, monkeypatch, _F21_HEAD)  # downgrade back to just before F2.2
+    _downgrade_to(db_path, monkeypatch, _F21_HEAD)  # downgrade back to just before the legacy alias seed migration
 
     conn = connect()
     try:

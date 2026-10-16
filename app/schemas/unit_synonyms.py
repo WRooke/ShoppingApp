@@ -1,5 +1,5 @@
 """Pydantic models for ``unit_synonyms` — unit-spelling canonicalisation (2026-09-12, see
-CLAUDE.md > Ingredient Unit Handling > Layer A and > Data Model > unit_synonyms). The plainer
+docs/ingredient-handling.md > Ingredient Unit Handling > Layer A (unit spellings) and > Data Model > unit_synonyms). The plainer
 sibling of ``schemas/ingredient_aliases.py`` — no equivalence pair needed, since a unit
 doesn't need a quantity conversion to its own synonym.
 """

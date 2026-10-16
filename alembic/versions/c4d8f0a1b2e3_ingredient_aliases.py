@@ -6,11 +6,11 @@ Create Date: 2026-09-10
 
 2026-09-10, generalised from hand-testing feedback about oil variants ("canola oil" /
 "vegetable oil" / "oil spray" reading as separate shopping-list lines when the household
-considers them the same thing). See CLAUDE.md > Ingredient Aliases for the full design and
+considers them the same thing). See docs/ingredient-handling.md > Ingredient Aliases for the full design and
 why this is a different concept from ``remembered_substitutions``.
 
 Brand-new table, so (unlike the batch add_column migrations elsewhere in this history) this
-is a plain ``create_table`` — no existing rows to preserve, no server_default dance needed.
+is a plain ``create_table`` — no existing rows to preserve, no temporary server_default needed.
 """
 from typing import Sequence, Union
 

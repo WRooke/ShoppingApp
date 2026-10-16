@@ -1,11 +1,11 @@
-/* History-balanced panel-close guard (2026-09-30, chunk 7.6 — back-navigation feedback item).
+/* History-balanced panel-close guard (2026-09-30, the panel back-navigation work — back-navigation feedback item).
 
    Problem this solves: a naive "push one synthetic history entry when a panel opens, pop it on
    Back" approach leaves that entry DANGLING whenever the panel closes any other way (tapping
    it closed again, tapping a link inside it, navigating elsewhere via the nav bar) — the stack
    then has one more entry than visible screen transitions, so the *next* Back press is
    silently absorbed by the stale entry (no visible change), and the press after that jumps
-   further than expected. Flagged directly by the maintainer during chunk 7.1/7.6 review: "if I
+   further than expected. Flagged directly by the maintainer during the ingredient-panel mockup review and panel back-navigation work review: "if I
    get redirected mistakenly to 'three screens ago' if I hit the back button again I'll lose
    it."
 

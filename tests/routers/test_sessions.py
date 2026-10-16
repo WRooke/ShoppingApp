@@ -1,5 +1,5 @@
 """Smoke tests for /api/v1/sessions — happy path + one error path per feature
-(CLAUDE.md > Code Architecture & Maintainability). Deep coverage is in
+(docs/code-architecture.md > Code Architecture & Maintainability). Deep coverage is in
 tests/services/test_sessions.py.
 
 conftest.py shares one SQLite file across the session, so assert on the specific
@@ -174,7 +174,7 @@ def test_archive_session_and_status_filter(client):
     assert any(x["id"] == s["id"] for x in listed)
 
 
-# --- consolidate endpoint (Chunk 4.6) ------------------------------------
+# --- consolidate endpoint (Chunk 4.6, consolidation and pack-size resolution) ------------------------------------
 
 
 def test_consolidate_endpoint_returns_checklist(client):

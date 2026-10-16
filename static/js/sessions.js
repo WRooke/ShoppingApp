@@ -1,9 +1,8 @@
 /* Planning sessions view (#/plan) — session list + a session workspace where
    recipes are added, scaled and slotted into days. Goes straight to Checklist
    (#/checklist/<id>) from here — the standalone Review screen this used to hand off to
-   (session-review.js) was deleted 2026-09-30 (chunk 7.4); Checklist now consolidates itself
-   and shows what Review used to (recipe breakdown; the ad-hoc swap moves there too, chunk
-   7.5). See CLAUDE.md > Build Phases > Phase 4 > Chunk 4.7. */
+   (session-review.js) was deleted 2026-09-30 (the Review-screen removal); Checklist now consolidates itself
+   and shows what Review used to (recipe breakdown; the ad-hoc swap moves there too). See docs/build-status/phase-4-planning-engine.md > Chunk 4.7 (plan screens). */
 
 (function (global) {
   "use strict";
@@ -17,7 +16,7 @@
     return node;
   }
 
-  // Chunk 6.3 kickoff decision #12 — adding a recipe/leftovers slot suggests the next day
+  // Chunk 6.3 (plan screen design) Phase 6 decision: adding a recipe suggests the next empty day — adding a recipe/leftovers slot suggests the next day
   // not already used in this session, instead of leaving the dropdown blank. Undated slots
   // (day_of_week null) don't count as "using" a day; null itself means "every day is taken"
   // or there simply are no slots yet to avoid conflicting with, either way a reasonable
@@ -34,7 +33,7 @@
   }
 
   // Shared Plan -> Checklist -> Push indicator (Chunk 6.3; was Plan -> Review -> Checklist ->
-  // Push until 2026-09-30, chunk 7.4, when the standalone Review screen was deleted). The
+  // Push until 2026-09-30, the Review-screen removal, when the standalone Review screen was deleted). The
   // last two stay inactive placeholders here — checklist.js's own matching indicator is
   // active through both the pre-push and pushing states on that screen.
   // What a status looks like to the household (the stored values are active / pushed / archived).
@@ -54,7 +53,7 @@
 
   // --- session list --------------------------------------------------
 
-  // Active/Past tabs (Phase 6 Chunk 6.6, kickoff decision #7) — previously this list showed
+  // Active/Past tabs (Phase 6 Chunk 6.6, mark cooked, history and archive, Phase 6 decision: past plans expand to show their recipes) — previously this list showed
   // every session regardless of status forever, with no way to tell a finished one from a
   // current one at a glance. "Past" merges pushed+archived (two separate list() calls — the
   // backend's own status filter only takes one value — sorted by updated_at, which a push or
@@ -303,11 +302,11 @@
     nameField.appendChild(labelInput);
     head.appendChild(nameField);
 
-    // Archive (Phase 6 Chunk 6.6) — the endpoint already existed (Phase 4 Chunk 4.4) but
+    // Archive (Phase 6 Chunk 6.6) — the endpoint already existed (Phase 4 Chunk 4.4, plan and plan-recipe management) but
     // nothing in the UI ever called it, so there was no way to remove a session from the
     // active list at all. Stays on this same screen after archiving (reload() re-renders it
     // showing "Status: archived") rather than navigating away, so the Undo toast doesn't
-    // need the deferred-navigate dance recipe deletion uses elsewhere.
+    // need the deferred-navigate workaround recipe deletion uses elsewhere.
     if (session.status !== "archived") {
       var wsActions = el("div", "workspace-actions");
       var archiveBtn = el("button", "btn-sm archive-btn", "Archive plan");
@@ -384,12 +383,12 @@
     card.appendChild(weekSection);
     global.SessionWeek.render(weekSection, session, reload);
 
-    // --- checklist --- (sticky — kickoff decision #12, the primary forward action on a
-    // screen that can get long once several recipes are slotted in). 2026-09-30 (chunk 7.4):
+    // --- checklist --- (sticky — Phase 6 decision: pin the main action above the bottom nav on long screens, the primary forward action on a
+    // screen that can get long once several recipes are slotted in). 2026-09-30 (the Review-screen removal):
     // used to mount the standalone Review screen (SessionReviewView) here first; that screen
     // is deleted — Checklist now goes straight from Plan, consolidating itself on load
-    // (chunk 7.3) and showing the recipe-breakdown Review used to be the only place for
-    // (chunk 7.4, folded into checklist.js's own rows).
+    // (the checklist re-consolidating on load) and showing the recipe-breakdown Review used to be the only place for
+    // (the Review-screen removal, folded into checklist.js's own rows).
     var checklistRow = el("div", "log-controls sticky-actions");
     var checklistBtn = el("button", "primary", "Open checklist →");
     checklistBtn.disabled = slots.length === 0;

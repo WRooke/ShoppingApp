@@ -1,7 +1,7 @@
 /* Settings — "Coarse ingredients" card (2026-09-12). Ingredients that skip quantity/unit
    math entirely at consolidation — e.g. parsley, where "10g + 1 tbsp" across two recipes is
-   just "buy a bunch", not a number worth reconciling. See CLAUDE.md > Ingredient Unit
-   Handling > Layer D.
+   just "buy a bunch", not a number worth reconciling. See docs/ingredient-handling.md > Ingredient Unit
+   Handling > Layer D (bought by the bunch).
 
    Flat list, same CRUD shape as usuals — no grouping needed, each row is one
    ingredient with its own purchase label and "recipes per pack" divisor.

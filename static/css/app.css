@@ -1,7 +1,7 @@
 /* ShoppingApp — feature-specific styles not yet migrated to components.css.
    Tokens live in tokens.css; core shared components (nav, buttons, cards, fields, status dots,
-   skeleton loading, toast, back-link) live in components.css — see CLAUDE.md > UI / UX and
-   docs/build-status/phase-6-polish.md (Chunk 6.1). This file is what's left: screens Chunk 6.1
+   skeleton loading, toast, back-link) live in components.css — see docs/ui-ux.md > UI / UX and
+   docs/build-status/phase-6-polish.md (Chunk 6.1, visual design foundation). This file is what's left: screens Chunk 6.1
    doesn't touch (recipe library/edit, settings rows, checklist, capture, substitutions, ...),
    each still using the legacy token names (--bg/--surface/--border/--text/--text-dim/--accent/
    --green/--amber/--red/--grey) that tokens.css keeps defined for exactly this reason. As each
@@ -28,7 +28,7 @@
 }
 .log-line {
   display: grid;
-  /* 2026-10-01 diagnostics chunk 7.7 (5c) — message column widened (was 1fr sharing a tight
+  /* 2026-10-01 the Status page fixes (5c) — message column widened (was 1fr sharing a tight
      128px/64px time/level split, squeezing real messages); time column narrowed since the
      fixed-width monospace timestamp never needed 128px. */
   grid-template-columns: 96px 64px 1fr;
@@ -96,7 +96,7 @@
 .recipe-row-meta { font-size: 0.85rem; }
 .recipe-row-rating { font-size: 1.1rem; }
 
-/* 2026-09-11 — the "which recipe is this from" expandable name; moved 2026-09-30 (chunk 7.4)
+/* 2026-09-11 — the "which recipe is this from" expandable name; moved 2026-09-30 (the Review-screen removal)
    from the now-deleted session-review.js (Review screen) to checklist.js's own rows. A
    <button> so it's tappable, styled to still read as a plain heading label rather than a
    boxed button. */
@@ -130,7 +130,7 @@
 }
 .detail-head-row h2 { margin: 0; }
 
-/* .field itself removed here (Chunk 6.2 cleanup) — a duplicate of components.css's Chunk 6.1
+/* .field itself removed here (Chunk 6.2, recipe and import screen design cleanup) — a duplicate of components.css's Chunk 6.1
    rule that, thanks to load order (app.css loads last), had been silently overriding it since
    Chunk 6.1 shipped. Found and fixed while touching this file for Chunk 6.2 — its own kind of
    the exact "these two stylesheets fight over the same rule" bug the tokens.css/components.css
@@ -169,7 +169,7 @@
   color: var(--red);
 }
 
-/* --- duplicate-recipe warning panel (Phase 4 — see CLAUDE.md > Duplicate Recipe Prevention) --- */
+/* --- duplicate-recipe warning panel (Phase 4 — see docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention) --- */
 .dup-warn {
   margin: 10px 0;
   padding: 10px 12px;
@@ -186,7 +186,7 @@
   font-size: 0.85rem;
 }
 
-/* --- settings: ingredient substitution groups (Phase 4, Chunk 4.5) --- */
+/* --- settings: ingredient substitution groups (Phase 4, Chunk 4.5, saved ingredient swaps) --- */
 .sub-group-heading {
   font-weight: 600;
   margin-top: 10px;
@@ -195,7 +195,7 @@
 }
 .sub-group-heading:first-child { border-top: none; margin-top: 0; }
 
-/* --- per-ingredient substitution swap control (Phase 3.9 M4) --- */
+/* --- per-ingredient substitution swap control (Phase 3.9 M4 = substitution redesign) --- */
 .ingredient-edit-wrap { border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px; }
 .ing-swap { margin: 2px 0 4px; font-size: 0.9rem; }
 /* .ing-swap-body removed Chunk 6.2 — the swap panel now uses .swap-panel (components.css) */
@@ -207,7 +207,7 @@
 /* recipe detail: "using X instead" line */
 .ingredient-resolved { color: var(--accent); font-size: 0.85rem; }
 
-/* --- checklist ingredient panel (2026-09-30, chunk 7.5) — checklist-panel.js --- */
+/* --- checklist ingredient panel (2026-09-30, the checklist ingredient panel work) — checklist-panel.js --- */
 .edit-ingredient-toggle { margin-top: 4px; }
 .edit-chip-row .link-btn.on { background: var(--accent-tint); color: var(--accent); border-radius: 999px; padding: 2px 8px; }
 /* the shared this-list-only/always segmented toggle every chip ends with */
@@ -221,7 +221,7 @@
 .unit-hints-picks { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .unit-hints-nudge { display: block; margin-top: 2px; }
 
-/* --- "Pending AI processing" badge (Phase 3.9 M6) --- */
+/* --- "Pending AI processing" badge (Phase 3.9 M6 = Pending AI processing badge) --- */
 .pending-ai-badge {
   display: inline-block;
   margin-top: 4px;
@@ -234,6 +234,6 @@
 }
 .ai-attempt-log { margin: 4px 0 6px; }
 
-/* Checklist screen (Phase 5 Chunk 5.5) styles moved to components-screens.css in Phase 6
-   Chunk 6.3b, tokenized (no more literal hex colours) alongside the rest of the design
+/* Checklist screen (Phase 5 Chunk 5.5, checklist screen) styles moved to components-screens.css in Phase 6
+   Chunk 6.3b (checklist and send-to-AnyList screen design), tokenized (no more literal hex colours) alongside the rest of the design
    system rebuild — .have-toggle/.checklist-row live there now. */

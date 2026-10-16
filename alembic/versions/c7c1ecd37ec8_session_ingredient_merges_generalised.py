@@ -1,11 +1,11 @@
-"""session_ingredient_merges generalised beyond "merge" (chunk 7.5)
+"""session_ingredient_merges generalised beyond "merge" (the checklist ingredient panel work)
 
 Revision ID: c7c1ecd37ec8
 Revises: 235522e3b75f
 Create Date: 2026-09-30
 
-Checklist ingredient panel (Review→Checklist merge, chunk 7.5) — rather than a sibling table
-per new session-scoped "this list only" edit type, this generalises the existing Fix 3
+Checklist ingredient panel (Review→Checklist merge, the checklist ingredient panel work) — rather than a sibling table
+per new session-scoped "this list only" edit type, this generalises the existing Fix 3 (Combine action)
 `session_ingredient_merges` table with a `kind` discriminator ('merge' | 'substitute' |
 'pack_size' | 'coarse') plus the extra nullable columns `pack_size`/`coarse` need
 (`purchase_label`/`purchase_qty`/`purchase_unit`/`recipes_per_pack` — disjoint from
@@ -21,7 +21,7 @@ enforced per-kind at the schema layer instead. The unique constraint widens from
 now hold at most one row PER kind, not one row total. render_as_batch handles the SQLite
 table rebuild this constraint change needs.
 
-Non-destructive per CLAUDE.md rule 3: adds nullable columns, backfills every existing row's
+Non-destructive per the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules): adds nullable columns, backfills every existing row's
 new `kind` via its own default (no explicit UPDATE needed), and only widens (never narrows)
 what the unique constraint allows. tests/test_migrations.py keeps `upgrade head` ==
 `create_all()`.

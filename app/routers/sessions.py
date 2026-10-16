@@ -1,7 +1,7 @@
-"""Planning session API (Phase 4 — see CLAUDE.md > Build Phases > Phase 4).
+"""Planning session API (Phase 4 — see docs/build-status/phase-4-planning-engine.md).
 
 HTTP only: parse, call app/services/sessions.py, wrap in the {"ok": ...} envelope
-(CLAUDE.md > API Conventions). Exceptions are translated centrally in app/main.py.
+(docs/code-architecture.md > API Conventions). Exceptions are translated centrally in app/main.py.
 """
 
 from __future__ import annotations
@@ -148,15 +148,15 @@ def reorder_slots(
     return {"ok": True, "data": [_slot_read(s) for s in slots]}
 
 
-# --- consolidation (Chunk 4.6) --------------------------------------------
+# --- consolidation (Chunk 4.6, consolidation and pack-size resolution) --------------------------------------------
 
 
 @router.post("/{session_id}/consolidate")
 def consolidate_session(session_id: int, db: Session = Depends(get_db)) -> dict:
     # 2026-09-11 — recipe_breakdown ("which recipe is this ingredient from") is ephemeral:
     # computed fresh alongside this same consolidate pass, never persisted to
-    # session_checklist_items. See CLAUDE.md > "Which recipe is this ingredient from".
-    # 2026-09-30 (chunk 7.5) — no more request-body overrides; every session-scoped "this
+    # session_checklist_items. See docs/scaling-and-consolidation.md > "Which recipe is this ingredient from".
+    # 2026-09-30 (the checklist ingredient panel work) — no more request-body overrides; every session-scoped "this
     # list only" edit is read internally now, see session_consolidation.py.
     rows, breakdown = sessions_service.consolidate_session_with_breakdown(db, session_id)
     index = checklist_display.WordingIndex.build(db)

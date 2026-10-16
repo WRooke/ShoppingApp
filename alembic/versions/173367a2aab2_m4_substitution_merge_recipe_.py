@@ -4,7 +4,7 @@ Revision ID: 173367a2aab2
 Revises: 285e886712e0
 Create Date: 2026-09-06
 
-Phase 3.9 M4 — the substitution merge (CLAUDE.md > AI Provider Migration > The substitution
+Phase 3.9 M4 — the substitution merge (docs/recipe-capture.md > AI Provider Migration > The substitution
 merge, and > Data Model > recipe_ingredients / remembered_substitutions):
 
   * recipe_ingredients gains resolved_ingredient / substitution_note (the per-recipe swap the

@@ -20,8 +20,8 @@ is folded into this phase's M-review.
       `Part.from_bytes`; `usage_metadata.prompt_token_count` / `candidates_token_count`.
       `ClaudeExtractionError`→`AiExtractionError`, `ClaudeApiDisabledError`→
       `AiExtractionDisabledError`; `main.py` error code `CLAUDE_API_DISABLED`→
-      `AI_EXTRACTION_DISABLED`. `MODEL_ID = "gemini-2.5-flash"` (fallback chain is M3). §0c
-      gates + §0a hardening (delimiter, `MAX_INPUT_TEXT_CHARS`, `suggested_section`
+      `AI_EXTRACTION_DISABLED`. `MODEL_ID = "gemini-2.5-flash"` (fallback chain is M3). Security > API enable switch
+      gates + Security > Prompt injection hardening (delimiter, `MAX_INPUT_TEXT_CHARS`, `suggested_section`
       allow-list) + fake fixtures carried over **verbatim**. `capture_url.py` /
       `capture_photo.py` / `routers/recipes.py` / `routers/diagnostics.py` call-site renames;
       diagnostics still exposes the `claude_api` block + spend fields (M5 replaces it).
@@ -162,7 +162,7 @@ is folded into this phase's M-review.
       headless-Edge + curl verified end-to-end offline (fake mode, no live call).
       Full design folded into
       [Data Model](../data-model.md#recipe_ingredients) (`recipe_ingredients`, `remembered_substitutions`),
-      [AI Provider Migration > Ingredient Substitution Flagging](../ingredient-handling.md#ingredient-substitution-flagging--the-merged-spec),
+      [Ingredient Handling > Substitution — the current spec](../ingredient-handling.md#substitution--the-current-spec),
       [Ingredient Substitution](../ingredient-handling.md#ingredient-substitution), and
       [Scaling Logic > Consolidation across recipes](../scaling-and-consolidation.md#consolidation-across-recipes). Decided
       at planning: **(a)** recipe-level stores the *absolute* (`resolved_quantity` /
@@ -247,8 +247,8 @@ is folded into this phase's M-review.
         session + recipe list endpoints.
       - **Recipe Capture / AI Provider Migration** — 3 separate Gemini calls, Flash →
         Flash-Lite → `capture_queue` on 429, hourly lifespan poller, "Pending AI processing"
-        badge (M6), §0a hardening (delimiter / `MAX_INPUT_TEXT_CHARS` / `suggested_section`
-        allow-list) and §0c gates (`AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`, off by
+        badge (M6), Security > Prompt injection hardening (delimiter / `MAX_INPUT_TEXT_CHARS` / `suggested_section`
+        allow-list) and API enable switch checks (docs/security.md > API enable switch) (`AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`, off by
         default) carried over verbatim; M7 live call passed 2026-09-07 (recipe id 6, kept).
       - **Diagnostics** — the `ai_extraction` block reports `today_by_model` / `recent_calls`
         / `queue` / `last_success` / `dashboard_url` / `api_enabled` / `fake_mode`; the USD
@@ -263,7 +263,7 @@ is folded into this phase's M-review.
          to stop free-tier training use?); see [Deferred Decisions](../deferred-decisions.md#deferred-decisions).
       3. The 5 capture-flow fixes staged in `Capture-Fixes-Staged.md` were implemented
          (commit `9d30414`) but **not re-verified against a live Gemini call** — do that under
-         a fresh §0c go-ahead when convenient (piggyback on any future live check).
+         a fresh API-enable-switch approval when convenient (piggyback on any future live check).
       4. Ingredient synonym normalisation (salt group etc.) is prompt-wording only today; the
          robust Settings-managed alias table is flagged as a Phase 5/6 bring-forward.
 
@@ -279,7 +279,7 @@ as its name (M8); diagnostics shows Gemini quota + attempt log.
 - **M1 — Config + SDK + fake-mode skeleton.** `requirements.txt` (`anthropic` out,
   `google-genai` pinned in); `config.py` + `.env.example` env-var rename; rename
   `services/claude_client.py` → `services/ai_extraction.py` with the `google-genai` client,
-  Pydantic `response_schema` models, ported fake fixtures, §0c gates verbatim. Extraction
+  Pydantic `response_schema` models, ported fake fixtures, API enable switch checks (docs/security.md > API enable switch) verbatim. Extraction
   call only, still single-call-shaped. All tests mocked / fake — no real key.
 - **M2 — Split into 3 per-task calls.** `extract_recipe()` / `flag_substitutions()` /
   `suggest_sections()` — section suggestion moves out of the extraction prompt into its own
@@ -316,7 +316,7 @@ as its name (M8); diagnostics shows Gemini quota + attempt log.
   that pre-fills it, session-override pair. Resolved in `consolidate_session()`; pure
   `consolidate()` unchanged; AI flag call not extended. Migration `c199ab55bf1e`; suite 293
   pass; headless + curl verified offline. Full detail in the Phase 3.9 chunk list above and
-  [Ingredient Substitution Flagging](../ingredient-handling.md#ingredient-substitution-flagging--the-merged-spec).
+  [Ingredient Handling > Substitution — the current spec](../ingredient-handling.md#substitution--the-current-spec).
 - **M-review** — full re-check of Phase 3.9 **and** the deferred Phase 4 review, together.
 
 ---

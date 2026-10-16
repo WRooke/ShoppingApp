@@ -5,7 +5,7 @@ Provides:
   * GET  /api/v1/diagnostics/recent-errors  all ERROR+ entries currently in the ring buffer
   * GET  /api/v1/diagnostics/status         component status panel + AI quota / attempt log
 
-AnyList indicator is a stub until Phase 5. Phase 3.9 M5 replaced the USD "spend tracker" +
+The AnyList indicator reports the connector's real state. Phase 3.9 M5 replaced the USD "spend tracker" +
 its reset button with a Gemini daily-quota indicator + recent-attempt log (free tier, no
 per-call cost).
 """
@@ -49,7 +49,7 @@ def logs(
 @router.get("/recent-errors")
 def recent_errors() -> dict:
     # Returns every ERROR+ entry currently held in the ring buffer, not a fixed slice
-    # (diagnostics chunk 7.7, 5a — a truncated "last 10" was hiding real errors on a busy
+    # (the Status page fixes — a truncated "last 10" was hiding real errors on a busy
     # day). limit=RING_BUFFER_MAXLEN so nothing the buffer holds is ever cut off here; the
     # buffer's own maxlen is what actually bounds how far back this can reach.
     entries = get_log_entries(limit=RING_BUFFER_MAXLEN, level="ERROR")
@@ -60,7 +60,7 @@ def recent_errors() -> dict:
 def status(db: Session = Depends(get_db)) -> dict:
     """The component status panel: a `database`, `ai_extraction` (Gemini) and `anylist`
     block, each with a green/amber/red `state` + `message`. The AI block also carries the
-    §0c enable/fake-mode flags, the daily quota indicator (`today_by_model`), the recent
+    The enable and fake-mode flags (docs/security.md > API enable switch), the daily quota indicator (`today_by_model`), the recent
     capture-attempt log, and the retry-queue summary. Every sub-query is wrapped so one
     failing block still returns the others."""
     # --- database -------------------------------------------------------
@@ -76,8 +76,8 @@ def status(db: Session = Depends(get_db)) -> dict:
         "message": "Connected" if db_ok else "Connection failed",
     }
 
-    # --- AI extraction (Gemini) — Phase 3.9 M5 --------------------------------
-    # Enable-switch / fake-mode fields are always populated (§0c). Quota = an observed
+    # --- AI extraction (Gemini) — Phase 3.9 M5 (diagnostics rework) --------------------------------
+    # Enable-switch / fake-mode fields are always populated (Security > API enable switch). Quota = an observed
     # request count per model since local midnight; no dollar cost on Gemini's free tier.
     ai = {
         "state": "grey",

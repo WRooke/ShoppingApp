@@ -1,4 +1,4 @@
-"""Router smoke tests for /api/v1/checklist (Phase 5 Chunk 5.3). Happy path + error paths.
+"""Router smoke tests for /api/v1/checklist (Phase 5 Chunk 5.3, checklist load). Happy path + error paths.
 AnyList is forced into fake mode where a load actually needs it.
 """
 
@@ -36,7 +36,7 @@ def _session_with_checklist(client, ingredients):
 
 
 def test_load_with_recipes_but_never_explicitly_consolidated_populates_the_checklist(client):
-    # The scenario chunk 7.3 exists for: a session with recipes slotted in, straight to
+    # The scenario the checklist re-consolidating on load exists for: a session with recipes slotted in, straight to
     # Checklist, with no prior POST /sessions/{id}/consolidate call at all.
     recipe = client.post(
         "/api/v1/recipes",
@@ -63,9 +63,9 @@ def test_load_with_recipes_but_never_explicitly_consolidated_populates_the_check
 
 
 def test_load_returns_envelope_with_items_and_anylist_status(client, fake_anylist):
-    # "eggs" (not "milk") — 2026-09-27 (Fix 5, F5.2) "milk" is now aliased to "full cream milk"
+    # "eggs" (not "milk") — 2026-09-27 (Fix 5 = ingredient grouping audit) "milk" is now aliased to "full cream milk"
     # (a real, accepted household preference), which would no longer fuzzy-match the fake
-    # AnyList seed's "milk" item. "eggs" -> "egg" (Fix 1's own plural-strip, unrelated to any
+    # AnyList seed's "milk" item. "eggs" -> "egg" (Fix 1 = shared name-matching key's own plural-strip, unrelated to any
     # alias) still exercises the exact same pre-tick/fuzzy-match path this test is actually for.
     sid = _session_with_checklist(
         client, [{"name": "eggs", "quantity": 1, "unit": None},
@@ -152,7 +152,7 @@ def test_load_survives_malformed_review_options_json(client, fake_anylist):
     that same session failed identically until the row was fixed by hand — matching the
     diagnostics log signature (repeated "Unhandled exception on GET /api/v1/checklist/{id}").
 
-    **2026-09-30 (chunk 7.3) — this scenario changed shape, not disappeared.** Checklist's own
+    **2026-09-30 (the checklist re-consolidating on load) — this scenario changed shape, not disappeared.** Checklist's own
     `load()` now re-consolidates on every call (it used to only ever run via the now-deleted
     Review screen), and consolidation unconditionally overwrites `review_options_json` on
     every pass (session_consolidation.py — reset to `None`, then freshly rewritten only if
@@ -280,7 +280,7 @@ def test_have_some_on_an_unresolved_conflict_is_refused(client, fake_anylist):
     assert resp.status_code == 422 and resp.json()["error"]["code"] == "HAVE_SOME_NOT_APPLICABLE"
 
 
-# --- merge (Fix 3, F3.3) -----------------------------------------------------------------
+# --- merge (Fix 3 = Combine action) -----------------------------------------------------------------
 
 
 def test_merge_name_only_not_remembered_collapses_two_rows(client, fake_anylist):
@@ -405,7 +405,7 @@ def test_merge_remember_true_onto_an_already_aliased_name_is_a_structured_409(cl
     assert resp.json()["error"]["code"] == "DUPLICATE_INGREDIENT_ALIAS"
 
 
-# --- ingredient panel (2026-09-30, chunk 7.5) ---------------------------------------------
+# --- ingredient panel (2026-09-30, the checklist ingredient panel work) ---------------------------------------------
 
 
 def test_substitute_not_remembered_renames_this_session_only(client, fake_anylist):
@@ -451,7 +451,7 @@ def test_substitute_remember_true_creates_a_quick_pick_not_a_recipe_bake_in(clie
     )
     assert resp.status_code == 200
 
-    # §0.3's inference: "remember" is a quick-pick, NOT baked into the recipe's own
+    # The "Just this plan" default's inference: "remember" is a quick-pick, NOT baked into the recipe's own
     # resolved_ingredient — the recipe's own stored data is untouched.
     recipe = client.get(f"/api/v1/recipes/{recipe_id}").json()["data"]
     assert recipe["ingredients"][0]["resolved_ingredient"] is None

@@ -4,7 +4,7 @@ Revision ID: 235522e3b75f
 Revises: f9e79977f8b0
 Create Date: 2026-09-27
 
-Fix 3, F3.1 (CLAUDE.md > Deferred Decisions > checklist-time merge) — a session-scoped,
+Fix 3 (docs/deferred-decisions.md > Deferred Decisions > checklist-time merge) — a session-scoped,
 ephemeral "fold these two checklist items into one, for this session only" rule, the
 counterpart to a durable `ingredient_aliases` row. New whole table, so
 `Base.metadata.create_all()` on a fresh DB already covers it; this migration brings an

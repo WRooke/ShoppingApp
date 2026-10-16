@@ -1,6 +1,6 @@
 """``product_sections`` write helper — used by the recipe-capture confirm step to record
-AI-suggested sections. See CLAUDE.md > Shopping List Store Layout and > Recipe Capture — AI
-Extraction. Plain Python / SQLAlchemy only, no `fastapi` import — see CLAUDE.md > Code
+AI-suggested sections. See docs/checklist-and-shopping.md > Shopping List Store Layout and > Recipe Capture — AI
+Extraction. Plain Python / SQLAlchemy only, no `fastapi` import — see docs/code-architecture.md > Code
 Architecture & Maintainability.
 """
 
@@ -24,7 +24,7 @@ def tag_suggested_sections(db: Session, ingredient_sections: dict[str, str]) -> 
     on every new recipe that mentions the same ingredient. Returns the number of rows added.
 
     `ingredient_sections` keys must already be normalised (lowercase, matching
-    `recipe_ingredients.name` — see CLAUDE.md > Ingredient Normalisation); this function does
+    `recipe_ingredients.name` — see docs/ingredient-handling.md > Ingredient Normalisation); this function does
     not normalise them itself.
     """
     if not ingredient_sections:

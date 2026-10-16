@@ -7,10 +7,9 @@ Create Date: 2026-09-10
 2026-09-10, kicked off by "lemon juice should be put on the list as a lemon, same thing with
 limes" (hand-testing). An alias can now optionally carry a quantity/unit equivalence pair
 ("2 tbsp lemon juice ~= 1 lemon") — the same shape ``remembered_substitutions`` already has
-for its M8 transform, plus a freetext ``note`` matching that table too. See CLAUDE.md >
-Ingredient Aliases and > Data Model > ingredient_aliases.
+for its M8 transform, plus a freetext ``note`` matching that table too. See docs/ingredient-handling.md > Ingredient Aliases and > Data Model > ingredient_aliases.
 
-All five columns nullable, no server_default dance needed (unlike the NOT NULL boolean
+All five columns nullable, no temporary server_default needed (unlike the NOT NULL boolean
 columns in earlier migrations) -- existing rows (the oil-variant seed group) simply get NULL,
 which is exactly "no equivalence pair", the correct default.
 """

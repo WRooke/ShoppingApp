@@ -1,9 +1,9 @@
 """Unit tests for scripts/backup.py's DB-copy mechanism — no DB/network beyond throwaway
-SQLite files in a pytest tmp_path (CLAUDE.md > Code Architecture & Maintainability).
+SQLite files in a pytest tmp_path (docs/code-architecture.md > Code Architecture & Maintainability).
 
 Only `_backup_db_file` and `dump_db_to_json` are tested directly: the rest of
 `run_backup()` (trimming, git commit/push) is ops-script behaviour verified by hand per the
-project's own "restore path actually tested once" standard (CLAUDE.md > Backup & Restore),
+project's own "restore path actually tested once" standard (docs/deployment-and-operations.md > Backup & Restore),
 not unit-tested.
 """
 

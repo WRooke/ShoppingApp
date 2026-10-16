@@ -32,7 +32,7 @@ was unnecessary since the algorithm shape was already settled. Folded into
 
 #### Scaling: rounding location & rules (Phase 4 kickoff)
 
-**Resolved 2026-09-06 in a detailed grilling with the maintainer. Folded into
+**Resolved 2026-09-06 in a detailed design review with the maintainer. Folded into
 [Scaling Logic](./scaling-and-consolidation.md#scaling-logic); this is the record of intent.**
 
 **Q:** CLAUDE.md originally had `scaling.py` scale *and* round (nearest 25 / nearest 5 /
@@ -87,7 +87,7 @@ WARNING when it does. `keyring` pinned in `requirements.txt`. NUC setup takes ei
 2. `.env` file in the project root, `.gitignore`'d but unencrypted on disk
 3. Hybrid: try `keyring` on startup; if it fails, fall back to `.env` with a warning
 
-**Context:** AnyList password is as sensitive as an email password — a leak means someone can read/write the shared household list. See [Security](./security.md#security) §2. The `.env` fallback makes deployment simpler if `keyring` proves awkward with the batch scripts.
+**Context:** AnyList password is as sensitive as an email password — a leak means someone can read/write the shared household list. See [Security > AnyList credentials](./security.md#anylist-credentials). The `.env` fallback makes deployment simpler if `keyring` proves awkward with the batch scripts.
 
 **Expected outcome:** Decision + implementation (credential retrieval in `app/config.py`) + any deployment script changes documented in `SETUP.md` or `DEPLOY.md`.
 
@@ -120,7 +120,7 @@ audit cols), independent of `staples`. An item is "due" when `last_added_at IS N
 `last_added_at + cadence_days` has passed; due items appear as the final group on the
 checklist, managed in Settings. **Cadence is days, not sessions** — ad-hoc single-recipe
 sessions make "every N sessions" an unreliable clock. Built in
-[Phase 5 Chunks 5.4 / 5.5 / 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration). Kept below for
+[Phase 5 Chunks 5.4 (The usuals) / 5.5 / 5.6](./build-status/phase-5-checklist-anylist.md#phase-5--checklist--anylist-integration). Kept below for
 the record.
 
 **Q:** How should we handle recurring non-recipe household items (laundry powder, dishwashing liquid, etc.) that are bought on a schedule independent of meal planning?
@@ -162,7 +162,7 @@ and answered at the time.
 
 **Resolved 2026-09-05 — option 2 (doesn't exist; not built).** No prior substitution-suggestion
 feature exists anywhere in this document — the Shop Layout addendum's reference was a mistaken
-cross-reference, not a pointer to a real feature. Phase 3's Chunk 3.4 review UI is a fresh
+cross-reference, not a pointer to a real feature. Phase 3's Chunk 3.4 (capture review screen) review UI is a fresh
 ingredient + section review: editable name/qty/unit/preparation (same inline-edit pattern as the
 Phase 2 recipe editor) plus `suggested_section` (editable dropdown), `cuisine`, `protein` — no
 "can't find beef mince, try chicken mince?" suggestion mechanism, no supporting service. Rationale:
@@ -197,9 +197,9 @@ of what was asked.
 2. Skip it. CORS scoping + the local-network-only design is sufficient. If a real threat emerges, add it then.
 3. Add it only if the household is on a shared WiFi (dorm, apartment) where untrusted devices are common. Skip if it's a trusted home network only.
 
-**Context:** See [Security](./security.md#security) §4. Not required for the current trust level, but cheap insurance if the NUC will be on a shared WiFi. The maintainer's trust level should be the deciding factor.
+**Context:** See [Security > App-level protections](./security.md#app-level-protections-cors-errors-access-logs). Not required for the current trust level, but cheap insurance if the NUC will be on a shared WiFi. The maintainer's trust level should be the deciding factor.
 
-**Expected outcome:** Decision documented in [Security](./security.md#security) §4, and if adopted, implementation in `app/main.py` + .env template update.
+**Expected outcome:** Decision documented in [Security > App-level protections](./security.md#app-level-protections-cors-errors-access-logs), and if adopted, implementation in `app/main.py` + .env template update.
 
 ---
 
@@ -305,7 +305,7 @@ conservative fuzzy name. Two build details to lock at kickoff:
    insufficient in real use.
 
 **Context:** Raised 2026-09-06. Needs the `recipes.source_book` / `source_page` columns from
-Chunk 3.7b, hence Phase 4 not Phase 3. No new dependency — fuzzy matching is stdlib only.
+Chunk 3.7b (source-reference schema and service), hence Phase 4 not Phase 3. No new dependency — fuzzy matching is stdlib only.
 
 **Expected outcome:** Method/threshold and the live-endpoint call recorded in
 [Duplicate Recipe Prevention](./duplicate-recipe-prevention.md#duplicate-recipe-prevention); implementation lands as a Phase 4
@@ -316,7 +316,7 @@ chunk.
 #### Substitution quantity/unit transform (Phase 3.9 M8 — record of intent)
 
 **Resolved 2026-09-07 in a planning session. Folded into
-[AI Provider Migration > Ingredient Substitution Flagging](./ingredient-handling.md#ingredient-substitution-flagging--the-merged-spec),
+[Ingredient Handling > Substitution — the current spec](./ingredient-handling.md#substitution--the-current-spec),
 [Data Model](./data-model.md#recipe_ingredients), [Ingredient Substitution](./ingredient-handling.md#ingredient-substitution) and
 [Scaling Logic](./scaling-and-consolidation.md#consolidation-across-recipes); this is the record of what was asked.**
 
@@ -336,10 +336,10 @@ when does it get built?
    linear anyway — "2 cob ≈ 2 can" doesn't guarantee "3 cob ≈ 3 can"); single-ratio everywhere
    (least readable, awkward for non-1:1).
 2. **The AI does not suggest the numbers** — `flag_substitutions` stays name + note only.
-   Extending its structured output is fresh [§0a](./security.md#0a-prompt-injection-hardening-highest-priority)
+   Extending its structured output is fresh [Security > Prompt injection hardening](./security.md#prompt-injection-hardening-highest-priority)
    number/unit-validation work for guesses the user must check anyway. Parked as a
    [Deferred Decision](./deferred-decisions.md#deferred-decisions), revisit if hand-entry is tedious.
-3. **Its own chunk, M8, before the M-review** — it's substitution work (M4's domain), and
+3. **Its own chunk, M8 (substitution amount/unit change), before the Phase 3.9 end-of-migration review** — it's substitution work (M4 = substitution redesign's domain), and
    building it first means the combined Phase 3.9 / Phase 4 review signs off the finished
    shape rather than noting a gap.
 4. **Only valid alongside a name change.** "Buy this in a different unit without changing the
@@ -360,7 +360,7 @@ when does it get built?
 **Resolved 2026-09-12 — none of the three options below, after a further round of
 questioning surfaced the actual shape of the problem.** Option 2 (a per-ingredient
 vocabulary override) was the maintainer's own floated direction here, but a follow-up
-grilling ("I feel this will require some significant planning... ask me as many questions as
+design-review round ("I feel this will require some significant planning... ask me as many questions as
 possible") surfaced that even option 2 was the wrong frame: one ingredient genuinely has
 *several* legitimate units (garlic in cloves, heads, spoons, or grams — not one "correct"
 unit to restrict it to), the actual bug causing real friction was unit-*spelling* variance
@@ -369,7 +369,7 @@ third problem (some ingredients — fresh herbs — shouldn't have precise quant
 all) had gotten folded into the same question. See
 [Ingredient Unit Handling](./ingredient-handling.md#ingredient-unit-handling) for the resulting four-layer design
 (unit-spelling canonicalisation / per-ingredient known-units derived live / a warn-never-
-block duplicate nudge / "coarse ingredients"), none of which is a per-ingredient allowed-unit
+block duplicate-unit hint / "coarse ingredients"), none of which is a per-ingredient allowed-unit
 table. Kept below for the record of what was actually asked.
 
 **Q:** Free-text units are causing real friction (2026-09-10 hand-testing): recipe photos/URLs
@@ -387,8 +387,7 @@ admin where it's supposed to be removed")?
    garlic-as-clove or similarly discrete, non-weight ingredients — the exact gap hand-testing
    found.
 2. **Generic default + opportunistic per-ingredient override**, mirroring how `product_units`
-   already works (seeded lightly, grown only when a real gap shows up — CLAUDE.md >
-   Pre-seeded Product Units). Everything gets the flat list from option 1 for free, with zero
+   already works (seeded lightly, grown only when a real gap shows up — docs/data-model.md > Pre-seeded Product Units). Everything gets the flat list from option 1 for free, with zero
    setup; a specific ingredient (garlic, eggs, ...) gets a small override — a short list of
    "natural" units/labels for that ingredient — added via Settings only reactively, the same
    way a second `product_units` pack size is added today. Needs: a new small table (e.g.
@@ -432,7 +431,7 @@ The likely source of the "doesn't add much value" feeling: the seed list is narr
 and the *only* way to grow it is a trip to Settings — exactly the admin-overhead pattern
 flagged in [UI/UX > Design principle: resolve at the point of
 need](./ui-ux.md#design-principle-resolve-at-the-point-of-need-not-in-settings) — and nothing
-in the app currently nudges the household when a real gap shows up (e.g. repeatedly ticking
+in the app currently prompts the household when a real gap shows up (e.g. repeatedly ticking
 "have it" for the same non-staple ingredient across sessions). Real value that *does* exist
 today: a staple gets its own checklist group and defaults to not-added, sparing a have/need
 decision each session for the items it covers — removing the feature outright would push those
@@ -478,7 +477,7 @@ it outright, the maintainer chose removal: there was no proven demand to justify
 cadence mechanism for a feature nobody found valuable in its current form.
 
 **The `staples` table and `session_checklist_items.is_staple` column are *not* dropped from the
-schema.** While reviewing the removal, the maintainer added CLAUDE.md's non-negotiable rule 3
+schema.** While reviewing the removal, the maintainer added the never-lose-production-data rule (CLAUDE.md > Non-Negotiable Operating Rules)
 (2026-09-27): data loss on the NUC's production database is never acceptable, with no exception
 for feature scope, and the `staples` table is household-editable via Settings, so a migration
 dropping it could destroy real rows on a database this session can't inspect. The removal
@@ -501,7 +500,7 @@ removal.
 - **2026-09-06 (a)** — reopened as a **Phase 4** feature: a global `ingredient_substitutions`
   table of name-scoped rules, one `is_default` per name **auto-applying silently at
   consolidation**, cross-session memory, a Settings management screen, created reactively
-  from a planning-session "Remember this?" prompt. **Built** in Chunks 4.1 / 4.5 / 4.6 / 4.7.
+  from a planning-session "Remember this?" prompt. **Built** in Chunks 4.1 (planning-engine migrations) / 4.5 / 4.6 / 4.7.
 - **2026-09-06 (b)** — the AI Provider Migration addendum's capture-time flagging idea +
   the Phase 4 approach were **merged** (this section). M4 keeps the library table (as
   `remembered_substitutions`, minus `is_default`), the multi-substitute quick-picks, Settings
@@ -524,22 +523,24 @@ removal.
 Cost-in-dollars tracking goes away (Gemini free tier). `calculate_cost_usd_cents`, the
 `cost_usd_cents` column, the `api_usage` / `api_usage_resets` tables and the "reset spend
 tracker" button are all **removed** (decision #3 below — replace, don't repurpose; there is
-essentially no real data — Chunk 3.6 never made a live call). Replacement: a purpose-built
+essentially no real data — Chunk 3.6 (live AI verification) never made a live call). Replacement: a purpose-built
 `ai_call_log` table (see [Data Model](./data-model.md#ai_call_log)) recording one row per attempted Gemini
 call — task type, model tried (`flash` / `flash-lite`), outcome
 (`success` / `quota` / `error` / `queued`), token counts, error detail, timestamp. The
 diagnostics quota indicator counts today's `ai_call_log` rows per model; the attempt log
 lists the most recent.
 
-### Resolved decisions (2026-09-06)
+### Resolved decisions
+
+*(2026-09-06)*
 
 1. **Sequence & scoping** — its own chunked mini-phase, **Phase 3.9**, chunks M0–M8 (below;
    M8 added 2026-09-07 for the substitution quantity/unit transform).
-   The **Phase 4 review** is deferred until Phase 3.9's own review (M-review), which
+   The **Phase 4 review** is deferred until Phase 3.9's own review (the Phase 3.9 end-of-migration review), which
    re-checks Phase 4 + 3.9 together — running it earlier would sign off substitution code
    that M4 removes. Phase 3.9 builds on top of the completed Phase 4 chunks 4.1–4.4/4.6.
 2. **The "prior addendum" isn't in this file** — treat the merged spec above as complete.
-   With merge decision #2, it's **two** new columns on `recipe_ingredients`
+   With the decision to keep the original ingredient in `name`, with no separate column, it's **two** new columns on `recipe_ingredients`
    (`resolved_ingredient`, `substitution_note`); `name` is the original.
 3. **`api_usage` — replace, don't repurpose.** Drop `api_usage` + `api_usage_resets` +
    `cost_usd_cents` + `calculate_cost_usd_cents()` + the reset-spend button; add `ai_call_log`
@@ -548,17 +549,19 @@ lists the most recent.
    `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`; `CLAUDE_API_ENABLED` → `AI_EXTRACTION_ENABLED`;
    `CLAUDE_API_FAKE_MODE` → `AI_EXTRACTION_FAKE_MODE`. (Neutral so the deferred Ollama option
    wouldn't force another rename.) Touches `config.py`, `.env.example`, tests, and the NUC's
-   real `.env` (call out in `DEPLOY.md` / the M-review).
+   real `.env` (call out in `DEPLOY.md` / the Phase 3.9 end-of-migration review).
 5. **No Gemini key assumed.** Phase 3.9 builds and verifies entirely against fake mode +
-   mocks (M1–M6). **M7** is the single live call — `AI_EXTRACTION_ENABLED=true`, real key,
-   and an explicit in-conversation go-ahead per §0c (a standing "yes" does not carry).
-6. **§0c carries over verbatim.** Enable switch off by default; no agent session flips it;
+   mocks (steps M1–M6). **M7 (live Gemini verification)** is the single live call — `AI_EXTRACTION_ENABLED=true`, real key,
+   and an explicit in-conversation go-ahead per Security > API enable switch (a standing "yes" does not carry).
+6. **Security > API enable switch carries over verbatim.** Enable switch off by default; no agent session flips it;
    ask the maintainer before any real call even once it's on; fake mode bypasses everything.
-   Same for §0a prompt-injection hardening (provider-agnostic).
+   Same for Security > Prompt injection hardening (provider-agnostic).
 7. **Phase numbering** — this is **Phase 3.9** in this document. The addendum's "Phase 1"
    references are wrong for this repo; capture is Phase 3.
 
-## 2026-10-06 — AnyList push: un-cross pushed items; only a confirmed push counts (Chunk 6.7)
+## 2026-10-06 — AnyList push: un-cross pushed items; only a confirmed push counts
+
+*(Chunk 6.7, user-feedback batch)*
 
 **Decision (maintainer, in conversation):** an item the user marks *Need it* must end up on AnyList **uncrossed**,
 even if it is sitting crossed off on the list; the push must never fail silently; every push is read back and reported
@@ -586,7 +589,7 @@ the account email is no longer logged (PII policy). Detail: [anylist-push.md](./
 to a non-technical household member; the app should not require knowing what an "alias" or a
 "coarse item" is. Settings forms may keep a full explanatory sentence; everywhere else one short
 line per control. Adopted vocabulary and rules live in
-[UI/UX > Plain language & no ambiguity](./ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67);
+[UI/UX > Plain language & no ambiguity](./ui-ux.md#plain-language--no-ambiguity);
 not to be re-litigated per screen.
 
 **Also decided the same day:** a mixed-unit conflict is resolved by picking one part or typing the

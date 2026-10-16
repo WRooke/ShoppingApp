@@ -1,4 +1,4 @@
-"""Coarse ingredients (2026-09-12 — see CLAUDE.md > Ingredient Unit Handling > Layer D).
+"""Coarse ingredients (2026-09-12 — see docs/ingredient-handling.md > Ingredient Unit Handling > Layer D = bought by the bunch).
 
 An ingredient in this table skips the normal sum -> normalise -> round consolidation
 pipeline entirely — raised by "10g + 1 tbsp of parsley is probably just a bunch, I'm not out

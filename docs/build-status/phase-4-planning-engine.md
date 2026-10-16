@@ -160,7 +160,7 @@ full — the chunks below build them, they are not re-opened here.
       `services/consolidation.py` and `services/purchase_units.py` — both pure, both in the
       high bug-risk trio, both heavily unit-tested. **All the rounding/normalisation rules
       settled in the 2026-09-06 grilling live here** (see
-      [Scaling Logic > Rounding & unit rules](../scaling-and-consolidation.md#rounding--unit-rules--the-consolidationpy-half-chunk-46)
+      [Scaling Logic > Rounding & unit rules](../scaling-and-consolidation.md#rounding--unit-rules--the-consolidationpy-half)
       and the Decision Dialogue). Consolidation: resolve substitution rules first (default
       only, silent); call `scaling.py` per recipe (leftovers slots contribute nothing);
       normalise units — **AU conversions** `tsp`=5 ml / `tbsp`=**20 ml** / `cup`=250 ml,

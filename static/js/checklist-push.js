@@ -1,8 +1,8 @@
 /* Checklist screen — the "push to AnyList" summary line, sticky button, progress tracker and
-   result. Split out of checklist.js per CLAUDE.md > Code Architecture & Maintainability > file
+   result. Split out of checklist.js per docs/code-architecture.md > Code Architecture & Maintainability > file
    size discipline.
 
-   Rewritten 2026-10-06 (Chunk 6.7) to the approved mockups (docs/mockups/chunk-6.7/push.html);
+   Rewritten 2026-10-06 (Chunk 6.7, user-feedback batch) to the approved mockups (docs/mockups/chunk-6.7/push.html);
    behaviour and verification: docs/anylist-push.md. What you see, in order:
 
      idle      "N ingredient(s) will go on the list." + the Push button

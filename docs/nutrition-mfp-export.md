@@ -33,7 +33,7 @@ That feature does the nutrition work; the app's only job is to hand it a clean r
 - One endpoint (e.g. `GET /api/v1/recipes/{id}/mfp-export`), `{"ok": ...}` envelope.
 - One button on the recipe detail view ("Export to MyFitnessPal") that shows the formatted
   text to copy, and surfaces the recipe's `source_url` directly if it has one (MFP's importer
-  accepts a URL; Chunk 3.7 makes `source_url` reliably available and displayed).
+  accepts a URL; Chunk 3.7 (recipe source URL / cookbook reference) makes `source_url` reliably available and displayed).
 - **No schema change.** Everything needed already exists on `recipes` / `recipe_ingredients`.
 - **No macros stored or shown in the app.** MFP holds the nutrition data; the app does not try
   to mirror it. Confirmed 2026-09-06.

@@ -1,5 +1,5 @@
 /* Manual "new recipe from scratch" entry form — no capture involved (that's
-   Phase 3). Split out from recipes.js per CLAUDE.md > Code Architecture &
+   Phase 3). Split out from recipes.js per docs/code-architecture.md > Code Architecture &
    Maintainability > file size discipline. Builds a local ingredient list and
    submits the whole recipe in one POST (RecipeCreate accepts nested
    ingredients), unlike editing an existing recipe where each ingredient is
@@ -80,7 +80,7 @@
     proteinInput.type = "text";
     card.appendChild(labeledField("Protein (optional)", proteinInput));
 
-    // Source provenance (Chunk 3.7) — all optional.
+    // Source provenance (Chunk 3.7, recipe source URL / cookbook reference) — all optional.
     var sourceUrlInput = el("input");
     sourceUrlInput.type = "text";
     card.appendChild(labeledField("Recipe URL (optional)", sourceUrlInput));
@@ -97,7 +97,7 @@
     notesInput.rows = 3;
     card.appendChild(labeledField("Notes (optional)", notesInput));
 
-    // Draft autosave (Chunk 6.2 kickoff decision #12) — recipe-level fields only, not the
+    // Draft autosave (Chunk 6.2 Phase 6 decision: draft autosave on forms) — recipe-level fields only, not the
     // dynamic ingredient list below (see draft-autosave.js's own header comment for why).
     var draft = global.DraftAutosave.attach("recipe-new", {
       name: nameInput,
@@ -153,7 +153,7 @@
       rowEl.appendChild(grid);
       rowEl.appendChild(miniField("Preparation", prepI));
       rowEl.appendChild(global.UnitHints.attach(nameI, unitI)); // 2026-09-12, see unit-hints.js
-      rowEl.appendChild(global.IngredientNameHints.attach(nameI)); // Fix 4, see ingredient-name-hints.js
+      rowEl.appendChild(global.IngredientNameHints.attach(nameI)); // Fix 4 (as-you-type name hint), see ingredient-name-hints.js
       var removeRow = el("div", "log-controls");
       removeRow.style.marginTop = "8px";
       removeRow.appendChild(removeBtn);

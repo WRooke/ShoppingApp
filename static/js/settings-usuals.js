@@ -1,7 +1,7 @@
-/* Settings — "The usuals" card (Phase 5 Chunk 5.4). Recurring non-recipe household items
+/* Settings — "The usuals" card (Phase 5 Chunk 5.4, The usuals). Recurring non-recipe household items
    (laundry powder, dish soap) with a day-based cadence — no recipe link, surface on the
    checklist only when due. Managed here; seeded empty.
-   See CLAUDE.md > Checklist Screen Logic > "The usuals".
+   See docs/checklist-and-shopping.md > Checklist Screen Logic > "The usuals".
 
    Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
    delete instead of confirm(), and in-place DOM updates instead of a full list rebuild on

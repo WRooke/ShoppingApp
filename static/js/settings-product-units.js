@@ -1,12 +1,11 @@
-/* Settings — "Product units" card (see CLAUDE.md > Build Phases > Phase 2 > Chunk 2.5, and
-   > Phase 4 > product_units multi-pack-size note). Split out of settings.js per CLAUDE.md >
-   Code Architecture & Maintainability > file size discipline.
+/* Settings — "Product units" card (see docs/build-status/phase-2-recipe-library.md > Chunk 2.5, Settings UI, and
+   > Phase 4 > product_units multi-pack-size note). Split out of settings.js per docs/code-architecture.md > Code Architecture & Maintainability > file size discipline.
 
    Phase 6 Chunk 6.4: labelled fields (was bare placeholders), the shared Undo toast on
    delete instead of confirm(), and in-place DOM updates instead of a full list rebuild on
    every Save/Add/Delete (the scroll-position bug).
 
-   2026-09-23 redesign (see CLAUDE.md > UI/UX, mockup-approved): an ingredient with more than
+   2026-09-23 redesign (see docs/ui-ux.md > UI/UX, mockup-approved): an ingredient with more than
    one pack size (e.g. eggs — half-dozen + dozen) used to render as two visually unrelated
    flat rows; now grouped under one card per ingredient, same "grouped card" treatment as
    settings-ingredient-aliases.js. The ingredient name moves to the group heading (a rename

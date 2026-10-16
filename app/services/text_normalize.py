@@ -1,11 +1,11 @@
-"""Shared ingredient-name normalisation (2026-09-27 — see CLAUDE.md > Ingredient Handling and
-the ingredient-name-matching plan it was built from).
+"""Shared ingredient-name normalisation (2026-09-27 — see docs/ingredient-handling.md > Ingredient Handling and
+the ingredient-name matching work it was built from).
 
 Before this module existed, the same `" ".join(name.strip().lower().split())` logic was
 independently copy-pasted across at least 9 places (`consolidation.py`, `session_consolidation.py`,
 `coarse_ingredients.py`, `ingredient_aliases.py`, `substitutions.py`, `settings.py`,
 `usuals.py`, `checklist.py`, `unit_synonyms.py`) — harmless while it only ever did lowercase +
-whitespace-collapse, but load-bearing now that it also has to agree on plural-stripping and
+whitespace-collapse, but essential now that it also has to agree on plural-stripping and
 punctuation-folding: every one of those call sites must produce the *same* key for the *same*
 ingredient, or matching against `product_units`/`coarse_ingredients`/`ingredient_aliases`/
 `remembered_substitutions`/`usual_items` silently breaks. This module is the one place that
@@ -47,7 +47,7 @@ applied to genuine grocery words).
 
 Deliberately does NOT resolve genuine word-choice differences ("stock" vs "broth", "capsicum"
 vs "red capsicum", "plain yoghurt" vs "greek yoghurt") — those are household judgment calls,
-resolved via `ingredient_aliases`, never guessed at here. See CLAUDE.md > Ingredient Aliases.
+resolved via `ingredient_aliases`, never guessed at here. See docs/ingredient-handling.md > Ingredient Aliases.
 """
 
 from __future__ import annotations
@@ -70,14 +70,14 @@ def _inflect_engine():
 # Hyphen/dash family folded to a space (never dropped) before whitespace-collapse — the only
 # punctuation this module folds. "extra-virgin" -> "extra virgin", never "extravirgin". No real
 # instance of apostrophes/slashes/periods causing a mismatch was found during this module's own
-# design (see the ingredient-name-matching plan's pre-flight audit) — same "don't pre-guess, wait
+# design (see the ingredient-name matching work's pre-flight audit) — same "don't pre-guess, wait
 # for a real gap" discipline as every other reference list in this app. Extending this set later
 # is a one-line change, not a redesign.
 _HYPHEN_FAMILY = re.compile(r"[-‐‑‒–—]")
 
 # Explicit whitelist of words that ALREADY end in "-us" in their singular/mass-noun form and
 # must never be treated as a plural (asparagus, couscous, hummus, citrus — confirmed real via
-# the ingredient-name-matching plan's pre-flight data audit). Both the hand-rolled generic rule
+# the ingredient-name matching work's pre-flight data audit). Both the hand-rolled generic rule
 # AND `inflect`'s fallback would otherwise mishandle these — see the module docstring. Matched
 # as the *trailing word* (like the "-ves" handling below), so "dried hummus" is also protected,
 # not just the bare word. A small, explicit, universal seed — same precedent as

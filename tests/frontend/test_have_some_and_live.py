@@ -1,4 +1,4 @@
-"""Checklist "I have some" and live updates between phones (Chunk 6.7, polish batch 3)."""
+"""Checklist "I have some" and live updates between phones (Chunk 6.7, user-feedback batch, polish batch 3)."""
 
 from __future__ import annotations
 

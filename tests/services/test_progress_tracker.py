@@ -1,4 +1,4 @@
-"""Unit tests for app/services/progress_tracker.py — see CLAUDE.md > UI/UX > Real progress
+"""Unit tests for app/services/progress_tracker.py — see docs/ui-ux.md > UI/UX > Real progress
 indicators. Pure in-memory state, no DB/network.
 """
 

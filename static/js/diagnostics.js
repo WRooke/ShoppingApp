@@ -29,7 +29,7 @@
     return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   }
 
-  // Push history (Chunk 6.7): which pushes are expanded survives the 5-second auto-refresh that
+  // Push history (Chunk 6.7, user-feedback batch): which pushes are expanded survives the 5-second auto-refresh that
   // rebuilds this panel. Undefined = default (the newest push opens itself if it had a problem).
   var openPushes = {};
   var anylistCheckText = "";
@@ -158,7 +158,7 @@
         );
 
         // Quota indicator — observed request count today per model (best-effort; Gemini's
-        // free-tier caps aren't reliably documented — see CLAUDE.md > AI Provider Migration).
+        // free-tier caps aren't reliably documented — see docs/recipe-capture.md > AI Provider Migration).
         var byModel = d.today_by_model || {};
         var quotaBits = Object.keys(byModel).map(function (m) {
           return m + ": " + byModel[m];
@@ -316,7 +316,7 @@
 
   // One line per entry: "timestamp | level | logger: message", then the full traceback (if
   // any) on the following lines — plain text, suitable for pasting into a bug report or chat
-  // (diagnostics chunk 7.7, 5b). Always every entry currently shown on the Recent Errors
+  // (the Status page fixes). Always every entry currently shown on the Recent Errors
   // card (ERROR+), never the level filter applied to the Live log tail below it.
   // Copy `text` to the clipboard; resolves true/false, never rejects. The async Clipboard API
   // exists only in a secure context (https or localhost), and this app is served over plain HTTP

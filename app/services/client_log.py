@@ -6,7 +6,7 @@ knew what reached the server. The page reports them here (static/js/error-report
 written to the normal log under the ``app.client`` logger, so they appear in Recent errors with
 everything else.
 
-The endpoint is unauthenticated (LAN-only like the whole app — CLAUDE.md > Security §1), so the
+The endpoint is unauthenticated (LAN-only like the whole app — docs/security.md > Network exposure), so the
 input is treated as hostile: every field is length-bounded, line breaks are neutralised so a
 report cannot forge log lines, query strings/fragments are stripped from the page URL, and a
 per-client rate limit stops a looping page from flooding the log.

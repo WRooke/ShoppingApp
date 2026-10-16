@@ -1,12 +1,12 @@
 """AnyList's protobuf wire format — split out of ``services/anylist_client.py`` (2026-09-13
-code review) per CLAUDE.md > Code Architecture > File size and scope discipline. Pure
+code review) per docs/code-architecture.md > Code Architecture > File size and scope discipline. Pure
 encode/decode: no network, no ``settings``, no ``httpx``. ``anylist_client.py`` re-exports
 everything here (same precedent as ``ai_extraction.py`` -> the ``ai_extraction/`` package) so
 no call site — including the existing test suite, which imports several of these by name —
 needed to change.
 
 Lifted from ``spike/anylist_spike.py`` (Phase 1.5 derisking spike); see
-``anylist_client.py``'s own module docstring for the load-bearing live-verification findings
+``anylist_client.py``'s own module docstring for the essential live-verification findings
 about what the decoded fields actually mean (which fields carry quantity, etc.) — those are
 connector-behaviour concerns, not wire-format ones, so they stay there.
 """
@@ -32,7 +32,7 @@ _WIRE_VARINT, _WIRE_FIXED64, _WIRE_LEN, _WIRE_FIXED32 = 0, 1, 2, 5
 class AnyListItem:
     """One item on an AnyList shopping list, as the app cares about it.
 
-    ``note`` (protobuf field 5, AnyList's "details") added at the Chunk 5.7 live-verification
+    ``note`` (protobuf field 5, AnyList's "details") added at the Chunk 5.7 (live AnyList verification) live-verification
     fix — previously this type had no way to represent it at all, which is part of why the
     update-path note bug (see ``anylist_client._RealAnyList.add_or_increment_items``) went
     undetected."""

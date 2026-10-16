@@ -1,6 +1,6 @@
 """A checklist row's decisions (Need it / Have it) must survive the row being renamed.
 
-Chunk 6.7, AnyList push-drop investigation, defect A (docs/anylist-push.md): consolidation keys
+Chunk 6.7 (user-feedback batch), AnyList push-drop investigation, decisions lost on rename (docs/anylist-push.md): consolidation keys
 rows by ``ingredient_name``, so an alias / merge / substitute used to delete the old row and
 create a fresh ``have_it='unknown'`` one — silently dropping a "Need it", after which a name
 that happened to match something already on AnyList was pre-ticked "Have it" and never pushed.

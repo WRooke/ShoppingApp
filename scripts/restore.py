@@ -71,7 +71,7 @@ def do_restore(target: Path, confirmed: bool) -> None:
         return
 
     # Verify the BACKUP before anything is touched: restoring a damaged file over the live database
-    # is the one way this script can make things worse (CLAUDE.md > Non-Negotiable rule 3).
+    # is the one way this script can make things worse (the never-lose-production-data rule in CLAUDE.md > Non-Negotiable Operating Rules).
     _verify_db(target)
     logger.info("Restore: %s passed PRAGMA integrity_check", target.name)
 

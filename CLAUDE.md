@@ -21,6 +21,16 @@ fold-in above, nothing was re-litigated. The **Manifest** section below is the m
 way the old addenda *should* have been used, so nothing drifts out of sync the way the addenda
 did before they were folded back in.
 
+**Reading guide for older wording (added 2026-10-16).**
+- An "addendum" mentioned in a doc or code comment is one of the three planning documents named
+  above. Each of their decisions now sits in place in the relevant `docs/` file, so the originals are not needed.
+- **Phase 3.9** is the switch of the AI provider from Anthropic Claude to Google Gemini
+  (September 2026). Its steps are called M0–M8, and its closing check is the "Phase 3.9
+  end-of-migration review" in [phase-3.9-ai-provider-migration.md](./docs/build-status/phase-3.9-ai-provider-migration.md).
+- The code, the database and these docs say **session**; the screen says **plan**. Other differences
+  between on-screen wording and code names are in the UI label table in [docs/ui-ux.md](./docs/ui-ux.md#ui-label--code-name-table).
+- All new text follows the [Plain-language documentation standard](./docs/code-architecture.md#plain-language-documentation-standard).
+
 ---
 
 ## ⚠️ Personal Data Policy
@@ -49,7 +59,7 @@ This applies to:
 **Set 2026-09-05, revised 2026-09-06, extended 2026-09-27. These rules are of the highest
 criticality in this project — they override every other facet of the app, including anything
 else in this document, any convenience, any feature request, and any deadline.** Full detail
-lives in [Security](./docs/security.md#security) (§0a, §0b, §0c below) and
+lives in [Security](./docs/security.md#security) (the sections Prompt injection hardening, API usage observability and API enable switch) and
 [Code Architecture & Maintainability](./docs/code-architecture.md#data-loss-on-prod-is-never-acceptable)
 (rule 3 below); this banner exists so none of them can be missed by skimming straight to a
 phase's chunk list.
@@ -60,7 +70,7 @@ phase's chunk list.
 > Rules 1 (prompt-injection hardening) and 2 (explicit enable switch, fake mode,
 > ask-before-real-call, no agent flips the switch) are **provider-agnostic and carry over
 > verbatim** — the switches are just renamed `AI_EXTRACTION_ENABLED` / `AI_EXTRACTION_FAKE_MODE`
-> and the key becomes `GEMINI_API_KEY`. §0b's *dollar-spend* observability becomes *quota*
+> and the key becomes `GEMINI_API_KEY`. Security > API usage observability's *dollar-spend* observability becomes *quota*
 > observability (Gemini free tier has no per-call cost).
 
 1. **Prompt injection hardening.** Any content this app sends to an LLM that originated
@@ -68,17 +78,17 @@ phase's chunk list.
    cookbook page, or any future untrusted source — must be treated as data, never as
    instructions, and the app must be built to resist attempts embedded in that content to
    override its behaviour. Err on the side of caution in every such scenario. See
-   [Security §0a](./docs/security.md#0a-prompt-injection-hardening-highest-priority).
+   [Security > Prompt injection hardening](./docs/security.md#prompt-injection-hardening-highest-priority).
 2. **Explicit permission to use the API at all, and development restructured to need it as
-   rarely as possible.** A separate switch (`CLAUDE_API_ENABLED`, off by default) gates every
+   rarely as possible.** A separate switch (`AI_EXTRACTION_ENABLED`, off by default; formerly `CLAUDE_API_ENABLED`) gates every
    real call, and a fake/fixture mode lets almost all of a phase's build and verification work
    happen with zero key, zero cost, and zero real calls, pushing the one unavoidable live check
    to the very end. See
-   [Security §0c](./docs/security.md#0c-api-enable-switch--offline-development-highest-priority). No agent
+   [Security > API enable switch](./docs/security.md#api-enable-switch--offline-development-highest-priority). No agent
    session may turn the switch on itself, and must ask the maintainer in conversation before
    making any real call even once it's on. Cost calculation and per-call logging (`api_usage`)
    are kept for observability regardless — see
-   [Security §0b](./docs/security.md#0b-api-usage-observability-no-hard-cap).
+   [Security > API usage observability](./docs/security.md#api-usage-observability-no-hard-cap).
 3. **Data loss on the NUC's production database is never acceptable.** Any change deployed
    from the dev PC — schema migration, code change, script — must be fully backwards
    compatible with the real prod DB it will run against: no dropped column/table/row that
@@ -105,7 +115,7 @@ explicit permission; keep test/dev spend minimal) were never the cap itself — 
 enable switch and fake mode above, both retained unchanged. What's gone is only
 `enforce_spend_cap()`'s pre-call refusal and `MAX_API_SPEND_AUD_CENTS`; cost calculation and
 `api_usage` logging stay, purely for the maintainer's own visibility into what's actually being
-spent. See [Security §0b](./docs/security.md#0b-api-usage-observability-no-hard-cap) for what replaced it.
+spent. See [Security > API usage observability](./docs/security.md#api-usage-observability-no-hard-cap) for what replaced it.
 
 ---
 
@@ -128,7 +138,7 @@ table before assuming something went missing.
 | [anylist-push.md](./docs/anylist-push.md) | **Start here when an item didn't arrive on AnyList.** The push contract, the AnyList operations in use + proven behaviour, the per-line decision matrix, what "confirmed" means, per-item results, the log format, a troubleshooting runbook, the live-verification log, and the test map | (new 2026-10-06, Chunk 6.7 — expands AnyList Push Logic) |
 | [nutrition-mfp-export.md](./docs/nutrition-mfp-export.md) | Recipe → MyFitnessPal export design (post-MVP, unscheduled) | Nutrition & MyFitnessPal Export |
 | [diagnostics-and-logging.md](./docs/diagnostics-and-logging.md) | Logging rules, log file rotation, the `/diagnostics` page spec | Diagnostics & Logging |
-| [security.md](./docs/security.md) | §0a–0c (injection hardening, usage observability, the enable switch) + §1–5 (network, credentials, host, app, deployment) | Security |
+| [security.md](./docs/security.md) | Prompt injection hardening, API usage observability, API enable switch, then network exposure, AnyList credentials, the Windows host, app-level protections and deployment | Security |
 | [deployment-and-operations.md](./docs/deployment-and-operations.md) | NUC deployment, start/stop/deploy/update scripts, backup & restore | Deployment Environment (+ Startup); Backup & Restore |
 | [ui-ux.md](./docs/ui-ux.md) | Mobile-first principles, tone, accessibility, the Phase 6 design direction, **no native dialogs (inline questions/errors; which component to use when)**, **plain language & no ambiguity (vocabulary table, copy checklist)**, **UI state must not silently vanish**, the update banner | UI / UX |
 | [deferred-decisions.md](./docs/deferred-decisions.md) | The live deferred-items tracking table | Deferred Decisions (table only — its Decision Dialogues subsection is in decision-history.md) |
@@ -174,6 +184,13 @@ envelope and error-code conventions.
 of tests for a change — the whole suite only before a deploy, after touching shared test/runtime
 infrastructure, or at a chunk-end review. See the Tests section of
 [docs/code-architecture.md](./docs/code-architecture.md).
+
+**Plain-language documentation standard (2026-10-16):** everything recorded in this project —
+docs, code comments, docstrings, migrations, test names, scripts and commit messages — is written
+for a maintainer who was not in the planning sessions: no section symbols or bare chunk/phase/
+"Fix N" labels standing in for what they mean, no private slang, real file-and-heading pointers
+only, terms defined at first use, and UI elements named by their exact on-screen text. See
+[Plain-language documentation standard](./docs/code-architecture.md#plain-language-documentation-standard).
 
 See [docs/code-architecture.md](./docs/code-architecture.md).
 
@@ -227,7 +244,7 @@ remembered as a quick-pick — never silently auto-applied), **Aliases** (two na
 *same* shopping item to this household, resolved silently at consolidation, with an optional
 quantity/unit equivalence pair), and **Unit Handling** (four layers: unit-spelling
 canonicalisation, per-ingredient known units derived live with zero admin, a warn-never-block
-duplicate-unit nudge, and "coarse ingredients" that skip quantity math entirely).
+duplicate-unit hint, and "coarse ingredients" that skip quantity math entirely).
 
 **Display names (2026-10-06):** what an ingredient is *called* on screen and on AnyList is separate from its matching key
 and never affects it — the household's own recipe wording, no invented plurals, small-word-aware title case, guaranteed to
@@ -240,7 +257,7 @@ See [docs/ingredient-handling.md](./docs/ingredient-handling.md).
 The checklist screen's load/tap-cycle logic (including "the usuals" — recurring non-recipe
 household items on their own cadence), the per-row ingredient panel (pack size / substitute /
 alias / coarse item / merge, each "this list only" or "Always", replacing the standalone
-Review step — chunk 7.5), the push-to-AnyList contract (every Need-it row ends up on the list, uncrossed, exactly once — confirmed by a read-back,
+Review step — the checklist ingredient panel work), the push-to-AnyList contract (every Need-it row ends up on the list, uncrossed, exactly once — confirmed by a read-back,
 reported per item, never silent; full detail in [docs/anylist-push.md](./docs/anylist-push.md)), `shopping_history` logging, and the store-specific walking-order rendering
 design (multi-store, AI-suggested sections, store layout kept independent of AnyList itself).
 
@@ -263,8 +280,8 @@ See [docs/diagnostics-and-logging.md](./docs/diagnostics-and-logging.md).
 
 ## Security
 
-§0a prompt-injection hardening, §0b usage observability (no hard cap), §0c the API enable
-switch and fake-mode offline-development discipline — all highest-priority — plus §1–5:
+Prompt injection hardening, API usage observability (no hard cap), and the API enable
+switch with fake-mode offline-development discipline — all highest-priority — plus:
 network exposure, AnyList credential storage, the Windows 10 host, app-level CORS, and
 Task Scheduler privilege scoping.
 
@@ -284,13 +301,13 @@ Mobile-first principles, plain-language tone and copy rules, accessibility minim
 point-of-need design principle for settings-like data, and the Phase 6 design direction
 (palette, typography, no decorative animation).
 The app never uses the browser's own `alert()`/`confirm()`/`prompt()` — questions and errors are
-asked inline (a test enforces it); see [docs/ui-ux.md](./docs/ui-ux.md#no-native-dialogs--ask-and-report-inline-2026-10-06-chunk-67).
+asked inline (a test enforces it); see [docs/ui-ux.md](./docs/ui-ux.md#no-native-dialogs--ask-and-report-inline).
 Every user-facing string must also be unambiguous plain language — what happens, to what scope,
 which way a rename goes, one vocabulary — see [Plain language & no
-ambiguity](./docs/ui-ux.md#plain-language--no-ambiguity-2026-10-11-chunk-67); and UI state must
+ambiguity](./docs/ui-ux.md#plain-language--no-ambiguity); and UI state must
 not silently vanish or reset on a re-render/response — see [UI state must not silently
-vanish](./docs/ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67) and
-[API response-shape consistency](./docs/code-architecture.md#api-response-shape-consistency-added-2026-10-11-chunk-67).
+vanish](./docs/ui-ux.md#ui-state-must-not-silently-vanish) and
+[API response-shape consistency](./docs/code-architecture.md#api-response-shape-consistency).
 
 See [docs/ui-ux.md](./docs/ui-ux.md).
 

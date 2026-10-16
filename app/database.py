@@ -1,7 +1,7 @@
 """SQLAlchemy engine, session factory, and declarative base.
 
-Phase 1 creates all tables directly with ``Base.metadata.create_all``.
-Alembic migrations take over from Phase 2 onward (see CLAUDE.md).
+A fresh database is created directly with ``Base.metadata.create_all``; every change to an
+existing database goes through an Alembic migration (see docs/code-architecture.md > Migrations).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class UTCDateTime(TypeDecorator):
     and offset-aware datetimes` crash on the checklist endpoint's usuals due-date check
     (2026-09-19) — the first code path to ever compare a re-fetched timestamp against a fresh
     ``utcnow()``. This type makes every timestamp column round-trip as aware UTC so that
-    footgun can't recur on this or any other column. See CLAUDE.md > Data Model > audit-column
+    mistake can't recur on this or any other column. See docs/data-model.md > Data Model > audit-column
     convention.
     """
 
@@ -83,7 +83,7 @@ def _enable_sqlite_fk(dbapi_connection, connection_record):  # noqa: ANN001
     # WAL keeps all in-flight changes in a separate -wal file the main .db file is never
     # touched by until a checkpoint, and the sqlite3 backup API used in backup.py folds WAL
     # content in correctly regardless of journal mode. Sets a -wal/-shm file pair alongside
-    # mealplanner.db; both live in the already-gitignored data/ directory. See CLAUDE.md >
+    # mealplanner.db; both live in the already-gitignored data/ directory. See docs/deployment-and-operations.md >
     # Backup & Restore and docs/deployment-and-operations.md.
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()

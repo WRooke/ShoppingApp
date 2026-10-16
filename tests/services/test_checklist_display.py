@@ -1,5 +1,5 @@
 """Unit tests for app/services/checklist_display.py — display names (rewritten 2026-10-06,
-Chunk 6.7; see that module's docstring and docs/ingredient-handling.md > Display names).
+Chunk 6.7 (user-feedback batch); see that module's docstring and docs/ingredient-handling.md > Display names).
 
 Two kinds of test: the rule itself (the household's own wording), and — more important — the
 property that makes the change safe: **a display string always normalises back to its key and the

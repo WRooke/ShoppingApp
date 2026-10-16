@@ -1,6 +1,6 @@
 /* Recipe detail edit mode: editing recipe-level fields and inline
    ingredient CRUD for an *existing* recipe. Split out from recipes.js per
-   CLAUDE.md > Code Architecture & Maintainability > file size discipline
+   docs/code-architecture.md > Code Architecture & Maintainability > file size discipline
    (recipes.js was pushing past the ~400-line guideline once list view,
    view-mode detail, edit-mode detail, and ingredient row rendering were all
    in one file). Small DOM helpers are duplicated rather than imported from
@@ -26,7 +26,7 @@
 
   // (The labelled mini-field + numeric-stepper helpers used to live here too, but only the
   // ingredient rows ever used them — moved to recipe-edit-ingredients.js with the rows
-  // themselves when that file was split out for size, see CLAUDE.md > Code Architecture.)
+  // themselves when that file was split out for size, see docs/code-architecture.md > Code Architecture.)
 
   // card: the detail card element to render into (replaces its contents)
   // r: the recipe, as returned by the API
@@ -62,7 +62,7 @@
     proteinInput.value = r.protein || "";
     card.appendChild(labeledField("Protein", proteinInput));
 
-    // Source provenance (Chunk 3.7) — all optional. Recipe URL, cookbook name, page.
+    // Source provenance (Chunk 3.7, recipe source URL / cookbook reference) — all optional. Recipe URL, cookbook name, page.
     var sourceUrlInput = el("input");
     sourceUrlInput.type = "text";
     sourceUrlInput.value = r.source_url || "";
@@ -96,7 +96,7 @@
     notesInput.value = r.notes || "";
     card.appendChild(labeledField("Notes", notesInput));
 
-    // Draft autosave (Chunk 6.2 kickoff decision #12) — keyed per-recipe so editing #5 never
+    // Draft autosave (Chunk 6.2, recipe and import screen design Phase 6 decision: draft autosave on forms) — keyed per-recipe so editing #5 never
     // restores into #7's form. Recipe-level fields only, not the ingredient list below.
     var draft = global.DraftAutosave.attach("recipe-edit-" + r.id, {
       name: nameInput,
@@ -124,7 +124,7 @@
 
     cancelBtn.addEventListener("click", function () {
       // Cancel means discard: without this the abandoned text silently reappeared next time
-      // edit mode opened (2026-10-11, Chunk 6.7).
+      // edit mode opened (2026-10-11, Chunk 6.7, user-feedback batch).
       draft.clear();
       onCancel();
     });
@@ -193,7 +193,7 @@
     var dangerRow = el("div", "danger-zone");
     var archiveBtn = el("button", null, "Delete recipe");
     archiveBtn.addEventListener("click", function () {
-      // Undo toast, not a confirm() dialog (Chunk 6.1 kickoff decision #2) — archive is
+      // Undo toast, not a confirm() dialog (Chunk 6.1, visual design foundation Phase 6 decision: Undo toast on delete) — archive is
       // already reversible (recipes.archive() is a soft-delete, api.recipes.restore()
       // already existed for the duplicate-detection flow), so a blocking "are you sure?"
       // has nothing left to protect against.
@@ -204,7 +204,7 @@
           card.innerHTML = "";
           card.appendChild(el("div", "muted", "Recipe deleted. Taking you back to the library…"));
           // Navigating away (onDeleted -> Router.navigate) fires a hashchange, and the
-          // shared toast deliberately dies on navigation (kickoff decision #12) — so the
+          // shared toast deliberately dies on navigation (Phase 6 decision: toasts end when you navigate away) — so the
           // navigate is deferred until just past the toast's own lifetime, rather than
           // racing it. Undo cancels the deferred navigate and re-renders in place instead.
           var leaveTimer = global.setTimeout(onDeleted, 5300);

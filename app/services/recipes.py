@@ -1,6 +1,6 @@
 """Recipe library business logic — recipe CRUD (soft delete) and nested
 recipe_ingredients CRUD. Plain Python / SQLAlchemy only, no `fastapi` import
-here — see CLAUDE.md > Code Architecture & Maintainability. Routers
+here — see docs/code-architecture.md > Code Architecture & Maintainability. Routers
 (app/routers/recipes.py) call these functions and translate the exceptions
 below into the {"ok": false, "error": ...} envelope.
 """
@@ -44,7 +44,7 @@ class IngredientNotFoundError(Exception):
 
 def _norm_resolved(value: str | None) -> str | None:
     """Normalise a resolved_ingredient the same way as an ingredient name (lowercase, trim);
-    blank -> None (clears the substitution). Phase 3.9 M4. Deliberately lowercase+strip only,
+    blank -> None (clears the substitution). Phase 3.9 M4 (substitution redesign). Deliberately lowercase+strip only,
     not the shared text_normalize normaliser — see _normalise_ingredient_name()'s docstring."""
     if value is None:
         return None
@@ -59,7 +59,7 @@ def _resolved_transform(
 ) -> tuple[float | None, str | None]:
     """The M8 (resolved_quantity, resolved_unit) pair, normalised and gated: they only mean
     anything alongside a name swap, so if `resolved_ingredient` normalises away to None the
-    transform is dropped too (CLAUDE.md > AI Provider Migration > Ingredient Substitution
+    transform is dropped too (docs/recipe-capture.md > AI Provider Migration > Ingredient Substitution
     Flagging > Quantity/unit transform). Unit lowercased/trimmed to match consolidation."""
     if not resolved_ingredient or resolved_quantity is None:
         return None, None
@@ -70,18 +70,18 @@ def _resolved_transform(
 def _normalise_ingredient_name(name: str) -> str:
     """Lowercase + strip whitespace only — deliberately NOT the shared
     ``text_normalize.normalise_ingredient_name()`` used everywhere a resolved/consolidated name
-    is matched (2026-09-27 ingredient-name-matching plan, explicit no-change decision, F1.4).
+    is matched (2026-09-27 ingredient-name matching work, explicit no-change decision).
     This is the write path for ``recipe_ingredients.name``/``resolved_ingredient`` themselves —
     a recipe's own detail page must always show exactly what it said, and
     ``consolidate_session()`` re-derives the grouping/matching key fresh from this raw value on
     every call, so rewriting it here would buy nothing and would break that guarantee. Do not
-    "fix" this to call the shared normaliser — see CLAUDE.md > Ingredient Normalisation."""
+    "fix" this to call the shared normaliser — see docs/ingredient-handling.md > Ingredient Normalisation."""
     return name.strip().lower()
 
 
 def _clean_optional_text(value: str | None) -> str | None:
     """Trim; a blank/whitespace-only string means 'not set' (-> None). Used for the
-    optional free-text source-provenance fields on create — see CLAUDE.md > Data Model >
+    optional free-text source-provenance fields on create — see docs/data-model.md > Data Model >
     recipes source provenance. (update_recipe stores what it's given via its exclude_unset
     loop; only the create paths normalise here.)"""
     if value is None:
@@ -92,7 +92,7 @@ def _clean_optional_text(value: str | None) -> str | None:
 
 # --- duplicate recipe prevention ---------------------------------------------
 #
-# Implementation moved to services/recipe_duplicates.py at the Phase 3.9 M-review (CLAUDE.md
+# Implementation moved to services/recipe_duplicates.py at the Phase 3.9 end-of-migration review (CLAUDE.md
 # > Code Architecture > File size). Re-exported here so `recipes_service.<name>` call sites
 # and imports (app/main.py, app/routers/recipes.py, tests) keep resolving unchanged.
 from app.services.recipe_duplicates import (  # noqa: E402,F401
@@ -112,7 +112,7 @@ def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = Fa
     normalised lowercase; `resolved_ingredient` / `substitution_note` (the per-recipe swap,
     Phase 3.9 M4) pass through normalised. Unless `allow_duplicate`, raises
     PossibleDuplicateRecipeError first if this looks like a recipe already in the library
-    (CLAUDE.md > Duplicate Recipe Prevention)."""
+    (docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention)."""
     if not allow_duplicate:
         _raise_if_duplicate(db, data)
     recipe = Recipe(
@@ -153,7 +153,7 @@ def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = Fa
         len(recipe.ingredients),
     )
     # Admin reduction (2026-09-12) — best-effort, never blocks the save above. See
-    # CLAUDE.md > Ingredient Unit Handling > Admin reduction.
+    # docs/ingredient-handling.md > Ingredient Unit Handling > Admin reduction.
     unit_synonyms_service.learn_new_units(
         db,
         [ing.unit for ing in data.ingredients],
@@ -166,7 +166,7 @@ def create_recipe(db: Session, data: RecipeCreate, *, allow_duplicate: bool = Fa
 def create_recipe_from_capture(
     db: Session, data: CaptureConfirmRequest, *, allow_duplicate: bool = False
 ) -> Recipe:
-    """Saves a reviewed recipe capture (Chunk 3.4 — see CLAUDE.md > Build Phases > Phase 3).
+    """Saves a reviewed recipe capture (Chunk 3.4 — see docs/build-status/phase-3-recipe-capture.md).
     Differs from create_recipe() only in also writing product_sections rows for any
     ingredient carrying a suggested_section — see services/product_sections.py."""
     if not allow_duplicate:
@@ -223,7 +223,7 @@ def create_recipe_from_capture(
     # Admin reduction (2026-09-12) — best-effort, never blocks the save above. Covers a unit
     # the user typed/edited on the review screen; AI-extracted units are already constrained
     # to the standard vocabulary so this is mostly a no-op on a straight, unedited capture.
-    # See CLAUDE.md > Ingredient Unit Handling > Admin reduction.
+    # See docs/ingredient-handling.md > Ingredient Unit Handling > Admin reduction.
     unit_synonyms_service.learn_new_units(
         db,
         [ing.unit for ing in data.ingredients],
@@ -263,10 +263,10 @@ def list_recipes(
     protein: str | None = None,
 ) -> tuple[list[Recipe], int]:
     """Returns (page of recipes, total matching count) for pagination
-    (see CLAUDE.md > API Conventions). Default view filters archived_at IS
-    NULL, per CLAUDE.md > Data Model > recipes soft-delete.
+    (see docs/code-architecture.md > API Conventions). Default view filters archived_at IS
+    NULL, per docs/data-model.md > Data Model > recipes soft-delete.
 
-    cuisine/protein (Phase 6 Chunk 6.2) — exact, case-insensitive match, not a substring
+    cuisine/protein (Phase 6 Chunk 6.2, recipe and import screen design) — exact, case-insensitive match, not a substring
     search like `search` above: the frontend's quick-filter chips are built from the
     library's own already-present values (see recipes.js), so a chip's value is always one
     the household has actually used, not free text a user typed."""
@@ -300,7 +300,7 @@ def update_recipe(db: Session, recipe_id: int, data: RecipeUpdate) -> Recipe:
 
 def archive_recipe(db: Session, recipe_id: int) -> None:
     """Soft delete — sets archived_at rather than removing the row (see
-    CLAUDE.md > Data Model > recipes > soft-delete)."""
+    docs/data-model.md > Data Model > recipes > soft-delete)."""
     recipe = get_recipe(db, recipe_id)
     recipe.archived_at = utcnow()
     db.commit()
@@ -309,7 +309,7 @@ def archive_recipe(db: Session, recipe_id: int) -> None:
 
 def unarchive_recipe(db: Session, recipe_id: int) -> Recipe:
     """Clears archived_at — backs the "Restore existing" action on the duplicate-recipe
-    warning panel (see CLAUDE.md > Duplicate Recipe Prevention). Idempotent on a live recipe."""
+    warning panel (see docs/duplicate-recipe-prevention.md > Duplicate Recipe Prevention). Idempotent on a live recipe."""
     recipe = get_recipe(db, recipe_id)
     recipe.archived_at = None
     db.commit()
@@ -319,7 +319,7 @@ def unarchive_recipe(db: Session, recipe_id: int) -> Recipe:
 
 
 def mark_cooked(db: Session, recipe_id: int) -> Recipe:
-    """"I cooked this" (Phase 6 Chunk 6.6) — the first code to write times_made/last_made_at
+    """"I cooked this" (Phase 6 Chunk 6.6, mark cooked, history and archive) — the first code to write times_made/last_made_at
     (schema present since Phase 1). A simple counter, not a confirmation dialog: low-stakes,
     easily-ignored if tapped by mistake, so no undo and no "are you sure"."""
     recipe = get_recipe(db, recipe_id)
@@ -344,7 +344,7 @@ def add_ingredient(db: Session, recipe_id: int, data: RecipeIngredientCreate) ->
     sort_order = data.sort_order
     if "sort_order" not in data.model_fields_set:
         # Not given: append at the END. The default of 0 tied with every other new ingredient and
-        # sorted a freshly added line to the top after a reload (2026-10-11, Chunk 6.7).
+        # sorted a freshly added line to the top after a reload (2026-10-11, Chunk 6.7, user-feedback batch).
         last = (
             db.query(func.max(RecipeIngredient.sort_order))
             .filter(RecipeIngredient.recipe_id == recipe.id)
@@ -437,7 +437,7 @@ def update_ingredient(
     )
     if "unit" in changes and changes["unit"]:
         # Admin reduction (2026-09-12) — only worth checking when the unit actually changed.
-        # Never blocks the update above. See CLAUDE.md > Ingredient Unit Handling > Admin
+        # Never blocks the update above. See docs/ingredient-handling.md > Ingredient Unit Handling > Admin
         # reduction.
         unit_synonyms_service.learn_new_units(
             db,
@@ -462,7 +462,7 @@ def distinct_ingredient_names(db: Session, *, exclude_aliased: bool = True) -> l
     """Every distinct `recipe_ingredients.name` value ever used, across every recipe (no
     archived-recipe filter — matches the existing precedent every other "what's actually used"
     query in this app already sets, e.g. `unit_synonyms.known_units_for_ingredient()`). Feeds
-    Fix 5's `suggest_ingredient_groupings()` (CLAUDE.md > Deferred Decisions > AI-assisted
+    Fix 5 (ingredient grouping audit)'s `suggest_ingredient_groupings()` (docs/deferred-decisions.md > Deferred Decisions > AI-assisted
     ingredient-grouping discovery) — this is the household's own real-world ingredient
     vocabulary, the only thing that call's entire value depends on.
 
@@ -482,16 +482,16 @@ def distinct_ingredient_names(db: Session, *, exclude_aliased: bool = True) -> l
 
 def known_ingredient_names(db: Session) -> list[str]:
     """The full set of ingredient names this household's own data already recognises, each
-    normalised through `text_normalize.normalise_ingredient_name` — feeds Fix 4's on-the-fly
-    alias nudge (CLAUDE.md > Ingredient Handling > Ingredient Aliases), so a freshly-typed name
+    normalised through `text_normalize.normalise_ingredient_name` — feeds Fix 4 (as-you-type name hint)'s on-the-fly
+    name suggestion (docs/ingredient-handling.md > Ingredient Handling > Ingredient Aliases), so a freshly-typed name
     can be fuzzy-matched against it client-side.
 
     Deliberately **not** `distinct_ingredient_names()` above (Fix 5's function) — that one
     defaults to excluding already-aliased names (the opposite of useful here, where an aliased
-    name's *canonical* form is exactly what should be nudged toward) and returns raw,
+    name's *canonical* form is exactly what the suggestion should point toward) and returns raw,
     unnormalised strings. This unions every raw `recipe_ingredients.name` (no exclusion) with
     every `ingredient_aliases.canonical_name` (so a canonical that was never itself typed as a
-    raw ingredient name is still a valid nudge target), normalises both, and dedupes."""
+    raw ingredient name is still a valid suggestion target), normalises both, and dedupes."""
     raw_names = {row[0] for row in db.query(func.distinct(RecipeIngredient.name)).all() if row[0]}
     canonical_names = {row[0] for row in db.query(IngredientAlias.canonical_name).all() if row[0]}
     normalised = {text_normalize.normalise_ingredient_name(n) for n in raw_names | canonical_names}
@@ -501,10 +501,10 @@ def known_ingredient_names(db: Session) -> list[str]:
 def known_ingredient_wording(db: Session) -> dict[str, str]:
     """{matching key: how this household writes it} for every known ingredient whose written form
     differs from the key ("black bean" -> "black beans"). Sent alongside `known_ingredient_names`
-    so the on-the-fly alias nudge can OFFER the household's wording instead of the singular
+    so the as-you-type name suggestion can OFFER the household's wording instead of the singular
     matching key.
 
-    Why this matters (2026-10-06, Chunk 6.7): the nudge's "did you mean X? use it" writes X into the
+    Why this matters (2026-10-06, Chunk 6.7): the suggestion's "did you mean X? use it" writes X into the
     recipe ingredient's name. X used to be the singular key, so each acceptance rewrote a plural
     ("black beans") to a singular ("black bean") — and the checklist/AnyList display name is derived
     from the household's own wording (services/checklist_display.py), so the wording would drift

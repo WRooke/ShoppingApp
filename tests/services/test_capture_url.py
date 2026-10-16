@@ -1,5 +1,5 @@
 """Unit tests for app/services/capture_url.py. httpx and ai_extraction are both mocked — no
-network, no Gemini call, per CLAUDE.md > Code Architecture & Maintainability > Tests.
+network, no Gemini call, per docs/code-architecture.md > Code Architecture & Maintainability > Tests.
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ def test_fetch_and_extract_calls_ai_with_extracted_text():
 
 
 def test_fetch_and_extract_falls_back_to_html_title_when_ai_title_is_null():
-    # Capture-Fixes-Staged.md issue 1/2 belt-and-braces fallback: no AI call cost, just
+    # Capture-Fixes-Staged.md issue 1/2 second-safeguard fallback: no AI call cost, just
     # parses the page's own <title>/og:title/<h1>.
     html = "<html><head><title>Best Tacos Ever | SomeSite</title></head><body></body></html>"
     fake_result = MagicMock(title=None)

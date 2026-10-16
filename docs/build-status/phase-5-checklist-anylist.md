@@ -14,20 +14,20 @@ decisions were resolved at kickoff and are folded in below:
 - **Credential storage → hybrid `keyring` → `.env` fallback** (Decision Dialogue resolved).
   `config.py` tries Windows Credential Manager (`keyring`) first, falls back to the
   `ANYLIST_EMAIL` / `ANYLIST_PASSWORD` `.env` vars with a logged WARNING. `keyring` is a new
-  pinned dependency. See [Security §2](../security.md#security).
+  pinned dependency. See [Security > AnyList credentials](../security.md#anylist-credentials).
 - **"The usuals" → separate `usual_items` table + cadence** (Decision Dialogue resolved).
   A non-recipe recurring-items list, each item carrying a "buy every N" interval, surfaced on
   the checklist only when due. New table + service + Settings management + a checklist group.
   See [Checklist Screen Logic](../checklist-and-shopping.md#the-usuals--household-recurring-items).
 
-**AnyList safety (kickoff, mirrors [Security §0c](../security.md#0c-api-enable-switch--offline-development-highest-priority)
+**AnyList safety (kickoff, mirrors [Security > API enable switch](../security.md#api-enable-switch--offline-development-highest-priority)
 for the AI):** `ANYLIST_ENABLED` (`.env`, default `false`) gates every real call;
 `ANYLIST_FAKE_MODE` (default `false`) swaps in an in-memory fake list so the whole checklist
 + push flow builds and clicks through offline with no account, no network. Automated tests
 never hit the real API (mocked). Manual verification runs **only** against
 `ANYLIST_TARGET_LIST_NAME` (dev default `TestList`, already set aside for this). **The real
 household shopping list is never read or written without a fresh, explicit, per-occasion
-go-ahead from the maintainer** — a standing "yes" does not carry, same rule as §0c. No agent
+go-ahead from the maintainer** — a standing "yes" does not carry, same rule as Security > API enable switch. No agent
 session flips `ANYLIST_ENABLED`.
 
 - [x] **Chunk 5.1 — Config: credential resolution + AnyList gates.** `keyring` pinned in
@@ -44,7 +44,7 @@ session flips `ANYLIST_ENABLED`.
       `app.main` lifespan, not config import, since logging isn't up yet). 8 tests in
       `tests/test_config.py`; suite 301 pass.
 - [x] **Chunk 5.2 — AnyList connector (`services/anylist_client.py`).** Adapt the spike behind
-      a small stable interface (CLAUDE.md > External integrations): `get_items(list_name) ->
+      a small stable interface (docs/code-architecture.md > External integrations): `get_items(list_name) ->
       list[AnyListItem]`, `add_or_increment_items(list_name, items)` (one batched
       `post_operations`), plus `check_auth()` for diagnostics. Protobuf codec + types lifted
       from the spike; **quantity read checks field 21 then field 18** (spike gotcha #1); **the
@@ -139,7 +139,7 @@ session flips `ANYLIST_ENABLED`.
       wanted, and the maintainer asked to hold off until the `.env` had been checked ("keep
       this open").
       **Done 2026-09-12 — agent-run pass, fresh explicit go-ahead given this session** (the
-      maintainer set `ANYLIST_ENABLED=true` themselves — per §0c-equivalent policy no agent
+      maintainer set `ANYLIST_ENABLED=true` themselves — per Security > API enable switch-equivalent policy no agent
       session flips that switch; confirmed both directly and via a config dump before
       anything ran: `ANYLIST_ENABLED=true`, `ANYLIST_FAKE_MODE=false`,
       `ANYLIST_TARGET_LIST_NAME='TestList'`). Ran a throwaway scratchpad script (same
@@ -243,8 +243,8 @@ session flips `ANYLIST_ENABLED`.
       genuinely open thread, carried to the Phase 5 review rather than silently dropped.
 - [x] **Phase 5 review** — re-check against [Checklist Screen Logic](../checklist-and-shopping.md#checklist-screen-logic),
       [AnyList Push Logic](../checklist-and-shopping.md#anylist-push-logic), [Data Model](../data-model.md#data-model)
-      (`session_checklist_items`, `shopping_history`, `usual_items`), [Security](../security.md#security)
-      §1/§2, [Code Architecture](../code-architecture.md#code-architecture--maintainability),
+      (`session_checklist_items`, `shopping_history`, `usual_items`), [Security > Network exposure](../security.md#network-exposure) and
+      [Security > AnyList credentials](../security.md#anylist-credentials), [Code Architecture](../code-architecture.md#code-architecture--maintainability),
       [API Conventions](../code-architecture.md#api-conventions), and [Diagnostics & Logging](../diagnostics-and-logging.md#diagnostics--logging),
       per [Phase workflow & progress tracking](./process.md#phase-workflow--progress-tracking).
       **Done 2026-09-12.** Full suite **481 pass** throughout (incl. after the package split
@@ -265,7 +265,7 @@ session flips `ANYLIST_ENABLED`.
         being offered.
       - **Data Model** — `session_checklist_items` / `shopping_history` / `usual_items` ORM
         models match the spec field-for-field, with one gap found and fixed (below).
-      - **Security §1/§2** — `ANYLIST_ENABLED`/`ANYLIST_FAKE_MODE` both default `false` in
+      - **Security > Network exposure and AnyList credentials** — `ANYLIST_ENABLED`/`ANYLIST_FAKE_MODE` both default `false` in
         `config.py`; keyring-first credential resolution with a logged WARNING on the `.env`
         fallback (`anylist_secret_source` tracks which); CORS/firewall scoping from Phase 1
         untouched by this phase.
@@ -288,7 +288,7 @@ session flips `ANYLIST_ENABLED`.
       1. **Doc/code drift** — `session_checklist_items.review_resolved_by_user` (added
          2026-09-10 fixing a real hand-testing bug: a manually-resolved `needs_review` total
          was being silently reset on the next re-consolidate) existed in the ORM model and
-         was referenced by two code comments pointing at "CLAUDE.md > Scaling Logic >
+         was referenced by two code comments pointing at "docs/scaling-and-consolidation.md > Scaling Logic >
          re-running consolidation" — but was never actually added there. Fixed: the column is
          now in the `session_checklist_items` schema block and "Re-running consolidation is a
          merge, not a rebuild" now describes what it protects against. No code change needed

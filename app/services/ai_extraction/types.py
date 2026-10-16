@@ -1,8 +1,8 @@
 """Model identity, public result types, and exceptions for AI extraction.
 
-Part of the ``ai_extraction`` package (CLAUDE.md > Code Architecture & Maintainability >
+Part of the ``ai_extraction`` package (docs/code-architecture.md > Code Architecture & Maintainability >
 File size and scope discipline; split from the former single-file module at the Phase 5
-review, 2026-09-12 — see CLAUDE.md > Deferred Decisions). Deliberately the package's only
+review, 2026-09-12 — see docs/deferred-decisions.md > Deferred Decisions). Deliberately the package's only
 module with **no** imports from any of its siblings — ``client.py`` and ``calls.py`` both
 import from here, and keeping this one dependency-free is what keeps that a one-way edge
 rather than a cycle (``ExtractionResult.model`` needs ``MODEL_ID`` at class-definition time,
@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Primary model, then the fallback the chain drops to on a 429. See CLAUDE.md > AI Provider
+# Primary model, then the fallback the chain drops to on a 429. See docs/recipe-capture.md > AI Provider
 # Migration > Fallback & retry. A 429 from BOTH -> AiQuotaExhaustedError -> the caller queues.
 #
-# Floating aliases, not pinned versions (maintainer's call, 2026-09-07 at M7): the spec's
+# Floating aliases, not pinned versions (maintainer's call, 2026-09-07 at M7 = live Gemini verification): the spec's
 # original pin `gemini-2.5-flash` was retired by Google between the spec being written
 # (2026-09-06) and M7 being run (2026-09-07) — a newly-created key gets 404
 # "no longer available to new users". `*-latest` always resolves to the current
@@ -40,8 +40,8 @@ class ExtractedIngredient:
 
 @dataclass(frozen=True)
 class GroupingSuggestion:
-    """One AI-suggested "these names are the same shopping item" group (Fix 5, F5.1 — see
-    CLAUDE.md > Deferred Decisions > AI-assisted ingredient-grouping discovery). ``names`` is
+    """One AI-suggested "these names are the same shopping item" group (Fix 5 — see
+    docs/deferred-decisions.md > Deferred Decisions > AI-assisted ingredient-grouping discovery). ``names`` is
     already allow-list validated by the time this is constructed — only real, currently-used
     ingredient names ever appear here, never a hallucinated one (see
     ``calls.py::suggest_ingredient_groupings()``). A review artifact only — nothing consumes
@@ -58,7 +58,7 @@ class ExtractionResult:
     """2026-09-13 code review: this used to also carry `input_tokens`/`output_tokens`, hardcoded
     to 0 in every branch of `extract_recipe()` and never actually read by anything (confirmed by
     a repo-wide grep) — the real per-call token counts are computed inside `client.py >
-    _call_gemini()` and logged straight to `ai_call_log` (§0b), which is the single source of
+    _call_gemini()` and logged straight to `ai_call_log` (Security > API usage observability), which is the single source of
     truth for usage/diagnostics. Removed rather than wired through, since nothing needs a second
     copy of that data riding on this object. If a future feature wants a capture's own token
     cost, read it from `ai_call_log` by `context_id`, don't resurrect these fields."""
@@ -68,12 +68,12 @@ class ExtractionResult:
     ingredients: list[ExtractedIngredient]
     # Capture-Fixes-Staged.md issues 1 & 2 (2026-09-07) — title/servings were never
     # extracted at all; the review screen showed a blank name box and a hardcoded "4". Both
-    # are AI-prefilled here but stay fully editable on the review screen (CLAUDE.md >
+    # are AI-prefilled here but stay fully editable on the review screen (docs/recipe-capture.md >
     # Recipe Capture > After extraction).
     title: str | None = None
     servings: int | None = None
     # Enrichment sub-tasks that failed/queued during capture_recipe() and are still owed to
-    # the recipe (Phase 3.9 M6). Currently only "suggest_sections" is ever retried. The save
+    # the recipe (Phase 3.9 M6 = Pending AI processing badge). Currently only "suggest_sections" is ever retried. The save
     # path writes this to recipes.ai_tasks_pending and enqueues the retry.
     pending_tasks: list[str] = field(default_factory=list)
     model: str = MODEL_ID
@@ -88,16 +88,16 @@ class AiQuotaExhaustedError(AiExtractionError):
     """Both the primary and fallback Gemini models returned 429 (RESOURCE_EXHAUSTED).
     Subclass of AiExtractionError so ``except AiExtractionError`` still catches it — but a
     caller that can queue the work (capture endpoints) catches this specifically. See
-    CLAUDE.md > AI Provider Migration > Fallback & retry / Queueing."""
+    docs/recipe-capture.md > AI Provider Migration > Fallback & retry / Queueing."""
 
 
 class AiExtractionDisabledError(Exception):
     """Raised instead of ever calling the real API when settings.ai_extraction_enabled is
-    False (the default) — CLAUDE.md > Security > §0c. Fixed by the maintainer setting
+    False (the default) — docs/security.md > API enable switch. Fixed by the maintainer setting
     AI_EXTRACTION_ENABLED=true, never by an agent editing that value."""
 
     def __init__(self) -> None:
         super().__init__(
             "AI recipe extraction is disabled (AI_EXTRACTION_ENABLED is not 'true' in .env). "
-            "This is a deliberate default — see CLAUDE.md > Security > §0c."
+            "This is a deliberate default — see docs/security.md > API enable switch."
         )

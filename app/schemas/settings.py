@@ -1,7 +1,7 @@
 """Pydantic request/response models for the Settings API — editing the
-`product_units` reference catalogue (see CLAUDE.md > Data Model > product_units). Kept separate
+`product_units` reference catalogue (see docs/data-model.md > Data Model > product_units). Kept separate
 from the SQLAlchemy ORM in app/models/catalog.py on purpose, same reasoning as
-schemas/recipes.py — see CLAUDE.md > Code Architecture & Maintainability.
+schemas/recipes.py — see docs/code-architecture.md > Code Architecture & Maintainability.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ class ProductUnitBase(BaseModel):
 
 class ProductUnitCreate(ProductUnitBase):
     """`is_preseeded` is never user-settable — every entry added here is a
-    user addition, not a starter seed (see CLAUDE.md > Pre-seeded Product
+    user addition, not a starter seed (see docs/data-model.md > Pre-seeded Product
     Units: "Mark all as is_preseeded = 1" refers only to seed_data.py's own
     startup seeding, not to rows a household member adds via Settings)."""
 

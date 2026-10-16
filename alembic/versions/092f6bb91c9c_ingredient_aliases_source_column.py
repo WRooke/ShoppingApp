@@ -4,8 +4,8 @@ Revision ID: 092f6bb91c9c
 Revises: bcaf5b44af53
 Create Date: 2026-09-27
 
-F2.1 of the ingredient-name-matching plan (Fix 2 — aliases feed the extraction prompt). Adds
-``source`` (``"system"`` | ``"user"``) so the prompt builder (F2.3) can frame a household
+A step of the 2026-09-27 ingredient-name matching work (see docs/ingredient-handling.md > Ingredient Normalisation) (Fix 2 — aliases feed the extraction prompt). Adds
+``source`` (``"system"`` | ``"user"``) so the prompt builder (the extraction-prompt change) can frame a household
 preference distinctly from a universal-English fact, and so a household can never create a
 ``source='system'`` row via the API (the ``IngredientAliasCreate`` schema has no ``source``
 field at all — this is a DB-default-only distinction).
@@ -13,10 +13,10 @@ field at all — this is a DB-default-only distinction).
 NOT NULL, existing rows backfilled to ``'user'`` — every existing row (the oil/lemon/lime/
 yoghurt/heavy-cream/broth groups seeded so far, all genuinely household-facing choices, not
 universal facts) correctly becomes ``source='user'`` with no data loss and no manual backfill
-needed (CLAUDE.md non-negotiable rule 3). F2.2's own migration (chained after this one) is what
+needed (the never-lose-production-data rule in CLAUDE.md > Non-Negotiable Operating Rules). The legacy alias seed migration's own migration (chained after this one) is what
 actually inserts the first ``source='system'`` rows.
 
-Same server_default-then-drop dance as migrations ``1bc1ac8991f4``/``3474369f4c79`` — add the
+Same temporary-server_default technique (explained in migration 1bc1ac8991f4) as migrations ``1bc1ac8991f4``/``3474369f4c79`` — add the
 column with a ``server_default`` (needed for SQLite to backfill existing rows on a NOT NULL
 ADD COLUMN), then drop the server_default in a second step, so the final schema matches
 ``Base.metadata.create_all()`` (Python-side ``default="user"`` only, no DB-level default) —

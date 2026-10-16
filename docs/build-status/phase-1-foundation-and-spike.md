@@ -5,7 +5,7 @@
 against Security, Diagnostics & Logging, and Backup & Restore above (Phase 1 predates the
 chunking convention, so this review was done as a whole-phase pass rather than a per-chunk
 one). Found and fixed: CORS was `allow_origins=["*"]` with no auth, tightened to
-`ALLOWED_ORIGINS` (see [Security §4](../security.md#security)); uvicorn's default logging config was
+`ALLOWED_ORIGINS` (see [Security > App-level protections](../security.md#app-level-protections-cors-errors-access-logs)); uvicorn's default logging config was
 silently dropping every access-log line from `logs/app.log` and the diagnostics ring buffer
 (`log_config=None` fix, plus removing a since-counterproductive `WARNING` filter on
 `uvicorn.access`); `requirements.txt` was floor-pinned (`>=`) rather than exact, now pinned;
@@ -28,7 +28,7 @@ the "tested once" deliverable below rather than leaving it assumed. See commit
 - Automated backup: `scripts/backup.py` + `backup.bat`, weekly via Task Scheduler, plus
   `scripts/restore.py` + `restore.bat`, restore path actually tested once (see
   [Backup & Restore](../deployment-and-operations.md#backup--restore))
-- Security `[Phase 1 fix]` items applied — see [Security](../security.md#security) §1 and §3
+- Security `[Phase 1 fix]` items applied — see [Security > Network exposure](../security.md#network-exposure) and [Security > Windows 10 host](../security.md#windows-10-host)
 - Static IP setup instructions for Windows 10 (as a `SETUP.md` file in project root)
 - Health check endpoint: `GET /api/v1/health` returns DB status, config loaded status
 

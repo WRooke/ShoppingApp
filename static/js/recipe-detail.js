@@ -1,5 +1,5 @@
-/* Recipe detail view (view mode) — split out of recipes.js per CLAUDE.md > Code Architecture
-   & Maintainability > file size discipline (recipes.js passed ~400 lines once Chunk 6.6's
+/* Recipe detail view (view mode) — split out of recipes.js per docs/code-architecture.md > Code Architecture
+   & Maintainability > file size discipline (recipes.js passed ~400 lines once Chunk 6.6, mark cooked, history and archive's
    "I cooked this" landed in it). Edit mode lives in recipe-edit.js, the library list in
    recipes.js. Small helpers (el/fmtServings/ratingLabel/pendingBadge) are duplicated from
    recipes.js rather than shared, matching this file family's established
@@ -25,7 +25,7 @@
     return null;
   }
 
-  // "Pending AI processing" badge (Phase 3.9 M6) — a queued capture whose enrichment
+  // "Pending AI processing" badge (Phase 3.9 M6 = Pending AI processing badge) — a queued capture whose enrichment
   // (section suggestion) hasn't finished yet. Names the outstanding sub-task(s).
   function pendingBadge(tasks) {
     var pretty = (tasks || [])
@@ -37,7 +37,7 @@
   }
 
   // Only render a stored source_url as a link if it actually parses as http(s) —
-  // never javascript:/data:/etc. (see CLAUDE.md > Build Phases > Phase 3 > Chunk 3.7c).
+  // never javascript:/data:/etc. (see docs/build-status/phase-3-recipe-capture.md > Chunk 3.7c, source-reference frontend).
   // Anything else falls back to plain text.
   function safeHttpUrl(raw) {
     if (!raw) return null;

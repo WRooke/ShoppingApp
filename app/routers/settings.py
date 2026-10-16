@@ -1,10 +1,10 @@
-"""Settings API — CRUD for the `product_units` reference catalogue (see CLAUDE.md > Data
-Model > product_units). This is what makes the seeded data from Chunk 2.1 actually editable,
-per the Phase 2 deliverable (CLAUDE.md > Build Phases > Phase 2).
+"""Settings API — CRUD for the `product_units` reference catalogue (see docs/data-model.md > Data
+Model > product_units). This is what makes the seeded data from Chunk 2.1 (recipe data layer) actually editable,
+per the Phase 2 deliverable (docs/build-status/phase-2-recipe-library.md).
 
 HTTP only: parse the request, call app/services/settings.py, wrap the result
-in the {"ok": ...} envelope (see CLAUDE.md > API Conventions). Business logic
-and query construction live in the service layer — see CLAUDE.md > Code
+in the {"ok": ...} envelope (see docs/code-architecture.md > API Conventions). Business logic
+and query construction live in the service layer — see docs/code-architecture.md > Code
 Architecture & Maintainability. The Not-Found / Duplicate-Name exceptions are
 translated to structured errors centrally in app/main.py, not here.
 """
@@ -55,8 +55,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 
-# --- section vocabulary (read-only constant, see CLAUDE.md > Section Vocabulary Starter
-# List) — used by the capture review UI's suggested_section dropdown (Chunk 3.4) --------
+# --- section vocabulary (read-only constant, see docs/data-model.md > Section Vocabulary Starter
+# List) — used by the capture review UI's suggested_section dropdown (Chunk 3.4 (capture review screen)) --------
 
 
 @router.get("/section-vocabulary")
@@ -111,7 +111,7 @@ def delete_product_unit(product_unit_id: int, db: Session = Depends(get_db)) -> 
     return {"ok": True, "data": {"id": product_unit_id, "deleted": True}}
 
 
-# --- remembered substitutions: the quick-pick library (Phase 3.9 M4) -------------------
+# --- remembered substitutions: the quick-pick library (Phase 3.9 M4 = substitution redesign) -------------------
 #
 # A row is *created* when the user ticks "save this swap" at capture review, in the recipe
 # editor, or after a planning swap. This section views / edits the note / deletes them. It
@@ -163,7 +163,7 @@ def delete_substitution(substitution_id: int, db: Session = Depends(get_db)) -> 
     return {"ok": True, "data": {"id": substitution_id, "deleted": True}}
 
 
-# --- "the usuals" (Phase 5 Chunk 5.4) --------------------------------------
+# --- "the usuals" (Phase 5 Chunk 5.4, The usuals) --------------------------------------
 
 
 @router.post("/usuals", status_code=201)
@@ -204,7 +204,7 @@ def delete_usual(usual_id: int, db: Session = Depends(get_db)) -> dict:
 
 # --- ingredient aliases: "same shopping item" grouping (2026-09-10) --------------------
 #
-# Distinct from remembered substitutions above — see CLAUDE.md > Ingredient Aliases. Never
+# Distinct from remembered substitutions above — see docs/ingredient-handling.md > Ingredient Aliases. Never
 # applies a swap or needs confirmation; it's a pure relabelling resolved fresh at every
 # consolidate (app/services/session_consolidation.py), not stored on any recipe.
 
@@ -253,7 +253,7 @@ def delete_ingredient_alias(alias_id: int, db: Session = Depends(get_db)) -> dic
 
 # --- unit synonyms: spelling canonicalisation (2026-09-12) -----------------------------
 #
-# Distinct from ingredient aliases above — see CLAUDE.md > Ingredient Unit Handling > Layer
+# Distinct from ingredient aliases above — see docs/ingredient-handling.md > Ingredient Unit Handling > Layer
 # A. No equivalence pair (a unit needs no quantity conversion to its own synonym).
 
 
@@ -301,7 +301,7 @@ def delete_unit_synonym(synonym_id: int, db: Session = Depends(get_db)) -> dict:
 
 # --- coarse ingredients: skip quantity math entirely (2026-09-12) ----------------------
 #
-# See CLAUDE.md > Ingredient Unit Handling > Layer D.
+# See docs/ingredient-handling.md > Ingredient Unit Handling > Layer D (bought by the bunch).
 
 
 def _coarse_read(row) -> dict:

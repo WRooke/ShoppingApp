@@ -1,4 +1,4 @@
-"""Checklist merge: what "every time" records, and Undo (Chunk 6.7, 2026-10-06 — the toast that
+"""Checklist merge: what "every time" records, and Undo (Chunk 6.7, user-feedback batch, 2026-10-06 — the toast that
 replaced the native confirm()). docs/ui-ux.md > no native dialogs; docs/ingredient-handling.md."""
 
 from __future__ import annotations

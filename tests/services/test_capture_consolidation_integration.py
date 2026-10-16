@@ -1,7 +1,7 @@
 """Fake-mode integration test: does a real `ai_extraction.capture_recipe()` call flow correctly
-through recipe save -> session -> consolidate under Fix 1's shared normaliser
+through recipe save -> session -> consolidate under Fix 1 (shared name-matching key)'s shared normaliser
 (app/services/text_normalize.py)? Promoted from an ad-hoc verification script run by hand during
-the ingredient-name-matching plan's Fix 1 go/no-go — see that plan's Testing & Verification
+the ingredient-name matching work's Fix 1 go/no-go — see the testing notes for the ingredient-name matching work
 section. This is what caught the original "tofus" bug (an early `inflect`-adoption regression,
 since fixed) before it reached any real household data.
 
