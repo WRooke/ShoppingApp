@@ -27,6 +27,9 @@ EXTRA_CSS = cl.EXTRA_CSS + """
 .frame .row-changed .meta .changed-tag { color: var(--accent); font-size: var(--text-xs); margin-left: var(--sp-2); }
 .frame .live-note { font-size: var(--text-sm); border-left: 3px solid var(--accent); background: var(--accent-tint);
   padding: var(--sp-2) var(--sp-3); margin: var(--sp-2) 0 var(--sp-3); }
+.frame .have-link { margin-top: var(--sp-1); }
+.frame .have-inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); font-size: var(--text-sm); }
+.frame .have-inline input { width: 4.5rem; }
 .frame .have-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0; }
 .frame .have-sentence input { width: 5rem; }
 .frame .copy-fallback { width: 100%; min-height: 7rem; font-family: var(--font-mono); font-size: var(--text-xs); }
@@ -107,58 +110,63 @@ def build_settings():
 
 # ---------------------------------------------------------------------------------------------
 def build_checklist():
-    def chips(active: str) -> str:
-        names = ["Pack size", "Substitute", "Also called", "By the bunch", "Combine", "I have some"]
-        return '<div class="chips">' + "".join(f'<button class="btn-sm{" primary" if n == active else ""}">{n}</button>' for n in names) + "</div>"
-
-    def panel() -> str:
+    def row(name, meta, state="", have=None, editing=False, changed=False, on_list=False):
+        """A checklist row with the always-visible "I have some" control under the amount."""
+        cls = "checklist-row" + (" row-changed" if changed else "") + (" on-anylist" if on_list else "")
+        tag = '<span class="tag-on">On AnyList</span>' if on_list else ""
+        hv = ' aria-pressed="true"' if state == "have" else ""
+        nd = ' aria-pressed="true"' if state == "need" else ""
+        ctl = ""
+        if editing:
+            ctl = (
+                '<div class="have-inline"><span>I have</span><input value="1" inputmode="decimal" aria-label="How many you have">'
+                '<span>of 3</span><button class="btn-sm primary">Save</button><button class="btn-sm">Cancel</button></div>'
+            )
+        elif have is not None:
+            ctl = '<button class="btn-link have-link">Change what I have</button>'
+        elif state != "have":
+            ctl = '<button class="btn-link have-link">I have some</button>'
+        tail = '<span class="changed-tag">Changed on another phone</span>' if changed else ""
         return (
-            '<div class="swap-panel"><div class="hdr">I already have some</div>'
-            '<div class="have-sentence"><span>I have</span><input value="1" inputmode="decimal"><span>of the 3 the recipes need.</span></div>'
-            '<div class="hint">Buying 2. Only this plan.</div>'
-            '<div class="log-controls"><button class="btn-sm primary">Save</button><button class="btn-sm">I have none</button></div></div>'
+            f'<div class="{cls}"><div class="main"><div class="name">{name} ▾{tag}</div><div class="meta">{meta}{tail}</div>{ctl}</div>'
+            f'<div class="have-need-pair"><button class="have-need-btn have"{hv}>Have it</button><button class="have-need-btn need"{nd}>Need it</button></div></div>'
         )
+
+    def screen(rows, note=""):
+        return header("Checklist") + '<div class="pad"><div class="card">' + note + '<div class="sub-group-heading">Ingredients</div>' + rows + "</div></div>" + nav("plan")
 
     s1 = scene(
-        "3. “I have some” — leftover tomato, recipes need 3",
-        "A sixth chip on the row's panel (only on rows with a single amount; not on “to taste”, “by the bunch” or mixed-unit rows). Type how many you already have; "
-        "the line then asks for the rest. Always this plan only — no Always button. Having all of it (3 of 3) turns the row to Have it.",
-        header("Checklist") + '<div class="pad"><div class="card">' + checklist_row("Tomatoes", "3", "need") + chips("I have some") + panel() + "</div></div>" + nav("plan"),
+        "3. “I have some” — one tap away on the row, no panel to open",
+        "Every row with a single amount (not “to taste”, “by the bunch” or mixed-unit rows) shows a small “I have some” link under its amount. Rows already marked Have it don't show it.",
+        screen(row("Tomatoes", "3", "need") + row("Lime", "5") + row("Milk", "2 L", "have", on_list=True)),
     )
-
-    def after_rows() -> str:
-        return (
-            header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Ingredients</div>'
-            + checklist_row("Tomatoes", "Buy 2 · have 1 of 3", "need")
-            + checklist_row("Plain flour", "Buy 1 × 500g bag · have 450 of 900 g", "need")
-            + checklist_row("Lime", "5") + "</div></div>" + nav("plan")
-        )
-
     s2 = scene(
-        "3b. How the rows read afterwards",
-        "The first number is what goes to AnyList (“Tomatoes — 2”). Packs are counted on what's still to buy: 900 g needs two 500 g bags, but with 450 g in the cupboard it's one. "
-        "Wording options if you prefer something else: “Buy 2 (you have 1)” or “2 more needed (have 1 of 3)”.",
-        after_rows(),
-    )
-
-    live_row = (
-        '<div class="checklist-row row-changed"><div class="main"><div class="name">Lime ▾</div>'
-        '<div class="meta">5<span class="changed-tag">Changed on another phone</span></div></div>'
-        '<div class="have-need-pair"><button class="have-need-btn have" aria-pressed="true">Have it</button><button class="have-need-btn need">Need it</button></div></div>'
+        "3a. Tap it: the field opens right on the row",
+        "Type how many you already have and tap Save (or Cancel). Only this plan. Having all of it (3 of 3) turns the row to Have it.",
+        screen(row("Tomatoes", "3", "need", editing=True) + row("Lime", "5")),
     )
     s3 = scene(
-        "4. Live checklist — a change from another phone",
-        "The row is tinted and says where it came from for a few seconds, then returns to normal. Nothing else on screen moves. No sound, no pop-up.",
-        header("Checklist") + '<div class="pad"><div class="card"><div class="sub-group-heading">Ingredients</div>'
-        + checklist_row("Tomatoes", "Buy 2 · have 1 of 3", "need") + live_row + checklist_row("Milk", "2 L", "have", on_list=True) + "</div></div>" + nav("plan"),
+        "3b. How the row reads afterwards",
+        "The first number is what goes to AnyList (“Tomatoes — 2”). Packs are counted on what is still to buy: 900 g needs two 500 g bags, but with 450 g in the cupboard it is one. "
+        "The link becomes “Change what I have” (set it to 0 to clear). Wording alternatives: “Buy 2 (you have 1)” or “2 more needed (have 1 of 3)”.",
+        screen(
+            row("Tomatoes", "Buy 2 · have 1 of 3", "need", have=1)
+            + row("Plain flour", "Buy 1 × 500g bag · have 450 of 900 g", "need", have=450)
+            + row("Lime", "5")
+        ),
     )
     s4 = scene(
-        "4b. …while you are in the middle of an edit",
-        "If you have a panel open (or are typing), the other phone's change waits so nothing you are typing is lost. One line tells you; the change appears when you close the panel.",
-        header("Checklist") + '<div class="pad"><div class="card"><div class="live-note">Another phone changed this list. You’ll see it when you close this.</div>'
-        + checklist_row("Tomatoes", "3", "need") + chips("I have some") + panel() + "</div></div>" + nav("plan"),
+        "4. Live checklist — a change from another phone",
+        "The row is tinted and says where it came from for a few seconds, then returns to normal. Nothing else on screen moves. No sound, no pop-up.",
+        screen(row("Tomatoes", "Buy 2 · have 1 of 3", "need", have=1) + row("Lime", "5", "have", changed=True) + row("Milk", "2 L", "have", on_list=True)),
     )
-    return [s1, s2, s3, s4]
+    s5 = scene(
+        "4b. …while you are in the middle of typing",
+        "If you are typing (or have a panel open), the other phone's change waits so nothing you typed is lost. One line says so; the change appears when you finish.",
+        screen(row("Tomatoes", "3", "need", editing=True) + row("Lime", "5"),
+               note='<div class="live-note">Another phone changed this list. You’ll see it when you finish.</div>'),
+    )
+    return [s1, s2, s3, s4, s5]
 
 
 # ---------------------------------------------------------------------------------------------

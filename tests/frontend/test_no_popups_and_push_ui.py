@@ -405,7 +405,7 @@ def test_diagnostics_shows_push_history_with_per_item_results_and_the_running_bu
     }
     browser.eval(
         "window.api.diagnostics.status = function(){ return Promise.resolve(" + json.dumps(stub) + "); };"
-        "window.api.diagnostics.recentErrors = function(){ return Promise.resolve({errors: []}); };"
+        "window.api.diagnostics.recentErrors = function(){ return Promise.resolve({entries: []}); };"
     )
     # Re-mount the view (same document, so the stubbed `window.api` survives) rather than waiting for
     # its 5 s refresh timer to come round (2026-10-11 test-speed work).

@@ -318,6 +318,38 @@
   // any) on the following lines — plain text, suitable for pasting into a bug report or chat
   // (diagnostics chunk 7.7, 5b). Always every entry currently shown on the Recent Errors
   // card (ERROR+), never the level filter applied to the Live log tail below it.
+  // Copy `text` to the clipboard; resolves true/false, never rejects. The async Clipboard API
+  // exists only in a secure context (https or localhost), and this app is served over plain HTTP
+  // on the home network, so it is undefined on a phone: fall back to selecting a throw-away
+  // textarea and `execCommand("copy")`, which still works there when called inside the tap.
+  function copyText(text) {
+    function legacy() {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.top = "0";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        var ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return !!ok;
+      } catch (_) {
+        return false;
+      }
+    }
+    if (navigator.clipboard && global.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(
+        function () { return true; },
+        function () { return legacy(); }
+      );
+    }
+    return Promise.resolve(legacy());
+  }
+
   function formatErrorsForClipboard(entries) {
     return (entries || [])
       .map(function (e) {
@@ -383,23 +415,42 @@
     errHead.appendChild(el("h2", null, "Recent errors"));
     var copyBtn = el("button", null, "Copy errors");
     copyBtn.style.marginLeft = "auto";
+    // Shown only when the browser refuses every way of copying: the text in a box, already
+    // selected, so a press-and-hold copies it (2026-10-16 — Firefox on a phone over plain HTTP).
+    var fallbackBox = el("div");
+    fallbackBox.hidden = true;
+    var fallbackHint = el(
+      "div",
+      "hint",
+      "Couldn’t copy automatically. Press and hold the text below, then choose Copy."
+    );
+    var fallbackText = el("textarea", "copy-fallback");
+    fallbackText.readOnly = true;
+    fallbackText.setAttribute("aria-label", "Errors to copy");
+    fallbackBox.appendChild(fallbackHint);
+    fallbackBox.appendChild(fallbackText);
     copyBtn.addEventListener("click", function () {
       var text = formatErrorsForClipboard(state.lastErrors);
       if (!text) {
         global.Toast.show("No errors to copy");
         return;
       }
-      navigator.clipboard
-        .writeText(text)
-        .then(function () {
-          global.Toast.show("Copied " + state.lastErrors.length + " error(s) to clipboard");
-        })
-        .catch(function (err) {
-          global.Toast.show("Couldn't copy: " + err.message);
-        });
+      var n = state.lastErrors.length;
+      copyText(text).then(function (ok) {
+        if (ok) {
+          fallbackBox.hidden = true;
+          global.Toast.show("Copied " + n + (n === 1 ? " error" : " errors"));
+          return;
+        }
+        fallbackText.value = text;
+        fallbackBox.hidden = false;
+        fallbackText.focus();
+        fallbackText.select();
+      });
     });
     errHead.appendChild(copyBtn);
     errCard.appendChild(errHead);
+    errCard.appendChild(fallbackBox);
     var errBox = el("div", "log-list errors-box");
     errBox.id = "diag-errors";
     errCard.appendChild(errBox);
