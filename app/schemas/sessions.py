@@ -148,6 +148,11 @@ class ChecklistItemRead(BaseModel):
     display_unit: str | None = None
     total_quantity: float | None
     total_unit: str | None
+    # 2026-10-16 "I have some": USER state (columns). `buy_quantity` below is computed fresh by
+    # checklist_display.decorate (full need minus what is had, same unit), never stored.
+    have_quantity: float | None = None
+    have_unit: str | None = None
+    buy_quantity: float | None = None
     already_on_anylist: bool
     have_it: str
     add_to_list: bool

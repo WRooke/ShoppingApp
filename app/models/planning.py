@@ -107,6 +107,13 @@ class SessionChecklistItem(Base):
     # to tell apart from the breakdown itself. See services/consolidation.py > ReviewOption
     # and CLAUDE.md > Scaling Logic > Rounding & unit rules > Irreconcilable.
     review_options_json = Column(Text, nullable=True)
+    # 2026-10-16 (Chunk 6.7, polish batch 3, "I have some") — how much of this ingredient the
+    # household already has, in `have_unit` (always the row's own total_unit when set). USER
+    # state: consolidation never resets it. `total_quantity` keeps meaning the full amount the
+    # recipes need; the amount to buy is derived (services/have_some.py). Both nullable and
+    # additive per CLAUDE.md rule 3.
+    have_quantity = Column(Float, nullable=True)
+    have_unit = Column(Text, nullable=True)
     created_at = Column(UTCDateTime(), nullable=False, default=utcnow)
     updated_at = Column(UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow)
 

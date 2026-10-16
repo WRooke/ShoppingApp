@@ -22,6 +22,7 @@ from app.schemas.settings import ProductUnitCreate
 from app.schemas.substitutions import RememberedSubstitutionCreate
 from app.services import anylist_client
 from app.services import checklist_display
+from app.services import have_some
 from app.models.planning import SessionChecklistItem
 from app.services import coarse_ingredients as coarse_ingredients_service
 from app.services import ingredient_aliases as ingredient_aliases_service
@@ -51,6 +52,15 @@ class ChecklistItemNotFoundError(Exception):
         self.session_id = session_id
         self.item_id = item_id
         super().__init__(f"Checklist item {item_id} not found on session {session_id}")
+
+
+class HaveSomeNotApplicableError(Exception):
+    """"I have some" on a line with no single numeric amount (coarse / to taste / unresolved
+    conflict). 422 HAVE_SOME_NOT_APPLICABLE."""
+
+    def __init__(self, item_id: int) -> None:
+        self.item_id = item_id
+        super().__init__(f"Checklist item {item_id} has no single amount to take some off")
 
 
 class SessionAlreadyPushedError(Exception):
@@ -268,6 +278,38 @@ def resolve_item(
     logger.info(
         "Checklist item resolved: session_id=%s item_id=%s -> %s",
         session_id, item_id, f"{total_quantity} {total_unit}",
+    )
+    return row
+
+
+def set_have_some(
+    db: Session, session_id: int, item_id: int, *, quantity: float | None
+) -> SessionChecklistItem:
+    """Record how much of this ingredient the household already has ("I have some", Chunk 6.7
+    batch 3). ``None`` or 0 clears it and leaves Have it / Need it as it was. The unit is always
+    the row's own ``total_unit``. When what is had covers the whole need the row becomes Have it
+    (the existing binary decision), so nothing is sent to AnyList for it.
+
+    Refused for rows with no numeric total (coarse / "to taste") and for unresolved conflicts,
+    where "how much" has no single unit to subtract in."""
+    row = _get_item(db, session_id, item_id)
+    if quantity is not None and quantity > 0:
+        if row.total_quantity is None or row.needs_review:
+            raise HaveSomeNotApplicableError(item_id)
+        row.have_quantity = quantity
+        row.have_unit = row.total_unit
+        if have_some.covers_everything(row.total_quantity, row.total_unit, quantity, row.have_unit):
+            row.have_it = "yes"
+            row.add_to_list = False
+    else:
+        row.have_quantity = None
+        row.have_unit = None
+    db.commit()
+    # Pack text ("Buy 1 x ...") depends on the amount to buy: recompute it.
+    sessions_service.consolidate_session(db, session_id)
+    db.refresh(row)
+    logger.info(
+        "Checklist item have-some: session_id=%s item_id=%s have=%s", session_id, item_id, quantity
     )
     return row
 
@@ -645,7 +687,10 @@ def _anylist_quantity(item: SessionChecklistItem) -> str | None:
     `_anylist_note`) — the quantity field is reserved for the plain figure a shopper needs,
     not a sentence describing how it was packed."""
     if item.total_quantity is not None:
-        n = item.total_quantity
+        # "I have some": what is still to buy, not the full recipe need.
+        n = have_some.amount_to_buy(
+            item.total_quantity, item.total_unit, item.have_quantity, item.have_unit
+        )
         n = str(int(n)) if n == int(n) else f"{n:g}"
         return f"{n} {item.total_unit}".strip() if item.total_unit else n
     if item.display_qty:
@@ -677,7 +722,11 @@ def _push_name(db: Session, ci: SessionChecklistItem, index: checklist_display.W
     row's matching key, so it always matches the row on the next push), title-cased by
     `text_normalize.title_case_name` (small words stay lower-case; no "Baker'S")."""
     return text_normalize.title_case_name(
-        checklist_display.display_name(db, ci.ingredient_name, ci.total_quantity, ci.total_unit, index)
+        checklist_display.display_name(
+            db, ci.ingredient_name,
+            have_some.amount_to_buy(ci.total_quantity, ci.total_unit, ci.have_quantity, ci.have_unit),
+            ci.total_unit, index,
+        )
     )
 
 

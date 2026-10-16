@@ -6,15 +6,18 @@ translation is central in app/main.py.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.routers import live_revisions
 from app.schemas.checklist import (
     ChecklistItemAliasRequest,
     ChecklistItemCoarseRequest,
+    ChecklistItemHaveSomeRequest,
     ChecklistItemPackSizeRequest,
     ChecklistItemResolve,
     ChecklistItemSubstituteRequest,
@@ -27,13 +30,18 @@ from app.schemas.checklist import (
 from app.schemas.sessions import ChecklistItemRead
 from app.services import checklist as checklist_service
 from app.services import checklist_display
+from app.services import checklist_revisions
 from app.services import progress_tracker
 from app.services import sessions as sessions_service
 from app.services import usuals as usuals_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/checklist", tags=["checklist"])
+router = APIRouter(
+    prefix="/api/v1/checklist",
+    tags=["checklist"],
+    dependencies=[Depends(live_revisions.bump_on_write)],
+)
 
 
 def _item(db: Session, row, index=None) -> dict:
@@ -86,7 +94,59 @@ def load_checklist(session_id: int, db: Session = Depends(get_db)) -> dict:
         ],
         usuals=checklist_service.due_usuals(db),
     )
-    return {"ok": True, "data": body.model_dump()}
+    data = body.model_dump()
+    # The revision a phone starts long-polling from. Read AFTER the load: a change landing
+    # during it is then simply seen as "changed" on the next poll, never missed.
+    data["epoch"], data["rev"] = checklist_revisions.current(session_id)
+    return {"ok": True, "data": data}
+
+
+# --- live updates between phones (Chunk 6.7 batch 3) ---------------------------------------
+# How long one /changes request waits, and how often it looks. Module-level so tests can shrink
+# them. See docs/checklist-and-shopping.md > Live updates between phones.
+LONG_POLL_SECONDS = 25.0
+LONG_POLL_INTERVAL = 0.25
+
+
+@router.get("/{session_id}/items")
+def checklist_items(session_id: int, db: Session = Depends(get_db)) -> dict:
+    """The cheap re-read a second phone does after /changes says something changed: the same
+    complete rows as every whole-list mutation (recipe_breakdown included) plus the due usuals,
+    with NO AnyList read (GET /{session_id} does one on every call). (Consolidation inside
+    `_items` is idempotent, so this write-free-in-effect pass is safe on a GET.)"""
+    epoch, rev = checklist_revisions.current(session_id)  # before the read, see load_checklist
+    rows = sorted(sessions_service.get_session(db, session_id).checklist_items, key=lambda r: r.ingredient_name)
+    return {
+        "ok": True,
+        "data": {
+            "items": _items(db, rows, session_id),
+            "usuals": [u.model_dump() for u in checklist_service.due_usuals(db)],
+            "epoch": epoch,
+            "rev": rev,
+        },
+    }
+
+
+@router.get("/{session_id}/changes")
+async def checklist_changes(
+    session_id: int,
+    request: Request,
+    epoch: str | None = Query(None),
+    rev: int | None = Query(None),
+) -> dict:
+    """Long-poll: answer at once if the plan's revision differs from the caller's, otherwise hold
+    the request open (up to LONG_POLL_SECONDS) and answer the moment it does. `async` so a waiting
+    phone costs no worker thread; the wait is a cheap dict look-up every LONG_POLL_INTERVAL, which
+    needs no cross-thread signalling. Never touches the database."""
+    waited = 0.0
+    while checklist_revisions.is_unchanged(session_id, epoch, rev) and waited < LONG_POLL_SECONDS:
+        if await request.is_disconnected():
+            break
+        await asyncio.sleep(LONG_POLL_INTERVAL)
+        waited += LONG_POLL_INTERVAL
+    cur_epoch, cur_rev = checklist_revisions.current(session_id)
+    changed = (epoch, rev) != (cur_epoch, cur_rev)
+    return {"ok": True, "data": {"changed": changed, "epoch": cur_epoch, "rev": cur_rev}}
 
 
 @router.patch("/{session_id}/items/{item_id}")
@@ -113,6 +173,21 @@ def resolve_item(
         db, session_id, item_id, total_quantity=data.total_quantity, total_unit=data.total_unit
     )
     return {"ok": True, "data": _item(db, row)}
+
+
+@router.post("/{session_id}/items/{item_id}/have-some")
+def have_some_item(
+    session_id: int,
+    item_id: int,
+    data: ChecklistItemHaveSomeRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Ingredient panel — "I have some": record an amount already at home so only the rest is
+    bought. This list only (never remembered). Allowed after a push, like a Have it tap; the new
+    amount reaches AnyList on the next re-push. Returns the whole list (pack text changes)."""
+    row = checklist_service.set_have_some(db, session_id, item_id, quantity=data.quantity)
+    rows = sessions_service.get_session(db, session_id).checklist_items
+    return {"ok": True, "data": {"items": _items(db, sorted(rows, key=lambda r: r.ingredient_name), session_id)}}
 
 
 @router.post("/{session_id}/merge")

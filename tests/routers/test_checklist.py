@@ -257,6 +257,29 @@ def test_resolve_needs_review_item(client, fake_anylist):
     assert body["total_quantity"] == 300 and body["total_unit"] == "ml"
 
 
+def test_have_some_reduces_the_amount_to_buy_and_returns_the_whole_list(client, fake_anylist):
+    sid = _session_with_checklist(client, [{"name": "zz-have-tomato", "quantity": 3, "unit": None}])
+    item = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]
+    resp = client.post(f"/api/v1/checklist/{sid}/items/{item['id']}/have-some", json={"quantity": 1})
+    assert resp.status_code == 200
+    row = resp.json()["data"]["items"][0]
+    assert row["total_quantity"] == 3 and row["have_quantity"] == 1 and row["buy_quantity"] == 2
+    assert row["recipe_breakdown"], "whole-list mutation dropped recipe_breakdown"
+    assert client.post(
+        f"/api/v1/checklist/{sid}/items/{item['id']}/have-some", json={"quantity": -1}
+    ).status_code == 422
+
+
+def test_have_some_on_an_unresolved_conflict_is_refused(client, fake_anylist):
+    sid = _session_with_checklist(
+        client, [{"name": "zz-have-cream", "quantity": 100, "unit": "g"},
+                 {"name": "zz-have-cream", "quantity": 200, "unit": "ml"}]
+    )
+    item = client.get(f"/api/v1/checklist/{sid}").json()["data"]["items"][0]
+    resp = client.post(f"/api/v1/checklist/{sid}/items/{item['id']}/have-some", json={"quantity": 1})
+    assert resp.status_code == 422 and resp.json()["error"]["code"] == "HAVE_SOME_NOT_APPLICABLE"
+
+
 # --- merge (Fix 3, F3.3) -----------------------------------------------------------------
 
 

@@ -22,6 +22,9 @@ class ChecklistLoadResponse(BaseModel):
     anylist_detail: str | None = None  # e.g. "FAKE MODE", or the failure reason
     items: list[ChecklistItemRead]
     usuals: list["ChecklistUsualRead"] = Field(default_factory=list)
+    # Live updates (Chunk 6.7 batch 3): where the long-poll starts. Filled by the router.
+    epoch: str | None = None
+    rev: int | None = None
 
 
 class ChecklistUsualRead(BaseModel):
@@ -64,6 +67,13 @@ class ChecklistItemResolve(BaseModel):
         if self.total_unit is not None:
             self.total_unit = " ".join(self.total_unit.strip().lower().split()) or None
         return self
+
+
+class ChecklistItemHaveSomeRequest(BaseModel):
+    """POST /checklist/{id}/items/{item}/have-some body — how much the household already has, in
+    the row's own unit. ``null`` or 0 clears it."""
+
+    quantity: float | None = Field(default=None, ge=0)
 
 
 class ChecklistMergeRequest(BaseModel):

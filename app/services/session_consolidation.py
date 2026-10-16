@@ -15,6 +15,7 @@ rounding/unit rules themselves live in ``consolidation.py``. See CLAUDE.md > Sca
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import math
@@ -26,6 +27,7 @@ from app.models.planning import PlanningSession, SessionChecklistItem
 from app.services import (
     coarse_ingredients,
     consolidation,
+    have_some,
     ingredient_aliases,
     purchase_units,
     scaling,
@@ -229,6 +231,13 @@ def _carry_state_across_renames(
         if HAVE_IT_STRENGTH.get(stale.have_it, 0) > HAVE_IT_STRENGTH.get(target.have_it, 0):
             target.have_it = stale.have_it
         target.add_to_list = bool(target.add_to_list or stale.add_to_list)
+        # "I have some": same-unit amounts add up when rows fold together; a unit mismatch
+        # keeps the survivor's own and drops the stale one (documented edge case).
+        if stale.have_quantity:
+            if target.have_quantity is None:
+                target.have_quantity, target.have_unit = stale.have_quantity, stale.have_unit
+            elif have_some.units_match(target.have_unit, stale.have_unit):
+                target.have_quantity += stale.have_quantity
         if not target.already_on_anylist and stale.already_on_anylist:
             target.already_on_anylist = True
             target.anylist_item_id = stale.anylist_item_id
@@ -550,8 +559,18 @@ def _consolidate_session_impl(
             session_pack = pack_overrides.get(item.name)
             if session_pack is not None:
                 rows = [*rows, session_pack]
-            required, opts, _kind = session_pack_resolution.pack_options_for(item, rows)
-            resolution = purchase_units.resolve_packs(required, opts) if opts else None
+            # "I have some" (2026-10-16): packs are counted on what is still to BUY, so
+            # "Buy 1 x ..." matches the reduced amount. total_quantity itself stays the full need.
+            buy_qty = have_some.amount_to_buy(
+                item.quantity, item.unit, row.have_quantity, row.have_unit
+            )
+            buy_item = (
+                dataclasses.replace(item, quantity=buy_qty) if buy_qty != item.quantity else item
+            )
+            required, opts, _kind = session_pack_resolution.pack_options_for(buy_item, rows)
+            resolution = (
+                purchase_units.resolve_packs(required, opts) if opts and required > 0 else None
+            )
             if resolution is not None:
                 row.display_qty = resolution.display_qty
                 row.purchase_qty = resolution.total_purchased
@@ -561,7 +580,7 @@ def _consolidate_session_impl(
                     else resolution.display_qty
                 )
                 if resolution.show_overage:
-                    row.note = session_pack_resolution.overage_note(resolution.overage, item)
+                    row.note = session_pack_resolution.overage_note(resolution.overage, buy_item)
             if item.also_to_taste:
                 row.note = f"{row.note} (+ to taste)" if row.note else "(+ to taste)"
 

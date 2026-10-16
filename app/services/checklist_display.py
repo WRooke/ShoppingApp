@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session
 from app.models.catalog import IngredientAlias
 from app.models.recipes import RecipeIngredient
 from app.schemas.sessions import ChecklistItemRead
-from app.services import text_normalize, unit_synonyms
+from app.services import have_some, text_normalize, unit_synonyms
 
 # Names where changing only the last word would read wrongly ("pita bread or flatbreads" must be
 # left exactly as written, never "pita breads or flatbreads"), so a plural is never COMPUTED for
@@ -212,6 +212,9 @@ def decorate(db: Session, read: ChecklistItemRead, index: WordingIndex | None = 
         update={
             "display_name": display_name(db, name, read.total_quantity, read.total_unit, index),
             "display_unit": display_unit(read.total_unit, read.total_quantity),
+            "buy_quantity": have_some.amount_to_buy(
+                read.total_quantity, read.total_unit, read.have_quantity, read.have_unit
+            ),
             "review_options": options,
         }
     )

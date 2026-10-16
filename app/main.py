@@ -48,6 +48,7 @@ from app.services.anylist_client import (
 )
 from app.services.checklist import (
     ChecklistItemNotFoundError,
+    HaveSomeNotApplicableError,
     SessionAlreadyPushedError,
 )
 from app.services.usuals import DuplicateUsualItemNameError, UsualItemNotFoundError
@@ -336,6 +337,11 @@ _DOMAIN_ERROR_HANDLERS: dict[type[Exception], Callable] = {
         404,
         "CHECKLIST_ITEM_NOT_FOUND",
         lambda e: f"Checklist item {e.item_id} not found on session {e.session_id}.",
+    ),
+    HaveSomeNotApplicableError: _domain_error_handler(
+        422,
+        "HAVE_SOME_NOT_APPLICABLE",
+        lambda e: "This line has no single amount to take some off.",
     ),
     SessionAlreadyPushedError: _domain_error_handler(
         409,

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.routers import live_revisions
 from app.models.planning import SessionRecipe as SessionRecipeModel
 from app.models.planning import PlanningSession as PlanningSessionModel
 from app.schemas.sessions import (
@@ -31,7 +32,11 @@ from app.services import sessions as sessions_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
+router = APIRouter(
+    prefix="/api/v1/sessions",
+    tags=["sessions"],
+    dependencies=[Depends(live_revisions.bump_on_write)],
+)
 
 
 def _slot_read(slot: SessionRecipeModel) -> dict:
