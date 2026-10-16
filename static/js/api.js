@@ -387,6 +387,19 @@
           data
         );
       },
+      // "I have some": `quantity` is how many are already at home (null clears it). Returns the
+      // whole list, because pack text and the Have it state can change.
+      haveSome: function (sessionId, itemId, quantity) {
+        return jsonBody(
+          "POST",
+          "/api/v1/checklist/" +
+            encodeURIComponent(sessionId) +
+            "/items/" +
+            encodeURIComponent(itemId) +
+            "/have-some",
+          { quantity: quantity }
+        );
+      },
       push: function (sessionId, opts) {
         opts = opts || {};
         return jsonBody(

@@ -617,3 +617,11 @@
 .persist-toggle { display: flex; gap: var(--sp-2); }
 .persist-toggle .persist-btn { flex: 1 1 0; }
 .persist-caption { font-size: var(--text-sm); margin: var(--sp-1) 0 var(--sp-3); }
+
+/* ===== 2026-10-16 (Chunk 6.7 polish batch 3) — "I have some" on the checklist row, live updates ===== */
+.have-link { margin-top: var(--sp-1); padding-left: 0; }
+.have-inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); font-size: var(--text-sm); }
+.have-inline input { width: 4.5rem; min-height: 40px; font: inherit; padding: .4rem .6rem; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--text); }
+.checklist-row.row-changed { background: var(--accent-tint); border-radius: var(--r-md); }
+.checklist-row .changed-tag { color: var(--accent); font-size: var(--text-xs); margin-left: var(--sp-2); }
+.live-note { font-size: var(--text-sm); border-left: 3px solid var(--accent); background: var(--accent-tint); padding: var(--sp-2) var(--sp-3); margin: var(--sp-2) 0 var(--sp-3); }

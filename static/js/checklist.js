@@ -189,6 +189,8 @@
     // the push line still counts it.
     var usualState = {};
     var lastData = null;
+    // "I have some" fields currently open: ingredient name -> typed text (checklist-have-some.js).
+    var haveDrafts = {};
     // Ingredient panel's Substitute chip quick-picks (2026-09-30, chunk 7.5) — fetched once
     // per load, same as the now-deleted session-review.js used to, keyed by original_name.
     // A failure here is non-fatal (empty quick-picks, manual entry still works) — never blocks
@@ -196,6 +198,14 @@
     var picksByName = {};
     function rerender() {
       if (lastData) render(lastData);
+    }
+    // Replace the rows with a complete list the server just returned (a whole-list mutation, or
+    // another phone's change) without reloading from AnyList.
+    function applyItems(items, usuals) {
+      if (!lastData) return;
+      lastData.items = items;
+      if (usuals) lastData.usuals = usuals;
+      rerender();
     }
 
     // 2026-09-30 (chunk 7.6) — screen-wide select-exclusive row expansion (at most one row's
@@ -546,10 +556,20 @@
         );
         main.appendChild(nameParts.nameEl);
         var metaRow = el("div", "meta-row");
-        metaRow.appendChild(el("div", "meta", qtyText(item)));
+        metaRow.appendChild(el("div", "meta", global.ChecklistHaveSome.summaryText(item, qtyText(item))));
         main.appendChild(metaRow);
         var rowFeedback = el("div"); // "Couldn't save" appears here, on the row that failed
         main.appendChild(rowFeedback);
+        if (!mergeMode) {
+          main.appendChild(
+            global.ChecklistHaveSome.build(item, {
+              sessionId: sessionId,
+              drafts: haveDrafts,
+              onItems: applyItems,
+              onDraftChange: rerender,
+            })
+          );
+        }
         row.appendChild(main);
 
         if (!mergeMode) {
