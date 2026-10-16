@@ -766,6 +766,29 @@ change chunk order and scope, not just because they happened.
         still on AnyList (harmless — Have it and unknown are both unsent; decided 2026-10-11);
         `session_status` on the checklist load response and per-usual push reporting (no client
         needs them now that skipped usuals can't be re-added).
+- [x] **2026-10-16 polish batch 3 (Chunk 6.7)** — phone-testing notes (Firefox on Android, app over
+      plain HTTP); mockups approved in conversation first (`docs/mockups/chunk-6.7-batch3/`), plan in
+      the maintainer's plans folder. Full suite 998 passed.
+      - **Status errors / Copy errors.** `navigator.clipboard` is undefined over HTTP, so "Copy errors"
+        threw. Now async API → `execCommand("copy")` → a select-and-hold box. The bare "Script error."
+        entries are a browser extension (all 39 app scripts are same-origin), now logged as WARNING
+        (`cross_origin` kind) and no longer light the red dot. See
+        [Diagnostics & Logging](../diagnostics-and-logging.md#browser-errors).
+      - **Settings layout.** Pack sizes, Unit spellings, Saved ingredient swaps and The usuals moved
+        onto the group-row / "Add one" card pattern "Same item, different names" already used: the name
+        heads its own row, a dashed card separates the add form, the "↓" hint stacks between its two
+        boxes; the old `.settings-row` rules are gone. Geometry regression test added (checked to fail
+        without the fix).
+      - **"I have some".** A link on the checklist row (not inside the ingredient panel) records an
+        amount already at home; only the rest is bought and pushed. Additive migration
+        (`have_quantity` / `have_unit`). Details: [Checklist](../checklist-and-shopping.md#i-have-some--an-amount-already-at-home-2026-10-16-chunk-67-polish-batch-3).
+      - **Live checklist.** Long-poll + in-memory revision counter; a second phone updates in about a
+        second, held back while the person is mid-edit. Details:
+        [Live updates between phones](../checklist-and-shopping.md#live-updates-between-phones-2026-10-16-chunk-67-polish-batch-3).
+      - **Still to confirm on the NUC** after `deploy.bat` → `update.bat`: on the phone (Firefox, HTTP)
+        Copy errors; two phones on one checklist; reload each open tab once (tabs loaded before the
+        update still have the old scripts). The two old red entries on Status stay until the server
+        restarts (the error log is in memory and has no Clear button — not asked for).
 - [ ] **Phase 6 review** — re-check against [UI/UX](../ui-ux.md),
       [Checklist, AnyList Push & Shopping List Layout](../checklist-and-shopping.md) (confirm the
       store-layout deferral note landed correctly and nothing there was silently half-built),

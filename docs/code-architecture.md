@@ -360,6 +360,15 @@ spliced it over the cached row, so the recipe list vanished.
 - **Tests:** each mutation endpoint test asserts the *full* response shape (including
   ephemeral fields), so a field only one endpoint fills fails loudly.
 
+### State held in process memory assumes ONE worker (added 2026-10-16)
+
+The app runs as a single uvicorn process (`app.main` → `uvicorn.run(...)`, no `workers=`, never
+`--workers`). Two things rely on that and would silently break with more than one process:
+`services/progress_tracker.py` (capture/push progress by token) and, since 2026-10-16,
+`services/checklist_revisions.py` (the per-plan revision counter behind
+[live checklist updates](./checklist-and-shopping.md#live-updates-between-phones-2026-10-16-chunk-67-polish-batch-3)).
+If the app is ever run with several workers, both must move to the database or a shared store first.
+
 ### Keep this document and the code pointing at each other
 - Keep doing what Phase 1 already does: a docstring or comment that names the relevant CLAUDE.md
   section (e.g. "see CLAUDE.md > Data Model") wherever code exists *because* of a decision made

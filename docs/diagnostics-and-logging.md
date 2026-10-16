@@ -53,6 +53,17 @@ The endpoint is LAN-only like everything else and treats its input as hostile: b
 line breaks neutralised (a report cannot forge log lines), query strings stripped, 20 reports per
 minute per client, at most 10 per page load from the browser. It always answers ok.
 
+A bare **"Script error."** (no filename, no Error object) is the browser deliberately hiding an
+error from a script on another origin. Every app script is same-origin, so on a phone this is a
+browser extension, never the app: `error-report.js` sends it as kind `cross_origin`
+(message "Script error from outside the app (no details - usually a browser extension)"), logged at
+WARNING so it no longer lights the red Status dot but is still visible in the log (2026-10-16).
+
+**Copy errors** (Status → Recent errors) used to throw on Firefox for Android: the app is served over
+plain HTTP, where `navigator.clipboard` does not exist. It now tries the async API (secure contexts
+only), then a select-and-`execCommand("copy")` fallback, and only if both fail shows the text in a
+box, already selected, for press-and-hold copying (`diagnostics.js > copyText`).
+
 #### Startup and scripts
 - Startup logs the build id, then the schema check (`app/services/schema_check.py`): the
   `alembic_version` stamp against the migration head — a WARNING naming both revisions when the

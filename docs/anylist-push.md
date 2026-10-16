@@ -57,6 +57,12 @@ only syncs on add/replace (a bare-count update cannot carry one); retries reuse 
 also-proven remove + re-add. Flip it to `False` if AnyList ever stops honouring `set-list-item-checked`
 — the read-back would catch the failure either way.
 
+**Amount sent (2026-10-16).** The quantity written to AnyList is the amount **still to buy**: when the
+household has recorded an amount already at home ("I have some"), the push sends `total − have` (and
+pluralises the name for that amount), not the full recipe need. A changed amount on a re-push goes
+through the existing same-quantity comparison below like any other quantity change. See
+[I have some](./checklist-and-shopping.md#i-have-some--an-amount-already-at-home-2026-10-16-chunk-67-polish-batch-3).
+
 ## 4. Decision matrix — what a push does to each line
 
 `_decide()` in `anylist_client.py` (shared by the real and fake clients). "Match" = the caller's name

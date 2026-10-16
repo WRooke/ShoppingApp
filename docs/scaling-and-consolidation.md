@@ -187,6 +187,15 @@ resolved before this change has no fingerprint and keeps the old behaviour.
 
 ---
 
+### Amounts already at home (2026-10-16, Chunk 6.7 polish batch 3)
+
+A checklist row's `total_quantity` is always the *full* need. When the household records an amount it
+already has ("I have some", [checklist](./checklist-and-shopping.md#i-have-some--an-amount-already-at-home-2026-10-16-chunk-67-polish-batch-3)),
+purchase-unit resolution runs on the **amount still to buy** (`total − have`, same unit, never
+negative; `services/have_some.py`), so 900 g needs two 500 g bags but 900 g with 450 g at home needs
+one. The subtraction happens after consolidation has summed and normalised the recipes' amounts and
+before packs are counted; consolidation itself never sees it.
+
 ## Which Recipe Is This Ingredient From
 
 **Status: in scope, built 2026-09-11.** Raised as a "hey, what did we need this for?" check

@@ -61,3 +61,35 @@ def test_an_open_have_some_field_survives_a_rerender_and_having_it_all_means_hav
     assert _wait(browser, "document.querySelector('.have-need-btn.have').getAttribute('aria-pressed') === 'true'")
     row = next(i for i in api.get(f"/api/v1/checklist/{session['id']}").json()["data"]["items"] if i["ingredient_name"] == name)
     assert row["have_it"] == "yes" and row["add_to_list"] is False
+
+
+def test_a_change_on_another_phone_appears_live_and_never_disturbs_an_open_field(browser, api, server_url):
+    """Two views of one plan: one tap (made over the API, as another phone would) shows up on the
+    open checklist within a couple of seconds; and while a field is open, the change waits."""
+    a = normalise_ingredient_name(f"cdp-live-a-{uuid.uuid4().hex[:8]}")
+    session = _plan(api, a, 3)
+    sid = session["id"]
+    browser.navigate(f"{server_url}/#/checklist/{sid}")
+    browser.wait_for(".have-need-btn.need")
+
+    def row_id():
+        items = api.get(f"/api/v1/checklist/{sid}").json()["data"]["items"]
+        return next(i["id"] for i in items if i["ingredient_name"] == a)
+
+    rid = row_id()
+    api.patch(f"/api/v1/checklist/{sid}/items/{rid}", json={"have_it": "no", "add_to_list": True})
+    assert _wait(browser, "document.querySelector('.have-need-btn.need').getAttribute('aria-pressed') === 'true'", 6), \
+        "the other phone's Need it never appeared"
+    assert browser.eval("!!document.querySelector('.row-changed')")  # tinted, saying where it came from
+
+    # Now hold a field open: the next change must wait, and what is typed must survive.
+    browser.click(".have-link")
+    browser.fill(".have-inline input", "2")
+    api.patch(f"/api/v1/checklist/{sid}/items/{rid}", json={"have_it": "yes", "add_to_list": False})
+    assert _wait(browser, "!document.querySelector('.live-note').hidden", 6), "the held-back note never showed"
+    assert browser.eval("document.querySelector('.have-inline input').value") == "2"
+    assert browser.eval("document.querySelector('.have-need-btn.have').getAttribute('aria-pressed')") == "false"
+    browser.click(".have-inline button", contains="Cancel")
+    assert _wait(browser, "document.querySelector('.have-need-btn.have').getAttribute('aria-pressed') === 'true'", 6)
+    assert browser.eval("document.querySelector('.live-note').hidden")
+    assert not browser.console_errors(), browser.console_errors()

@@ -206,6 +206,78 @@ available on every checklist load, not just a one-off review pass). Full design 
 contributing recipe *slot*, never merged, ephemeral/recomputed every load — in [Scaling Logic
 \> Which Recipe Is This Ingredient From](./scaling-and-consolidation.md#which-recipe-is-this-ingredient-from).
 
+### "I have some" — an amount already at home (2026-10-16, Chunk 6.7 polish batch 3)
+
+A leftover tomato when the plan needs 3: every row with a single numeric amount shows a small
+**I have some** link under its amount (`checklist-have-some.js`) — deliberately on the row, not a
+chip inside the ingredient panel (maintainer: a dropdown adds friction). Tapping it opens a field
+on the same row ("I have [1] of 3 · Save · Cancel"). It is **this plan only**; nothing is
+remembered anywhere.
+
+- **What is stored.** `session_checklist_items.have_quantity` / `have_unit` (nullable, additive —
+  [Data Model](./data-model.md)). `total_quantity` / `total_unit` keep meaning the *full* amount the
+  recipes need; the amount to buy is derived, never stored (`services/have_some.py::amount_to_buy`,
+  exposed as `buy_quantity` on `ChecklistItemRead` by `decorate()`). Subtracting into
+  `total_quantity` would be applied again on every reconsolidation (a resolved conflict skips the
+  per-load reset), so the two are kept apart. `have_quantity` is user state: the reset block in
+  `session_consolidation.py` never touches it.
+- **Same unit only.** The subtraction applies only when `have_unit` equals the row's `total_unit`
+  (case/space-insensitive). The unit is always the row's own, so the UI never offers a mismatch; if a
+  later change (e.g. a merge) alters the row's unit, the stale amount is simply ignored and the full
+  total is bought.
+- **Where the reduced amount flows.** Pack resolution (`session_consolidation.py` counts packs on the
+  amount still to buy, so "Buy 1 × 500g bag" matches), the AnyList push quantity
+  (`checklist._anylist_quantity`) and the pushed name's plural form (`_push_name`). The row reads
+  "Buy 2 · have 1 of 3" (or "Buy 1 × 500g bag · have 450 of 900 g"; "have 3 of 3" when nothing is
+  left). [AnyList push](./anylist-push.md) only ever receives the amount to buy.
+- **Having all of it.** `have ≥ total` (same unit) sets the row to Have it (`have_it='yes'`,
+  `add_to_list=false`). Blank or 0 clears the amount and leaves Have it / Need it as it was. The
+  link stays visible on a row with a recorded amount ("Change what I have") so it can be cleared.
+- **Not offered** on coarse ("by the bunch") rows, "to taste" rows or unresolved mixed-unit rows (no
+  single unit to subtract in; the endpoint answers 422 `HAVE_SOME_NOT_APPLICABLE`).
+- **When rows fold together** (alias / merge / substitute rename): same-unit amounts add up; with
+  different units the survivor keeps its own and the other is dropped (`_carry_state_across_renames`).
+- **API.** `POST /api/v1/checklist/{session}/items/{item}/have-some` `{quantity: number | null}` →
+  the whole list (`{items}`, complete shape per
+  [API response-shape consistency](./code-architecture.md#api-response-shape-consistency-added-2026-10-11-chunk-67)).
+  Allowed after a push like a Have it tap; the new amount reaches AnyList on the next forced re-push.
+- **Typed text survives re-renders** (`haveDrafts` in `checklist.js`), per
+  [UI state must not silently vanish](./ui-ux.md#ui-state-must-not-silently-vanish-2026-10-11-chunk-67).
+
+### Live updates between phones (2026-10-16, Chunk 6.7 polish batch 3)
+
+Two household members can have the same checklist open. A Have it / Need it tap, a panel save, a
+combined row, "I have some", a recipe added to the plan — anything that changes the list — shows up
+on the other phone within about a second.
+
+- **Mechanism: a long-poll, not a timer.** Each plan has a revision number held in process memory
+  (`services/checklist_revisions.py`, with an `epoch` that changes on every server start so a restart
+  makes phones reload once). `routers/live_revisions.py::bump_on_write` is a dependency on the
+  checklist and sessions routers: after *any* non-GET request it bumps the plan named in the URL (a
+  checklist write with no plan in its URL — skipping a usual — bumps every plan). Done once, in the
+  router layer, so a new mutating endpoint cannot forget; `tests/routers/test_checklist_live.py`
+  pins it. A plain load never bumps, or two phones refreshing would keep waking each other.
+- **`GET /checklist/{id}/changes?epoch=&rev=`** is `async`: it answers at once if the revision
+  differs, otherwise holds the request (a dict look-up every 250 ms, no database, no thread) for up to
+  25 s and answers `changed: false`. An idle phone makes 2–3 requests a minute — less battery than
+  polling every few seconds, and nothing at all while the page is hidden.
+- **`GET /checklist/{id}/items`** is the cheap re-read after a change: the same complete rows as every
+  whole-list mutation plus the due usuals, **with no AnyList read** (the full `GET /checklist/{id}`
+  reads AnyList every time). The load response also carries `epoch` / `rev`, the long-poll's starting
+  point.
+- **Client (`checklist-live.js`).** One request in flight (a newer loop retires an older one); pauses
+  while hidden and does one immediate re-read on `visibilitychange` / `pageshow` / `online`; backs off
+  2 s → 5 s → 15 s on errors and never shows an error for a failed background poll. Our own edits also
+  bump the revision, so the re-read usually matches the screen: only rows that actually differ are
+  re-rendered, tinted and tagged "Changed on another phone" for ~6 s.
+- **Never disturbs an edit.** While the person is mid-edit (a panel open, merge mode, a typed field,
+  a save in flight) the update is **held**; one line ("Another phone changed this list. You'll see it
+  when you finish.") says so and it applies the moment they finish. Last write wins; the server is
+  the arbiter.
+- **Single-worker assumption.** The counter lives in process memory, which is correct only because
+  the app runs as one uvicorn process (see [Code Architecture](./code-architecture.md)). Not shown on a
+  second phone: "this plan was already sent" — that is learned (and handled) when someone tries to push.
+
 ### "The usuals" — household recurring items
 
 Raised 2026-09-05, **designed at the Phase 5 kickoff (2026-09-07)**: alongside the

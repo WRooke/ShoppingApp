@@ -340,6 +340,11 @@ needs_review    BOOLEAN NOT NULL DEFAULT 0  -- Phase 4 Chunk 4.6: irreconcilable
 note            TEXT               -- nullable, Phase 4 Chunk 4.6: display-only hint —
                                     -- "100 g + 200 ml" (review breakdown), "to taste",
                                     -- or "450 g spare" (overage, shown only when > ~half a pack)
+have_quantity   REAL               -- nullable, 2026-10-16 "I have some": how much the household already
+                                    -- has, in `have_unit` (always the row's own total_unit when set).
+                                    -- USER state — consolidation never resets it. total_quantity stays
+                                    -- the FULL need; the amount to buy is derived (services/have_some.py).
+have_unit       TEXT               -- nullable, see have_quantity
 review_resolved_by_user BOOLEAN NOT NULL DEFAULT 0  -- 2026-09-10 hand-testing fix, added
                                     -- without a CLAUDE.md update at the time (closed at the
                                     -- Phase 5 review, 2026-09-12). Set by

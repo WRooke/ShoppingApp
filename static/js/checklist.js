@@ -149,10 +149,12 @@
   // silently vanish).
   var mountToken = 0;
   var currentSessionId = null;
+  var liveHandle = null; // the ChecklistLive long-poll for the mounted screen (checklist-live.js)
 
   function mount(root, sessionId) {
     var myMount = ++mountToken;
     currentSessionId = sessionId;
+    if (liveHandle) { liveHandle.stop(); liveHandle = null; }
     var loadSeq = 0; // newest load() wins: a slower, older response is dropped
     root.innerHTML = "";
     global.ChecklistPush.unmount(); // clears any push-progress timer from a prior mount
@@ -198,6 +200,7 @@
     var picksByName = {};
     function rerender() {
       if (lastData) render(lastData);
+      if (liveHandle) liveHandle.settled(); // a held remote update may apply now the edit is over
     }
     // Replace the rows with a complete list the server just returned (a whole-list mutation, or
     // another phone's change) without reloading from AnyList.
@@ -206,6 +209,48 @@
       lastData.items = items;
       if (usuals) lastData.usuals = usuals;
       rerender();
+    }
+
+    // --- live updates (checklist-live.js) -------------------------------------------------
+    // Rows another phone just changed: tinted for a few seconds, then back to normal.
+    var changedNow = {};
+    var changedTimer = null;
+    function applyRemote(items, usuals, changedNames) {
+      changedNames.forEach(function (n) { changedNow[n] = true; });
+      applyItems(items, usuals);
+      if (changedTimer) clearTimeout(changedTimer);
+      changedTimer = setTimeout(function () {
+        changedNow = {};
+        body.querySelectorAll(".row-changed").forEach(function (r) { r.classList.remove("row-changed"); });
+        body.querySelectorAll(".changed-tag").forEach(function (t) { t.remove(); });
+      }, 6000);
+    }
+    // True while the person is in the middle of something a re-render would disturb.
+    function isBusy() {
+      var typing = Object.keys(reviewDraft).some(function (k) { return String(reviewDraft[k] || "").trim() !== ""; });
+      var a = document.activeElement;
+      var inField = a && a.tagName === "INPUT" && body.contains(a);
+      return (
+        expandedKey !== null || mergeMode || mergePanelOpen || typing || !!inField ||
+        Object.keys(haveDrafts).length > 0 || Object.keys(savingItems).length > 0
+      );
+    }
+    function startOrResetLive(data) {
+      if (data.epoch == null || myMount !== mountToken) return;
+      if (liveHandle) {
+        liveHandle.reset(data.epoch, data.rev);
+        return;
+      }
+      liveHandle = global.ChecklistLive.start({
+        sessionId: sessionId,
+        epoch: data.epoch,
+        rev: data.rev,
+        getItems: function () { return lastData ? lastData.items : []; },
+        getUsuals: function () { return lastData ? lastData.usuals : []; },
+        isBusy: isBusy,
+        apply: applyRemote,
+        onHeld: function (held) { heldNote.hidden = !held; },
+      });
     }
 
     // 2026-09-30 (chunk 7.6) — screen-wide select-exclusive row expansion (at most one row's
@@ -266,6 +311,10 @@
         "Need it = sent · Have it = skipped · untouched = not sent"
       )
     );
+    // Shown while another phone's change is held back because this person is mid-edit.
+    var heldNote = el("div", "live-note", "Another phone changed this list. You’ll see it when you finish.");
+    heldNote.hidden = true;
+    card.appendChild(heldNote);
     var body = el("div");
     var skel = el("div", "skel-row");
     var skelLine = el("div", "skeleton skel-line");
@@ -298,6 +347,7 @@
         .then(function (data) {
           if (myMount !== mountToken || mySeq !== loadSeq) return; // left the screen / superseded
           render(data);
+          startOrResetLive(data);
         })
         .catch(function (err) {
           if (myMount !== mountToken || mySeq !== loadSeq) return;
@@ -514,6 +564,7 @@
       regular.forEach(function (item) {
         var row = el("div", "checklist-row");
         if (item.already_on_anylist) row.classList.add("on-anylist");
+        if (changedNow[item.ingredient_name]) row.classList.add("row-changed");
 
         if (mergeMode) {
           var checkbox = el("input");
@@ -556,7 +607,9 @@
         );
         main.appendChild(nameParts.nameEl);
         var metaRow = el("div", "meta-row");
-        metaRow.appendChild(el("div", "meta", global.ChecklistHaveSome.summaryText(item, qtyText(item))));
+        var metaEl = el("div", "meta", global.ChecklistHaveSome.summaryText(item, qtyText(item)));
+        if (changedNow[item.ingredient_name]) metaEl.appendChild(el("span", "changed-tag", "Changed on another phone"));
+        metaRow.appendChild(metaEl);
         main.appendChild(metaRow);
         var rowFeedback = el("div"); // "Couldn't save" appears here, on the row that failed
         main.appendChild(rowFeedback);
@@ -941,6 +994,7 @@
   }
 
   function unmount() {
+    if (liveHandle) { liveHandle.stop(); liveHandle = null; }
     global.ChecklistPush.unmount();
     savedScroll = { sessionId: currentSessionId, y: window.scrollY }; // restored by the next mount() of this session
     mountToken++; // any response still in flight belongs to a screen that is gone
