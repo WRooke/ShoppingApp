@@ -79,7 +79,7 @@
       }
     }
     // a "sub-group-heading" (name above its rows) with no row after it before the next heading
-    Array.prototype.slice.call(o.listBody.querySelectorAll(".sub-group-heading")).forEach(function (h) {
+    Array.prototype.slice.call(o.listBody.querySelectorAll(".sub-group-heading, .settings-sub-head")).forEach(function (h) {
       var next = h.nextElementSibling;
       if (!next || !next.matches(o.rowSel)) h.remove();
     });

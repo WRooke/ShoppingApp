@@ -475,6 +475,7 @@
   color: var(--text-dim);
   margin: var(--sp-2) 0 .4rem;
 }
+.settings-group-name-line { font-weight: 700; margin-bottom: var(--sp-2); }
 .settings-row-actions-line {
   display: flex;
   align-items: center;

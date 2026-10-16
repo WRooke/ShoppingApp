@@ -28,7 +28,7 @@
   }
 
   function renderRow(row, listBody) {
-    var wrap = el("div", "settings-row");
+    var wrap = el("div", "settings-group-row");
 
     var labelInput = el("input");
     labelInput.type = "text";
@@ -44,7 +44,7 @@
     perPackInput.className = "ingredient-qty-input";
 
     var saveBtn = el("button", "btn-sm primary", "Save changes");
-    var deleteBtn = el("button", "btn-sm", "Remove");
+    var deleteBtn = el("button", "btn-link-danger", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
@@ -75,7 +75,7 @@
       onDeleted: function (container) {
         if (!container) return;
         global.SettingsRowActions.tidyAfterDelete(container, {
-          listBody: container, rowSel: ".settings-row", emptyText: "Nothing bought by the bunch yet — add one below.",
+          listBody: container, rowSel: ".settings-group-row", emptyText: "Nothing bought by the bunch yet — add one below.",
         });
       },
       doDelete: function () {
@@ -98,24 +98,25 @@
       },
     });
 
+    // The name heads its own row (2026-10-16): when it sat under the boxes it read as a heading
+    // for the row below.
+    wrap.appendChild(el("div", "settings-group-name-line", row.name));
     var grid = el("div", "ing-grid");
     grid.style.gridTemplateColumns = "2fr 1fr";
     grid.appendChild(miniField("Sold as (blank = just list the name)", labelInput));
     grid.appendChild(miniField("One covers how many recipes?", perPackInput));
     wrap.appendChild(grid);
-    var actions = el("div", "log-controls");
-    actions.style.marginTop = "6px";
-    var nameEl = el("b", null, row.name);
-    actions.appendChild(nameEl);
-    actions.appendChild(saveBtn);
+    var actions = el("div", "settings-row-actions-line");
     actions.appendChild(deleteBtn);
+    actions.appendChild(saveBtn);
     actions.appendChild(rowErr);
     wrap.appendChild(actions);
     return wrap;
   }
 
   function renderAddRow(listBody) {
-    var wrap = el("div", "settings-row");
+    var wrap = el("div", "settings-add-card");
+    wrap.appendChild(el("div", "settings-add-title", "Add one"));
 
     var nameInput = el("input");
     nameInput.type = "text";
@@ -194,7 +195,6 @@
     listBody.appendChild(skel);
     card.appendChild(listBody);
     var addSlot = el("div");
-    addSlot.style.marginTop = "12px";
     card.appendChild(addSlot);
     root.appendChild(card);
 

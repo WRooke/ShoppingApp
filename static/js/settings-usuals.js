@@ -25,7 +25,7 @@
   }
 
   function renderRow(row, listBody) {
-    var wrap = el("div", "settings-row");
+    var wrap = el("div", "settings-group-row");
 
     var nameInput = el("input");
     nameInput.type = "text";
@@ -46,12 +46,12 @@
 
     var dueTag = el(
       "span",
-      row.is_due ? "sub-group-heading" : "muted",
+      row.is_due ? "source-tag merge" : "muted",
       row.is_due ? "due now" : "not due"
     );
 
     var saveBtn = el("button", "btn-sm primary", "Save changes");
-    var deleteBtn = el("button", "btn-sm", "Remove");
+    var deleteBtn = el("button", "btn-link-danger", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
@@ -74,7 +74,7 @@
           // A new cadence can flip "due" either way against the stored last-added stamp.
           row.is_due = updated.is_due;
           row.last_added_at = updated.last_added_at;
-          dueTag.className = updated.is_due ? "sub-group-heading" : "muted";
+          dueTag.className = updated.is_due ? "source-tag merge" : "muted";
           dueTag.textContent = updated.is_due ? "due now" : "not due";
         })
         .catch(function (err) {
@@ -88,7 +88,7 @@
       onDeleted: function (container) {
         if (!container) return;
         global.SettingsRowActions.tidyAfterDelete(container, {
-          listBody: container, rowSel: ".settings-row", emptyText: "No usuals yet — add one below.",
+          listBody: container, rowSel: ".settings-group-row", emptyText: "No usuals yet — add one below.",
         });
       },
       doDelete: function () {
@@ -114,11 +114,11 @@
     grid.appendChild(miniField("Every N days", cadenceInput));
     grid.appendChild(miniField("Notes", notesInput));
     wrap.appendChild(grid);
-    var actions = el("div", "log-controls");
-    actions.style.marginTop = "6px";
+    var actions = el("div", "settings-row-actions-line");
+    dueTag.style.marginRight = "auto";
     actions.appendChild(dueTag);
-    actions.appendChild(saveBtn);
     actions.appendChild(deleteBtn);
+    actions.appendChild(saveBtn);
     actions.appendChild(rowErr);
     wrap.appendChild(actions);
     return wrap;
@@ -157,8 +157,8 @@
     var addBtn = el("button", "btn-sm primary", "Add usual");
     var addErr = el("span", "form-error");
 
-    var addWrap = el("div");
-    addWrap.style.marginTop = "12px";
+    var addWrap = el("div", "settings-add-card");
+    addWrap.appendChild(el("div", "settings-add-title", "Add one"));
     var addGrid = el("div", "ing-grid");
     addGrid.appendChild(miniField("Item name", nameInput));
     addGrid.appendChild(miniField("Every N days", cadenceInput));

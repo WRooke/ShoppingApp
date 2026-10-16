@@ -48,20 +48,26 @@
   }
 
   function renderSynonymRow(row, reload) {
-    var wrap = el("div", "settings-row");
-    wrap.appendChild(el("span", "muted", row.alias_unit + " → " + row.canonical_unit));
+    var wrap = el("div", "settings-group-row");
+    var line = el("div", "settings-row-actions-line");
+    line.style.marginTop = "0";
+    line.style.justifyContent = "space-between";
+    var text = el("span", null, row.alias_unit + " ");
+    text.appendChild(el("span", "muted", "counts as"));
+    text.appendChild(document.createTextNode(" " + row.canonical_unit));
+    line.appendChild(text);
 
-    var deleteBtn = el("button", "btn-sm", "Remove");
+    var deleteBtn = el("button", "btn-link-danger", "Remove");
     var rowErr = el("span", "form-error");
 
     global.SettingsRowActions.wireDelete(deleteBtn, {
-      label: row.alias_unit + " → " + row.canonical_unit,
+      label: row.alias_unit + " counts as " + row.canonical_unit,
       consequence: "“" + row.alias_unit + "” is its own unit again.",
       row: wrap,
       onDeleted: function (container) {
         if (!container) return;
         global.SettingsRowActions.tidyAfterDelete(container, {
-          listBody: container, rowSel: ".settings-row", emptyText: "No unit spellings added yet — add one below.",
+          listBody: container, rowSel: ".settings-group-row", emptyText: "No unit spellings added yet — add one below.",
         });
       },
       doDelete: function () {
@@ -81,13 +87,15 @@
       },
     });
 
-    wrap.appendChild(deleteBtn);
+    line.appendChild(deleteBtn);
+    wrap.appendChild(line);
     wrap.appendChild(rowErr);
     return wrap;
   }
 
   function renderAddRow(onAdded) {
-    var wrap = el("div", "settings-row");
+    var wrap = el("div", "settings-add-card");
+    wrap.appendChild(el("div", "settings-add-title", "Add one"));
 
     var aliasInput = el("input");
     aliasInput.type = "text";
@@ -131,7 +139,7 @@
 
     wrap.appendChild(miniField("When a recipe says", aliasInput));
     wrap.appendChild(el("div", "pair-dir muted", "↓ count it as"));
-    wrap.appendChild(miniField("Count it as", canonicalInput));
+    wrap.appendChild(miniField("Unit on your list", canonicalInput));
     wrap.appendChild(preview);
     var actions = el("div", "log-controls");
     actions.style.marginTop = "6px";
@@ -149,7 +157,7 @@
         "div",
         "muted",
         "Whenever a recipe says the “When a recipe says” unit, your shopping list counts it as " +
-          "the “Count it as” unit. Plain plurals (clove / cloves) are already handled. " +
+          "the “Unit on your list”. Plain plurals (clove / cloves) are already handled. " +
           "Applies to every recipe, existing and new."
       )
     );
@@ -162,7 +170,6 @@
     listBody.appendChild(skel);
     card.appendChild(listBody);
     var addSlot = el("div");
-    addSlot.style.marginTop = "12px";
     card.appendChild(addSlot);
     root.appendChild(card);
 
@@ -177,7 +184,7 @@
             listBody.appendChild(el("div", "empty-state", "No unit spellings added yet — add one below."));
           } else {
             groups.forEach(function (group) {
-              listBody.appendChild(el("div", "sub-group-heading", group.canonical_unit));
+              listBody.appendChild(el("div", "settings-sub-head", group.canonical_unit));
               group.rows.forEach(function (row) {
                 listBody.appendChild(renderSynonymRow(row, load));
               });

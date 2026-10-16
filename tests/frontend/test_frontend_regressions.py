@@ -143,7 +143,7 @@ def test_clearing_a_usual_items_note_persists_after_reload(browser, api, server_
         "var inputs=Array.from(document.querySelectorAll('.settings-name-input'));"
         "var nameInput=inputs.find(function(i){return i.value===name;});"
         "if(!nameInput) return 'NAME_INPUT_NOT_FOUND';"
-        "var row=nameInput.closest('.settings-row');"
+        "var row=nameInput.closest('.settings-group-row');"
         "var notesInput=row.querySelector('.settings-notes-input');"
         "if(!notesInput) return 'NOTES_INPUT_NOT_FOUND';"
         "notesInput.value='';"
@@ -174,7 +174,7 @@ def test_clearing_a_usual_items_note_persists_after_reload(browser, api, server_
         "(function(name){"
         "var inputs=Array.from(document.querySelectorAll('.settings-name-input'));"
         "var nameInput=inputs.find(function(i){return i.value===name;});"
-        "var row=nameInput.closest('.settings-row');"
+        "var row=nameInput.closest('.settings-group-row');"
         "return row.querySelector('.settings-notes-input').value;"
         f"}})({json.dumps(name)})"
     )
@@ -1238,3 +1238,36 @@ def test_name_nudge_offers_the_households_wording_and_use_it_writes_that(browser
         time.sleep(0.1)
     call = browser.eval("window.__aliasCall")
     assert call["canonical_name"] == "black bean" and call["alias_name"] == "blak bean"
+
+
+def test_settings_add_forms_stack_and_are_set_apart_from_the_list(browser, api, server_url):
+    """2026-10-16 polish batch 3: the unit-spelling hint ("↓ count it as") used to float to the
+    right of the first box (shrink-to-fit flex items), a pack size's name sat under its boxes, and
+    nothing separated the last entry from the add form. Asserted by geometry, not class names."""
+    unit = f"cdpunit{uuid.uuid4().hex[:6]}"
+    api.post("/api/v1/settings/unit-synonyms", json={"alias_unit": unit, "canonical_unit": "tbsp"})
+    ing = normalise_ingredient_name(f"cdp-bunch-{uuid.uuid4().hex[:8]}")
+    api.post("/api/v1/settings/coarse-ingredients", json={"name": ing, "purchase_label": "bunch", "recipes_per_pack": 2})
+
+    browser.navigate(f"{server_url}/#/settings/unit-synonyms")
+    _wait_for_value_match_text(browser, ".settings-add-card", "Add one")
+    rects = browser.eval(
+        "(function(){var c=document.querySelector('.settings-add-card');"
+        "var first=c.querySelector('.mini-field input').getBoundingClientRect();"
+        "var dir=c.querySelector('.pair-dir').getBoundingClientRect();"
+        "return {firstBottom:first.bottom, dirTop:dir.top, dirLeft:dir.left, cardLeft:c.getBoundingClientRect().left,"
+        "border:getComputedStyle(c).borderTopWidth};})()"
+    )
+    assert rects["dirTop"] >= rects["firstBottom"] - 1, rects  # stacked below, not beside the first box
+    assert rects["border"] != "0px", rects  # the add form is visibly set apart
+
+    browser.navigate(f"{server_url}/#/settings/coarse-ingredients")
+    _wait_for_value_match_text(browser, ".settings-group-name-line", ing)
+    order = browser.eval(
+        "(function(){var r=Array.from(document.querySelectorAll('.settings-group-row')).find(function(x){"
+        "return x.querySelector('.settings-group-name-line').textContent===" + json.dumps(ing) + ";});"
+        "return {name:r.querySelector('.settings-group-name-line').getBoundingClientRect().bottom,"
+        "box:r.querySelector('input').getBoundingClientRect().top};})()"
+    )
+    assert order["name"] <= order["box"] + 1, order  # the name heads its row, above its boxes
+    assert not browser.console_errors(), browser.console_errors()

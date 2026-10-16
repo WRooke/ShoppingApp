@@ -108,7 +108,7 @@
   }
 
   function renderSubRow(row, reload) {
-    var wrap = el("div", "settings-row");
+    var wrap = el("div", "settings-group-row");
 
     var subInput = el("input");
     subInput.type = "text";
@@ -123,7 +123,7 @@
     var pair = pairFields(row);
 
     var saveBtn = el("button", "btn-sm primary", "Save changes");
-    var deleteBtn = el("button", "btn-sm", "Remove");
+    var deleteBtn = el("button", "btn-link-danger", "Remove");
     var rowErr = el("span", "form-error");
 
     saveBtn.addEventListener("click", function () {
@@ -155,7 +155,7 @@
       onDeleted: function (container) {
         if (!container) return;
         global.SettingsRowActions.tidyAfterDelete(container, {
-          listBody: container, rowSel: ".settings-row", emptyText: "No saved swaps yet. One is saved when you tick “remember” on a swap in a recipe.",
+          listBody: container, rowSel: ".settings-group-row", emptyText: "No saved swaps yet. One is saved when you tick “remember” on a swap in a recipe.",
         });
       },
       doDelete: function () {
@@ -188,17 +188,17 @@
     wrap.appendChild(miniField("Buy this instead", subInput));
     wrap.appendChild(pair.grid);
     wrap.appendChild(miniField("Note (only shown here)", noteInput));
-    var actions = el("div", "log-controls");
-    actions.style.marginTop = "6px";
-    actions.appendChild(saveBtn);
+    var actions = el("div", "settings-row-actions-line");
     actions.appendChild(deleteBtn);
+    actions.appendChild(saveBtn);
     actions.appendChild(rowErr);
     wrap.appendChild(actions);
     return wrap;
   }
 
   function renderAddRow(onAdded) {
-    var wrap = el("div", "settings-row");
+    var wrap = el("div", "settings-add-card");
+    wrap.appendChild(el("div", "settings-add-title", "Add one"));
 
     var origInput = el("input");
     origInput.type = "text";
@@ -280,7 +280,6 @@
     listBody.appendChild(skel);
     card.appendChild(listBody);
     var addSlot = el("div");
-    addSlot.style.marginTop = "12px";
     card.appendChild(addSlot);
     root.appendChild(card);
 
@@ -297,7 +296,7 @@
             );
           } else {
             groups.forEach(function (group) {
-              listBody.appendChild(el("div", "sub-group-heading", group.original_name));
+              listBody.appendChild(el("div", "settings-sub-head", group.original_name));
               group.rows.forEach(function (row) {
                 listBody.appendChild(renderSubRow(row, load));
               });
